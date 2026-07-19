@@ -44,7 +44,7 @@ struct ArcRootView: View {
 
     @ViewBuilder private var sheetContent: some View {
         switch tab {
-        case .myFlights: MyFlightsSheet { detailFlight = $0 }
+        case .myFlights: MyFlightsView { detailFlight = $0 }
         case .friends: FriendsSheet()
         case .passport: PassportSheet()
         }
