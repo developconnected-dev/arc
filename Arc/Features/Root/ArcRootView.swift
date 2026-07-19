@@ -26,6 +26,14 @@ struct ArcRootView: View {
             ArcMapView(flights: mapFlights, controller: controller)
                 .ignoresSafeArea()
 
+            if let active = activeFlight, active.liveSpeed != nil || active.liveAltitude != nil {
+                speedAltPill(active).frame(maxHeight: .infinity, alignment: .top).padding(.top, 6)
+            }
+
+            MapControls(controller: controller) { controller.fitAll(mapFlights) }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.trailing, 12).padding(.top, 8)
+
             BottomSheet(detent: $detent) { sheetContent }
 
             ArcTabBar(selection: $tab, onSearch: { showAdd = true })
@@ -71,6 +79,31 @@ struct ArcRootView: View {
             controller.style = .standard
             controller.fitAll(mapFlights)
         }
+    }
+
+    private var activeFlight: Flight? { allFlights.first { $0.isActive } }
+
+    private func speedAltPill(_ f: Flight) -> some View {
+        HStack(spacing: 14) {
+            if let s = f.liveSpeed {
+                Label("\(Int(s * 3.6)) km/h", systemImage: "speedometer")
+                    .labelStyle(.titleAndIcon)
+            }
+            if let a = f.liveAltitude {
+                Label(altString(a), systemImage: "arrow.up.to.line")
+                    .labelStyle(.titleAndIcon)
+            }
+        }
+        .font(.system(size: 14, weight: .semibold))
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().stroke(Color(.separator).opacity(0.4), lineWidth: 0.5))
+    }
+
+    private func altString(_ meters: Double) -> String {
+        let f = NumberFormatter(); f.groupingSeparator = "'"; f.numberStyle = .decimal; f.maximumFractionDigits = 0
+        return (f.string(from: NSNumber(value: meters)) ?? "\(Int(meters))") + " m"
     }
 
     private func openDetailIfPending() {
