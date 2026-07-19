@@ -1,7 +1,71 @@
 interface Env {
-  AVIATIONSTACK_API_KEY: string;
+  RAPIDAPI_KEY: string;          // AeroDataBox key (RapidAPI). Set via `wrangler secret put RAPIDAPI_KEY`.
+  AVIATIONSTACK_API_KEY?: string; // legacy fallback (optional)
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
+}
+
+const ADB_HOST = "aerodatabox.p.rapidapi.com";
+
+/// Normalise AeroDataBox time ("2026-07-20 09:15Z" / with seconds) to ISO-8601.
+function toISO(s: unknown): string {
+  if (typeof s !== "string" || !s) return "";
+  let t = s.trim().replace(" ", "T");
+  // ensure seconds present before the trailing offset/Z
+  const m = t.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(:\d{2})?(.*)$/);
+  if (m) t = `${m[1]}${m[2] ?? ":00"}${m[3] || "Z"}`;
+  const d = new Date(t);
+  return isNaN(d.getTime()) ? "" : d.toISOString();
+}
+
+function delayMinutes(scheduled: unknown, revised: unknown): number {
+  const s = toISO(scheduled), r = toISO(revised);
+  if (!s || !r) return 0;
+  return Math.max(0, Math.round((new Date(r).getTime() - new Date(s).getTime()) / 60000));
+}
+
+/// Map one AeroDataBox flight leg to the app's FlightSearchResult shape.
+function mapLeg(f: Record<string, any>): Record<string, unknown> {
+  const dep = f.departure ?? {};
+  const arr = f.arrival ?? {};
+  const depA = dep.airport ?? {};
+  const arrA = arr.airport ?? {};
+  const air = f.airline ?? {};
+  const ac = f.aircraft ?? {};
+  const depSched = dep.scheduledTime?.utc ?? dep.scheduledTime?.local;
+  const depRev = dep.revisedTime?.utc ?? dep.revisedTime?.local ?? depSched;
+  const arrSched = arr.scheduledTime?.utc ?? arr.scheduledTime?.local;
+  const arrRev = arr.revisedTime?.utc ?? arr.revisedTime?.local ?? arrSched;
+  return {
+    flight_number: String(f.number ?? "").replace(/\s+/g, ""),
+    airline_name: air.name ?? "",
+    airline_iata: air.iata ?? "",
+    dep_iata: depA.iata ?? "",
+    arr_iata: arrA.iata ?? "",
+    dep_city: depA.municipalityName ?? null,
+    arr_city: arrA.municipalityName ?? null,
+    dep_scheduled: toISO(depSched),
+    arr_scheduled: toISO(arrSched),
+    status: (f.status ?? "scheduled").toString().toLowerCase(),
+    dep_gate: dep.gate ?? null,
+    dep_terminal: dep.terminal ?? null,
+    arr_gate: arr.gate ?? null,
+    arr_terminal: arr.terminal ?? null,
+    arr_baggage: arr.baggageBelt ?? null,
+    delay: delayMinutes(depSched, depRev),
+    aircraft_type: ac.model ?? null,
+    aircraft_registration: ac.reg ?? null,
+    dep_lat: depA.location?.lat ?? null,
+    dep_lon: depA.location?.lon ?? null,
+    arr_lat: arrA.location?.lat ?? null,
+    arr_lon: arrA.location?.lon ?? null,
+  };
+}
+
+async function adbFetch(path: string, env: Env): Promise<Response> {
+  return fetch(`https://${ADB_HOST}${path}`, {
+    headers: { "X-RapidAPI-Key": env.RAPIDAPI_KEY, "X-RapidAPI-Host": ADB_HOST },
+  });
 }
 
 export default {
@@ -9,7 +73,6 @@ export default {
     const url = new URL(req.url);
     const cors = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" };
 
-    // Handle CORS preflight
     if (req.method === "OPTIONS") {
       return new Response(null, {
         headers: {
@@ -22,84 +85,59 @@ export default {
     }
 
     if (url.pathname === "/health") {
-      return Response.json({ ok: true }, { headers: cors });
+      return Response.json({ ok: true, provider: env.RAPIDAPI_KEY ? "aerodatabox" : "unconfigured" }, { headers: cors });
     }
 
-    // ── /flight — search by flight number + date ──
+    // ── /flight?number=LX1413&date=2026-07-20 ── status by flight number + date
     if (url.pathname === "/flight") {
       const number = url.searchParams.get("number");
       const date = url.searchParams.get("date");
       if (!number) return new Response("missing number", { status: 400 });
-
-      const params = new URLSearchParams({
-        access_key: env.AVIATIONSTACK_API_KEY,
-        flight_iata: number,
-      });
-      if (date) params.set("flight_date", date);
-
-      // Note: AviationStack free tier only supports HTTP, not HTTPS
-      // Upgrade to paid plan to use HTTPS
-      const apiRes = await fetch(`http://api.aviationstack.com/v1/flights?${params}`);
-      const raw = await apiRes.json() as { data?: Array<Record<string, unknown>> };
-
-      if (!raw.data || raw.data.length === 0) {
+      if (!env.RAPIDAPI_KEY) return Response.json([], { headers: cors });
+      try {
+        const path = `/flights/number/${encodeURIComponent(number)}${date ? `/${date}` : ""}` +
+          `?withAircraftImage=false&withLocation=true`;
+        const res = await adbFetch(path, env);
+        if (!res.ok) return Response.json([], { headers: cors });
+        const raw = (await res.json()) as unknown;
+        const legs = Array.isArray(raw) ? raw : [];
+        return Response.json(legs.map((l) => mapLeg(l as Record<string, any>)), { headers: cors });
+      } catch {
         return Response.json([], { headers: cors });
       }
-
-      const results = raw.data.map((f: Record<string, unknown>) => {
-        const dep = f.departure as Record<string, unknown> | undefined;
-        const arr = f.arrival as Record<string, unknown> | undefined;
-        const airline = f.airline as Record<string, unknown> | undefined;
-        const aircraft = f.aircraft as Record<string, unknown> | undefined;
-        const flight = f.flight as Record<string, unknown> | undefined;
-
-        return {
-          flight_number: (flight?.iata as string) ?? number,
-          airline_name: (airline?.name as string) ?? "",
-          airline_iata: (airline?.iata as string) ?? "",
-          dep_iata: (dep?.iata as string) ?? "",
-          arr_iata: (arr?.iata as string) ?? "",
-          dep_city: null, // AviationStack doesn't include city in flights endpoint
-          arr_city: null,
-          dep_scheduled: (dep?.scheduled as string) ?? "",
-          arr_scheduled: (arr?.scheduled as string) ?? "",
-          status: (f.flight_status as string) ?? "scheduled",
-          dep_gate: (dep?.gate as string) ?? null,
-          dep_terminal: (dep?.terminal as string) ?? null,
-          arr_gate: (arr?.gate as string) ?? null,
-          arr_terminal: (arr?.terminal as string) ?? null,
-          arr_baggage: (arr?.baggage as string) ?? null,
-          delay: (dep?.delay as number) ?? 0,
-          aircraft_type: aircraft ? `${aircraft.iata ?? ""}` : null,
-          aircraft_registration: (aircraft?.registration as string) ?? null,
-          dep_lat: null, // Will be enriched with airport data client-side
-          dep_lon: null,
-          arr_lat: null,
-          arr_lon: null,
-        };
-      });
-
-      return Response.json(results, { headers: cors });
     }
 
-    // ── /position — live aircraft position from OpenSky ──
+    // ── /inbound?reg=HB-JMB&date=2026-07-20 ── previous leg of the same tail
+    if (url.pathname === "/inbound") {
+      const reg = url.searchParams.get("reg");
+      const date = url.searchParams.get("date");
+      if (!reg || !env.RAPIDAPI_KEY) return Response.json(null, { headers: cors });
+      try {
+        const path = `/flights/reg/${encodeURIComponent(reg)}${date ? `/${date}` : ""}?withLocation=true`;
+        const res = await adbFetch(path, env);
+        if (!res.ok) return Response.json(null, { headers: cors });
+        const raw = (await res.json()) as unknown;
+        const legs = (Array.isArray(raw) ? raw : []).map((l) => mapLeg(l as Record<string, any>));
+        // the leg immediately before the queried flight is the inbound
+        return Response.json(legs, { headers: cors });
+      } catch {
+        return Response.json(null, { status: 502, headers: cors });
+      }
+    }
+
+    // ── /position?icao24=4b1815 ── live position (OpenSky, free)
     if (url.pathname === "/position") {
       const icao24 = url.searchParams.get("icao24");
       if (!icao24) return new Response("missing icao24", { status: 400 });
-
       try {
-        const apiRes = await fetch(
+        const res = await fetch(
           `https://opensky-network.org/api/states/all?icao24=${icao24.toLowerCase()}`,
-          { headers: { "Accept": "application/json" } }
+          { headers: { Accept: "application/json" } }
         );
-        const raw = await apiRes.json() as { states?: Array<Array<unknown>> };
-
-        if (!raw.states || raw.states.length === 0) {
-          return Response.json(null, { status: 404, headers: cors });
-        }
-
+        const raw = (await res.json()) as { states?: Array<Array<unknown>> };
+        if (!raw.states || raw.states.length === 0) return Response.json(null, { status: 404, headers: cors });
         const s = raw.states[0]!;
-        const position = {
+        return Response.json({
           icao24: s[0] as string,
           lat: (s[6] as number) ?? 0,
           lon: (s[5] as number) ?? 0,
@@ -107,15 +145,13 @@ export default {
           velocity: (s[9] as number) ?? 0,
           heading: (s[10] as number) ?? 0,
           on_ground: (s[8] as boolean) ?? false,
-        };
-
-        return Response.json(position, { headers: cors });
+        }, { headers: cors });
       } catch {
         return Response.json(null, { status: 502, headers: cors });
       }
     }
 
-    // ── /journey/:code — shared journey live viewer ──
+    // ── /journey/:code ── shared journey live viewer (unchanged)
     const journeyMatch = url.pathname.match(/^\/journey\/([a-z0-9]+)$/);
     if (journeyMatch) {
       const code = journeyMatch[1];
@@ -130,137 +166,73 @@ export default {
 
 function sharedJourneyHTML(code: string, supabaseUrl: string, anonKey: string): string {
   return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
+<html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Arc — Live Flight</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:#121217; color:#fff; font-family:-apple-system,system-ui,sans-serif; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; }
-  .card { background:#1c1c1e; border-radius:20px; padding:32px; max-width:420px; width:100%; border:1px solid rgba(255,255,255,0.08); }
+  body { background:#f2f2f7; color:#000; font-family:-apple-system,system-ui,sans-serif; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; }
+  @media (prefers-color-scheme: dark){ body{ background:#000; color:#fff; } .card{ background:#1c1c1e !important; } }
+  .card { background:#fff; border-radius:20px; padding:32px; max-width:420px; width:100%; box-shadow:0 8px 40px rgba(0,0,0,0.12); }
   .route { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; }
   .iata { font-size:36px; font-weight:800; letter-spacing:-1px; }
-  .city { font-size:12px; color:rgba(255,255,255,0.5); margin-top:4px; }
-  .center { text-align:center; }
-  .flight-num { font-size:11px; color:rgba(255,255,255,0.3); font-weight:600; }
-  .progress-bar { background:rgba(255,255,255,0.1); height:4px; border-radius:2px; margin:12px 0; position:relative; }
-  .progress-fill { background:#0EA5E9; height:100%; border-radius:2px; transition:width 1s ease; }
-  .plane-dot { position:absolute; top:-4px; width:12px; height:12px; background:#0EA5E9; border-radius:50%; transition:left 1s ease; }
+  .city { font-size:12px; opacity:0.5; margin-top:4px; }
+  .center { text-align:center; flex:1; }
+  .flight-num { font-size:11px; opacity:0.4; font-weight:600; }
+  .progress-bar { background:rgba(128,128,128,0.2); height:4px; border-radius:2px; margin:12px 8px; position:relative; }
+  .progress-fill { background:#34c759; height:100%; border-radius:2px; transition:width 1s ease; }
+  .plane-dot { position:absolute; top:-4px; width:12px; height:12px; background:#34c759; border-radius:50%; transition:left 1s ease; }
   .status { display:inline-block; padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700; margin-bottom:20px; }
-  .status.on-time { background:rgba(34,197,94,0.15); color:#22c55e; }
-  .status.delayed { background:rgba(249,115,22,0.15); color:#f97316; }
-  .status.landed { background:rgba(34,197,94,0.15); color:#22c55e; }
-  .status.active { background:rgba(14,165,233,0.15); color:#0EA5E9; }
-  .info-row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05); }
-  .info-label { color:rgba(255,255,255,0.5); font-size:13px; }
+  .status.on-time,.status.landed { background:rgba(52,199,89,0.15); color:#34c759; }
+  .status.delayed { background:rgba(255,59,48,0.15); color:#ff3b30; }
+  .status.active { background:rgba(52,199,89,0.15); color:#34c759; }
+  .info-row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid rgba(128,128,128,0.15); }
+  .info-label { opacity:0.5; font-size:13px; }
   .info-value { font-size:13px; font-weight:600; }
-  .time { font-size:14px; font-family:ui-monospace,monospace; color:rgba(255,255,255,0.6); }
-  .logo { text-align:center; margin-top:24px; font-size:11px; color:rgba(255,255,255,0.2); }
-  .loading { color:rgba(255,255,255,0.4); text-align:center; padding:40px; }
-  #error { color:#f97316; text-align:center; display:none; }
-</style>
-</head>
-<body>
-<div class="card" id="card">
-  <div class="loading" id="loading">Loading flight...</div>
+  .time { font-size:14px; font-family:ui-monospace,monospace; opacity:0.6; }
+  .logo { text-align:center; margin-top:24px; font-size:11px; opacity:0.3; }
+  .loading { opacity:0.4; text-align:center; padding:40px; }
+  #error { color:#ff3b30; text-align:center; display:none; }
+</style></head>
+<body><div class="card" id="card">
+  <div class="loading" id="loading">Loading flight…</div>
   <div id="error">Journey not found or expired.</div>
   <div id="content" style="display:none">
     <div class="route">
       <div><div class="iata" id="dep-iata">---</div><div class="city" id="dep-city"></div></div>
-      <div class="center">
-        <div class="flight-num" id="flight-num"></div>
-        <div class="progress-bar"><div class="progress-fill" id="progress"></div><div class="plane-dot" id="plane-dot"></div></div>
-      </div>
+      <div class="center"><div class="flight-num" id="flight-num"></div>
+        <div class="progress-bar"><div class="progress-fill" id="progress"></div><div class="plane-dot" id="plane-dot"></div></div></div>
       <div style="text-align:right"><div class="iata" id="arr-iata">---</div><div class="city" id="arr-city"></div></div>
     </div>
     <div id="status-pill"></div>
-    <div class="time" style="display:flex;justify-content:space-between;margin-bottom:16px">
-      <span id="dep-time"></span><span id="arr-time"></span>
-    </div>
+    <div class="time" style="display:flex;justify-content:space-between;margin-bottom:16px"><span id="dep-time"></span><span id="arr-time"></span></div>
     <div id="info-rows"></div>
   </div>
-</div>
-<div class="logo">Tracked by Arc</div>
+</div><div class="logo">Tracked by Arc</div>
 <script>
-const SUPA_URL = '${supabaseUrl}';
-const SUPA_KEY = '${anonKey}';
-const CODE = '${code}';
-
-async function load() {
-  try {
-    // Get journey
-    const jRes = await fetch(SUPA_URL + '/rest/v1/shared_journeys?share_code=eq.' + CODE + '&is_active=eq.true&select=*', {
-      headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + SUPA_KEY }
-    });
-    const journeys = await jRes.json();
-    if (!journeys.length) { showError(); return; }
-    const journey = journeys[0];
-
-    // Get flight
-    const fRes = await fetch(SUPA_URL + '/rest/v1/shared_flights?id=eq.' + journey.flight_id + '&select=*', {
-      headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + SUPA_KEY }
-    });
-    const flights = await fRes.json();
-    if (!flights.length) { showError(); return; }
-
-    render(flights[0]);
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('content').style.display = 'block';
-
-    // Poll every 30s
-    setInterval(async () => {
-      const r = await fetch(SUPA_URL + '/rest/v1/shared_flights?id=eq.' + journey.flight_id + '&select=*', {
-        headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + SUPA_KEY }
-      });
-      const f = await r.json();
-      if (f.length) render(f[0]);
-    }, 30000);
-  } catch(e) { showError(); }
+const SUPA_URL='${supabaseUrl}',SUPA_KEY='${anonKey}',CODE='${code}';
+async function load(){try{
+  const jRes=await fetch(SUPA_URL+'/rest/v1/shared_journeys?share_code=eq.'+CODE+'&is_active=eq.true&select=*',{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
+  const journeys=await jRes.json(); if(!journeys.length){showError();return;} const journey=journeys[0];
+  const fRes=await fetch(SUPA_URL+'/rest/v1/shared_flights?id=eq.'+journey.flight_id+'&select=*',{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
+  const flights=await fRes.json(); if(!flights.length){showError();return;}
+  render(flights[0]); document.getElementById('loading').style.display='none'; document.getElementById('content').style.display='block';
+  setInterval(async()=>{const r=await fetch(SUPA_URL+'/rest/v1/shared_flights?id=eq.'+journey.flight_id+'&select=*',{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});const f=await r.json();if(f.length)render(f[0]);},30000);
+}catch(e){showError();}}
+function render(f){
+  document.getElementById('dep-iata').textContent=f.departure_iata;document.getElementById('arr-iata').textContent=f.arrival_iata;
+  document.getElementById('dep-city').textContent=f.departure_city;document.getElementById('arr-city').textContent=f.arrival_city;
+  document.getElementById('flight-num').textContent=f.flight_number+' · '+f.airline;
+  document.getElementById('dep-time').textContent=new Date(f.scheduled_departure).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('arr-time').textContent=new Date(f.scheduled_arrival).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  const pct=Math.min(100,Math.max(0,f.progress*100));document.getElementById('progress').style.width=pct+'%';document.getElementById('plane-dot').style.left='calc('+pct+'% - 6px)';
+  let sc='on-time',st='On Time';if(f.status==='active'){sc='active';st='In Flight';}if(f.status==='landed'){sc='landed';st='Landed';}if(f.delay_minutes>0){sc='delayed';st='Delayed '+f.delay_minutes+'m';}if(f.status==='cancelled'){sc='delayed';st='Cancelled';}
+  document.getElementById('status-pill').innerHTML='<span class="status '+sc+'">'+st+'</span>';
+  let rows='';if(f.departure_gate)rows+=infoRow('Gate',f.departure_gate);if(f.arrival_gate)rows+=infoRow('Arrival Gate',f.arrival_gate);if(f.baggage_claim)rows+=infoRow('Baggage',f.baggage_claim);if(f.aircraft_type)rows+=infoRow('Aircraft',f.aircraft_type);if(f.live_altitude)rows+=infoRow('Altitude',Math.round(f.live_altitude*3.281).toLocaleString()+' ft');if(f.live_speed)rows+=infoRow('Speed',Math.round(f.live_speed*1.944)+' kts');
+  document.getElementById('info-rows').innerHTML=rows;
 }
-
-function render(f) {
-  document.getElementById('dep-iata').textContent = f.departure_iata;
-  document.getElementById('arr-iata').textContent = f.arrival_iata;
-  document.getElementById('dep-city').textContent = f.departure_city;
-  document.getElementById('arr-city').textContent = f.arrival_city;
-  document.getElementById('flight-num').textContent = f.flight_number + ' · ' + f.airline;
-  document.getElementById('dep-time').textContent = new Date(f.scheduled_departure).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-  document.getElementById('arr-time').textContent = new Date(f.scheduled_arrival).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-
-  const pct = Math.min(100, Math.max(0, f.progress * 100));
-  document.getElementById('progress').style.width = pct + '%';
-  document.getElementById('plane-dot').style.left = 'calc(' + pct + '% - 6px)';
-
-  let statusClass = 'on-time';
-  let statusText = 'On Time';
-  if (f.status === 'active') { statusClass = 'active'; statusText = 'In Flight'; }
-  if (f.status === 'landed') { statusClass = 'landed'; statusText = 'Landed'; }
-  if (f.delay_minutes > 0) { statusClass = 'delayed'; statusText = 'Delayed ' + f.delay_minutes + 'm'; }
-  if (f.status === 'cancelled') { statusClass = 'delayed'; statusText = 'Cancelled'; }
-  document.getElementById('status-pill').innerHTML = '<span class="status ' + statusClass + '">' + statusText + '</span>';
-
-  let rows = '';
-  if (f.departure_gate) rows += infoRow('Gate', f.departure_gate);
-  if (f.arrival_gate) rows += infoRow('Arrival Gate', f.arrival_gate);
-  if (f.baggage_claim) rows += infoRow('Baggage', f.baggage_claim);
-  if (f.aircraft_type) rows += infoRow('Aircraft', f.aircraft_type);
-  if (f.live_altitude) rows += infoRow('Altitude', Math.round(f.live_altitude * 3.281).toLocaleString() + ' ft');
-  if (f.live_speed) rows += infoRow('Speed', Math.round(f.live_speed * 1.944) + ' kts');
-  document.getElementById('info-rows').innerHTML = rows;
-}
-
-function infoRow(label, value) {
-  return '<div class="info-row"><span class="info-label">' + label + '</span><span class="info-value">' + value + '</span></div>';
-}
-
-function showError() {
-  document.getElementById('loading').style.display = 'none';
-  document.getElementById('error').style.display = 'block';
-}
-
+function infoRow(l,v){return '<div class="info-row"><span class="info-label">'+l+'</span><span class="info-value">'+v+'</span></div>';}
+function showError(){document.getElementById('loading').style.display='none';document.getElementById('error').style.display='block';}
 load();
-</script>
-</body>
-</html>`;
+</script></body></html>`;
 }
