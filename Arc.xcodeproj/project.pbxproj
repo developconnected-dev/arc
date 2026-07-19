@@ -23,6 +23,7 @@
 		4DC5DD74216D89BCF661E139 /* ArcDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BFECC1DABBC5FC07371E956 /* ArcDesign.swift */; };
 		5A687F07602155831DF39840 /* airlines.json in Resources */ = {isa = PBXBuildFile; fileRef = 85DB98F13E1308062AC4A2A9 /* airlines.json */; };
 		5BFC4245B668EF91BE8CF988 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4864581CF99C026C4AB5136F /* SettingsView.swift */; };
+		67CD1CA79C762C8CFD137523 /* ArcTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98164F646EF99E31FD3731AD /* ArcTabBar.swift */; };
 		6C55946D9BE8B1E555ADBF45 /* AircraftImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A223847338A51B850FB3B5A /* AircraftImage.swift */; };
 		6E9F5D91840674AE5D008114 /* FlightsHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D45CF210803F875BA9216477 /* FlightsHomeView.swift */; };
 		782E9CE6FC733FBD77E43A5E /* AirlineLogoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11CAB1497F442E72CF11A73F /* AirlineLogoView.swift */; };
@@ -121,6 +122,7 @@
 		85FA6BAFEA7DEBB5CB2DB08F /* BottomSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomSheet.swift; sourceTree = "<group>"; };
 		888B0D037817C14E4AF0BAB7 /* NextFlightWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextFlightWidget.swift; sourceTree = "<group>"; };
 		8B5B63F833E1CB9C679CD6C1 /* SupabaseClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseClient.swift; sourceTree = "<group>"; };
+		98164F646EF99E31FD3731AD /* ArcTabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcTabBar.swift; sourceTree = "<group>"; };
 		A136200E180C33472B503DE3 /* ReferenceDataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceDataTests.swift; sourceTree = "<group>"; };
 		A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ArcWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		BAE00845F094A1DDFECEB3B8 /* AddFlightSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddFlightSheet.swift; sourceTree = "<group>"; };
@@ -277,6 +279,7 @@
 			isa = PBXGroup;
 			children = (
 				11CAB1497F442E72CF11A73F /* AirlineLogoView.swift */,
+				98164F646EF99E31FD3731AD /* ArcTabBar.swift */,
 				85FA6BAFEA7DEBB5CB2DB08F /* BottomSheet.swift */,
 			);
 			path = Components;
@@ -463,6 +466,7 @@
 				C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */,
 				4DC5DD74216D89BCF661E139 /* ArcDesign.swift in Sources */,
 				066B813B251042A5C7326EA9 /* ArcMapView.swift in Sources */,
+				67CD1CA79C762C8CFD137523 /* ArcTabBar.swift in Sources */,
 				12441CF9EEA5848E9DFE70A8 /* ArcTheme.swift in Sources */,
 				CF9EC77C1A77F199DAD62E77 /* BottomSheet.swift in Sources */,
 				AE8A969D54CC001AF4336515 /* Flight.swift in Sources */,
