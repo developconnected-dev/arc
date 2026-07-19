@@ -51,6 +51,7 @@ struct ArcRootView: View {
         .onChange(of: allFlights.map(\.id)) { _, _ in
             updateCameraForTab(tab)
             openDetailIfPending()
+            bootstrapTrackingAndWidgets()
         }
         .onChange(of: tab) { _, newTab in updateCameraForTab(newTab) }
         .onChange(of: detailFlight?.id) { _, _ in
@@ -60,6 +61,7 @@ struct ArcRootView: View {
             DemoSeed.seedIfRequested(into: modelContext, existing: allFlights)
             updateCameraForTab(tab)
             openDetailIfPending()
+            bootstrapTrackingAndWidgets()
             if ProcessInfo.processInfo.arguments.contains("-openAdd") { showAdd = true }
         }
     }
@@ -79,6 +81,11 @@ struct ArcRootView: View {
             controller.style = .standard
             controller.fitAll(mapFlights)
         }
+    }
+
+    private func bootstrapTrackingAndWidgets() {
+        FlightTracker.shared.startTracking(flights: allFlights, modelContext: modelContext)
+        WidgetSync.sync(flights: allFlights)
     }
 
     private var activeFlight: Flight? { allFlights.first { $0.isActive } }
