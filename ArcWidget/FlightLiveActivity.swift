@@ -162,7 +162,7 @@ struct FlightLiveActivity: Widget {
 
     private func statusAccent(_ state: FlightActivityAttributes.ContentState) -> Color {
         switch state.status {
-        case "active": state.delayMinutes > 15 ? .orange : Color(red: 0.055, green: 0.647, blue: 0.914)
+        case "active": state.delayMinutes > 15 ? .orange : Color.green
         case "landed": .green
         case "cancelled": .red
         case "diverted": .orange
@@ -183,7 +183,7 @@ struct FlightLiveActivity: Widget {
             if state.delayMinutes > 0 {
                 return ("Delayed \(state.delayMinutes)m", .orange)
             } else {
-                return ("In Flight", Color(red: 0.055, green: 0.647, blue: 0.914))
+                return ("In Flight", Color.green)
             }
         case "landed":
             return ("Landed", .green)

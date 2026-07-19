@@ -93,7 +93,7 @@ struct NextFlightSmallView: View {
     }
 
     private func countdownColor(_ flight: WidgetFlight) -> Color {
-        if flight.isActive { return Color(red: 0.055, green: 0.647, blue: 0.914) }
+        if flight.isActive { return .green }
         if flight.delayMinutes > 0 { return .orange }
         let hours = flight.timeUntilDeparture / 3600
         if hours < 2 { return .orange }
@@ -101,7 +101,7 @@ struct NextFlightSmallView: View {
     }
 
     private func statusColor(_ flight: WidgetFlight) -> Color {
-        if flight.status == "active" { return Color(red: 0.055, green: 0.647, blue: 0.914) }
+        if flight.status == "active" { return .green }
         if flight.delayMinutes > 0 { return .orange }
         if flight.status == "cancelled" { return .red }
         return .green
@@ -158,7 +158,7 @@ struct NextFlightMediumView: View {
             // Countdown
             Text(flight.countdownText)
                 .font(.system(size: 16, weight: .heavy, design: .rounded))
-                .foregroundStyle(flight.isActive ? Color(red: 0.055, green: 0.647, blue: 0.914) :
+                .foregroundStyle(flight.isActive ? Color.green :
                                     flight.delayMinutes > 0 ? .orange : .primary)
                 .frame(width: 55, alignment: .leading)
 
@@ -187,7 +187,7 @@ struct NextFlightMediumView: View {
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Capsule().fill(.quaternary).frame(height: 3)
-                            Capsule().fill(Color(red: 0.055, green: 0.647, blue: 0.914))
+                            Capsule().fill(Color.green)
                                 .frame(width: geo.size.width * flight.progress, height: 3)
                         }
                     }
