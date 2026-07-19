@@ -1,0 +1,632 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		006DCFA833396E0C053573A8 /* AddFlightSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAE00845F094A1DDFECEB3B8 /* AddFlightSheet.swift */; };
+		09ACF3DC4A5CF3B293B719EB /* RootTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B5EBEA46F14A596CAC1D89 /* RootTabView.swift */; };
+		28B41532664F0666774F2FA6 /* ArcWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		2FF54C18096971D871B206B9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0E950A3B65137B3F46CF9625 /* Assets.xcassets */; };
+		3DD1E3D27CF4B260288869FA /* FlightDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F94561576A017566B3361F5F /* FlightDetailView.swift */; };
+		47733FC27C873C75889EB557 /* InboundMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3BA60104125C5743ECF86F8 /* InboundMonitor.swift */; };
+		4AE2FE5214E10250062917FC /* AnnualReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 707C824F54C402F8D70FF43F /* AnnualReviewView.swift */; };
+		4BE4CB84B06880211275E457 /* FlightLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB40E7D146DE8662884B50D /* FlightLiveActivity.swift */; };
+		4DC5DD74216D89BCF661E139 /* ArcDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BFECC1DABBC5FC07371E956 /* ArcDesign.swift */; };
+		5BFC4245B668EF91BE8CF988 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4864581CF99C026C4AB5136F /* SettingsView.swift */; };
+		6E9F5D91840674AE5D008114 /* FlightsHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D45CF210803F875BA9216477 /* FlightsHomeView.swift */; };
+		86B066ECAFCF0E3B5E177C8C /* LiveActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFC83E4E29772AC89D75C9E8 /* LiveActivityManager.swift */; };
+		8ED498F91B66740B412D0611 /* SupabaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B5B63F833E1CB9C679CD6C1 /* SupabaseClient.swift */; };
+		8F183C5AACBAEDC17407ABD8 /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED3BBC117AA0A74224DAF8AB /* WidgetData.swift */; };
+		95E9EB1D6085989A0AA988BF /* FriendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 343257F6CBC830BB8386C5BA /* FriendsView.swift */; };
+		9B33C29C7FA1F5778E083398 /* FlightActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B59DFF600FEDEB5C44BEED7 /* FlightActivityAttributes.swift */; };
+		9C4509B5E588A11B545D2021 /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED3BBC117AA0A74224DAF8AB /* WidgetData.swift */; };
+		9C894C7AEAE72DD9CBA288F8 /* FlightActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B59DFF600FEDEB5C44BEED7 /* FlightActivityAttributes.swift */; };
+		A0CFDAC70BB886B090D73B83 /* Airport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45CDEF12D33E504034C15720 /* Airport.swift */; };
+		ACC42ADB0DA1BC819B995433 /* FlightCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 284599E3BD487872175F7A07 /* FlightCard.swift */; };
+		AE8A969D54CC001AF4336515 /* Flight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 210826009A37E90654E69671 /* Flight.swift */; };
+		C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6203F2E6D1096F29FA5083FC /* ArcApp.swift */; };
+		C95804ADD76EDEB2671A5121 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */; };
+		CCECD249FFDFECCB78A96943 /* PassportStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E36141515A4B1ADABE3C4551 /* PassportStatsView.swift */; };
+		D26812028267EF8CE41C593F /* ArcWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E939CF90FDCC989380305A0 /* ArcWidgetBundle.swift */; };
+		D8A5F0E905602445CF25E3C3 /* GlobeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAAF8DF5C762DD2D71DDCDAF /* GlobeView.swift */; };
+		E11048770A6E49C8C938397D /* FlightAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E47BF7D61BAF11682C2B4E2 /* FlightAPIClient.swift */; };
+		E64226C8F2F29728DFB84855 /* WidgetSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = E909886CA15B1B79B6D631A0 /* WidgetSync.swift */; };
+		E66A60BDC3290A6FBD47C2B4 /* FlightTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 234B3612AF40D9B0CBA15CBE /* FlightTracker.swift */; };
+		E6F67237EDC556551CEAEE73 /* AirportDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2689BBDC633D503741A61075 /* AirportDatabase.swift */; };
+		FD48EDF02229BF53B07CF93B /* NextFlightWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888B0D037817C14E4AF0BAB7 /* NextFlightWidget.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		8F96802FBD8F9E0E76E693E2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = EBAD1D3D9882D2E73DFD036C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 88B9A5180C02CFA3B6E6A35A;
+			remoteInfo = ArcWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		2369BA4CCB1686083D29B1B3 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				28B41532664F0666774F2FA6 /* ArcWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		0E950A3B65137B3F46CF9625 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		1BFECC1DABBC5FC07371E956 /* ArcDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcDesign.swift; sourceTree = "<group>"; };
+		1E47BF7D61BAF11682C2B4E2 /* FlightAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightAPIClient.swift; sourceTree = "<group>"; };
+		210826009A37E90654E69671 /* Flight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Flight.swift; sourceTree = "<group>"; };
+		234B3612AF40D9B0CBA15CBE /* FlightTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightTracker.swift; sourceTree = "<group>"; };
+		2689BBDC633D503741A61075 /* AirportDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirportDatabase.swift; sourceTree = "<group>"; };
+		284599E3BD487872175F7A07 /* FlightCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightCard.swift; sourceTree = "<group>"; };
+		28B5EBEA46F14A596CAC1D89 /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
+		343257F6CBC830BB8386C5BA /* FriendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsView.swift; sourceTree = "<group>"; };
+		37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		45CDEF12D33E504034C15720 /* Airport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Airport.swift; sourceTree = "<group>"; };
+		4864581CF99C026C4AB5136F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		4B59DFF600FEDEB5C44BEED7 /* FlightActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightActivityAttributes.swift; sourceTree = "<group>"; };
+		4FB40E7D146DE8662884B50D /* FlightLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightLiveActivity.swift; sourceTree = "<group>"; };
+		5DFE5890F673E6E56FF7EAEF /* Arc.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Arc.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6203F2E6D1096F29FA5083FC /* ArcApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcApp.swift; sourceTree = "<group>"; };
+		6E939CF90FDCC989380305A0 /* ArcWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcWidgetBundle.swift; sourceTree = "<group>"; };
+		707C824F54C402F8D70FF43F /* AnnualReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnualReviewView.swift; sourceTree = "<group>"; };
+		888B0D037817C14E4AF0BAB7 /* NextFlightWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextFlightWidget.swift; sourceTree = "<group>"; };
+		8B5B63F833E1CB9C679CD6C1 /* SupabaseClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseClient.swift; sourceTree = "<group>"; };
+		A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ArcWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		BAE00845F094A1DDFECEB3B8 /* AddFlightSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddFlightSheet.swift; sourceTree = "<group>"; };
+		BFC83E4E29772AC89D75C9E8 /* LiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityManager.swift; sourceTree = "<group>"; };
+		C3BA60104125C5743ECF86F8 /* InboundMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboundMonitor.swift; sourceTree = "<group>"; };
+		D45CF210803F875BA9216477 /* FlightsHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightsHomeView.swift; sourceTree = "<group>"; };
+		DAAF8DF5C762DD2D71DDCDAF /* GlobeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobeView.swift; sourceTree = "<group>"; };
+		E36141515A4B1ADABE3C4551 /* PassportStatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassportStatsView.swift; sourceTree = "<group>"; };
+		E909886CA15B1B79B6D631A0 /* WidgetSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSync.swift; sourceTree = "<group>"; };
+		ED3BBC117AA0A74224DAF8AB /* WidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetData.swift; sourceTree = "<group>"; };
+		F94561576A017566B3361F5F /* FlightDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightDetailView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		43ABFA4A044A3FC50C162D4A /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				4864581CF99C026C4AB5136F /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		46D873BC1EA7F6A4DC87082E /* Friends */ = {
+			isa = PBXGroup;
+			children = (
+				343257F6CBC830BB8386C5BA /* FriendsView.swift */,
+			);
+			path = Friends;
+			sourceTree = "<group>";
+		};
+		4F2534B1CB451EE570B34F3F /* ArcWidget */ = {
+			isa = PBXGroup;
+			children = (
+				6E939CF90FDCC989380305A0 /* ArcWidgetBundle.swift */,
+				4FB40E7D146DE8662884B50D /* FlightLiveActivity.swift */,
+				888B0D037817C14E4AF0BAB7 /* NextFlightWidget.swift */,
+			);
+			path = ArcWidget;
+			sourceTree = "<group>";
+		};
+		56BD32AAEBF832991570B246 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5DFE5890F673E6E56FF7EAEF /* Arc.app */,
+				A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		62463CF3932253BA671AEE54 /* Arc */ = {
+			isa = PBXGroup;
+			children = (
+				6203F2E6D1096F29FA5083FC /* ArcApp.swift */,
+				0E950A3B65137B3F46CF9625 /* Assets.xcassets */,
+				C7872DF86AD9D7368BA115A3 /* DesignSystem */,
+				EE53A14AC45F34800199559A /* Features */,
+				ABDD923F802E2281ECA55128 /* Globe */,
+				9A6FFADE36F3A7441D00E412 /* Models */,
+				7E250120CEDC24D838FB7CC5 /* Services */,
+			);
+			path = Arc;
+			sourceTree = "<group>";
+		};
+		7E250120CEDC24D838FB7CC5 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				2689BBDC633D503741A61075 /* AirportDatabase.swift */,
+				1E47BF7D61BAF11682C2B4E2 /* FlightAPIClient.swift */,
+				234B3612AF40D9B0CBA15CBE /* FlightTracker.swift */,
+				C3BA60104125C5743ECF86F8 /* InboundMonitor.swift */,
+				BFC83E4E29772AC89D75C9E8 /* LiveActivityManager.swift */,
+				37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */,
+				8B5B63F833E1CB9C679CD6C1 /* SupabaseClient.swift */,
+				E909886CA15B1B79B6D631A0 /* WidgetSync.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		9A6FFADE36F3A7441D00E412 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				45CDEF12D33E504034C15720 /* Airport.swift */,
+				210826009A37E90654E69671 /* Flight.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		9E630D3B91DF556A47C43579 /* Passport */ = {
+			isa = PBXGroup;
+			children = (
+				707C824F54C402F8D70FF43F /* AnnualReviewView.swift */,
+				E36141515A4B1ADABE3C4551 /* PassportStatsView.swift */,
+			);
+			path = Passport;
+			sourceTree = "<group>";
+		};
+		A2CA152829D97FB89330C0BC /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				4B59DFF600FEDEB5C44BEED7 /* FlightActivityAttributes.swift */,
+				ED3BBC117AA0A74224DAF8AB /* WidgetData.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		AAFBC31CF1D85400F1B1389C = {
+			isa = PBXGroup;
+			children = (
+				62463CF3932253BA671AEE54 /* Arc */,
+				4F2534B1CB451EE570B34F3F /* ArcWidget */,
+				A2CA152829D97FB89330C0BC /* Shared */,
+				56BD32AAEBF832991570B246 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		ABDD923F802E2281ECA55128 /* Globe */ = {
+			isa = PBXGroup;
+			children = (
+				DAAF8DF5C762DD2D71DDCDAF /* GlobeView.swift */,
+			);
+			path = Globe;
+			sourceTree = "<group>";
+		};
+		C7872DF86AD9D7368BA115A3 /* DesignSystem */ = {
+			isa = PBXGroup;
+			children = (
+				1BFECC1DABBC5FC07371E956 /* ArcDesign.swift */,
+			);
+			path = DesignSystem;
+			sourceTree = "<group>";
+		};
+		EE53A14AC45F34800199559A /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				F14CA8B67EED69A8D8D012C6 /* Flights */,
+				46D873BC1EA7F6A4DC87082E /* Friends */,
+				9E630D3B91DF556A47C43579 /* Passport */,
+				43ABFA4A044A3FC50C162D4A /* Settings */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		F14CA8B67EED69A8D8D012C6 /* Flights */ = {
+			isa = PBXGroup;
+			children = (
+				BAE00845F094A1DDFECEB3B8 /* AddFlightSheet.swift */,
+				284599E3BD487872175F7A07 /* FlightCard.swift */,
+				F94561576A017566B3361F5F /* FlightDetailView.swift */,
+				D45CF210803F875BA9216477 /* FlightsHomeView.swift */,
+				28B5EBEA46F14A596CAC1D89 /* RootTabView.swift */,
+			);
+			path = Flights;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		670DE7EC6854CC229143633E /* Arc */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7A8B6FFB7DF0FDD09B90B083 /* Build configuration list for PBXNativeTarget "Arc" */;
+			buildPhases = (
+				C91BF024187DF5D22F3D0894 /* Sources */,
+				7C1FA1ADB24E973C8633A40A /* Resources */,
+				2369BA4CCB1686083D29B1B3 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				421BC76A8DD7CB806963DBEE /* PBXTargetDependency */,
+			);
+			name = Arc;
+			packageProductDependencies = (
+			);
+			productName = Arc;
+			productReference = 5DFE5890F673E6E56FF7EAEF /* Arc.app */;
+			productType = "com.apple.product-type.application";
+		};
+		88B9A5180C02CFA3B6E6A35A /* ArcWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2E3326D08A1752FD513C6E77 /* Build configuration list for PBXNativeTarget "ArcWidget" */;
+			buildPhases = (
+				3E8CE0036DA04113FAFFDFEB /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ArcWidget;
+			packageProductDependencies = (
+			);
+			productName = ArcWidget;
+			productReference = A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		EBAD1D3D9882D2E73DFD036C /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					670DE7EC6854CC229143633E = {
+						ProvisioningStyle = Automatic;
+					};
+					88B9A5180C02CFA3B6E6A35A = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 6F315E3350662A887E83D990 /* Build configuration list for PBXProject "Arc" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = AAFBC31CF1D85400F1B1389C;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 56BD32AAEBF832991570B246 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				670DE7EC6854CC229143633E /* Arc */,
+				88B9A5180C02CFA3B6E6A35A /* ArcWidget */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		7C1FA1ADB24E973C8633A40A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2FF54C18096971D871B206B9 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		3E8CE0036DA04113FAFFDFEB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D26812028267EF8CE41C593F /* ArcWidgetBundle.swift in Sources */,
+				9C894C7AEAE72DD9CBA288F8 /* FlightActivityAttributes.swift in Sources */,
+				4BE4CB84B06880211275E457 /* FlightLiveActivity.swift in Sources */,
+				FD48EDF02229BF53B07CF93B /* NextFlightWidget.swift in Sources */,
+				8F183C5AACBAEDC17407ABD8 /* WidgetData.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C91BF024187DF5D22F3D0894 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				006DCFA833396E0C053573A8 /* AddFlightSheet.swift in Sources */,
+				A0CFDAC70BB886B090D73B83 /* Airport.swift in Sources */,
+				E6F67237EDC556551CEAEE73 /* AirportDatabase.swift in Sources */,
+				4AE2FE5214E10250062917FC /* AnnualReviewView.swift in Sources */,
+				C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */,
+				4DC5DD74216D89BCF661E139 /* ArcDesign.swift in Sources */,
+				AE8A969D54CC001AF4336515 /* Flight.swift in Sources */,
+				E11048770A6E49C8C938397D /* FlightAPIClient.swift in Sources */,
+				9B33C29C7FA1F5778E083398 /* FlightActivityAttributes.swift in Sources */,
+				ACC42ADB0DA1BC819B995433 /* FlightCard.swift in Sources */,
+				3DD1E3D27CF4B260288869FA /* FlightDetailView.swift in Sources */,
+				E66A60BDC3290A6FBD47C2B4 /* FlightTracker.swift in Sources */,
+				6E9F5D91840674AE5D008114 /* FlightsHomeView.swift in Sources */,
+				95E9EB1D6085989A0AA988BF /* FriendsView.swift in Sources */,
+				D8A5F0E905602445CF25E3C3 /* GlobeView.swift in Sources */,
+				47733FC27C873C75889EB557 /* InboundMonitor.swift in Sources */,
+				86B066ECAFCF0E3B5E177C8C /* LiveActivityManager.swift in Sources */,
+				C95804ADD76EDEB2671A5121 /* NotificationService.swift in Sources */,
+				CCECD249FFDFECCB78A96943 /* PassportStatsView.swift in Sources */,
+				09ACF3DC4A5CF3B293B719EB /* RootTabView.swift in Sources */,
+				5BFC4245B668EF91BE8CF988 /* SettingsView.swift in Sources */,
+				8ED498F91B66740B412D0611 /* SupabaseClient.swift in Sources */,
+				9C4509B5E588A11B545D2021 /* WidgetData.swift in Sources */,
+				E64226C8F2F29728DFB84855 /* WidgetSync.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		421BC76A8DD7CB806963DBEE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 88B9A5180C02CFA3B6E6A35A /* ArcWidget */;
+			targetProxy = 8F96802FBD8F9E0E76E693E2 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		6008FF0970A7892157048ADD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Arc/Arc.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GQZHJ59F4R;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Arc;
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.arc.flighttracker;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		881A7A84659DE933D2A9C1CB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		9EA9C44AF6DB3F483FD23083 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Arc/Arc.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GQZHJ59F4R;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Arc;
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.arc.flighttracker;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		B63DCA781ACC21B08AB78586 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ArcWidget/ArcWidget.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GQZHJ59F4R;
+				INFOPLIST_FILE = ArcWidget/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.arc.flighttracker.widget;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		D4129F2D6EB9463B0256E23E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		E15F7C0EB5C87A61ACB765F5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ArcWidget/ArcWidget.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GQZHJ59F4R;
+				INFOPLIST_FILE = ArcWidget/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.arc.flighttracker.widget;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2E3326D08A1752FD513C6E77 /* Build configuration list for PBXNativeTarget "ArcWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E15F7C0EB5C87A61ACB765F5 /* Debug */,
+				B63DCA781ACC21B08AB78586 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		6F315E3350662A887E83D990 /* Build configuration list for PBXProject "Arc" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D4129F2D6EB9463B0256E23E /* Debug */,
+				881A7A84659DE933D2A9C1CB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7A8B6FFB7DF0FDD09B90B083 /* Build configuration list for PBXNativeTarget "Arc" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6008FF0970A7892157048ADD /* Debug */,
+				9EA9C44AF6DB3F483FD23083 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = EBAD1D3D9882D2E73DFD036C /* Project object */;
+}
