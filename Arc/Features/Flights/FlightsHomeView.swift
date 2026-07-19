@@ -17,8 +17,8 @@ struct FlightsHomeView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // Full-screen globe background
-                GlobeView(flights: allFlights)
+                // Full-screen shared map background (temporary; rebuilt in My Flights plan)
+                ArcMapView(flights: allFlights, controller: MapController())
                     .ignoresSafeArea()
 
                 // Bottom sheet content
