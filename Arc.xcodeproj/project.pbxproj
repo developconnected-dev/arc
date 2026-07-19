@@ -17,6 +17,7 @@
 		4AE2FE5214E10250062917FC /* AnnualReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 707C824F54C402F8D70FF43F /* AnnualReviewView.swift */; };
 		4BE4CB84B06880211275E457 /* FlightLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB40E7D146DE8662884B50D /* FlightLiveActivity.swift */; };
 		4DC5DD74216D89BCF661E139 /* ArcDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BFECC1DABBC5FC07371E956 /* ArcDesign.swift */; };
+		5A687F07602155831DF39840 /* airlines.json in Resources */ = {isa = PBXBuildFile; fileRef = 85DB98F13E1308062AC4A2A9 /* airlines.json */; };
 		5BFC4245B668EF91BE8CF988 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4864581CF99C026C4AB5136F /* SettingsView.swift */; };
 		6E9F5D91840674AE5D008114 /* FlightsHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D45CF210803F875BA9216477 /* FlightsHomeView.swift */; };
 		86B066ECAFCF0E3B5E177C8C /* LiveActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFC83E4E29772AC89D75C9E8 /* LiveActivityManager.swift */; };
@@ -32,6 +33,7 @@
 		C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6203F2E6D1096F29FA5083FC /* ArcApp.swift */; };
 		C95804ADD76EDEB2671A5121 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */; };
 		CCECD249FFDFECCB78A96943 /* PassportStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E36141515A4B1ADABE3C4551 /* PassportStatsView.swift */; };
+		CE8EDCF06AF9286001FAB953 /* airports.json in Resources */ = {isa = PBXBuildFile; fileRef = 3104AD04269DDBC745E354F1 /* airports.json */; };
 		D26812028267EF8CE41C593F /* ArcWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E939CF90FDCC989380305A0 /* ArcWidgetBundle.swift */; };
 		D8A5F0E905602445CF25E3C3 /* GlobeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAAF8DF5C762DD2D71DDCDAF /* GlobeView.swift */; };
 		E11048770A6E49C8C938397D /* FlightAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E47BF7D61BAF11682C2B4E2 /* FlightAPIClient.swift */; };
@@ -81,6 +83,7 @@
 		2689BBDC633D503741A61075 /* AirportDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirportDatabase.swift; sourceTree = "<group>"; };
 		284599E3BD487872175F7A07 /* FlightCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightCard.swift; sourceTree = "<group>"; };
 		28B5EBEA46F14A596CAC1D89 /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
+		3104AD04269DDBC745E354F1 /* airports.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = airports.json; sourceTree = "<group>"; };
 		343257F6CBC830BB8386C5BA /* FriendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsView.swift; sourceTree = "<group>"; };
 		37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		45CDEF12D33E504034C15720 /* Airport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Airport.swift; sourceTree = "<group>"; };
@@ -93,6 +96,7 @@
 		707C824F54C402F8D70FF43F /* AnnualReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnualReviewView.swift; sourceTree = "<group>"; };
 		7EC116B53681F7234E0DDDC9 /* ArcTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ArcTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8011F1F9596F27743C731E2F /* SmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeTests.swift; sourceTree = "<group>"; };
+		85DB98F13E1308062AC4A2A9 /* airlines.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = airlines.json; sourceTree = "<group>"; };
 		888B0D037817C14E4AF0BAB7 /* NextFlightWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextFlightWidget.swift; sourceTree = "<group>"; };
 		8B5B63F833E1CB9C679CD6C1 /* SupabaseClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseClient.swift; sourceTree = "<group>"; };
 		A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ArcWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -108,6 +112,15 @@
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
+		33C15B8470A543892EA96209 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				85DB98F13E1308062AC4A2A9 /* airlines.json */,
+				3104AD04269DDBC745E354F1 /* airports.json */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		43ABFA4A044A3FC50C162D4A /* Settings */ = {
 			isa = PBXGroup;
 			children = (
@@ -153,6 +166,7 @@
 				EE53A14AC45F34800199559A /* Features */,
 				ABDD923F802E2281ECA55128 /* Globe */,
 				9A6FFADE36F3A7441D00E412 /* Models */,
+				33C15B8470A543892EA96209 /* Resources */,
 				7E250120CEDC24D838FB7CC5 /* Services */,
 			);
 			path = Arc;
@@ -360,6 +374,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				2FF54C18096971D871B206B9 /* Assets.xcassets in Resources */,
+				5A687F07602155831DF39840 /* airlines.json in Resources */,
+				CE8EDCF06AF9286001FAB953 /* airports.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
