@@ -1,29 +1,29 @@
 import SwiftUI
 
-/// Arc design tokens — dark aviation theme with cyan accent.
+/// Legacy token names retained for the (frozen) Friends/Settings screens.
+/// New work should use `ArcTheme`. These now resolve to adaptive system colors.
 enum ArcColor {
-    static let accent = Color(red: 0.055, green: 0.647, blue: 0.914) // #0EA5E9
-    static let accentDim = accent.opacity(0.3)
-    static let bg = Color(red: 0.07, green: 0.07, blue: 0.09)       // Near-black
-    static let card = Color(red: 0.11, green: 0.11, blue: 0.12)     // Dark gray card
-    static let text = Color.white
-    static let textMuted = Color.white.opacity(0.5)
-    static let textDim = Color.white.opacity(0.3)
-    static let border = Color.white.opacity(0.08)
+    static let accent = ArcTheme.action
+    static let accentDim = ArcTheme.action.opacity(0.3)
+    static let bg = Color(.systemBackground)
+    static let card = Color(.secondarySystemBackground)
+    static let text = Color(.label)
+    static let textMuted = Color(.secondaryLabel)
+    static let textDim = Color(.tertiaryLabel)
+    static let border = Color(.separator)
 
-    // Status
-    static let onTime = Color.green
-    static let delayed = Color.orange
-    static let cancelled = Color.red
-    static let landed = Color.green.opacity(0.8)
+    static let onTime = ArcTheme.onTime
+    static let delayed = Color(red: 1.0, green: 0.58, blue: 0.0)
+    static let cancelled = ArcTheme.late
+    static let landed = ArcTheme.onTime
 
     static func statusColor(for status: FlightStatus, delay: Int = 0) -> Color {
         switch status {
-        case .scheduled: delay > 0 ? .orange : .green
-        case .active: delay > 15 ? .orange : .green
-        case .landed: .green
-        case .cancelled: .red
-        case .diverted: .orange
+        case .scheduled: delay > 0 ? delayed : onTime
+        case .active: delay > 15 ? delayed : onTime
+        case .landed: onTime
+        case .cancelled: cancelled
+        case .diverted: delayed
         }
     }
 }
