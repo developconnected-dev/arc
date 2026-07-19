@@ -55,6 +55,10 @@ final class Flight {
     var liveHeading: Double?             // degrees
     var liveUpdatedAt: Date?
 
+    // User-entered trip details
+    var bookingCode: String?
+    var seat: String?
+
     // Meta
     var isFriend: Bool = false           // Is this a friend's flight?
     var friendName: String?
