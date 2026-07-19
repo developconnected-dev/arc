@@ -13,6 +13,13 @@ struct ArcRootView: View {
     @State private var detailDetent: PresentationDetent = .large
     @State private var pendingOpenDetail = ProcessInfo.processInfo.arguments.contains("-openDetail")
 
+    /// Test hooks for headless screenshots.
+    private var addInitialQuery: String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-addQuery"), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             ArcMapView(flights: mapFlights, controller: controller)
@@ -24,7 +31,7 @@ struct ArcRootView: View {
                 .padding(.bottom, 8)
         }
         .sheet(isPresented: $showAdd) {
-            AddFlightStubSheet()
+            AddFlightView(initialQuery: addInitialQuery)
                 .presentationDetents([.large])
         }
         .sheet(item: $detailFlight) { flight in
@@ -43,6 +50,7 @@ struct ArcRootView: View {
             DemoSeed.seedIfRequested(into: modelContext, existing: allFlights)
             controller.fitAll(mapFlights)
             openDetailIfPending()
+            if ProcessInfo.processInfo.arguments.contains("-openAdd") { showAdd = true }
         }
     }
 
@@ -63,21 +71,4 @@ struct ArcRootView: View {
     }
 }
 
-// Temporary detail/add stubs (real versions arrive in later plans).
-struct AddFlightStubSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        VStack(spacing: 16) {
-            HStack {
-                Text("Add Flight").font(ArcTheme.screenTitle)
-                Spacer()
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark.circle.fill").font(.system(size: 28)).foregroundStyle(.secondary)
-                }
-            }
-            Text("Search flow arrives in the Add-Flight plan.").font(ArcTheme.caption).foregroundStyle(.secondary)
-            Spacer()
-        }.padding(20)
-    }
-}
 
