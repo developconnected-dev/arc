@@ -79,4 +79,88 @@ extension Flight {
     var cardTopRightColor: Color {
         (isSoon || isActive) ? accentColor : Color(.secondaryLabel)
     }
+
+    // MARK: - Detail screen helpers
+
+    var departureAirportName: String { ReferenceData.shared.airport(departureIATA)?.name ?? departureCity }
+    var arrivalAirportName: String { ReferenceData.shared.airport(arrivalIATA)?.name ?? arrivalCity }
+
+    var headerDateText: String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_GB")
+        f.dateFormat = "EEE, d MMM"
+        return f.string(from: scheduledDeparture).uppercased()
+    }
+
+    /// The effective (live) departure/arrival time, falling back to scheduled.
+    var effectiveDeparture: Date { actualDeparture ?? scheduledDeparture }
+    var effectiveArrival: Date { estimatedArrival ?? actualArrival ?? scheduledArrival }
+
+    var departureChanged: Bool { abs(effectiveDeparture.timeIntervalSince(scheduledDeparture)) >= 60 }
+    var arrivalChanged: Bool { abs(effectiveArrival.timeIntervalSince(scheduledArrival)) >= 60 }
+
+    var effectiveDepTimeLocal: String { hhmm(effectiveDeparture, depTimeZone) }
+    var effectiveArrTimeLocal: String { hhmm(effectiveArrival, arrTimeZone) }
+
+    /// "1h 38m" style countdown to a date; nil if past.
+    private func compactUntil(_ date: Date) -> String? {
+        let s = Int(date.timeIntervalSince(.now))
+        guard s > 0 else { return nil }
+        let d = s / 86400, h = (s % 86400) / 3600, m = (s % 3600) / 60
+        if d >= 1 { return "\(d)d \(h)h" }
+        if h >= 1 { return "\(h)h \(m)m" }
+        return "\(max(1, m))m"
+    }
+
+    /// Banner headline: "Gate Departure in 1h 38m", "Landing in 6h 43m", etc.
+    var bannerHeadline: String {
+        switch status {
+        case .cancelled: return "Flight Cancelled"
+        case .landed: return "Landed"
+        case .active:
+            if let t = compactUntil(effectiveArrival) { return "Landing in \(t)" }
+            return "Arriving"
+        default:
+            if let t = compactUntil(effectiveDeparture) { return "Gate Departure in \(t)" }
+            return "Departing"
+        }
+    }
+
+    var bannerColor: Color {
+        if status == .cancelled { return ArcTheme.late }
+        if isDelayed { return ArcTheme.late }
+        return ArcTheme.onTime
+    }
+
+    /// "On Time", "1h 2m Late", etc. for an endpoint given its delta.
+    private func deltaLabel(effective: Date, scheduled: Date) -> String {
+        let mins = Int(effective.timeIntervalSince(scheduled) / 60)
+        if mins <= -1 { return "\(abs(mins))m Early" }
+        if mins >= 1 {
+            let h = mins / 60, m = mins % 60
+            return h > 0 ? "\(h)h \(m)m Late" : "\(m)m Late"
+        }
+        return "On Time"
+    }
+    var departureStatusText: String { deltaLabel(effective: effectiveDeparture, scheduled: scheduledDeparture) }
+    var arrivalStatusText: String { deltaLabel(effective: effectiveArrival, scheduled: scheduledArrival) }
+
+    var departureRelText: String {
+        if let t = compactUntil(effectiveDeparture) { return "Departs in \(t)" }
+        let ago = Int(-effectiveDeparture.timeIntervalSince(.now) / 60)
+        return ago >= 60 ? "\(ago/60)h \(ago%60)m ago" : "\(max(0, ago))m ago"
+    }
+    var arrivalRelText: String {
+        if let t = compactUntil(effectiveArrival) { return "Arrives in \(t)" }
+        return "Arrived"
+    }
+
+    /// Timezone offset difference dep→arr in whole hours.
+    var timezoneDeltaHours: Int {
+        let dep = depTimeZone.secondsFromGMT(for: scheduledDeparture)
+        let arr = arrTimeZone.secondsFromGMT(for: scheduledArrival)
+        return (arr - dep) / 3600
+    }
+
+    var arrivalInDepartureLocal: String { hhmm(scheduledArrival, depTimeZone) }
 }
