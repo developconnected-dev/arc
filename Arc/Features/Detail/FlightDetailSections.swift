@@ -1,0 +1,250 @@
+import SwiftUI
+import SwiftData
+
+// MARK: - Shared
+
+private func sectionTitle(_ text: String) -> some View {
+    Text(text).font(.system(size: 22, weight: .bold))
+        .frame(maxWidth: .infinity, alignment: .leading)
+}
+
+private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+    content()
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+}
+
+// MARK: - Good to Know
+
+struct GoodToKnowSection: View {
+    let flight: Flight
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle("Good to Know")
+            card {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.seal.fill").foregroundStyle(ArcTheme.onTime)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("No known disruptions").font(.system(size: 15, weight: .semibold))
+                        Text("\(flight.departureIATA) and \(flight.arrivalIATA) operating normally")
+                            .font(.system(size: 13)).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if flight.timezoneDeltaHours != 0 {
+                card {
+                    HStack(spacing: 10) {
+                        Image(systemName: "clock.arrow.2.circlepath").foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            let d = flight.timezoneDeltaHours
+                            Text("\(d > 0 ? "+" : "")\(d) Hour Timezone Change")
+                                .font(.system(size: 15, weight: .semibold))
+                            Text("\(flight.arrTimeLocal) arrival is \(flight.arrivalInDepartureLocal) \(flight.departureCity) time")
+                                .font(.system(size: 13)).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Where's My Plane
+
+struct WheresMyPlaneSection: View {
+    let flight: Flight
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Where's My Plane?").font(.system(size: 22, weight: .bold)).foregroundStyle(.white)
+                Text(flight.aircraftType ?? "Aircraft").font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+            .padding(.horizontal, 16).padding(.top, 16)
+
+            Image(AircraftImage.assetName(for: flight.aircraftType))
+                .resizable().scaledToFit()
+                .frame(maxWidth: .infinity).frame(height: 130)
+                .padding(.vertical, 8)
+                .overlay(alignment: .center) {
+                    if UIImage(named: AircraftImage.assetName(for: flight.aircraftType)) == nil {
+                        Image(systemName: "airplane.circle")
+                            .font(.system(size: 56)).foregroundStyle(.white.opacity(0.85))
+                    }
+                }
+
+            VStack(alignment: .leading, spacing: 8) {
+                inboundRow
+            }
+            .padding(16)
+            .background(Color(.systemBackground).opacity(0.15))
+        }
+        .background(
+            LinearGradient(colors: [Color(red: 0.28, green: 0.55, blue: 0.92),
+                                    Color(red: 0.14, green: 0.38, blue: 0.75)],
+                           startPoint: .top, endPoint: .bottom)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var inboundRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: flight.isActive ? "airplane" : "arrow.down.circle")
+                .foregroundStyle(.white)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(flight.isActive ? "This flight — in the air" : "This Flight")
+                    .font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                Text(inboundText).font(.system(size: 13)).foregroundStyle(.white.opacity(0.8))
+            }
+            Spacer()
+            if let reg = flight.aircraftRegistration {
+                Text(reg).font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+        }
+    }
+
+    private var inboundText: String {
+        if flight.isActive { return "Tracking live position" }
+        if flight.inboundDelayMinutes > 0 { return "Inbound leg running \(flight.inboundDelayMinutes)m late" }
+        if flight.aircraftRegistration != nil { return "Inbound aircraft has arrived at \(flight.departureIATA)" }
+        return "Monitoring the inbound aircraft"
+    }
+}
+
+// MARK: - Detailed Timetable
+
+struct DetailedTimetableSection: View {
+    let flight: Flight
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                sectionTitle("Detailed Timetable")
+                Text("Scheduled, Estimated, and Actual")
+                    .font(.system(size: 13)).foregroundStyle(.secondary)
+            }
+            card {
+                VStack(spacing: 14) {
+                    groupHeader("DEPART")
+                    timeRow("Gate Departure", scheduled: flight.depTimeLocal,
+                            estimated: flight.departureChanged ? flight.effectiveDepTimeLocal : "--")
+                    Divider()
+                    groupHeader("ARRIVE")
+                    timeRow("Gate Arrival", scheduled: flight.arrTimeLocal,
+                            estimated: flight.arrivalChanged ? flight.effectiveArrTimeLocal : "--")
+                    Divider()
+                    groupHeader("TOTALS")
+                    plainRow("Air Time", flight.durationFormatted)
+                    plainRow("Distance", flight.distanceFormatted)
+                }
+            }
+        }
+    }
+
+    private func groupHeader(_ t: String) -> some View {
+        HStack {
+            Text(t).font(.system(size: 12, weight: .semibold)).foregroundStyle(.tertiary).tracking(0.5)
+            Spacer()
+            Text("Scheduled").font(.system(size: 12)).foregroundStyle(.tertiary).frame(width: 80, alignment: .trailing)
+            Text("Estimated").font(.system(size: 12)).foregroundStyle(.tertiary).frame(width: 80, alignment: .trailing)
+        }
+    }
+    private func timeRow(_ label: String, scheduled: String, estimated: String) -> some View {
+        HStack {
+            Text(label).font(.system(size: 15, weight: .semibold))
+            Spacer()
+            Text(scheduled).font(.system(size: 15)).frame(width: 80, alignment: .trailing)
+            Text(estimated).font(.system(size: 15)).foregroundStyle(estimated == "--" ? .secondary : .primary)
+                .frame(width: 80, alignment: .trailing)
+        }
+    }
+    private func plainRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label).font(.system(size: 15, weight: .semibold))
+            Spacer()
+            Text(value).font(.system(size: 15)).foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: - Airline info
+
+struct AirlineInfoSection: View {
+    let flight: Flight
+    private var airline: AirlineRef? { ReferenceData.shared.airline(flight.airlineCode) }
+    var body: some View {
+        card {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    AirlineLogoView(iata: flight.airlineCode, size: 30)
+                    Text(airline?.name ?? flight.airline).font(.system(size: 20, weight: .bold))
+                }
+                HStack {
+                    infoCol("ATC Callsign", airline?.callsign ?? "—")
+                    infoCol("ICAO", airline?.icao ?? flight.airlineICAO)
+                    infoCol("IATA", flight.airlineCode)
+                }
+            }
+        }
+    }
+    private func infoCol(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.system(size: 12)).foregroundStyle(.secondary)
+            Text(value.isEmpty ? "—" : value).font(.system(size: 15, weight: .semibold))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Route history
+
+struct RouteHistorySection: View {
+    let flight: Flight
+    @Query private var all: [Flight]
+
+    private var onRoute: [Flight] {
+        all.filter { $0.status == .landed && $0.departureIATA == flight.departureIATA && $0.arrivalIATA == flight.arrivalIATA }
+    }
+    var body: some View {
+        card {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("My History on This Route").font(.system(size: 18, weight: .bold))
+                Text("\(flight.departureIATA) → \(flight.arrivalIATA)").font(.system(size: 13)).foregroundStyle(.secondary)
+                HStack {
+                    stat("Flights", "\(onRoute.count)")
+                    stat("Distance", "\(Int(onRoute.map(\.distanceKm).reduce(0,+))) km")
+                    stat("Flight Time", "\(Int(onRoute.map(\.duration).reduce(0,+)) / 3600)h")
+                }
+            }
+        }
+    }
+    private func stat(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.system(size: 12)).foregroundStyle(.secondary)
+            Text(value).font(.system(size: 17, weight: .bold))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Notes
+
+struct NotesSection: View {
+    let flight: Flight
+    var onEdit: () -> Void
+    var body: some View {
+        card {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Notes").font(.system(size: 18, weight: .bold))
+                Button(action: onEdit) {
+                    Text(flight.notes.isEmpty ? "Tap to Edit" : flight.notes)
+                        .font(.system(size: 15))
+                        .foregroundStyle(flight.notes.isEmpty ? .secondary : .primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
