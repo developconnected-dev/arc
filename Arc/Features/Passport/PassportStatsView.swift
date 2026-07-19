@@ -55,8 +55,8 @@ struct PassportStatsView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: ArcSpace.xl) {
-                    // Globe with all routes
-                    GlobeView(flights: completedFlights)
+                    // Shared map with all routes (temporary; rebuilt in Passport plan)
+                    ArcMapView(flights: completedFlights, controller: MapController())
                         .frame(height: 300)
                         .clipShape(RoundedRectangle(cornerRadius: ArcRadius.card))
 
