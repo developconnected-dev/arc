@@ -7,9 +7,11 @@ struct ArcApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootTabView()
+            ArcRootView()
                 .onAppear {
-                    ArcNotifications.requestPermission()
+                    if !DemoSeed.suppressPrompts {
+                        ArcNotifications.requestPermission()
+                    }
                 }
         }
         .modelContainer(for: [Flight.self, Airport.self])

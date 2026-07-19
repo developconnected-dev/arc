@@ -1,13 +1,16 @@
 import SwiftUI
 
+/// Standalone so it isn't parameterized by `BottomSheet`'s generic Content
+/// (a nested enum in a generic type would be a distinct type per Content).
+enum SheetDetent: CaseIterable {
+    case small, medium, large
+    var fraction: CGFloat { switch self { case .small: 0.30; case .medium: 0.58; case .large: 0.92 } }
+}
+
 /// A draggable, multi-detent bottom sheet that sits in a ZStack over the map,
 /// so a floating tab bar can be layered above it. Detents are fractions of height.
 struct BottomSheet<Content: View>: View {
-    enum Detent: CaseIterable { case small, medium, large
-        var fraction: CGFloat { switch self { case .small: 0.30; case .medium: 0.58; case .large: 0.92 } }
-    }
-
-    @Binding var detent: Detent
+    @Binding var detent: SheetDetent
     @ViewBuilder var content: () -> Content
     @GestureState private var drag: CGFloat = 0
 
@@ -47,7 +50,7 @@ struct BottomSheet<Content: View>: View {
 
     private func snap(to predicted: CGFloat, height: CGFloat) {
         let current = height * detent.fraction - predicted
-        let nearest = Detent.allCases.min {
+        let nearest = SheetDetent.allCases.min {
             abs($0.fraction * height - current) < abs($1.fraction * height - current)
         } ?? .medium
         detent = nearest
