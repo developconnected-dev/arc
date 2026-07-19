@@ -8,6 +8,7 @@ struct PassportView: View {
     @State private var scope: Scope = .allTime
     @State private var sort: SortKey = .date
     @State private var showSettings = false
+    @State private var statsMode: StatsMode?
     var onSelect: (Flight) -> Void = { _ in }
 
     enum Scope: Hashable { case allTime, year(Int) }
@@ -62,6 +63,13 @@ struct PassportView: View {
             }
         }
         .sheet(isPresented: $showSettings) { SettingsView() }
+        .sheet(item: $statsMode) { mode in StatsDetailView(flights: scoped, mode: mode) }
+        .onAppear {
+            let args = ProcessInfo.processInfo.arguments
+            if let i = args.firstIndex(of: "-openStats"), i + 1 < args.count {
+                statsMode = StatsMode(rawValue: args[i + 1])
+            }
+        }
     }
 
     private var header: some View {
@@ -120,7 +128,7 @@ struct PassportView: View {
                     statBlock("AIRPORTS", "\(stats.airports)", sub: nil)
                     statBlock("AIRLINES", "\(stats.airlines)", sub: nil)
                 }
-                pillButton("All Flight Stats")
+                pillButton("All Flight Stats", mode: .flight)
             }
         }
     }
@@ -132,7 +140,7 @@ struct PassportView: View {
                 Text("minutes lost from delays").font(.system(size: 18, weight: .bold)).foregroundStyle(.white)
                 Text("Delayed flights averaged \(stats.avgDelay)m late")
                     .font(.system(size: 14)).foregroundStyle(.white.opacity(0.75))
-                pillButton("All Delay Stats")
+                pillButton("All Delay Stats", mode: .delay)
             }
         }
     }
@@ -146,7 +154,7 @@ struct PassportView: View {
                 AircraftArt(type: stats.mostFlownAircraft, color: Color(red: 0.13, green: 0.22, blue: 0.42))
                     .frame(height: 84).frame(maxWidth: .infinity)
                     .padding(.top, 4)
-                pillButton("All Aircraft Stats", dark: true)
+                pillButton("All Aircraft Stats", mode: .aircraft, dark: true)
             }
         }
     }
@@ -233,15 +241,18 @@ struct PassportView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func pillButton(_ title: String, dark: Bool = false) -> some View {
-        HStack {
-            Text(title).font(.system(size: 16, weight: .semibold))
-            Spacer()
-            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold))
+    private func pillButton(_ title: String, mode: StatsMode, dark: Bool = false) -> some View {
+        Button { statsMode = mode } label: {
+            HStack {
+                Text(title).font(.system(size: 16, weight: .semibold))
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(dark ? Color(red: 0.1, green: 0.2, blue: 0.4) : .white)
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .background((dark ? Color.white.opacity(0.5) : Color.white.opacity(0.15)), in: RoundedRectangle(cornerRadius: 12))
         }
-        .foregroundStyle(dark ? Color(red: 0.1, green: 0.2, blue: 0.4) : .white)
-        .padding(.horizontal, 14).padding(.vertical, 12)
-        .background((dark ? Color.white.opacity(0.5) : Color.white.opacity(0.15)), in: RoundedRectangle(cornerRadius: 12))
+        .buttonStyle(.plain)
     }
 
     private func gradientCard<Content: View>(colors: [Color], @ViewBuilder _ content: () -> Content) -> some View {
