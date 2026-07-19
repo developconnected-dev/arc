@@ -68,11 +68,11 @@ All six are resolved by the architecture in §4.
 - **Three main tabs** (My Flights, Friends, Passport) render their content inside a **custom draggable `BottomSheet`** (2–3 detents; map interactive behind). Custom — not native `.sheet` — because the pill must float *above* the sheet.
 - **Floating pill `ArcTabBar`** overlaid bottom-center: 3 tab items + a trailing circular search button. Search button presents Add Flight.
 - **Flight Detail** and **Add Flight** are **native presented sheets** over the map (`.presentationDetents`, `.presentationBackgroundInteraction(.enabled)`), tab bar hidden, `X` to close. Presenting Detail flies the shared camera to that route.
-- **Theme:** new `ArcTheme` (light-first, system-adaptive). `ArcColor`/`ArcType` in `DesignSystem/ArcDesign.swift` get rewritten; old dark tokens retired.
+- **Theme:** new `ArcTheme` — **system-adaptive light + dark, both first-class** (Flighty follows the system exactly). Built on semantic system colors + material sheet surfaces so it flips automatically. `ArcColor`/`ArcType` in `DesignSystem/ArcDesign.swift` get rewritten; old hardcoded dark tokens retired.
 - **No Pro gating:** every "upgrade to…" surface renders the real content.
 
 ### 4a. Theme tokens (`ArcTheme`)
-- Surfaces: sheet `Color(.systemBackground)` (white in light); cards white with hairline separators; grouped gradient cards for Passport.
+- Surfaces: sheet uses a **material** (`.regularMaterial`/`.thickMaterial`) so it renders opaque-white in light mode and **dark frosted** in dark mode automatically; cards `Color(.secondarySystemBackground)` with hairline separators; the Passport gradient cards keep their navy/red/blue fills in both modes.
 - Text: primary `Color(.label)`, secondary `Color(.secondaryLabel)`, tertiary for hints.
 - Status: on-time green `#34C759`; late/cancelled red `#FF3B30` (original time shown struck-through in gray beside the live time); gate pill `#FFCC00` background, black text, ~8pt corner rounded-rect; routes/actions blue `#0A84FF`/`#007AFF`.
 - Type scale (SF Pro / system): screen title 34 heavy; sheet section title 22 bold; times 40 regular; IATA code 15–17 bold; city-pair 22 semibold (city names bold, "to" regular secondary); captions 13; tag pills 13 medium.
@@ -152,8 +152,8 @@ All six are resolved by the architecture in §4.
 - **Provider:** AeroDataBox (free Basic tier for testing, ~$5/mo Pro); FlightAware is the premium alternative. User provides RapidAPI key; Worker keeps it server-side; interface is provider-agnostic for easy swap.
 - **Logos/art:** bundle curated set + fallbacks (chosen).
 - **Custom vs native sheet:** custom for the 3 main tabs (pill floats above); native presented sheets for Detail/Add.
-- **Dark mode:** light-first to match screenshots; use system colors so dark mode degrades gracefully; not a parity target this round.
+- **Dark mode:** first-class parity target. Screenshots are light mode; Flighty follows the system, so in dark mode the sheet/card surfaces become dark frosted while status colors, gate pills, blue routes, and gradient Passport cards stay identical. Achieved by building on semantic system colors + material surfaces (no separate dark palette to maintain). Verify each screen in **both** appearances in the simulator.
 - **Social:** frozen, re-themed only.
 
 ## 7. Definition of done (per screen)
-UI matches the corresponding Flighty screenshot in layout/spacing/color; the screen's data is real (bundled or live via Worker) — no stub text where Flighty shows data; builds clean; verified by simulator screenshot shared with the user; committed as a checkpoint. Overall done when screens 1–6 pass and the six consolidation issues are closed.
+UI matches the corresponding Flighty screenshot in layout/spacing/color **in both light and dark appearance**; the screen's data is real (bundled or live via Worker) — no stub text where Flighty shows data; builds clean; verified by simulator screenshots (light + dark) shared with the user; committed as a checkpoint. Overall done when screens 1–6 pass and the six consolidation issues are closed.
