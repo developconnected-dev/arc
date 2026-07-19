@@ -54,3 +54,26 @@ targets:
         CODE_SIGN_STYLE: Automatic
     entitlements:
       path: ArcWidget/ArcWidget.entitlements
+
+  ArcTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ArcTests
+    dependencies:
+      - target: Arc
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.arc.flighttracker.tests
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Arc:
+    build:
+      targets:
+        Arc: all
+        ArcTests: [test]
+    test:
+      targets:
+        - ArcTests
