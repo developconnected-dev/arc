@@ -103,8 +103,8 @@ struct AnnualReviewView: View {
                 }
                 .padding(.top, ArcSpace.xl)
 
-                // Globe with this year's routes
-                GlobeView(flights: completedFlights)
+                // Shared map with this year's routes (temporary; rebuilt in Passport plan)
+                ArcMapView(flights: completedFlights, controller: MapController())
                     .frame(height: 260)
                     .clipShape(RoundedRectangle(cornerRadius: ArcRadius.card))
 
