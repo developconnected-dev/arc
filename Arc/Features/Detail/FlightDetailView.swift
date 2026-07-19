@@ -21,7 +21,7 @@ struct FlightDetailView: View {
                     endpointsCard
                     bookingSeatRow
                     GoodToKnowSection(flight: flight)
-                    WheresMyPlaneSection(flight: flight)
+                    WheresMyPlaneSection(flight: flight).id("plane")
                     DetailedTimetableSection(flight: flight)
                     AirlineInfoSection(flight: flight)
                     RouteHistorySection(flight: flight)
@@ -34,9 +34,11 @@ struct FlightDetailView: View {
                 .padding(.bottom, 40)
             }
             .onAppear {
-                if ProcessInfo.processInfo.arguments.contains("-detailBottom") {
+                let args = ProcessInfo.processInfo.arguments
+                let target = args.contains("-detailBottom") ? "bottom" : args.contains("-detailPlane") ? "plane" : nil
+                if let target {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                        withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                        withAnimation { proxy.scrollTo(target, anchor: target == "plane" ? .top : .bottom) }
                     }
                 }
             }

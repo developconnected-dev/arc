@@ -143,13 +143,9 @@ struct PassportView: View {
                 Text("Most flown aircraft").font(.system(size: 20, weight: .bold)).foregroundStyle(Color(red: 0.1, green: 0.2, blue: 0.4))
                 Text(stats.mostFlownAircraft ?? "").font(.system(size: 40, weight: .heavy)).foregroundStyle(Color(red: 0.1, green: 0.2, blue: 0.4))
                 Text("\(stats.mostFlownCount) flights").font(.system(size: 15)).foregroundStyle(Color(red: 0.1, green: 0.2, blue: 0.4).opacity(0.7))
-                Image(AircraftImage.assetName(for: stats.mostFlownAircraft))
-                    .resizable().scaledToFit().frame(height: 90).frame(maxWidth: .infinity, alignment: .trailing)
-                    .overlay {
-                        if UIImage(named: AircraftImage.assetName(for: stats.mostFlownAircraft)) == nil {
-                            Image(systemName: "airplane").font(.system(size: 44)).foregroundStyle(Color(red: 0.1, green: 0.2, blue: 0.4).opacity(0.5))
-                        }
-                    }
+                AircraftArt(type: stats.mostFlownAircraft, color: Color(red: 0.13, green: 0.22, blue: 0.42))
+                    .frame(height: 84).frame(maxWidth: .infinity)
+                    .padding(.top, 4)
                 pillButton("All Aircraft Stats", dark: true)
             }
         }

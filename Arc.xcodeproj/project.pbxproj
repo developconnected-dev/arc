@@ -29,6 +29,7 @@
 		6C55946D9BE8B1E555ADBF45 /* AircraftImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A223847338A51B850FB3B5A /* AircraftImage.swift */; };
 		74936AF03801B1DEC0E40739 /* AddFlightView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6B0AA5B39E6C21E26E17DE7 /* AddFlightView.swift */; };
 		74C10FB358EFB074FC86CBA5 /* PassportStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38DA68A6519FA66B43996E0 /* PassportStats.swift */; };
+		7739FB9D6EB985B087C1BE8A /* AircraftSilhouette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CD183275F16AE2660B43277 /* AircraftSilhouette.swift */; };
 		782E9CE6FC733FBD77E43A5E /* AirlineLogoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11CAB1497F442E72CF11A73F /* AirlineLogoView.swift */; };
 		7B0F471853BB32A87C2C3C75 /* FlightDetailSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8483E3B4C6E1B44F201F2AAD /* FlightDetailSections.swift */; };
 		7E14E00521A22BF09D8F195B /* Flight+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F99ECA03255BFC524189A60 /* Flight+Display.swift */; };
@@ -118,6 +119,7 @@
 		4F7A0EB241567A257D24DFD0 /* FlightRowCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightRowCard.swift; sourceTree = "<group>"; };
 		4FB40E7D146DE8662884B50D /* FlightLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightLiveActivity.swift; sourceTree = "<group>"; };
 		5CCB5157053AA1F3BD9AF495 /* GeoMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeoMath.swift; sourceTree = "<group>"; };
+		5CD183275F16AE2660B43277 /* AircraftSilhouette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AircraftSilhouette.swift; sourceTree = "<group>"; };
 		5DFE5890F673E6E56FF7EAEF /* Arc.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Arc.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6203F2E6D1096F29FA5083FC /* ArcApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcApp.swift; sourceTree = "<group>"; };
 		66A38232A6E768DF2669A448 /* GeoMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeoMathTests.swift; sourceTree = "<group>"; };
@@ -319,6 +321,7 @@
 		D5E29A3BCE1DDBE9D039E27B /* Components */ = {
 			isa = PBXGroup;
 			children = (
+				5CD183275F16AE2660B43277 /* AircraftSilhouette.swift */,
 				11CAB1497F442E72CF11A73F /* AirlineLogoView.swift */,
 				98164F646EF99E31FD3731AD /* ArcTabBar.swift */,
 				85FA6BAFEA7DEBB5CB2DB08F /* BottomSheet.swift */,
@@ -500,6 +503,7 @@
 			files = (
 				74936AF03801B1DEC0E40739 /* AddFlightView.swift in Sources */,
 				6C55946D9BE8B1E555ADBF45 /* AircraftImage.swift in Sources */,
+				7739FB9D6EB985B087C1BE8A /* AircraftSilhouette.swift in Sources */,
 				B25EC52E0FA211AB82FC6644 /* AirlineBranding.swift in Sources */,
 				782E9CE6FC733FBD77E43A5E /* AirlineLogoView.swift in Sources */,
 				A0CFDAC70BB886B090D73B83 /* Airport.swift in Sources */,
