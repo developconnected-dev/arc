@@ -10,13 +10,13 @@ final class MapController {
     enum MapStyleKind { case standard, hybrid }
 
     /// Frame the camera to fit all given flights' routes.
-    func fitAll(_ flights: [Flight]) {
+    func fitAll(_ flights: [Flight], padding: Double = 1.4) {
         var coords: [CLLocationCoordinate2D] = []
         for f in flights where f.departureLat != 0 && f.arrivalLat != 0 {
             coords.append(.init(latitude: f.departureLat, longitude: f.departureLon))
             coords.append(.init(latitude: f.arrivalLat, longitude: f.arrivalLon))
         }
-        if let region = GeoMath.region(fitting: coords) {
+        if let region = GeoMath.region(fitting: coords, paddingFactor: padding) {
             withAnimation(.easeInOut(duration: 0.6)) { position = .region(region) }
         } else {
             position = .automatic
