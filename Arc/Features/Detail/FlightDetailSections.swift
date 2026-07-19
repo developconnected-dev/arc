@@ -63,16 +63,9 @@ struct WheresMyPlaneSection: View {
             }
             .padding(.horizontal, 16).padding(.top, 16)
 
-            Image(AircraftImage.assetName(for: flight.aircraftType))
-                .resizable().scaledToFit()
-                .frame(maxWidth: .infinity).frame(height: 130)
-                .padding(.vertical, 8)
-                .overlay(alignment: .center) {
-                    if UIImage(named: AircraftImage.assetName(for: flight.aircraftType)) == nil {
-                        Image(systemName: "airplane.circle")
-                            .font(.system(size: 56)).foregroundStyle(.white.opacity(0.85))
-                    }
-                }
+            AircraftArt(type: flight.aircraftType, color: .white)
+                .frame(maxWidth: .infinity).frame(height: 120)
+                .padding(.horizontal, 24).padding(.vertical, 10)
 
             VStack(alignment: .leading, spacing: 8) {
                 inboundRow

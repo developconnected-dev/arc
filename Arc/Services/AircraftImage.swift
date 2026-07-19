@@ -16,4 +16,11 @@ enum AircraftImage {
         for (needle, asset) in map where t.contains(needle) { return asset }
         return "aircraft-generic"
     }
+
+    /// True for twin-aisle / wide-body families.
+    static func isWide(_ type: String?) -> Bool {
+        guard let t = type?.uppercased() else { return false }
+        let wides = ["777", "787", "767", "747", "A330", "A340", "A350", "A380", "A300", "A310"]
+        return wides.contains { t.contains($0) }
+    }
 }
