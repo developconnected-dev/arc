@@ -6,7 +6,8 @@ struct ArcRootView: View {
     @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
 
     @State private var controller = MapController()
-    @State private var tab: ArcTab = .myFlights
+    @State private var tab: ArcTab = ProcessInfo.processInfo.arguments.contains("-tabPassport") ? .passport
+        : ProcessInfo.processInfo.arguments.contains("-tabFriends") ? .friends : .myFlights
     @State private var detent: SheetDetent = .medium
     @State private var showAdd = false
     @State private var detailFlight: Flight?
@@ -40,21 +41,37 @@ struct ArcRootView: View {
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
         .onChange(of: allFlights.map(\.id)) { _, _ in
-            controller.fitAll(mapFlights)
+            updateCameraForTab(tab)
             openDetailIfPending()
         }
+        .onChange(of: tab) { _, newTab in updateCameraForTab(newTab) }
         .onChange(of: detailFlight?.id) { _, _ in
             if let f = detailFlight { controller.focus(on: f) }
         }
         .onAppear {
             DemoSeed.seedIfRequested(into: modelContext, existing: allFlights)
-            controller.fitAll(mapFlights)
+            updateCameraForTab(tab)
             openDetailIfPending()
             if ProcessInfo.processInfo.arguments.contains("-openAdd") { showAdd = true }
         }
     }
 
-    private var mapFlights: [Flight] { allFlights.filter { $0.isUpcoming || $0.isActive } }
+    private var mapFlights: [Flight] {
+        switch tab {
+        case .passport: return allFlights.filter { $0.departureLat != 0 && $0.arrivalLat != 0 }
+        default: return allFlights.filter { $0.isUpcoming || $0.isActive }
+        }
+    }
+
+    private func updateCameraForTab(_ t: ArcTab) {
+        if t == .passport {
+            controller.style = .hybrid
+            controller.fitAll(mapFlights, padding: 2.2)
+        } else {
+            controller.style = .standard
+            controller.fitAll(mapFlights)
+        }
+    }
 
     private func openDetailIfPending() {
         guard pendingOpenDetail, detailFlight == nil, !allFlights.isEmpty else { return }
@@ -66,7 +83,7 @@ struct ArcRootView: View {
         switch tab {
         case .myFlights: MyFlightsView { detailFlight = $0 }
         case .friends: FriendsSheet()
-        case .passport: PassportSheet()
+        case .passport: PassportView { detailFlight = $0 }
         }
     }
 }

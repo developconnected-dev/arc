@@ -14,15 +14,3 @@ struct FriendsSheet: View {
     }
 }
 
-struct PassportSheet: View {
-    var body: some View {
-        VStack(alignment: .leading) {
-            Text("Passport").font(ArcTheme.screenTitle)
-            Text("Stats coming in the Passport screen plan.")
-                .font(ArcTheme.caption).foregroundStyle(.secondary)
-            Spacer()
-        }
-        .padding(.horizontal, ArcTheme.screenPad)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
