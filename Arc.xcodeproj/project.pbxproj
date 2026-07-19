@@ -12,6 +12,7 @@
 		09ACF3DC4A5CF3B293B719EB /* RootTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B5EBEA46F14A596CAC1D89 /* RootTabView.swift */; };
 		28B41532664F0666774F2FA6 /* ArcWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		2FF54C18096971D871B206B9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0E950A3B65137B3F46CF9625 /* Assets.xcassets */; };
+		3190C8FCAC6039B71113589D /* ReferenceDataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A136200E180C33472B503DE3 /* ReferenceDataTests.swift */; };
 		3DD1E3D27CF4B260288869FA /* FlightDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F94561576A017566B3361F5F /* FlightDetailView.swift */; };
 		47733FC27C873C75889EB557 /* InboundMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3BA60104125C5743ECF86F8 /* InboundMonitor.swift */; };
 		4AE2FE5214E10250062917FC /* AnnualReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 707C824F54C402F8D70FF43F /* AnnualReviewView.swift */; };
@@ -20,6 +21,7 @@
 		5A687F07602155831DF39840 /* airlines.json in Resources */ = {isa = PBXBuildFile; fileRef = 85DB98F13E1308062AC4A2A9 /* airlines.json */; };
 		5BFC4245B668EF91BE8CF988 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4864581CF99C026C4AB5136F /* SettingsView.swift */; };
 		6E9F5D91840674AE5D008114 /* FlightsHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D45CF210803F875BA9216477 /* FlightsHomeView.swift */; };
+		825FA5FD9518679A5102F8E5 /* ReferenceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3656C3156166F8E024EE5B7D /* ReferenceModels.swift */; };
 		86B066ECAFCF0E3B5E177C8C /* LiveActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFC83E4E29772AC89D75C9E8 /* LiveActivityManager.swift */; };
 		8ED498F91B66740B412D0611 /* SupabaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B5B63F833E1CB9C679CD6C1 /* SupabaseClient.swift */; };
 		8F183C5AACBAEDC17407ABD8 /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED3BBC117AA0A74224DAF8AB /* WidgetData.swift */; };
@@ -29,6 +31,7 @@
 		9C894C7AEAE72DD9CBA288F8 /* FlightActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B59DFF600FEDEB5C44BEED7 /* FlightActivityAttributes.swift */; };
 		A0CFDAC70BB886B090D73B83 /* Airport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45CDEF12D33E504034C15720 /* Airport.swift */; };
 		ACC42ADB0DA1BC819B995433 /* FlightCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 284599E3BD487872175F7A07 /* FlightCard.swift */; };
+		AD144643F6272369E3A1D584 /* ReferenceData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 178D23CC53F67645C9230260 /* ReferenceData.swift */; };
 		AE8A969D54CC001AF4336515 /* Flight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 210826009A37E90654E69671 /* Flight.swift */; };
 		C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6203F2E6D1096F29FA5083FC /* ArcApp.swift */; };
 		C95804ADD76EDEB2671A5121 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */; };
@@ -76,6 +79,7 @@
 
 /* Begin PBXFileReference section */
 		0E950A3B65137B3F46CF9625 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		178D23CC53F67645C9230260 /* ReferenceData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceData.swift; sourceTree = "<group>"; };
 		1BFECC1DABBC5FC07371E956 /* ArcDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcDesign.swift; sourceTree = "<group>"; };
 		1E47BF7D61BAF11682C2B4E2 /* FlightAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightAPIClient.swift; sourceTree = "<group>"; };
 		210826009A37E90654E69671 /* Flight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Flight.swift; sourceTree = "<group>"; };
@@ -85,6 +89,7 @@
 		28B5EBEA46F14A596CAC1D89 /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
 		3104AD04269DDBC745E354F1 /* airports.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = airports.json; sourceTree = "<group>"; };
 		343257F6CBC830BB8386C5BA /* FriendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsView.swift; sourceTree = "<group>"; };
+		3656C3156166F8E024EE5B7D /* ReferenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceModels.swift; sourceTree = "<group>"; };
 		37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		45CDEF12D33E504034C15720 /* Airport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Airport.swift; sourceTree = "<group>"; };
 		4864581CF99C026C4AB5136F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -99,6 +104,7 @@
 		85DB98F13E1308062AC4A2A9 /* airlines.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = airlines.json; sourceTree = "<group>"; };
 		888B0D037817C14E4AF0BAB7 /* NextFlightWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextFlightWidget.swift; sourceTree = "<group>"; };
 		8B5B63F833E1CB9C679CD6C1 /* SupabaseClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseClient.swift; sourceTree = "<group>"; };
+		A136200E180C33472B503DE3 /* ReferenceDataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceDataTests.swift; sourceTree = "<group>"; };
 		A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ArcWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		BAE00845F094A1DDFECEB3B8 /* AddFlightSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddFlightSheet.swift; sourceTree = "<group>"; };
 		BFC83E4E29772AC89D75C9E8 /* LiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityManager.swift; sourceTree = "<group>"; };
@@ -181,6 +187,7 @@
 				C3BA60104125C5743ECF86F8 /* InboundMonitor.swift */,
 				BFC83E4E29772AC89D75C9E8 /* LiveActivityManager.swift */,
 				37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */,
+				178D23CC53F67645C9230260 /* ReferenceData.swift */,
 				8B5B63F833E1CB9C679CD6C1 /* SupabaseClient.swift */,
 				E909886CA15B1B79B6D631A0 /* WidgetSync.swift */,
 			);
@@ -192,6 +199,7 @@
 			children = (
 				45CDEF12D33E504034C15720 /* Airport.swift */,
 				210826009A37E90654E69671 /* Flight.swift */,
+				3656C3156166F8E024EE5B7D /* ReferenceModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -267,6 +275,7 @@
 		F217BA22EB7CDEAB4A10C314 /* ArcTests */ = {
 			isa = PBXGroup;
 			children = (
+				A136200E180C33472B503DE3 /* ReferenceDataTests.swift */,
 				8011F1F9596F27743C731E2F /* SmokeTests.swift */,
 			);
 			path = ArcTests;
@@ -398,6 +407,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3190C8FCAC6039B71113589D /* ReferenceDataTests.swift in Sources */,
 				055E0F22DAEA1DCEC41CEE5F /* SmokeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -425,6 +435,8 @@
 				86B066ECAFCF0E3B5E177C8C /* LiveActivityManager.swift in Sources */,
 				C95804ADD76EDEB2671A5121 /* NotificationService.swift in Sources */,
 				CCECD249FFDFECCB78A96943 /* PassportStatsView.swift in Sources */,
+				AD144643F6272369E3A1D584 /* ReferenceData.swift in Sources */,
+				825FA5FD9518679A5102F8E5 /* ReferenceModels.swift in Sources */,
 				09ACF3DC4A5CF3B293B719EB /* RootTabView.swift in Sources */,
 				5BFC4245B668EF91BE8CF988 /* SettingsView.swift in Sources */,
 				8ED498F91B66740B412D0611 /* SupabaseClient.swift in Sources */,
