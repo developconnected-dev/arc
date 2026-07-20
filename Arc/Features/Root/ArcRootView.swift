@@ -70,6 +70,7 @@ struct ArcRootView: View {
         }
         .onAppear {
             DemoSeed.seedIfRequested(into: modelContext, existing: allFlights)
+            DemoSeed.seedStuckFlightIfRequested(into: modelContext, existing: allFlights)
             refitMapForCurrentData()
             openDetailIfPending()
             bootstrapTrackingAndWidgets()
