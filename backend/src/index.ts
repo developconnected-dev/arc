@@ -18,6 +18,34 @@ function toISO(s: unknown): string {
   return isNaN(d.getTime()) ? "" : d.toISOString();
 }
 
+// AeroDataBox's full FlightStatus vocabulary (confirmed against the live API +
+// its published OpenAPI schema): unknown, expected, enRoute, checkIn, boarding,
+// gateClosed, departed, delayed, approaching, arrived, canceled, diverted,
+// canceledUncertain. The app only knows 5 buckets, so map into those —
+// anything pre-departure collapses to "scheduled" (delay is tracked separately
+// via the `delay` field, not the status string).
+const STATUS_MAP: Record<string, string> = {
+  unknown: "scheduled",
+  expected: "scheduled",
+  checkin: "scheduled",
+  boarding: "scheduled",
+  gateclosed: "scheduled",
+  delayed: "scheduled",
+  enroute: "active",
+  departed: "active",
+  approaching: "active",
+  arrived: "landed",
+  canceled: "cancelled",
+  cancelled: "cancelled",
+  canceleduncertain: "cancelled",
+  diverted: "diverted",
+};
+
+function normalizeStatus(raw: unknown): string {
+  const key = String(raw ?? "").toLowerCase();
+  return STATUS_MAP[key] ?? "scheduled";
+}
+
 function delayMinutes(scheduled: unknown, revised: unknown): number {
   const s = toISO(scheduled), r = toISO(revised);
   if (!s || !r) return 0;
@@ -46,7 +74,7 @@ function mapLeg(f: Record<string, any>): Record<string, unknown> {
     arr_city: arrA.municipalityName ?? null,
     dep_scheduled: toISO(depSched),
     arr_scheduled: toISO(arrSched),
-    status: (f.status ?? "scheduled").toString().toLowerCase(),
+    status: normalizeStatus(f.status),
     dep_gate: dep.gate ?? null,
     dep_terminal: dep.terminal ?? null,
     arr_gate: arr.gate ?? null,

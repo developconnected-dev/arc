@@ -15,20 +15,17 @@ enum InboundSelection {
         arrivingAt departureIATA: String,
         before beforeDeparture: Date
     ) -> FlightAPIClient.FlightSearchResult? {
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime]
-
         let candidates = legs.filter { leg in
             guard leg.flight_number != currentNumber,
                   leg.arr_iata.uppercased() == departureIATA.uppercased(),
-                  let arrival = iso.date(from: leg.arr_scheduled)
+                  let arrival = DateHelpers.parseAPIDate(leg.arr_scheduled)
             else { return false }
             return arrival <= beforeDeparture
         }
 
         return candidates.max { a, b in
-            let da = iso.date(from: a.arr_scheduled) ?? .distantPast
-            let db = iso.date(from: b.arr_scheduled) ?? .distantPast
+            let da = DateHelpers.parseAPIDate(a.arr_scheduled) ?? .distantPast
+            let db = DateHelpers.parseAPIDate(b.arr_scheduled) ?? .distantPast
             return da < db
         }
     }
