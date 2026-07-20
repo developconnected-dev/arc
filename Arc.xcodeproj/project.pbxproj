@@ -57,7 +57,6 @@
 		C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6203F2E6D1096F29FA5083FC /* ArcApp.swift */; };
 		C95804ADD76EDEB2671A5121 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */; };
 		CAD442F2201C5E0593480795 /* GeoMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CCB5157053AA1F3BD9AF495 /* GeoMath.swift */; };
-		CB4FCC72D9F2B814B569C64F /* StubSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2136C8735630D51D673A7EA /* StubSheets.swift */; };
 		CE8EDCF06AF9286001FAB953 /* airports.json in Resources */ = {isa = PBXBuildFile; fileRef = 3104AD04269DDBC745E354F1 /* airports.json */; };
 		CF9EC77C1A77F199DAD62E77 /* BottomSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85FA6BAFEA7DEBB5CB2DB08F /* BottomSheet.swift */; };
 		D26812028267EF8CE41C593F /* ArcWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E939CF90FDCC989380305A0 /* ArcWidgetBundle.swift */; };
@@ -160,7 +159,6 @@
 		CD77AF2CE7584E492AA0A637 /* MapController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapController.swift; sourceTree = "<group>"; };
 		D318093F38973AB568D94123 /* ArcMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcMapView.swift; sourceTree = "<group>"; };
 		DAFCDA1E27F312CF2BBD90DA /* InboundSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboundSelection.swift; sourceTree = "<group>"; };
-		E2136C8735630D51D673A7EA /* StubSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StubSheets.swift; sourceTree = "<group>"; };
 		E909886CA15B1B79B6D631A0 /* WidgetSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSync.swift; sourceTree = "<group>"; };
 		ED3BBC117AA0A74224DAF8AB /* WidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetData.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -311,7 +309,6 @@
 			children = (
 				0A54EAE7163E5314C68F828C /* ArcRootView.swift */,
 				78C36DE016E979779A485A54 /* DemoSeed.swift */,
-				E2136C8735630D51D673A7EA /* StubSheets.swift */,
 			);
 			path = Root;
 			sourceTree = "<group>";
@@ -565,7 +562,6 @@
 				825FA5FD9518679A5102F8E5 /* ReferenceModels.swift in Sources */,
 				5BFC4245B668EF91BE8CF988 /* SettingsView.swift in Sources */,
 				301E39861AE25DD77B097AE0 /* StatsDetailView.swift in Sources */,
-				CB4FCC72D9F2B814B569C64F /* StubSheets.swift in Sources */,
 				8ED498F91B66740B412D0611 /* SupabaseClient.swift in Sources */,
 				0F5F444E06F4497CAB4F095F /* TextHelpers.swift in Sources */,
 				9C4509B5E588A11B545D2021 /* WidgetData.swift in Sources */,

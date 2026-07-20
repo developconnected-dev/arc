@@ -54,11 +54,47 @@ final class ArcSupabase: ObservableObject {
             "nonce": nonce
         ]
         let data = try await post(path: "/auth/v1/token?grant_type=id_token", body: body, auth: false)
-        let result = try JSONDecoder().decode(AuthResponse.self, from: data)
+        let result = try decodeAuth(data)
         accessToken = result.access_token
         refreshToken = result.refresh_token
         isSignedIn = true
         await loadProfile()
+    }
+
+    // MARK: - Email sign-in (works with zero extra setup — Supabase's built-in
+    // email provider, unlike Apple which needs a Services ID + key configured
+    // in both the Apple Developer portal and Supabase Auth settings)
+
+    /// Sends a 6-digit sign-in code to `email`. `create_user: true` means a
+    /// first-time email doubles as sign-up — there's no separate registration step.
+    func requestEmailCode(email: String) async throws {
+        let body: [String: Any] = ["email": email, "create_user": true]
+        _ = try await post(path: "/auth/v1/otp", body: body, auth: false)
+    }
+
+    /// Exchanges the code from `requestEmailCode` for a session.
+    func verifyEmailCode(email: String, code: String) async throws {
+        let body: [String: Any] = ["email": email, "token": code, "type": "email"]
+        let data = try await post(path: "/auth/v1/verify", body: body, auth: false)
+        let result = try decodeAuth(data)
+        accessToken = result.access_token
+        refreshToken = result.refresh_token
+        isSignedIn = true
+        await loadProfile()
+    }
+
+    /// Supabase returns a 2xx with `{access_token, refresh_token, ...}` on
+    /// success, or a non-2xx with `{error_description}` / `{msg}` on failure —
+    /// surface that message instead of a generic decode error.
+    private func decodeAuth(_ data: Data) throws -> AuthResponse {
+        if let result = try? JSONDecoder().decode(AuthResponse.self, from: data) {
+            return result
+        }
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let message = (obj["error_description"] as? String) ?? (obj["msg"] as? String) ?? (obj["error"] as? String)
+            throw ArcError.server(message ?? "Sign-in failed.")
+        }
+        throw ArcError.server("Sign-in failed.")
     }
 
     func signOut() {
@@ -334,8 +370,17 @@ final class ArcSupabase: ObservableObject {
         let id: String
     }
 
-    enum ArcError: Error {
+    enum ArcError: LocalizedError {
         case notSignedIn
         case notConfigured
+        case server(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .notSignedIn: "You're not signed in."
+            case .notConfigured: "Social features aren't configured."
+            case .server(let message): message
+            }
+        }
     }
 }
