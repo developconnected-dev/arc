@@ -159,8 +159,17 @@ extension Flight {
 
     var departureRelText: String {
         if let t = compactUntil(effectiveDeparture) { return "Departs in \(t)" }
-        let ago = Int(-effectiveDeparture.timeIntervalSince(.now) / 60)
-        return ago >= 60 ? "\(ago/60)h \(ago%60)m ago" : "\(max(0, ago))m ago"
+        return "\(compactAgo(effectiveDeparture)) ago"
+    }
+
+    /// "5m", "2h 10m", or "61d" style elapsed time — mirrors `compactUntil`'s
+    /// day-bucketing so a flight from months ago doesn't read as "1463h 34m ago".
+    private func compactAgo(_ date: Date) -> String {
+        let s = max(0, Int(-date.timeIntervalSince(.now)))
+        let d = s / 86400, h = (s % 86400) / 3600, m = (s % 3600) / 60
+        if d >= 1 { return "\(d)d \(h)h" }
+        if h >= 1 { return "\(h)h \(m)m" }
+        return "\(m)m"
     }
     var arrivalRelText: String {
         if let t = compactUntil(effectiveArrival) { return "Arrives in \(t)" }

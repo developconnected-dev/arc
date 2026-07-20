@@ -55,7 +55,11 @@ enum DemoSeed {
             f.aircraftType = p.5
             f.aircraftRegistration = p.6
             f.delayMinutes = p.7
-            f.actualArrival = f.scheduledArrival
+            // Keep actual times consistent with the recorded delay (a delayed
+            // landed flight shouldn't also claim it arrived exactly on schedule).
+            let delaySeconds = Double(p.7) * 60
+            f.actualDeparture = f.scheduledDeparture.addingTimeInterval(delaySeconds)
+            f.actualArrival = f.scheduledArrival.addingTimeInterval(delaySeconds)
             context.insert(f)
         }
 
