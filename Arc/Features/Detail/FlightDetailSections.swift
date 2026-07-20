@@ -143,6 +143,7 @@ struct WheresMyPlaneSection: View {
 
     private var statusText: String {
         if flight.isActive { return "Tracking live position" }
+        if !flight.isUpcoming { return "This flight has already flown" }
         if !flight.inboundChecked { return "Monitoring the inbound aircraft…" }
         if flight.inboundFlightNumber == nil { return "No prior rotation found for this tail" }
         if flight.inboundDelayMinutes > 0 { return "Inbound aircraft running \(flight.inboundDelayMinutes)m late" }
