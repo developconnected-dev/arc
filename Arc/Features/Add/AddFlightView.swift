@@ -93,6 +93,18 @@ struct AddFlightView: View {
             manualAircraft = "Airbus A330-300"
             manualRegistration = "HB-JHQ"
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { addManual() }
+        case "liveSearchAndAdd":
+            // Real end-to-end proof of the reported bug: real search against the
+            // live backend, then add() through the exact path a tap would take —
+            // no synthetic data anywhere in this path.
+            airline = ReferenceData.shared.airline("LX")
+            number = "8"
+            date = .now
+            step = .results
+            Task {
+                await runSearch()
+                if let first = results.first { add(first) }
+            }
         default: break
         }
     }
