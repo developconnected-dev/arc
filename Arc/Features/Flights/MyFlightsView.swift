@@ -47,6 +47,9 @@ struct MyFlightsView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView()
         }
+        .onAppear {
+            if ProcessInfo.processInfo.arguments.contains("-openSettings") { showSettings = true }
+        }
     }
 
     private var header: some View {
