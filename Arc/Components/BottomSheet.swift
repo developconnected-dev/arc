@@ -10,6 +10,31 @@ enum SheetDetent: CaseIterable {
 /// A draggable, multi-detent bottom sheet that sits in a ZStack over the map,
 /// so a floating tab bar can be layered above it. The drag gesture lives on the
 /// top grabber zone only, leaving any ScrollView inside `content` free to scroll.
+struct BottomSheet<Content: View>: View {
+    @Binding var detent: SheetDetent
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        GeometryReader { geo in
+            // `content()` is called exactly once per `BottomSheet.body` run —
+            // which only happens when `detent` changes or the caller hands us
+            // a genuinely new closure (e.g. the active tab changed). Anything
+            // that changes on every single frame of an active drag lives one
+            // level down, on SheetChrome, so a drag never forces SwiftUI to
+            // re-walk `content`'s own body (re-filtering/re-sorting the flight
+            // list, rebuilding every row) 60-120 times a second. That per-frame
+            // rebuild — not the spring logic or the material blur, both already
+            // fixed separately — is what was still reading as "laggy" during an
+            // actual resize.
+            SheetChrome(detent: $detent, height: geo.size.height, content: content())
+        }
+        .ignoresSafeArea()
+    }
+}
+
+/// Owns everything that changes during an active drag. Isolated from
+/// `BottomSheet` itself so high-frequency updates here never force `content`
+/// (handed down as an already-built value, not a closure) to reconstruct.
 ///
 /// The sheet height is tracked in a plain `@State`, not `@GestureState`. A
 /// `@GestureState` value snaps back to its initial value the instant the
@@ -18,9 +43,10 @@ enum SheetDetent: CaseIterable {
 /// drag that settles back onto the same detent used to jump-cut instead of
 /// animating. Driving `liveHeight` directly and always wrapping the settle in
 /// an explicit `withAnimation` fixes that regardless of whether the detent changes.
-struct BottomSheet<Content: View>: View {
+private struct SheetChrome<Content: View>: View {
     @Binding var detent: SheetDetent
-    @ViewBuilder var content: () -> Content
+    let height: CGFloat
+    let content: Content
 
     @State private var liveHeight: CGFloat?
     @State private var dragBaseline: CGFloat?
@@ -28,44 +54,35 @@ struct BottomSheet<Content: View>: View {
     private let snapAnimation = Animation.interpolatingSpring(stiffness: 320, damping: 32)
 
     var body: some View {
-        GeometryReader { geo in
-            let h = geo.size.height
-            let visible = liveHeight ?? (h * detent.fraction)
+        let h = height
+        let visible = liveHeight ?? (h * detent.fraction)
 
-            VStack(spacing: 0) {
-                grabber
-                    .contentShape(Rectangle())
-                    .gesture(dragGesture(height: h, currentVisible: visible))
-                content()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: h, alignment: .top)
-            // `.regularMaterial` does live Gaussian blur/vibrancy sampling of
-            // whatever's behind it — here, the map. That blur region's bounds
-            // change every single frame while the sheet is being resized by a
-            // drag, forcing continuous re-blur over changing dimensions, which
-            // is genuinely GPU-expensive and reads as "laggy" specifically
-            // *during* interaction — completely invisible to a static
-            // screenshot, which is exactly why it survived two earlier fixes
-            // that only addressed animation-timing logic. Swap to a cheap
-            // static alpha blend (no live sampling) while actively dragging,
-            // restore the real material once settled.
-            .background(
-                dragBaseline != nil
-                    ? AnyShapeStyle(Color(.systemBackground).opacity(0.92))
-                    : AnyShapeStyle(.regularMaterial),
-                in: sheetShape
-            )
-            .overlay(alignment: .top) { sheetShape.stroke(Color(.separator).opacity(0.5), lineWidth: 0.5).frame(height: h) }
-            .offset(y: h - visible)
-            .onAppear { liveHeight = h * detent.fraction }
-            .onChange(of: detent) { _, newValue in
-                guard dragBaseline == nil else { return }   // don't fight an active drag
-                withAnimation(snapAnimation) { liveHeight = h * newValue.fraction }
-            }
+        VStack(spacing: 0) {
+            grabber
+                .contentShape(Rectangle())
+                .gesture(dragGesture(height: h, currentVisible: visible))
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .ignoresSafeArea()
+        .frame(maxWidth: .infinity)
+        .frame(height: h, alignment: .top)
+        // `.regularMaterial` does live Gaussian blur/vibrancy sampling of
+        // whatever's behind it — here, the map. Swap to a cheap static alpha
+        // blend (no live sampling) while actively dragging, restore the real
+        // material once settled.
+        .background(
+            dragBaseline != nil
+                ? AnyShapeStyle(Color(.systemBackground).opacity(0.92))
+                : AnyShapeStyle(.regularMaterial),
+            in: sheetShape
+        )
+        .overlay(alignment: .top) { sheetShape.stroke(Color(.separator).opacity(0.5), lineWidth: 0.5).frame(height: h) }
+        .offset(y: h - visible)
+        .onAppear { liveHeight = h * detent.fraction }
+        .onChange(of: detent) { _, newValue in
+            guard dragBaseline == nil else { return }   // don't fight an active drag
+            withAnimation(snapAnimation) { liveHeight = h * newValue.fraction }
+        }
     }
 
     private func dragGesture(height h: CGFloat, currentVisible: CGFloat) -> some Gesture {
