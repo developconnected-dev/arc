@@ -42,6 +42,7 @@
 		91538C97272ECB2B1CE14434 /* BrandingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8296407C7B6624104AE2703D /* BrandingTests.swift */; };
 		95E9EB1D6085989A0AA988BF /* FriendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 343257F6CBC830BB8386C5BA /* FriendsView.swift */; };
 		9B33C29C7FA1F5778E083398 /* FlightActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B59DFF600FEDEB5C44BEED7 /* FlightActivityAttributes.swift */; };
+		9B63152237B6E5F4B7FA9392 /* DateHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2ED974C878C66DFB8E89AFE /* DateHelpers.swift */; };
 		9C4509B5E588A11B545D2021 /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED3BBC117AA0A74224DAF8AB /* WidgetData.swift */; };
 		9C894C7AEAE72DD9CBA288F8 /* FlightActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B59DFF600FEDEB5C44BEED7 /* FlightActivityAttributes.swift */; };
 		A0CFDAC70BB886B090D73B83 /* Airport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45CDEF12D33E504034C15720 /* Airport.swift */; };
@@ -62,6 +63,7 @@
 		E6F67237EDC556551CEAEE73 /* AirportDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2689BBDC633D503741A61075 /* AirportDatabase.swift */; };
 		E84B095C2CDB1EAAB5567249 /* PassportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DDC05441C6505A7B01620F3 /* PassportView.swift */; };
 		FD48EDF02229BF53B07CF93B /* NextFlightWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888B0D037817C14E4AF0BAB7 /* NextFlightWidget.swift */; };
+		FF28A915F2E461B6A44D4F3A /* FlightDisplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64047F33627992F4D8030E71 /* FlightDisplayTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -124,6 +126,7 @@
 		5CD183275F16AE2660B43277 /* AircraftSilhouette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AircraftSilhouette.swift; sourceTree = "<group>"; };
 		5DFE5890F673E6E56FF7EAEF /* Arc.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Arc.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6203F2E6D1096F29FA5083FC /* ArcApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcApp.swift; sourceTree = "<group>"; };
+		64047F33627992F4D8030E71 /* FlightDisplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightDisplayTests.swift; sourceTree = "<group>"; };
 		66A38232A6E768DF2669A448 /* GeoMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeoMathTests.swift; sourceTree = "<group>"; };
 		6E939CF90FDCC989380305A0 /* ArcWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcWidgetBundle.swift; sourceTree = "<group>"; };
 		734A69EC4EB99125C060E4F5 /* FlightDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightDetailView.swift; sourceTree = "<group>"; };
@@ -142,6 +145,7 @@
 		A2D08589F3ED37C33758DAC5 /* TextHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextHelpers.swift; sourceTree = "<group>"; };
 		A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ArcWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A99FE65B13FFE0D0203987D5 /* MyFlightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyFlightsView.swift; sourceTree = "<group>"; };
+		B2ED974C878C66DFB8E89AFE /* DateHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateHelpers.swift; sourceTree = "<group>"; };
 		B38DA68A6519FA66B43996E0 /* PassportStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassportStats.swift; sourceTree = "<group>"; };
 		BFC83E4E29772AC89D75C9E8 /* LiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityManager.swift; sourceTree = "<group>"; };
 		C3BA60104125C5743ECF86F8 /* InboundMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboundMonitor.swift; sourceTree = "<group>"; };
@@ -248,6 +252,7 @@
 				1A223847338A51B850FB3B5A /* AircraftImage.swift */,
 				0E523F671AB6E8AFA8FCF1C3 /* AirlineBranding.swift */,
 				2689BBDC633D503741A61075 /* AirportDatabase.swift */,
+				B2ED974C878C66DFB8E89AFE /* DateHelpers.swift */,
 				1E47BF7D61BAF11682C2B4E2 /* FlightAPIClient.swift */,
 				234B3612AF40D9B0CBA15CBE /* FlightTracker.swift */,
 				C3BA60104125C5743ECF86F8 /* InboundMonitor.swift */,
@@ -360,6 +365,7 @@
 			isa = PBXGroup;
 			children = (
 				8296407C7B6624104AE2703D /* BrandingTests.swift */,
+				64047F33627992F4D8030E71 /* FlightDisplayTests.swift */,
 				66A38232A6E768DF2669A448 /* GeoMathTests.swift */,
 				A136200E180C33472B503DE3 /* ReferenceDataTests.swift */,
 				8011F1F9596F27743C731E2F /* SmokeTests.swift */,
@@ -494,6 +500,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				91538C97272ECB2B1CE14434 /* BrandingTests.swift in Sources */,
+				FF28A915F2E461B6A44D4F3A /* FlightDisplayTests.swift in Sources */,
 				147ED96EDE432F34CFA07B0F /* GeoMathTests.swift in Sources */,
 				3190C8FCAC6039B71113589D /* ReferenceDataTests.swift in Sources */,
 				055E0F22DAEA1DCEC41CEE5F /* SmokeTests.swift in Sources */,
@@ -518,6 +525,7 @@
 				67CD1CA79C762C8CFD137523 /* ArcTabBar.swift in Sources */,
 				12441CF9EEA5848E9DFE70A8 /* ArcTheme.swift in Sources */,
 				CF9EC77C1A77F199DAD62E77 /* BottomSheet.swift in Sources */,
+				9B63152237B6E5F4B7FA9392 /* DateHelpers.swift in Sources */,
 				8625562A2DEDFF9FE944C920 /* DemoSeed.swift in Sources */,
 				7E14E00521A22BF09D8F195B /* Flight+Display.swift in Sources */,
 				AE8A969D54CC001AF4336515 /* Flight.swift in Sources */,

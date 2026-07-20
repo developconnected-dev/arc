@@ -92,9 +92,21 @@ extension Flight {
         return f.string(from: scheduledDeparture).uppercased()
     }
 
-    /// The effective (live) departure/arrival time, falling back to scheduled.
-    var effectiveDeparture: Date { actualDeparture ?? scheduledDeparture }
-    var effectiveArrival: Date { estimatedArrival ?? actualArrival ?? scheduledArrival }
+    /// The effective (live) departure/arrival time. Prefers an explicit actual/estimated
+    /// timestamp; when the API only gave us a delay count (the common case), derives the
+    /// effective time from `scheduledDeparture/Arrival + delayMinutes` so the delay actually
+    /// shows up as a late/colored time instead of silently reading as "On Time" everywhere.
+    var effectiveDeparture: Date {
+        if let actualDeparture { return actualDeparture }
+        if delayMinutes > 0 { return scheduledDeparture.addingTimeInterval(Double(delayMinutes) * 60) }
+        return scheduledDeparture
+    }
+    var effectiveArrival: Date {
+        if let estimatedArrival { return estimatedArrival }
+        if let actualArrival { return actualArrival }
+        if delayMinutes > 0 { return scheduledArrival.addingTimeInterval(Double(delayMinutes) * 60) }
+        return scheduledArrival
+    }
 
     var departureChanged: Bool { abs(effectiveDeparture.timeIntervalSince(scheduledDeparture)) >= 60 }
     var arrivalChanged: Bool { abs(effectiveArrival.timeIntervalSince(scheduledArrival)) >= 60 }

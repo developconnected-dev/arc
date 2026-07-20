@@ -22,16 +22,7 @@ struct GoodToKnowSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle("Good to Know")
-            card {
-                HStack(spacing: 10) {
-                    Image(systemName: "checkmark.seal.fill").foregroundStyle(ArcTheme.onTime)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("No known disruptions").font(.system(size: 15, weight: .semibold))
-                        Text("\(flight.departureIATA) and \(flight.arrivalIATA) operating normally")
-                            .font(.system(size: 13)).foregroundStyle(.secondary)
-                    }
-                }
-            }
+            card { disruptionRow }
             if flight.timezoneDeltaHours != 0 {
                 card {
                     HStack(spacing: 10) {
@@ -47,6 +38,38 @@ struct GoodToKnowSection: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder private var disruptionRow: some View {
+        let (icon, tint, title, sub) = disruptionInfo
+        HStack(spacing: 10) {
+            Image(systemName: icon).foregroundStyle(tint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 15, weight: .semibold))
+                Text(sub).font(.system(size: 13)).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var disruptionInfo: (icon: String, tint: Color, title: String, sub: String) {
+        if flight.status == .cancelled {
+            return ("xmark.seal.fill", ArcTheme.late, "Flight cancelled",
+                    "\(flight.departureIATA) → \(flight.arrivalIATA) will not operate as scheduled")
+        }
+        if flight.status == .diverted {
+            return ("arrow.triangle.turn.up.right.diamond.fill", ArcTheme.late, "Flight diverted",
+                    "This flight was routed to a different airport")
+        }
+        if flight.delayMinutes > 15 {
+            return ("exclamationmark.triangle.fill", ArcTheme.late, "Running \(flight.delayMinutes)m late",
+                    "\(flight.departureIATA) → \(flight.arrivalIATA) is experiencing delays")
+        }
+        if flight.delayMinutes > 0 {
+            return ("clock.fill", .orange, "Minor delay — \(flight.delayMinutes)m",
+                    "\(flight.departureIATA) and \(flight.arrivalIATA) operating with a short delay")
+        }
+        return ("checkmark.seal.fill", ArcTheme.onTime, "No known disruptions",
+                "\(flight.departureIATA) and \(flight.arrivalIATA) operating normally")
     }
 }
 
