@@ -69,9 +69,11 @@ struct MyFlightsView: View {
     }
 
     private func delete(_ flight: Flight) {
+        let id = flight.id   // capture before delete — the model becomes invalid after
         ArcNotifications.removeAll(for: flight)
         modelContext.delete(flight)
         try? modelContext.save()
+        Task { try? await ArcSupabase.shared.deleteUserFlight(id: id) }
     }
 
     private var header: some View {

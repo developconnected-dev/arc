@@ -591,6 +591,7 @@ struct AddFlightView: View {
         do {
             try modelContext.save()
             if manualStatus == .scheduled { ArcNotifications.scheduleDepartureReminder(for: f) }
+            syncToCloud(f)
             dismiss()
         } catch {
             modelContext.delete(f)
@@ -719,6 +720,7 @@ struct AddFlightView: View {
         do {
             try modelContext.save()
             ArcNotifications.scheduleDepartureReminder(for: f)
+            syncToCloud(f)
             isAdding = false
             dismiss()
         } catch {
@@ -726,6 +728,12 @@ struct AddFlightView: View {
             isAdding = false
             addError = "Couldn't save this flight: \(error.localizedDescription)"
         }
+    }
+
+    /// Best-effort background mirror to Supabase — never blocks or fails the
+    /// local add, which must keep working fully offline / signed-out.
+    private func syncToCloud(_ flight: Flight) {
+        Task { try? await ArcSupabase.shared.upsertUserFlight(flight) }
     }
 }
 
