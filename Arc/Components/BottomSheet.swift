@@ -67,8 +67,17 @@ struct BottomSheet<Content: View>: View {
                 let nearest = SheetDetent.allCases.min {
                     abs($0.fraction * h - projected) < abs($1.fraction * h - projected)
                 } ?? detent
-                withAnimation(snapAnimation) { liveHeight = h * nearest.fraction }
-                detent = nearest
+                // Exactly one path animates the settle, never both: if the detent
+                // is actually changing, `.onChange(of: detent)` below does it; if
+                // it's staying the same (a short drag that springs back), that
+                // onChange never fires, so animate right here instead. Previously
+                // both could fire — the same spring restarting a frame apart on
+                // literally every release, which is a real source of visible stutter.
+                if nearest == detent {
+                    withAnimation(snapAnimation) { liveHeight = h * nearest.fraction }
+                } else {
+                    detent = nearest
+                }
             }
     }
 
@@ -76,12 +85,16 @@ struct BottomSheet<Content: View>: View {
         UnevenRoundedRectangle(topLeadingRadius: ArcTheme.sheetCorner, topTrailingRadius: ArcTheme.sheetCorner)
     }
 
+    /// 50pt tall — Apple's HIG minimum touch target is 44pt; the old 32pt zone
+    /// was genuinely below that, so a finger not pixel-perfectly on the 5pt
+    /// visual capsule would just miss it and nothing would happen, which reads
+    /// as "unresponsive"/"buggy" even though the drag logic itself was fine.
     private var grabber: some View {
         Capsule().fill(Color(.tertiaryLabel))
             .frame(width: 40, height: 5)
             .frame(maxWidth: .infinity)
-            .frame(height: 32)
-            .padding(.top, 6)
+            .frame(height: 50)
+            .contentShape(Rectangle())
             .background(.clear)
     }
 }
