@@ -41,7 +41,22 @@ struct BottomSheet<Content: View>: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: h, alignment: .top)
-            .background(.regularMaterial, in: sheetShape)
+            // `.regularMaterial` does live Gaussian blur/vibrancy sampling of
+            // whatever's behind it — here, the map. That blur region's bounds
+            // change every single frame while the sheet is being resized by a
+            // drag, forcing continuous re-blur over changing dimensions, which
+            // is genuinely GPU-expensive and reads as "laggy" specifically
+            // *during* interaction — completely invisible to a static
+            // screenshot, which is exactly why it survived two earlier fixes
+            // that only addressed animation-timing logic. Swap to a cheap
+            // static alpha blend (no live sampling) while actively dragging,
+            // restore the real material once settled.
+            .background(
+                dragBaseline != nil
+                    ? AnyShapeStyle(Color(.systemBackground).opacity(0.92))
+                    : AnyShapeStyle(.regularMaterial),
+                in: sheetShape
+            )
             .overlay(alignment: .top) { sheetShape.stroke(Color(.separator).opacity(0.5), lineWidth: 0.5).frame(height: h) }
             .offset(y: h - visible)
             .onAppear { liveHeight = h * detent.fraction }

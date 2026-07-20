@@ -26,22 +26,38 @@ struct MyFlightsView: View {
                 .padding(.top, 4)
                 .padding(.bottom, 10)
 
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    if flights.isEmpty {
-                        emptyState.padding(.top, 40)
-                    } else {
-                        ForEach(Array(flights.enumerated()), id: \.element.id) { idx, flight in
-                            Button { onSelect(flight) } label: { FlightRowCard(flight: flight) }
-                                .buttonStyle(.plain)
-                            if idx < flights.count - 1 {
-                                Divider().padding(.leading, 20)
+            List {
+                if flights.isEmpty {
+                    emptyState.padding(.top, 40)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                } else {
+                    ForEach(Array(flights.enumerated()), id: \.element.id) { idx, flight in
+                        Button { onSelect(flight) } label: { FlightRowCard(flight: flight) }
+                            .buttonStyle(.plain)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) { delete(flight) } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
                             }
-                        }
+                            .overlay(alignment: .bottom) {
+                                if idx < flights.count - 1 {
+                                    Divider().padding(.leading, 20)
+                                }
+                            }
                     }
                 }
-                .padding(.bottom, 140)   // clear the floating pill
+                Color.clear.frame(height: 140)   // clear the floating pill
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             .scrollIndicators(.hidden)
         }
         .sheet(isPresented: $showSettings) {
@@ -50,6 +66,12 @@ struct MyFlightsView: View {
         .onAppear {
             if ProcessInfo.processInfo.arguments.contains("-openSettings") { showSettings = true }
         }
+    }
+
+    private func delete(_ flight: Flight) {
+        ArcNotifications.removeAll(for: flight)
+        modelContext.delete(flight)
+        try? modelContext.save()
     }
 
     private var header: some View {
