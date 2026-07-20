@@ -48,9 +48,9 @@ extension Flight {
 
     var isDelayed: Bool { delayMinutes > 0 || status == .cancelled }
 
-    /// Green when on-time/near, red when delayed/cancelled, gray when far-off.
+    /// Green when on-time/near, red when delayed/cancelled/diverted, gray when far-off.
     var accentColor: Color {
-        if status == .cancelled || delayMinutes > 15 { return ArcTheme.late }
+        if status == .cancelled || status == .diverted || delayMinutes > 15 { return ArcTheme.late }
         if delayMinutes > 0 { return ArcTheme.late }
         if isSoon || isActive || status == .landed { return ArcTheme.onTime }
         return Color(.secondaryLabel)
