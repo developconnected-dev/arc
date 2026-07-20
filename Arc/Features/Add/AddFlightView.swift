@@ -33,6 +33,9 @@ struct AddFlightView: View {
     @State private var manualRegistration = ""
     @State private var activeAirportField: AirportFieldKind?
     @State private var airportQuery = ""
+    /// Which step "back" should return to from manual entry — tracked explicitly
+    /// since manual entry is reachable from three different steps.
+    @State private var manualReturnStep: Step = .search
 
     enum AirportFieldKind { case from, to }
 
@@ -132,7 +135,7 @@ struct AddFlightView: View {
         case .number: step = .search
         case .date: step = .number
         case .results: step = .date
-        case .manual: step = results.isEmpty && errorText == nil ? .date : .results
+        case .manual: step = manualReturnStep
         case .search: break
         }
     }
@@ -314,7 +317,7 @@ struct AddFlightView: View {
 
             Divider().padding(.horizontal, 20).padding(.top, 4)
 
-            Button { enterManual(prefillingFrom: date) } label: {
+            Button { enterManual(prefillingFrom: date, returningTo: .date) } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "square.and.pencil").font(.system(size: 15, weight: .semibold))
                     VStack(alignment: .leading, spacing: 2) {
@@ -347,7 +350,7 @@ struct AddFlightView: View {
                         Text("Couldn't find that flight").font(.system(size: 16, weight: .semibold))
                         Text(errorText).font(.system(size: 13)).foregroundStyle(.secondary)
                     }
-                    Button { enterManual(prefillingFrom: date) } label: {
+                    Button { enterManual(prefillingFrom: date, returningTo: .results) } label: {
                         HStack {
                             Image(systemName: "square.and.pencil")
                             Text("Enter Flight Details Manually").font(.system(size: 16, weight: .semibold))
@@ -400,7 +403,8 @@ struct AddFlightView: View {
 
     // MARK: Step 5 — manual entry
 
-    private func enterManual(prefillingFrom pickedDate: Date?) {
+    private func enterManual(prefillingFrom pickedDate: Date?, returningTo: Step = .search) {
+        manualReturnStep = returningTo
         if manualNumber.isEmpty {
             manualNumber = "\(airline?.iata ?? "")\(number)"
         }
