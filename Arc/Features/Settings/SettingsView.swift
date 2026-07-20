@@ -53,7 +53,7 @@ struct SettingsView: View {
                 } header: {
                     Text("API")
                 } footer: {
-                    Text("Your Cloudflare Worker URL that proxies flight data APIs.")
+                    Text("This is the URL of your deployed Cloudflare Worker (backend/ folder). The AeroDataBox key itself is never entered here — it lives server-side as a Worker secret. See backend/wrangler.toml for the full deploy steps.")
                 }
 
                 // Supabase (Social)
@@ -105,7 +105,7 @@ struct SettingsView: View {
                     HStack {
                         Text("Data source")
                         Spacer()
-                        Text("AviationStack + OpenSky")
+                        Text("AeroDataBox + OpenSky")
                             .foregroundStyle(ArcColor.textMuted)
                     }
                 } header: {
