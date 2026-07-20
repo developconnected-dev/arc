@@ -99,4 +99,30 @@ enum DemoSeed {
 
         try? context.save()
     }
+
+    /// One-off verification hook, `-seedStuckFlight`: seeds a real flight
+    /// (LX53, BOS→ZRH, actually landed hours ago per a live API check) but
+    /// pinned at `.scheduled` — exactly the state a flight could get
+    /// permanently stuck in before the isUpcoming fix, since nothing would
+    /// ever poll it again to learn it had gone active/landed. Proves the fix
+    /// self-heals: FlightTracker starts on launch, this flight is now
+    /// eligible for polling again, one real API round-trip corrects its
+    /// status, and it should show up in Passport without any manual action.
+    static var isStuckFlightRequested: Bool { ProcessInfo.processInfo.arguments.contains("-seedStuckFlight") }
+
+    static func seedStuckFlightIfRequested(into context: ModelContext, existing: [Flight]) {
+        guard isStuckFlightRequested, existing.isEmpty else { return }
+        let ref = ReferenceData.shared
+        let f = Flight(flightNumber: "LX53", date: Date(timeIntervalSince1970: 1784511600))   // 2026-07-20T01:40:00Z
+        f.airline = ref.airline("LX")?.name ?? "Swiss"
+        f.airlineICAO = ref.airline("LX")?.icao ?? ""
+        f.departureIATA = "BOS"; f.arrivalIATA = "ZRH"
+        if let a = ref.airport("BOS") { f.departureCity = a.city; f.departureLat = a.lat; f.departureLon = a.lon }
+        if let a = ref.airport("ZRH") { f.arrivalCity = a.city; f.arrivalLat = a.lat; f.arrivalLon = a.lon }
+        f.scheduledDeparture = Date(timeIntervalSince1970: 1784511600)   // 2026-07-20T01:40:00Z
+        f.scheduledArrival = Date(timeIntervalSince1970: 1784537700)     // 2026-07-20T08:55:00Z
+        f.statusRaw = "scheduled"   // stuck — should self-heal to "landed" once tracking starts
+        context.insert(f)
+        try? context.save()
+    }
 }
