@@ -36,13 +36,18 @@ struct BottomSheet<Content: View>: View {
 /// `BottomSheet` itself so high-frequency updates here never force `content`
 /// (handed down as an already-built value, not a closure) to reconstruct.
 ///
-/// The sheet height is tracked in a plain `@State`, not `@GestureState`. A
-/// `@GestureState` value snaps back to its initial value the instant the
-/// gesture ends, and that snap only picks up the surrounding `.animation(value:)`
-/// if the *other* watched value (here, `detent`) actually changes — so a small
-/// drag that settles back onto the same detent used to jump-cut instead of
-/// animating. Driving `liveHeight` directly and always wrapping the settle in
-/// an explicit `withAnimation` fixes that regardless of whether the detent changes.
+/// Deliberately the simplest version of this gesture that's still correct —
+/// no spring, no implicit animation anywhere, snapping on release is an
+/// instant reassignment. This is a diagnostic as much as a design choice:
+/// after three rounds of fixes (double-animation-trigger, material cost,
+/// .local-coordinate-space feedback) still left dragging feeling like it
+/// jumps, animation logic itself is the next thing to rule out by removing
+/// it completely rather than reasoning about it further. `liveHeight` is
+/// plain `@State`, not `@GestureState`, only because `@GestureState` resets
+/// to its initial value the instant the gesture ends and there's no
+/// animation here to smooth that transition over anymore anyway — a plain
+/// `@State` that onEnded sets directly is the more direct match for "no
+/// animation" than layering one on top of `@GestureState`'s own reset.
 private struct SheetChrome<Content: View>: View {
     @Binding var detent: SheetDetent
     let height: CGFloat
@@ -50,8 +55,6 @@ private struct SheetChrome<Content: View>: View {
 
     @State private var liveHeight: CGFloat?
     @State private var dragBaseline: CGFloat?
-
-    private let snapAnimation = Animation.interpolatingSpring(stiffness: 320, damping: 32)
 
     var body: some View {
         let h = height
@@ -81,7 +84,7 @@ private struct SheetChrome<Content: View>: View {
         .onAppear { liveHeight = h * detent.fraction }
         .onChange(of: detent) { _, newValue in
             guard dragBaseline == nil else { return }   // don't fight an active drag
-            withAnimation(snapAnimation) { liveHeight = h * newValue.fraction }
+            liveHeight = h * newValue.fraction
         }
     }
 
@@ -99,6 +102,12 @@ private struct SheetChrome<Content: View>: View {
         // moves, which breaks the loop entirely.
         DragGesture(minimumDistance: 1, coordinateSpace: .global)
             .onChanged { value in
+                // dragBaseline is cached on the *first* onChanged of this
+                // drag and reused for every subsequent one — currentVisible
+                // is only a fallback for that first call. Using currentVisible
+                // directly on every call instead would make `base` itself a
+                // moving target (it's re-derived from liveHeight, which this
+                // same handler just changed), double-counting movement.
                 let base = dragBaseline ?? currentVisible
                 if dragBaseline == nil { dragBaseline = base }
                 liveHeight = min(h * 0.985, max(h * 0.08, base - value.translation.height))
@@ -110,17 +119,8 @@ private struct SheetChrome<Content: View>: View {
                 let nearest = SheetDetent.allCases.min {
                     abs($0.fraction * h - projected) < abs($1.fraction * h - projected)
                 } ?? detent
-                // Exactly one path animates the settle, never both: if the detent
-                // is actually changing, `.onChange(of: detent)` below does it; if
-                // it's staying the same (a short drag that springs back), that
-                // onChange never fires, so animate right here instead. Previously
-                // both could fire — the same spring restarting a frame apart on
-                // literally every release, which is a real source of visible stutter.
-                if nearest == detent {
-                    withAnimation(snapAnimation) { liveHeight = h * nearest.fraction }
-                } else {
-                    detent = nearest
-                }
+                liveHeight = h * nearest.fraction   // instant, no animation
+                detent = nearest
             }
     }
 
