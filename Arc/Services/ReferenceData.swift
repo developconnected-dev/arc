@@ -12,11 +12,32 @@ final class ReferenceData: Sendable {
 
     private init() {
         let ap: [AirportRef] = Self.decode("airports.json") ?? []
-        let al: [AirlineRef] = Self.decode("airlines.json") ?? []
+        let loaded: [AirlineRef] = Self.decode("airlines.json") ?? []
+        let al = Self.applyOverrides(to: loaded)
         self.airports = ap
         self.airlines = al
         self.airportByIATA = Dictionary(ap.map { ($0.iata, $0) }, uniquingKeysWith: { a, _ in a })
         self.airlineByIATA = Dictionary(al.map { ($0.iata, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    /// Corrections for carriers the (stale, ~2017) OpenFlights set gets wrong or missing.
+    /// Overrides replace any bundled entry with the same IATA *or* the same name.
+    static let airlineOverrides: [AirlineRef] = [
+        .init(iata: "GQ", icao: "SEH", name: "Sky Express", callsign: "AIR CRETE", country: "Greece"),
+        .init(iata: "A3", icao: "AEE", name: "Aegean Airlines", callsign: "AEGEAN", country: "Greece"),
+        .init(iata: "OA", icao: "OAL", name: "Olympic Air", callsign: "OLYMPIC", country: "Greece"),
+        .init(iata: "V7", icao: "VOE", name: "Volotea", callsign: "VOLOTEA", country: "Spain"),
+        .init(iata: "TO", icao: "TVF", name: "Transavia France", callsign: "FRANCE SOLEIL", country: "France"),
+        .init(iata: "PC", icao: "PGT", name: "Pegasus Airlines", callsign: "SUNTURK", country: "Turkey"),
+    ]
+
+    private static func applyOverrides(to airlines: [AirlineRef]) -> [AirlineRef] {
+        let iatas = Set(airlineOverrides.map { $0.iata.uppercased() })
+        let names = Set(airlineOverrides.map { $0.name.lowercased() })
+        var result = airlines.filter { !iatas.contains($0.iata.uppercased()) && !names.contains($0.name.lowercased()) }
+        result.append(contentsOf: airlineOverrides)
+        result.sort { $0.iata < $1.iata }
+        return result
     }
 
     /// Test seam: load from explicit arrays instead of the bundle.
