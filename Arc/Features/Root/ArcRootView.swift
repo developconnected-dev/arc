@@ -13,6 +13,7 @@ struct ArcRootView: View {
     @State private var detailFlight: Flight?
     @State private var detailDetent: PresentationDetent = .large
     @State private var pendingOpenDetail = ProcessInfo.processInfo.arguments.contains("-openDetail")
+    @State private var lastMapMode: Bool?   // true = Passport/hybrid, false = standard
 
     /// Test hooks for headless screenshots.
     private var addInitialQuery: String? {
@@ -49,7 +50,7 @@ struct ArcRootView: View {
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
         .onChange(of: allFlights.map(\.id)) { _, _ in
-            updateCameraForTab(tab)
+            refitMapForCurrentData()
             openDetailIfPending()
             bootstrapTrackingAndWidgets()
         }
@@ -59,7 +60,7 @@ struct ArcRootView: View {
         }
         .onAppear {
             DemoSeed.seedIfRequested(into: modelContext, existing: allFlights)
-            updateCameraForTab(tab)
+            refitMapForCurrentData()
             openDetailIfPending()
             bootstrapTrackingAndWidgets()
             if ProcessInfo.processInfo.arguments.contains("-openAdd") { showAdd = true }
@@ -73,8 +74,30 @@ struct ArcRootView: View {
         }
     }
 
+    /// Passport shows a different flight set in a different (photoreal) map
+    /// style, so switching to/from it genuinely needs a transition. Switching
+    /// between My Flights and Friends shows the identical flights in the
+    /// identical style — reassigning `controller.style`/refitting there was
+    /// swapping the whole tile layer on every single tab tap for no reason,
+    /// which is what read as "the map reloads completely at every switch."
     private func updateCameraForTab(_ t: ArcTab) {
-        if t == .passport {
+        let wantsPassport = (t == .passport)
+        guard lastMapMode != wantsPassport else { return }
+        lastMapMode = wantsPassport
+        applyCameraForCurrentMode(wantsPassport)
+    }
+
+    /// Called when the underlying flight data changes, or on first appear —
+    /// always refits (the route set may genuinely differ) but reuses whatever
+    /// style is already active instead of reassigning it.
+    private func refitMapForCurrentData() {
+        let wantsPassport = (tab == .passport)
+        lastMapMode = wantsPassport
+        applyCameraForCurrentMode(wantsPassport)
+    }
+
+    private func applyCameraForCurrentMode(_ passport: Bool) {
+        if passport {
             controller.style = .hybrid
             controller.fitAll(mapFlights, padding: 2.2)
         } else {
