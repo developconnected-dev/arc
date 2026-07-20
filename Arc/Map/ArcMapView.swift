@@ -15,7 +15,7 @@ struct ArcMapView: View {
                     let arr = CLLocationCoordinate2D(latitude: flight.arrivalLat, longitude: flight.arrivalLon)
 
                     MapPolyline(coordinates: GeoMath.greatCircle(from: dep, to: arr))
-                        .stroke(ArcTheme.action, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        .stroke(ArcTheme.routeLine, style: StrokeStyle(lineWidth: 2, lineCap: .round))
 
                     Annotation("", coordinate: dep) { endpointDot }
                     Annotation("", coordinate: arr) { endpointDot }

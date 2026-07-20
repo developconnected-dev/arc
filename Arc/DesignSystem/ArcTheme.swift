@@ -8,6 +8,10 @@ enum ArcTheme {
     static let late   = Color(red: 1.00, green: 0.23, blue: 0.19)   // #FF3B30
     static let action = Color(red: 0.04, green: 0.52, blue: 1.00)   // #0A84FF
     static let gate   = Color(red: 1.00, green: 0.80, blue: 0.00)   // #FFCC00
+    /// Map route arcs specifically — brighter/lighter than `action` on purpose,
+    /// so the great-circle line reads clearly against both map styles instead
+    /// of blending into standard UI blue.
+    static let routeLine = Color(red: 0.30, green: 0.69, blue: 1.00)   // #4DB0FF
 
     static func timeColor(late: Bool) -> Color { late ? Self.late : Self.onTime }
 
