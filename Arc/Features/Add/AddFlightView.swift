@@ -515,7 +515,14 @@ struct AddFlightView: View {
 
     private func addManual() {
         guard let dep = manualDep, let arr = manualArr else { return }
-        let f = Flight(flightNumber: manualNumber.uppercased(), date: manualDepartureDate)
+        // The DatePicker edits using the device's own calendar/timezone, but the rest
+        // of the app treats every flight time as local-to-the-airport (see
+        // `depTimeLocal`/`arrTimeLocal`) — re-project onto each airport's zone so a
+        // flight entered while travelling records the right instant.
+        let departure = DateHelpers.reinterpretWallClock(manualDepartureDate, asLocalTo: ReferenceData.shared.timezone(dep.iata))
+        let arrival = DateHelpers.reinterpretWallClock(manualArrivalDate, asLocalTo: ReferenceData.shared.timezone(arr.iata))
+
+        let f = Flight(flightNumber: manualNumber.uppercased(), date: departure)
         let iata = String(manualNumber.uppercased().prefix(2))
         f.airline = airline?.name ?? ReferenceData.shared.airline(iata)?.name ?? iata
         f.airlineICAO = airline?.icao ?? ReferenceData.shared.airline(iata)?.icao ?? ""
@@ -523,12 +530,12 @@ struct AddFlightView: View {
         f.departureCity = dep.city; f.arrivalCity = arr.city
         f.departureLat = dep.lat; f.departureLon = dep.lon
         f.arrivalLat = arr.lat; f.arrivalLon = arr.lon
-        f.scheduledDeparture = manualDepartureDate
-        f.scheduledArrival = manualArrivalDate
+        f.scheduledDeparture = departure
+        f.scheduledArrival = arrival
         f.statusRaw = manualStatus.rawValue
         if manualStatus == .landed {
-            f.actualDeparture = manualDepartureDate
-            f.actualArrival = manualArrivalDate
+            f.actualDeparture = departure
+            f.actualArrival = arrival
         }
         let aircraft = manualAircraft.trimmingCharacters(in: .whitespaces)
         let reg = manualRegistration.trimmingCharacters(in: .whitespaces)
@@ -536,7 +543,7 @@ struct AddFlightView: View {
         f.aircraftRegistration = reg.isEmpty ? nil : reg
         modelContext.insert(f)
         try? modelContext.save()
-        if manualStatus != .landed { ArcNotifications.scheduleDepartureReminder(for: f) }
+        if manualStatus == .scheduled { ArcNotifications.scheduleDepartureReminder(for: f) }
         dismiss()
     }
 
