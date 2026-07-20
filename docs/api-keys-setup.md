@@ -14,12 +14,18 @@ There are two separate pieces, and they live in two different places:
 ## 1. Get an AeroDataBox key (RapidAPI)
 
 1. Go to [rapidapi.com](https://rapidapi.com) and create a free account.
-2. Search for **AeroDataBox** in the RapidAPI marketplace (or go directly to
-   its listing) and subscribe to the **Basic** plan — it's free, 600 API
-   units/month, no card required for that tier.
-3. On the API's "Endpoints" page, RapidAPI shows your personal
-   `X-RapidAPI-Key` — copy it. (You do not need to hand-craft any requests;
-   the Worker code already knows how to call every endpoint it needs.)
+2. Search for **AeroDataBox** in the RapidAPI marketplace, open its page,
+   click **"Subscribe to Test"**, and pick the **Basic** plan — it's $0.00/mo,
+   600 API units/month. RapidAPI asks for a card on file even for this free
+   tier (standard anti-abuse policy on their marketplace); you won't be
+   charged as long as you stay under the 600-unit cap.
+3. Once subscribed, the button on the API's page changes from "Subscribe to
+   Test" to "Test Endpoint." Any of the endpoint pages (under "App") shows
+   your personal `X-RapidAPI-Key` — copy it. This key is account-wide, not
+   per-API, so it's the same key you'll see on every RapidAPI listing; it only
+   *works* for APIs you've actually subscribed to. (You do not need to
+   hand-craft any requests yourself — the Worker code already knows how to
+   call every endpoint it needs.)
 4. Optional, once you're tracking flights for real: upgrade to **Pro**
    (~$5.35/mo) for a much higher cap — the free tier is fine for testing but
    the app's periodic tracking loop can burn through 600 units quickly.
