@@ -42,6 +42,18 @@ final class FlightTracker: ObservableObject {
                         ArcNotifications.notifyGateChange(flight: flight, newGate: newGate)
                     }
 
+                    // Proactively start the Live Activity once a scheduled flight is
+                    // within 3 hours of departure (matches the spec: "starts
+                    // automatically 3 hours before departure"). The only other
+                    // trigger, handleStatusChange on a transition to "active",
+                    // fires after the flight has *already* departed per the live
+                    // API — too late for what a Live Activity is supposed to do.
+                    // startActivity() is idempotent (checks for an existing
+                    // activity first), so calling it every poll cycle is safe.
+                    if flight.isUpcoming, flight.scheduledDeparture.timeIntervalSince(.now) <= 3 * 3600 {
+                        LiveActivityManager.shared.startActivity(for: flight)
+                    }
+
                     // Update Live Activity
                     await LiveActivityManager.shared.updateActivity(for: flight)
 

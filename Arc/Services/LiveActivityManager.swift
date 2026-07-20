@@ -12,6 +12,20 @@ final class LiveActivityManager {
     func startActivity(for flight: Flight) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
+        // Don't start a duplicate. `activeActivities` is in-memory and resets
+        // on relaunch, but an activity started in a previous session may
+        // genuinely still be running — check ActivityKit's own authoritative
+        // list, not just our own bookkeeping, and reconcile if we find one.
+        if let existing = Activity<FlightActivityAttributes>.activities.first(where: {
+            $0.attributes.flightNumber == flight.flightNumber &&
+            $0.attributes.departureIATA == flight.departureIATA &&
+            $0.attributes.arrivalIATA == flight.arrivalIATA
+        }) {
+            activeActivities[flight.id.uuidString] = existing
+            return
+        }
+        guard activeActivities[flight.id.uuidString] == nil else { return }
+
         let attributes = FlightActivityAttributes(
             flightNumber: flight.flightNumber,
             departureIATA: flight.departureIATA,
