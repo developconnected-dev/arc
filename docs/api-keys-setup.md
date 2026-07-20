@@ -56,11 +56,17 @@ wrangler deploy
 https://arc-backend.<your-cloudflare-subdomain>.workers.dev
 ```
 
-**Note on the existing default URL:** Arc currently ships with
-`https://arc-backend.owncalai.workers.dev` as a placeholder default in
-Settings — that was a prior scaffold deployment, not necessarily one you
-control, and it almost certainly doesn't have your `RAPIDAPI_KEY` secret set.
-Deploy your own as above and use *that* URL instead.
+**Status: done.** `https://arc-backend.owncalai.workers.dev` — the URL that
+ships as Arc's default in Settings — turned out to already be *your own*
+Cloudflare Workers subdomain (account `czerdick@ethz.ch`), not an unrelated
+prior scaffold as earlier guidance here assumed. It was redeployed with a
+real `RAPIDAPI_KEY` secret on 2026-07-20 and verified live end-to-end
+(`/health`, a real `/flight` search, and a real `/inbound` lookup all
+returned genuine AeroDataBox data). **No Settings change is needed** — a
+fresh install of Arc already points at a working backend.
+
+If you ever redeploy under a *different* Cloudflare account or Worker name,
+update Settings → Backend URL to match.
 
 ## 3. Point Arc at your Worker
 
