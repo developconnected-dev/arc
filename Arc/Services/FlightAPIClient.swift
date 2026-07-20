@@ -51,6 +51,21 @@ actor FlightAPIClient {
         return try JSONDecoder().decode([FlightSearchResult].self, from: data)
     }
 
+    // MARK: - Inbound aircraft ("Where's My Plane")
+
+    /// All legs flown by a given tail number on a given date, per the Worker's
+    /// `/inbound` endpoint (AeroDataBox `/flights/reg/{reg}/{date}`).
+    func inboundLegs(registration: String, date: String) async throws -> [FlightSearchResult] {
+        let url = baseURL.appending(path: "/inbound")
+            .appending(queryItems: [
+                URLQueryItem(name: "reg", value: registration),
+                URLQueryItem(name: "date", value: date),
+            ])
+        let (data, response) = try await session.data(from: url)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return [] }
+        return (try? JSONDecoder().decode([FlightSearchResult].self, from: data)) ?? []
+    }
+
     // MARK: - Live Position (OpenSky)
 
     struct LivePosition: Codable, Sendable {

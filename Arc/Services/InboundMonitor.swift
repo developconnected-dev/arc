@@ -1,53 +1,40 @@
 import Foundation
 
-/// Monitors the inbound aircraft for a flight.
-/// Checks if the plane assigned to your flight is delayed on its previous leg.
+/// Monitors the inbound aircraft for a flight — the previous rotation of the
+/// same tail — via the Worker's `/inbound` endpoint (AeroDataBox tail-number
+/// history). Populates `Flight.inbound*` with the real previous leg instead of
+/// guessing from this flight's own status.
 enum InboundMonitor {
 
-    /// Check the inbound aircraft status and update the flight's inbound fields.
     @MainActor
     static func checkInbound(for flight: Flight) async {
-        // We need the aircraft registration or ICAO24 to track the inbound
         guard let registration = flight.aircraftRegistration, !registration.isEmpty else { return }
 
-        let dateStr = flight.scheduledDeparture.formatted(.iso8601.year().month().day())
+        // The inbound leg may have departed the day before (overnight rotation),
+        // so pull both the flight's own date and the previous day, then merge.
+        // Each call degrades to `[]` independently rather than failing the whole check.
+        let todayStr = flight.scheduledDeparture.formatted(.iso8601.year().month().day())
+        let yesterdayStr = flight.scheduledDeparture.addingTimeInterval(-86400).formatted(.iso8601.year().month().day())
 
-        do {
-            // Search for flights by the same aircraft on the same day
-            // AviationStack doesn't directly support tail-number search on free tier,
-            // so we look for the flight number's aircraft assignment
-            let results = try await FlightAPIClient.shared.searchFlight(
-                number: flight.flightNumber,
-                date: dateStr
-            )
+        let todayLegs = (try? await FlightAPIClient.shared.inboundLegs(registration: registration, date: todayStr)) ?? []
+        let yesterdayLegs = (try? await FlightAPIClient.shared.inboundLegs(registration: registration, date: yesterdayStr)) ?? []
+        let legs = todayLegs + yesterdayLegs
 
-            guard let current = results.first else { return }
+        flight.inboundChecked = true
 
-            // If there's delay info, calculate inbound impact
-            if let delay = current.delay, delay > 0 {
-                flight.inboundDelayMinutes = delay
+        guard let inbound = InboundSelection.selectInboundLeg(
+            from: legs,
+            excludingFlightNumber: flight.flightNumber,
+            arrivingAt: flight.departureIATA,
+            before: flight.scheduledDeparture
+        ) else { return }
 
-                // Calculate if this delay affects turnaround
-                // Typical turnaround: 45 min for narrow-body, 90 min for wide-body
-                let isWidebody = isWidebodyAircraft(flight.aircraftType)
-                let minTurnaround = isWidebody ? 90 : 45
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
 
-                let arrivalDelay = delay
-                let availableBuffer = max(0, Int(flight.duration / 60) - minTurnaround)
-
-                if arrivalDelay > availableBuffer {
-                    // Inbound delay will likely affect this flight
-                    flight.inboundFlightNumber = "Previous leg"
-                }
-            }
-        } catch {
-            // Silently skip
-        }
-    }
-
-    private static func isWidebodyAircraft(_ type: String?) -> Bool {
-        guard let type = type?.uppercased() else { return false }
-        let widebodies = ["747", "767", "777", "787", "A330", "A340", "A350", "A380"]
-        return widebodies.contains { type.contains($0) }
+        flight.inboundFlightNumber = inbound.flight_number
+        flight.inboundRoute = "\(inbound.dep_iata) → \(inbound.arr_iata)"
+        flight.inboundDelayMinutes = inbound.delay ?? 0
+        flight.inboundArrivalTime = iso.date(from: inbound.arr_scheduled)
     }
 }

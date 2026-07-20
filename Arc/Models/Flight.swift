@@ -43,9 +43,12 @@ final class Flight {
     var aircraftRegistration: String?    // e.g. "HB-JMB"
     var aircraftICAO24: String?          // For OpenSky tracking
 
-    // Inbound tracking
+    // Inbound tracking ("Where's My Plane") — the previous rotation of this same tail
     var inboundFlightNumber: String?
     var inboundDelayMinutes: Int = 0
+    var inboundRoute: String?          // e.g. "JFK → ZRH"
+    var inboundArrivalTime: Date?      // when that leg landed / is expected to land
+    var inboundChecked: Bool = false   // did we ever get a real answer from the API
 
     // Live position (from OpenSky)
     var liveLat: Double?

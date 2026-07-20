@@ -36,6 +36,15 @@ enum DemoSeed {
         let upcoming1 = make("GQ873", "HAM", "ATH", depOffsetH: 49 * 24, arrOffsetH: 49 * 24 + 4, status: "scheduled")
         upcoming1.airline = "Sky Express"
         let upcoming2 = make("LX1413", "BEG", "ZRH", depOffsetH: 17, arrOffsetH: 19, status: "scheduled")
+        upcoming2.aircraftType = "Airbus A220-300"
+        upcoming2.aircraftRegistration = "HB-JCA"
+        // Sample of what InboundMonitor populates from a real /inbound lookup —
+        // the previous rotation of this same tail, landing at BEG before we depart.
+        upcoming2.inboundFlightNumber = "LX1412"
+        upcoming2.inboundRoute = "ZRH → BEG"
+        upcoming2.inboundDelayMinutes = 8
+        upcoming2.inboundArrivalTime = Date.now.addingTimeInterval(15 * 3600)
+        upcoming2.inboundChecked = true
 
         context.insert(active); context.insert(upcoming1); context.insert(upcoming2)
 

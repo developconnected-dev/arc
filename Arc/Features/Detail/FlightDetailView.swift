@@ -102,9 +102,11 @@ struct FlightDetailView: View {
 
     private var inboundLine: String? {
         if flight.isActive { return "Live tracking active" }
+        guard flight.aircraftRegistration != nil else { return nil }
+        if !flight.inboundChecked { return "Checking inbound aircraft" }
         if flight.inboundDelayMinutes > 0 { return "Inbound aircraft is \(flight.inboundDelayMinutes)m late" }
-        if flight.aircraftRegistration != nil { return "Inbound aircraft has arrived" }
-        return "Checking inbound aircraft"
+        if flight.inboundFlightNumber != nil { return "Inbound aircraft on schedule" }
+        return nil
     }
 
     // MARK: Endpoints

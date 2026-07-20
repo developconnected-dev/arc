@@ -90,8 +90,12 @@ struct WheresMyPlaneSection: View {
                 .frame(maxWidth: .infinity).frame(height: 120)
                 .padding(.horizontal, 24).padding(.vertical, 10)
 
-            VStack(alignment: .leading, spacing: 8) {
-                inboundRow
+            VStack(alignment: .leading, spacing: 10) {
+                thisFlightRow
+                if let inboundNumber = flight.inboundFlightNumber {
+                    Divider().background(.white.opacity(0.2))
+                    inboundLegRow(number: inboundNumber)
+                }
             }
             .padding(16)
             .background(Color(.systemBackground).opacity(0.15))
@@ -104,14 +108,14 @@ struct WheresMyPlaneSection: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private var inboundRow: some View {
+    private var thisFlightRow: some View {
         HStack(spacing: 10) {
             Image(systemName: flight.isActive ? "airplane" : "arrow.down.circle")
                 .foregroundStyle(.white)
             VStack(alignment: .leading, spacing: 2) {
                 Text(flight.isActive ? "This flight — in the air" : "This Flight")
                     .font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
-                Text(inboundText).font(.system(size: 13)).foregroundStyle(.white.opacity(0.8))
+                Text(statusText).font(.system(size: 13)).foregroundStyle(.white.opacity(0.8))
             }
             Spacer()
             if let reg = flight.aircraftRegistration {
@@ -121,11 +125,34 @@ struct WheresMyPlaneSection: View {
         }
     }
 
-    private var inboundText: String {
+    private func inboundLegRow(number: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.turn.down.right").foregroundStyle(.white.opacity(0.8))
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(number).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                    if let route = flight.inboundRoute {
+                        Text(route).font(.system(size: 13)).foregroundStyle(.white.opacity(0.75))
+                    }
+                }
+                Text(inboundLegStatusText).font(.system(size: 12)).foregroundStyle(.white.opacity(0.65))
+            }
+            Spacer()
+        }
+    }
+
+    private var statusText: String {
         if flight.isActive { return "Tracking live position" }
-        if flight.inboundDelayMinutes > 0 { return "Inbound leg running \(flight.inboundDelayMinutes)m late" }
-        if flight.aircraftRegistration != nil { return "Inbound aircraft has arrived at \(flight.departureIATA)" }
-        return "Monitoring the inbound aircraft"
+        if !flight.inboundChecked { return "Monitoring the inbound aircraft…" }
+        if flight.inboundFlightNumber == nil { return "No prior rotation found for this tail" }
+        if flight.inboundDelayMinutes > 0 { return "Inbound aircraft running \(flight.inboundDelayMinutes)m late" }
+        return "Inbound aircraft on schedule"
+    }
+
+    private var inboundLegStatusText: String {
+        if flight.inboundDelayMinutes > 15 { return "Landed \(flight.inboundDelayMinutes)m late" }
+        if flight.inboundDelayMinutes > 0 { return "\(flight.inboundDelayMinutes)m late" }
+        return "On time"
     }
 }
 

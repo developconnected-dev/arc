@@ -13,12 +13,14 @@
 		066B813B251042A5C7326EA9 /* ArcMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D318093F38973AB568D94123 /* ArcMapView.swift */; };
 		0F5F444E06F4497CAB4F095F /* TextHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2D08589F3ED37C33758DAC5 /* TextHelpers.swift */; };
 		12441CF9EEA5848E9DFE70A8 /* ArcTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2091849463E3B42B39109819 /* ArcTheme.swift */; };
+		132186CB080D804A397303E6 /* InboundSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3982B16A2E83D23E09279400 /* InboundSelectionTests.swift */; };
 		147ED96EDE432F34CFA07B0F /* GeoMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A38232A6E768DF2669A448 /* GeoMathTests.swift */; };
 		23E38F386FC1075984846921 /* FlightDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 734A69EC4EB99125C060E4F5 /* FlightDetailView.swift */; };
 		28B41532664F0666774F2FA6 /* ArcWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		2FF54C18096971D871B206B9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0E950A3B65137B3F46CF9625 /* Assets.xcassets */; };
 		301E39861AE25DD77B097AE0 /* StatsDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 350CDBD64C98220C09B88C41 /* StatsDetailView.swift */; };
 		3190C8FCAC6039B71113589D /* ReferenceDataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A136200E180C33472B503DE3 /* ReferenceDataTests.swift */; };
+		31B370AC6D89A2834BA50EE6 /* InboundSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAFCDA1E27F312CF2BBD90DA /* InboundSelection.swift */; };
 		3C9CBF3FB7BC17B415D90698 /* MyFlightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A99FE65B13FFE0D0203987D5 /* MyFlightsView.swift */; };
 		47733FC27C873C75889EB557 /* InboundMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3BA60104125C5743ECF86F8 /* InboundMonitor.swift */; };
 		4BE4CB84B06880211275E457 /* FlightLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB40E7D146DE8662884B50D /* FlightLiveActivity.swift */; };
@@ -116,6 +118,7 @@
 		350CDBD64C98220C09B88C41 /* StatsDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsDetailView.swift; sourceTree = "<group>"; };
 		3656C3156166F8E024EE5B7D /* ReferenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceModels.swift; sourceTree = "<group>"; };
 		37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		3982B16A2E83D23E09279400 /* InboundSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboundSelectionTests.swift; sourceTree = "<group>"; };
 		45CDEF12D33E504034C15720 /* Airport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Airport.swift; sourceTree = "<group>"; };
 		4864581CF99C026C4AB5136F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		4B59DFF600FEDEB5C44BEED7 /* FlightActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightActivityAttributes.swift; sourceTree = "<group>"; };
@@ -152,6 +155,7 @@
 		C6B0AA5B39E6C21E26E17DE7 /* AddFlightView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddFlightView.swift; sourceTree = "<group>"; };
 		CD77AF2CE7584E492AA0A637 /* MapController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapController.swift; sourceTree = "<group>"; };
 		D318093F38973AB568D94123 /* ArcMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcMapView.swift; sourceTree = "<group>"; };
+		DAFCDA1E27F312CF2BBD90DA /* InboundSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboundSelection.swift; sourceTree = "<group>"; };
 		E2136C8735630D51D673A7EA /* StubSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StubSheets.swift; sourceTree = "<group>"; };
 		E909886CA15B1B79B6D631A0 /* WidgetSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSync.swift; sourceTree = "<group>"; };
 		ED3BBC117AA0A74224DAF8AB /* WidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetData.swift; sourceTree = "<group>"; };
@@ -256,6 +260,7 @@
 				1E47BF7D61BAF11682C2B4E2 /* FlightAPIClient.swift */,
 				234B3612AF40D9B0CBA15CBE /* FlightTracker.swift */,
 				C3BA60104125C5743ECF86F8 /* InboundMonitor.swift */,
+				DAFCDA1E27F312CF2BBD90DA /* InboundSelection.swift */,
 				BFC83E4E29772AC89D75C9E8 /* LiveActivityManager.swift */,
 				37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */,
 				178D23CC53F67645C9230260 /* ReferenceData.swift */,
@@ -367,6 +372,7 @@
 				8296407C7B6624104AE2703D /* BrandingTests.swift */,
 				64047F33627992F4D8030E71 /* FlightDisplayTests.swift */,
 				66A38232A6E768DF2669A448 /* GeoMathTests.swift */,
+				3982B16A2E83D23E09279400 /* InboundSelectionTests.swift */,
 				A136200E180C33472B503DE3 /* ReferenceDataTests.swift */,
 				8011F1F9596F27743C731E2F /* SmokeTests.swift */,
 			);
@@ -502,6 +508,7 @@
 				91538C97272ECB2B1CE14434 /* BrandingTests.swift in Sources */,
 				FF28A915F2E461B6A44D4F3A /* FlightDisplayTests.swift in Sources */,
 				147ED96EDE432F34CFA07B0F /* GeoMathTests.swift in Sources */,
+				132186CB080D804A397303E6 /* InboundSelectionTests.swift in Sources */,
 				3190C8FCAC6039B71113589D /* ReferenceDataTests.swift in Sources */,
 				055E0F22DAEA1DCEC41CEE5F /* SmokeTests.swift in Sources */,
 			);
@@ -538,6 +545,7 @@
 				95E9EB1D6085989A0AA988BF /* FriendsView.swift in Sources */,
 				CAD442F2201C5E0593480795 /* GeoMath.swift in Sources */,
 				47733FC27C873C75889EB557 /* InboundMonitor.swift in Sources */,
+				31B370AC6D89A2834BA50EE6 /* InboundSelection.swift in Sources */,
 				86B066ECAFCF0E3B5E177C8C /* LiveActivityManager.swift in Sources */,
 				B646A862A5FB908BF520D1E8 /* MapController.swift in Sources */,
 				021C5737EED7AB35B1ED3A71 /* MapControls.swift in Sources */,
