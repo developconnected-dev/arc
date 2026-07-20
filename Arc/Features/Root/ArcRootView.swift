@@ -115,7 +115,13 @@ struct ArcRootView: View {
 
     private func openDetailIfPending() {
         guard pendingOpenDetail, detailFlight == nil, !allFlights.isEmpty else { return }
-        detailFlight = allFlights.first(where: { $0.isActive }) ?? allFlights.first
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-openDetailNumber"), i + 1 < args.count,
+           let match = allFlights.first(where: { $0.flightNumber == args[i + 1] }) {
+            detailFlight = match
+        } else {
+            detailFlight = allFlights.first(where: { $0.isActive }) ?? allFlights.first
+        }
         pendingOpenDetail = false
     }
 
