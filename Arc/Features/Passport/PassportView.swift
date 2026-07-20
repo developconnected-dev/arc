@@ -17,7 +17,12 @@ struct PassportView: View {
     private var years: [Int] {
         Set(completed.map { Calendar.current.component(.year, from: $0.scheduledDeparture) }).sorted(by: >)
     }
-    private var completed: [Flight] { allFlights.filter { $0.status == .landed } }
+    /// Every flight that's happened (or was meant to) — landed, cancelled, or
+    /// diverted. A cancelled flight is neither upcoming nor landed, so without
+    /// this it would vanish from the app entirely once marked cancelled.
+    /// `PassportStats` filters back down to `.landed` internally, so distance/
+    /// time/aircraft stats stay correct even though the history list is wider.
+    private var completed: [Flight] { allFlights.filter { $0.isCompleted } }
     private var scoped: [Flight] {
         switch scope {
         case .allTime: completed
@@ -54,7 +59,13 @@ struct PassportView: View {
                 }
                 .scrollIndicators(.hidden)
                 .onAppear {
-                    if ProcessInfo.processInfo.arguments.contains("-passportBottom") {
+                    let args = ProcessInfo.processInfo.arguments
+                    if let i = args.firstIndex(of: "-passportScrollTo"), i + 1 < args.count {
+                        let target = args[i + 1]
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                            withAnimation { proxy.scrollTo(target, anchor: .top) }
+                        }
+                    } else if ProcessInfo.processInfo.arguments.contains("-passportBottom") {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
                             withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                         }
@@ -185,7 +196,7 @@ struct PassportView: View {
             }
             .padding(.top, 4)
             ForEach(sortedPast) { f in
-                Button { onSelect(f) } label: { pastRow(f) }.buttonStyle(.plain)
+                Button { onSelect(f) } label: { pastRow(f) }.buttonStyle(.plain).id(f.flightNumber)
                 Divider()
             }
         }
@@ -210,6 +221,8 @@ struct PassportView: View {
                  + Text(f.arrivalCity).font(.system(size: 17, weight: .bold)).foregroundColor(.primary))
                     .lineLimit(1)
                 HStack(spacing: 6) {
+                    if f.status == .cancelled { statusTag("Cancelled", color: ArcTheme.late) }
+                    if f.status == .diverted { statusTag("Diverted", color: .orange) }
                     tag(f.durationFormatted)
                     if let a = f.aircraftShort { tag(a) }
                     if let r = f.aircraftRegistration { tag(r) }
@@ -223,6 +236,12 @@ struct PassportView: View {
         Text(t).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
             .padding(.horizontal, 8).padding(.vertical, 3)
             .overlay(Capsule().stroke(Color(.separator), lineWidth: 1))
+    }
+
+    private func statusTag(_ t: String, color: Color) -> some View {
+        Text(t).font(.system(size: 12, weight: .semibold)).foregroundStyle(color)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(color.opacity(0.12), in: Capsule())
     }
 
     private func dateText(_ f: Flight) -> String {
