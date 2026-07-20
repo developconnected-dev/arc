@@ -72,6 +72,13 @@ enum DemoSeed {
             context.insert(f)
         }
 
+        // A cancelled flight — proves it stays visible in Passport history
+        // instead of vanishing (it's neither upcoming nor landed).
+        let cancelled = make("LX2312", "ZRH", "VIE", depOffsetH: -12 * 24, arrOffsetH: -12 * 24 + 1.3, status: "cancelled")
+        cancelled.aircraftType = "Airbus A220-100"
+        cancelled.aircraftRegistration = "HB-AZK"
+        context.insert(cancelled)
+
         try? context.save()
     }
 }
