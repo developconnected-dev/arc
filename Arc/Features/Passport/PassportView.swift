@@ -54,7 +54,6 @@ struct PassportView: View {
                 List {
                     listRow(bottom: 7) { passportCard }
                     if stats.delayMinutesLost > 0 { listRow(bottom: 7) { delayCard } }
-                    if stats.mostFlownAircraft != nil { listRow(bottom: 7) { aircraftCard } }
                     listRow(bottom: 12) { pastFlightsHeader }
 
                     ForEach(sortedPast) { f in
@@ -191,20 +190,6 @@ struct PassportView: View {
                 Text("Delayed flights averaged \(stats.avgDelay)m late")
                     .font(.system(size: 14)).foregroundStyle(.white.opacity(0.75))
                 pillButton("All Delay Stats", mode: .delay)
-            }
-        }
-    }
-
-    private var aircraftCard: some View {
-        gradientCard(colors: [Color(red: 0.78, green: 0.85, blue: 0.95), Color(red: 0.62, green: 0.73, blue: 0.90)]) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Most flown aircraft").font(.system(size: 20, weight: .bold)).foregroundStyle(Color(red: 0.1, green: 0.2, blue: 0.4))
-                Text(stats.mostFlownAircraft ?? "").font(.system(size: 40, weight: .heavy)).foregroundStyle(Color(red: 0.1, green: 0.2, blue: 0.4))
-                Text("\(stats.mostFlownCount) flights").font(.system(size: 15)).foregroundStyle(Color(red: 0.1, green: 0.2, blue: 0.4).opacity(0.7))
-                AircraftArt(type: stats.mostFlownAircraft, color: Color(red: 0.13, green: 0.22, blue: 0.42))
-                    .frame(height: 84).frame(maxWidth: .infinity)
-                    .padding(.top, 4)
-                pillButton("All Aircraft Stats", mode: .aircraft, dark: true)
             }
         }
     }
