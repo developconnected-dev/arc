@@ -4,6 +4,7 @@ import SwiftData
 /// Flighty-parity Passport: passport card, delay card, most-flown-aircraft card,
 /// and the sortable past-flights list. Renders over the shared map (globe).
 struct PassportView: View {
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \Flight.scheduledDeparture, order: .reverse) private var allFlights: [Flight]
     @State private var scope: Scope = .allTime
     @State private var sort: SortKey = .date
@@ -46,17 +47,38 @@ struct PassportView: View {
             header.padding(.horizontal, 20).padding(.top, 4)
             scopeChips.padding(.horizontal, 20).padding(.vertical, 10)
             ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 14) {
-                        passportCard
-                        if stats.delayMinutesLost > 0 { delayCard }
-                        if stats.mostFlownAircraft != nil { aircraftCard }
-                        pastFlightsSection
-                        Color.clear.frame(height: 1).id("bottom")
+                // List, not ScrollView+VStack — swipeActions only work on List
+                // rows, and each past flight needs its own independent swipe
+                // (see delete(_:) below). Cards above stay as plain, non-swipeable
+                // rows with the List's own chrome stripped out.
+                List {
+                    listRow(bottom: 7) { passportCard }
+                    if stats.delayMinutesLost > 0 { listRow(bottom: 7) { delayCard } }
+                    if stats.mostFlownAircraft != nil { listRow(bottom: 7) { aircraftCard } }
+                    listRow(bottom: 12) { pastFlightsHeader }
+
+                    ForEach(sortedPast) { f in
+                        Button { onSelect(f) } label: { pastRow(f) }
+                            .buttonStyle(.plain)
+                            .id(f.flightNumber)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                            .overlay(alignment: .bottom) { Divider() }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) { delete(f) } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 140)
+
+                    Color.clear.frame(height: 1).id("bottom")
+                        .listRowSeparator(.hidden).listRowBackground(Color.clear).listRowInsets(EdgeInsets())
+                    Color.clear.frame(height: 140)   // clear the floating pill
+                        .listRowSeparator(.hidden).listRowBackground(Color.clear).listRowInsets(EdgeInsets())
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
                 .scrollIndicators(.hidden)
                 .onAppear {
                     let args = ProcessInfo.processInfo.arguments
@@ -81,6 +103,21 @@ struct PassportView: View {
                 statsMode = StatsMode(rawValue: args[i + 1])
             }
         }
+    }
+
+    /// A non-swipeable List row with the standard 16pt side padding + spacing
+    /// used throughout this screen, chrome stripped so it reads as plain content.
+    private func listRow<V: View>(bottom: CGFloat, @ViewBuilder _ content: () -> V) -> some View {
+        content()
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: bottom, trailing: 16))
+    }
+
+    private func delete(_ flight: Flight) {
+        ArcNotifications.removeAll(for: flight)
+        modelContext.delete(flight)
+        try? modelContext.save()
     }
 
     private var header: some View {
@@ -170,7 +207,11 @@ struct PassportView: View {
         }
     }
 
-    private var pastFlightsSection: some View {
+    /// Title + sort chips + count row. The past-flight rows themselves live
+    /// directly in `body` (not nested in here) so each can be an independent,
+    /// swipeable List row — a `ForEach` buried inside this VStack would render
+    /// as one opaque row from the List's perspective, with no per-row swipe.
+    private var pastFlightsHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Past Flights").font(.system(size: 22, weight: .bold))
@@ -195,10 +236,6 @@ struct PassportView: View {
                 Text("\(scoped.count) FLIGHTS").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
             }
             .padding(.top, 4)
-            ForEach(sortedPast) { f in
-                Button { onSelect(f) } label: { pastRow(f) }.buttonStyle(.plain).id(f.flightNumber)
-                Divider()
-            }
         }
     }
 
