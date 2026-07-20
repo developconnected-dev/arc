@@ -30,6 +30,9 @@ targets:
         CODE_SIGN_STYLE: Automatic
     entitlements:
       path: Arc/Arc.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.arc.flighttracker
     dependencies:
       - target: ArcWidget
         embed: true
@@ -54,6 +57,9 @@ targets:
         CODE_SIGN_STYLE: Automatic
     entitlements:
       path: ArcWidget/ArcWidget.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.arc.flighttracker
 
   ArcTests:
     type: bundle.unit-test
