@@ -29,8 +29,15 @@ final class ArcSupabase: ObservableObject {
     }
 
     init() {
-        self.baseURL = UserDefaults.standard.string(forKey: "supabase_url") ?? ""
-        self.anonKey = UserDefaults.standard.string(forKey: "supabase_anon_key") ?? ""
+        // Defaults match Settings' @AppStorage defaults — but @AppStorage's default
+        // only applies within the view itself and never gets written to UserDefaults
+        // until the user edits the field, so it's duplicated here directly to make
+        // Supabase actually configured out of the box, not just "shown as configured
+        // if you happen to open Settings first."
+        self.baseURL = UserDefaults.standard.string(forKey: "supabase_url")
+            ?? "https://your-project-ref.supabase.co"
+        self.anonKey = UserDefaults.standard.string(forKey: "supabase_anon_key")
+            ?? "REDACTED_SUPABASE_ANON_KEY"
         self.accessToken = UserDefaults.standard.string(forKey: "arc_access_token")
         self.refreshToken = UserDefaults.standard.string(forKey: "arc_refresh_token")
         self.isSignedIn = accessToken != nil

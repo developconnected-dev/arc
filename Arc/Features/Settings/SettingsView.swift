@@ -5,8 +5,11 @@ struct SettingsView: View {
     @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
     @State private var exportURL: URL?
     @AppStorage("apiEndpoint") private var apiEndpoint = "https://your-worker.workers.dev"
-    @AppStorage("supabase_url") private var supabaseURL = ""
-    @AppStorage("supabase_anon_key") private var supabaseAnonKey = ""
+    // The anon key is safe to ship in the client — Supabase's security model is
+    // Postgres row-level security (see supabase/migrations/001_initial.sql),
+    // not secrecy of this key. It's the same key every device/browser uses.
+    @AppStorage("supabase_url") private var supabaseURL = "https://your-project-ref.supabase.co"
+    @AppStorage("supabase_anon_key") private var supabaseAnonKey = "REDACTED_SUPABASE_ANON_KEY"
     @AppStorage("notifyGateChanges") private var notifyGateChanges = true
     @AppStorage("notifyDelays") private var notifyDelays = true
     @AppStorage("notifyLanding") private var notifyLanding = true
