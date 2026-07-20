@@ -1,6 +1,9 @@
 import SwiftUI
+import SwiftData
 
 struct SettingsView: View {
+    @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
+    @State private var exportURL: URL?
     @AppStorage("apiEndpoint") private var apiEndpoint = "https://your-worker.workers.dev"
     @AppStorage("supabase_url") private var supabaseURL = ""
     @AppStorage("supabase_anon_key") private var supabaseAnonKey = ""
@@ -114,12 +117,26 @@ struct SettingsView: View {
 
                 // Data
                 Section {
-                    Button("Export Flight Data") {
-                        // TODO: Export to JSON/CSV
+                    if allFlights.isEmpty {
+                        Text("No flights to export yet")
+                            .foregroundStyle(ArcColor.textMuted)
+                    } else if let exportURL {
+                        ShareLink(item: exportURL) {
+                            Label("Share Export (\(allFlights.count) flights)", systemImage: "square.and.arrow.up")
+                        }
+                        .foregroundStyle(ArcColor.accent)
+                    } else {
+                        Button {
+                            exportURL = FlightExporter.writeJSONFile(allFlights)
+                        } label: {
+                            Text("Export Flight Data (\(allFlights.count) flights)")
+                        }
+                        .foregroundStyle(ArcColor.accent)
                     }
-                    .foregroundStyle(ArcColor.accent)
                 } header: {
                     Text("Data")
+                } footer: {
+                    Text("Exports every flight as JSON — your own data, ready to keep or move elsewhere.")
                 }
             }
             .scrollContentBackground(.hidden)
