@@ -100,9 +100,12 @@ struct FlightDetailView: View {
         .background(flight.bannerColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
     }
 
+    /// Inbound-aircraft status only makes sense while something is still
+    /// actively being tracked — a landed/cancelled flight already happened,
+    /// so "checking inbound aircraft" would misleadingly read as present-tense.
     private var inboundLine: String? {
         if flight.isActive { return "Live tracking active" }
-        guard flight.aircraftRegistration != nil else { return nil }
+        guard flight.isUpcoming, flight.aircraftRegistration != nil else { return nil }
         if !flight.inboundChecked { return "Checking inbound aircraft" }
         if flight.inboundDelayMinutes > 0 { return "Inbound aircraft is \(flight.inboundDelayMinutes)m late" }
         if flight.inboundFlightNumber != nil { return "Inbound aircraft on schedule" }
