@@ -78,8 +78,23 @@ final class Flight {
         set { statusRaw = newValue.rawValue }
     }
 
+    /// "Still scheduled" — i.e. not yet confirmed departed, landed, cancelled,
+    /// or diverted. Deliberately does NOT require `scheduledDeparture > .now`:
+    /// that extra check created a permanent tracking dead zone for any flight
+    /// still marked `.scheduled` after its original scheduled time passed
+    /// (the overwhelmingly common case — any delay at all means the real
+    /// airline hasn't reported "departed" by the moment the original schedule
+    /// time ticks over). FlightTracker only re-polls flights that are
+    /// isUpcoming, isActive, or isRecentlyLanded — so a flight that briefly
+    /// satisfied none of the three, right as its schedule time passed but
+    /// before the API confirmed departure, would drop out of tracking and
+    /// never be checked again, never learning it had actually gone active.
+    /// The same condition also gates My Flights/map visibility, so this was
+    /// the flight vanishing "the moment it takes off." `status` alone — not a
+    /// time comparison — is what actually answers "do we know this departed
+    /// yet," so that's what this checks.
     var isUpcoming: Bool {
-        status == .scheduled && scheduledDeparture > .now
+        status == .scheduled
     }
 
     var isActive: Bool {

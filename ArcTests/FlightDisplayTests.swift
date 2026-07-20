@@ -164,3 +164,39 @@ final class FlightStatusHealTests: XCTestCase {
         XCTAssertEqual(FlightStatus.heal(rawValue: "arrived", scheduledArrival: past), .landed)
     }
 }
+
+@MainActor
+final class FlightUpcomingTests: XCTestCase {
+    private func flight(status: FlightStatus, departureOffset: TimeInterval) -> Flight {
+        let f = Flight(flightNumber: "LX1413", date: .now.addingTimeInterval(departureOffset))
+        f.scheduledDeparture = .now.addingTimeInterval(departureOffset)
+        f.status = status
+        return f
+    }
+
+    func testUpcomingTrueForScheduledFlightInTheFuture() {
+        XCTAssertTrue(flight(status: .scheduled, departureOffset: 3600).isUpcoming)
+    }
+
+    /// Regression: a flight still marked .scheduled after its own scheduled
+    /// departure time has passed — the overwhelmingly common case for any
+    /// delayed flight, since the real airline hasn't reported "departed" yet
+    /// even though the original schedule instant has ticked over — must stay
+    /// isUpcoming. Previously isUpcoming also required scheduledDeparture in
+    /// the future, so this flight satisfied neither isUpcoming nor isActive:
+    /// FlightTracker's relevant-to-poll filter excluded it, so it could never
+    /// be checked again to learn it eventually went active, and the same
+    /// condition gated My Flights/map visibility — the flight vanishing "the
+    /// moment it takes off" for any flight with even a few minutes of delay.
+    func testUpcomingStaysTrueForScheduledFlightPastItsOwnDepartureTime() {
+        XCTAssertTrue(flight(status: .scheduled, departureOffset: -900).isUpcoming)
+    }
+
+    func testUpcomingFalseOnceActive() {
+        XCTAssertFalse(flight(status: .active, departureOffset: -900).isUpcoming)
+    }
+
+    func testUpcomingFalseOnceLanded() {
+        XCTAssertFalse(flight(status: .landed, departureOffset: -3 * 3600).isUpcoming)
+    }
+}
