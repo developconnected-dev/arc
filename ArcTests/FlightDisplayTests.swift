@@ -88,4 +88,47 @@ final class DateHelpersTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         XCTAssertEqual(DateHelpers.reinterpretWallClock(now, asLocalTo: nil), now)
     }
+
+    /// Regression: AeroDataBox timestamps always include fractional seconds
+    /// (the Worker's `toISO()` round-trips through JS `Date.toISOString()`,
+    /// which always produces ".sssZ"). A formatter built with only
+    /// `.withInternetDateTime` silently fails on this — the earlier
+    /// InboundSelection/AddFlightView tests all used clean non-fractional
+    /// fixtures and passed despite the real bug, which is exactly why this
+    /// needs a realistic fixture, not a convenient one.
+    func testParseAPIDateHandlesRealAeroDataBoxFormat() {
+        let d = DateHelpers.parseAPIDate("2026-07-20T11:05:00.000Z")
+        XCTAssertNotNil(d)
+        XCTAssertEqual(d, ISO8601DateFormatter().date(from: "2026-07-20T11:05:00Z"))
+    }
+
+    func testParseAPIDateStillHandlesPlainFormat() {
+        XCTAssertNotNil(DateHelpers.parseAPIDate("2026-07-20T11:05:00Z"))
+    }
+
+    func testParseAPIDateNilForEmptyOrNil() {
+        XCTAssertNil(DateHelpers.parseAPIDate(""))
+        XCTAssertNil(DateHelpers.parseAPIDate(nil))
+    }
+}
+
+final class FlightStatusHealTests: XCTestCase {
+    func testHealPassesThroughKnownRawValue() {
+        XCTAssertEqual(FlightStatus.heal(rawValue: "landed", scheduledArrival: .now), .landed)
+    }
+
+    /// Regression: before the Worker normalized AeroDataBox's vocabulary,
+    /// `statusRaw` could be "expected"/"arrived"/etc. — neither `isUpcoming`
+    /// nor `isCompleted` matches those, so the flight vanished from every
+    /// list while still rendering on the Passport globe (route rendering
+    /// doesn't filter by status). heal() is the safety net for exactly that.
+    func testHealFallsBackToScheduledForFutureUnknownStatus() {
+        let future = Date.now.addingTimeInterval(3600)
+        XCTAssertEqual(FlightStatus.heal(rawValue: "expected", scheduledArrival: future), .scheduled)
+    }
+
+    func testHealFallsBackToLandedForPastUnknownStatus() {
+        let past = Date.now.addingTimeInterval(-3600)
+        XCTAssertEqual(FlightStatus.heal(rawValue: "arrived", scheduledArrival: past), .landed)
+    }
 }

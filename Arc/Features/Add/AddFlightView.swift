@@ -20,6 +20,8 @@ struct AddFlightView: View {
     @State private var results: [FlightAPIClient.FlightSearchResult] = []
     @State private var isSearching = false
     @State private var errorText: String?
+    @State private var isAdding = false
+    @State private var addError: String?
 
     // Manual entry state
     @State private var manualNumber = ""
@@ -363,9 +365,25 @@ struct AddFlightView: View {
                     }.buttonStyle(.plain)
                 }.padding(20)
             } else {
+                if let addError {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(ArcTheme.late)
+                        Text(addError).font(.system(size: 13)).foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding(14)
+                    .background(ArcTheme.late.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal, 20)
+                }
                 LazyVStack(spacing: 0) {
                     ForEach(results, id: \.flight_number) { r in
-                        Button { add(r) } label: { resultCard(r) }.buttonStyle(.plain)
+                        Button { add(r) } label: { resultCard(r) }
+                            .buttonStyle(.plain)
+                            .disabled(isAdding)
+                            .opacity(isAdding ? 0.5 : 1)
+                            .overlay(alignment: .trailing) {
+                                if isAdding { ProgressView().padding(.trailing, 20) }
+                            }
                         Divider().padding(.leading, 20)
                     }
                 }
@@ -405,6 +423,7 @@ struct AddFlightView: View {
 
     private func enterManual(prefillingFrom pickedDate: Date?, returningTo: Step = .search) {
         manualReturnStep = returningTo
+        addError = nil
         if manualNumber.isEmpty {
             manualNumber = "\(airline?.iata ?? "")\(number)"
         }
@@ -479,6 +498,16 @@ struct AddFlightView: View {
                     .padding(12).background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 10))
             }
 
+            if let addError {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(ArcTheme.late)
+                    Text(addError).font(.system(size: 13)).foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(14)
+                .background(ArcTheme.late.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+            }
+
             Button(action: addManual) {
                 HStack {
                     Spacer()
@@ -545,10 +574,16 @@ struct AddFlightView: View {
         let reg = manualRegistration.trimmingCharacters(in: .whitespaces)
         f.aircraftType = aircraft.isEmpty ? nil : aircraft
         f.aircraftRegistration = reg.isEmpty ? nil : reg
+
         modelContext.insert(f)
-        try? modelContext.save()
-        if manualStatus == .scheduled { ArcNotifications.scheduleDepartureReminder(for: f) }
-        dismiss()
+        do {
+            try modelContext.save()
+            if manualStatus == .scheduled { ArcNotifications.scheduleDepartureReminder(for: f) }
+            dismiss()
+        } catch {
+            modelContext.delete(f)
+            addError = "Couldn't save this flight: \(error.localizedDescription)"
+        }
     }
 
     // MARK: Shared bits
@@ -614,21 +649,17 @@ struct AddFlightView: View {
         return f.string(from: d)
     }
     private func timeOnly(_ iso: String) -> String {
-        let df = ISO8601DateFormatter(); df.formatOptions = [.withInternetDateTime]
-        let d = df.date(from: iso) ?? ISO8601DateFormatter().date(from: iso)
-        guard let d else { return "" }
+        guard let d = DateHelpers.parseAPIDate(iso) else { return "" }
         let f = DateFormatter(); f.locale = Locale(identifier: "en_GB"); f.dateFormat = "HH:mm"
         return f.string(from: d)
     }
     private func countdownValue(_ r: FlightAPIClient.FlightSearchResult) -> String {
-        let df = ISO8601DateFormatter(); df.formatOptions = [.withInternetDateTime]
-        guard let d = df.date(from: r.dep_scheduled) else { return "—" }
+        guard let d = DateHelpers.parseAPIDate(r.dep_scheduled) else { return "—" }
         let s = Int(d.timeIntervalSince(.now)); let days = s/86400; let hrs = s/3600
         return days >= 1 ? "\(days)" : "\(max(0, hrs))"
     }
     private func countdownUnit(_ r: FlightAPIClient.FlightSearchResult) -> String {
-        let df = ISO8601DateFormatter(); df.formatOptions = [.withInternetDateTime]
-        guard let d = df.date(from: r.dep_scheduled) else { return "" }
+        guard let d = DateHelpers.parseAPIDate(r.dep_scheduled) else { return "" }
         return Int(d.timeIntervalSince(.now)) >= 86400 ? "DAYS" : "HOURS"
     }
 
@@ -649,9 +680,14 @@ struct AddFlightView: View {
     }
 
     private func add(_ r: FlightAPIClient.FlightSearchResult) {
-        let iso = ISO8601DateFormatter(); iso.formatOptions = [.withInternetDateTime]
-        func parse(_ s: String) -> Date { iso.date(from: s) ?? date }
-        let f = Flight(flightNumber: r.flight_number, date: parse(r.dep_scheduled))
+        guard !isAdding else { return }
+        isAdding = true
+        addError = nil
+
+        let departure = DateHelpers.parseAPIDate(r.dep_scheduled) ?? date
+        let arrival = DateHelpers.parseAPIDate(r.arr_scheduled) ?? departure.addingTimeInterval(2 * 3600)
+
+        let f = Flight(flightNumber: r.flight_number, date: departure)
         f.airline = r.airline_name
         f.airlineICAO = r.airline_iata
         f.departureIATA = r.dep_iata; f.arrivalIATA = r.arr_iata
@@ -660,15 +696,24 @@ struct AddFlightView: View {
         let dep = ReferenceData.shared.airport(r.dep_iata); let arr = ReferenceData.shared.airport(r.arr_iata)
         f.departureLat = r.dep_lat ?? dep?.lat ?? 0; f.departureLon = r.dep_lon ?? dep?.lon ?? 0
         f.arrivalLat = r.arr_lat ?? arr?.lat ?? 0; f.arrivalLon = r.arr_lon ?? arr?.lon ?? 0
-        f.scheduledDeparture = parse(r.dep_scheduled); f.scheduledArrival = parse(r.arr_scheduled)
-        f.statusRaw = r.status; f.delayMinutes = r.delay ?? 0
+        f.scheduledDeparture = departure; f.scheduledArrival = arrival
+        f.statusRaw = FlightStatus.heal(rawValue: r.status, scheduledArrival: arrival).rawValue
+        f.delayMinutes = r.delay ?? 0
         f.departureGate = r.dep_gate; f.departureTerminal = r.dep_terminal
         f.arrivalGate = r.arr_gate; f.arrivalTerminal = r.arr_terminal; f.baggageClaim = r.arr_baggage
         f.aircraftType = r.aircraft_type; f.aircraftRegistration = r.aircraft_registration
+
         modelContext.insert(f)
-        try? modelContext.save()
-        ArcNotifications.scheduleDepartureReminder(for: f)
-        dismiss()
+        do {
+            try modelContext.save()
+            ArcNotifications.scheduleDepartureReminder(for: f)
+            isAdding = false
+            dismiss()
+        } catch {
+            modelContext.delete(f)
+            isAdding = false
+            addError = "Couldn't save this flight: \(error.localizedDescription)"
+        }
     }
 }
 

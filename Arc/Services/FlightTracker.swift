@@ -101,7 +101,7 @@ final class FlightTracker: ObservableObject {
             guard let latest = results.first else { return }
 
             // Update status
-            flight.statusRaw = latest.status
+            flight.statusRaw = FlightStatus.heal(rawValue: latest.status, scheduledArrival: flight.scheduledArrival).rawValue
             flight.delayMinutes = latest.delay ?? 0
 
             // Update gates if changed

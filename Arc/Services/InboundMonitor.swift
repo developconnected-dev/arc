@@ -29,12 +29,9 @@ enum InboundMonitor {
             before: flight.scheduledDeparture
         ) else { return }
 
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime]
-
         flight.inboundFlightNumber = inbound.flight_number
         flight.inboundRoute = "\(inbound.dep_iata) → \(inbound.arr_iata)"
         flight.inboundDelayMinutes = inbound.delay ?? 0
-        flight.inboundArrivalTime = iso.date(from: inbound.arr_scheduled)
+        flight.inboundArrivalTime = DateHelpers.parseAPIDate(inbound.arr_scheduled)
     }
 }

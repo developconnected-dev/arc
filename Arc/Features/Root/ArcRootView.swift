@@ -84,8 +84,22 @@ struct ArcRootView: View {
     }
 
     private func bootstrapTrackingAndWidgets() {
+        healBrokenFlightStatuses()
         FlightTracker.shared.startTracking(flights: allFlights, modelContext: modelContext)
         WidgetSync.sync(flights: allFlights)
+    }
+
+    /// One-time repair for flights saved before the backend normalized AeroDataBox's
+    /// status vocabulary (e.g. "expected"/"arrived") into ours — those got stuck with
+    /// a `statusRaw` that matches neither `isUpcoming` nor `isCompleted`, making them
+    /// invisible in every list while still rendering their route on the Passport globe.
+    private func healBrokenFlightStatuses() {
+        var changed = false
+        for f in allFlights where FlightStatus(rawValue: f.statusRaw) == nil {
+            f.status = FlightStatus.heal(rawValue: f.statusRaw, scheduledArrival: f.scheduledArrival)
+            changed = true
+        }
+        if changed { try? modelContext.save() }
     }
 
     private var activeFlight: Flight? { allFlights.first { $0.isActive } }

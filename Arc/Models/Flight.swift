@@ -137,4 +137,14 @@ enum FlightStatus: String, Codable, CaseIterable {
     case landed
     case cancelled
     case diverted
+
+    /// Best-effort recovery for a status string that isn't one of our 5 raw
+    /// values — either a foreign API string that slipped past the Worker's
+    /// normalization, or already-stored bad data from before that existed.
+    /// Falls back to a date-based heuristic rather than blindly assuming
+    /// "scheduled", so a clearly-past flight doesn't get stuck looking upcoming.
+    static func heal(rawValue: String, scheduledArrival: Date) -> FlightStatus {
+        if let known = FlightStatus(rawValue: rawValue) { return known }
+        return scheduledArrival < .now ? .landed : .scheduled
+    }
 }
