@@ -48,6 +48,15 @@ extension Flight {
 
     var isDelayed: Bool { delayMinutes > 0 || status == .cancelled }
 
+    /// True for 30 minutes after landing — kept visible in My Flights during
+    /// this grace period (arrival gate, baggage claim) instead of moving
+    /// straight to Passport the instant the status flips to landed.
+    var isRecentlyLanded: Bool {
+        guard status == .landed else { return false }
+        let sinceLanding = Date.now.timeIntervalSince(actualArrival ?? scheduledArrival)
+        return sinceLanding >= 0 && sinceLanding <= 30 * 60
+    }
+
     /// Green when on-time/near, red when delayed/cancelled/diverted, gray when far-off.
     var accentColor: Color {
         if status == .cancelled || status == .diverted || delayMinutes > 15 { return ArcTheme.late }
@@ -69,6 +78,7 @@ extension Flight {
     /// Top-right label on a My Flights card.
     var cardTopRight: String {
         if isActive { return statusText }
+        if isRecentlyLanded { return "Landed" }
         if isSoon { return "Departs \(statusText)" }
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_GB")
@@ -77,7 +87,7 @@ extension Flight {
     }
 
     var cardTopRightColor: Color {
-        (isSoon || isActive) ? accentColor : Color(.secondaryLabel)
+        (isSoon || isActive || isRecentlyLanded) ? accentColor : Color(.secondaryLabel)
     }
 
     // MARK: - Detail screen helpers

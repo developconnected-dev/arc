@@ -46,7 +46,17 @@ enum DemoSeed {
         upcoming2.inboundArrivalTime = Date.now.addingTimeInterval(15 * 3600)
         upcoming2.inboundChecked = true
 
-        context.insert(active); context.insert(upcoming1); context.insert(upcoming2)
+        // Landed 10 minutes ago — proves the 30-minute grace period keeps it
+        // in My Flights (with gate/baggage still visible) before it moves
+        // exclusively to Passport.
+        let justLanded = make("LX1988", "VIE", "ZRH", depOffsetH: -2.5, arrOffsetH: -1.0 / 6, status: "landed")
+        justLanded.actualDeparture = justLanded.scheduledDeparture
+        justLanded.actualArrival = Date.now.addingTimeInterval(-10 * 60)
+        justLanded.aircraftType = "Airbus A220-100"
+        justLanded.arrivalGate = "A54"
+        justLanded.baggageClaim = "7"
+
+        context.insert(active); context.insert(upcoming1); context.insert(upcoming2); context.insert(justLanded)
 
         // Past (landed) flights so Passport stats populate.
         let past: [(String, String, String, Double, Double, String, String, Int)] = [
