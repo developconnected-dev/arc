@@ -56,7 +56,15 @@ enum DemoSeed {
         justLanded.arrivalGate = "A54"
         justLanded.baggageClaim = "7"
 
-        context.insert(active); context.insert(upcoming1); context.insert(upcoming2); context.insert(justLanded)
+        // Delayed 12 minutes, past its own original scheduled departure, but
+        // the API hasn't confirmed "active" yet — proves this stays visible
+        // (My Flights + map route) instead of falling into the dead zone
+        // isUpcoming used to have between "scheduled time passed" and
+        // "confirmed departed."
+        let overdue = make("LX1830", "ZRH", "MUC", depOffsetH: -12.0 / 60, arrOffsetH: 1, status: "scheduled")
+        overdue.aircraftType = "Airbus A220-100"
+
+        context.insert(active); context.insert(upcoming1); context.insert(upcoming2); context.insert(justLanded); context.insert(overdue)
 
         // Past (landed) flights so Passport stats populate.
         let past: [(String, String, String, Double, Double, String, String, Int)] = [
