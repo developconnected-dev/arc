@@ -86,7 +86,18 @@ private struct SheetChrome<Content: View>: View {
     }
 
     private func dragGesture(height h: CGFloat, currentVisible: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 1)
+        // .global, not the default .local: this gesture sits on the grabber,
+        // which is itself repositioned every frame by the offset this same
+        // gesture drives (offset depends on liveHeight, which onChanged just
+        // set). With .local, translation is measured against the grabber's
+        // own (moving) coordinate frame, so any lag between "how far the
+        // view actually moved" and "how far the finger moved" — e.g. right
+        // at the small/large clamp, where the view stops but the finger
+        // keeps going — feeds back into the next translation reading and
+        // reads as the sheet jumping/oscillating instead of tracking the
+        // finger smoothly. .global measures against a frame that never
+        // moves, which breaks the loop entirely.
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
             .onChanged { value in
                 let base = dragBaseline ?? currentVisible
                 if dragBaseline == nil { dragBaseline = base }
