@@ -21,6 +21,7 @@ final class FlightTracker: ObservableObject {
 
                 let relevant = flights.filter { flight in
                     flight.isActive ||
+                    flight.isRecentlyLanded ||   // baggage claim/gate can still change right after landing
                     (flight.isUpcoming && flight.scheduledDeparture <= sixHoursFromNow)
                 }
 

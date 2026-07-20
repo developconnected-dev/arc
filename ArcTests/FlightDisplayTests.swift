@@ -59,6 +59,38 @@ final class FlightDisplayTests: XCTestCase {
         let f = makeFlight(delay: 0)
         XCTAssertEqual(f.bannerColor, ArcTheme.onTime)
     }
+
+    // MARK: isRecentlyLanded — uses relative Date.now offsets, not the fixed
+    // `makeFlight` instant above (which is a fixed future date, not "recent").
+
+    private func landedFlight(minutesAgo: Double) -> Flight {
+        let f = Flight(flightNumber: "LX1413", date: .now)
+        f.scheduledDeparture = .now.addingTimeInterval(-3 * 3600)
+        f.scheduledArrival = .now.addingTimeInterval(-minutesAgo * 60)
+        f.actualArrival = f.scheduledArrival
+        f.status = .landed
+        return f
+    }
+
+    func testRecentlyLandedTrueJustAfterLanding() {
+        XCTAssertTrue(landedFlight(minutesAgo: 5).isRecentlyLanded)
+    }
+
+    func testRecentlyLandedFalseAfter30Minutes() {
+        XCTAssertFalse(landedFlight(minutesAgo: 31).isRecentlyLanded)
+    }
+
+    func testRecentlyLandedFalseForNonLandedStatus() {
+        let f = landedFlight(minutesAgo: 5)
+        f.status = .active
+        XCTAssertFalse(f.isRecentlyLanded)
+    }
+
+    func testMyFlightsCardShowsLandedLabelDuringGracePeriod() {
+        let f = landedFlight(minutesAgo: 5)
+        XCTAssertEqual(f.cardTopRight, "Landed")
+        XCTAssertEqual(f.cardTopRightColor, f.accentColor)
+    }
 }
 
 final class DateHelpersTests: XCTestCase {

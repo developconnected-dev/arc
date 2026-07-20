@@ -2,7 +2,9 @@ import SwiftUI
 import SwiftData
 
 /// The My Flights sheet content: title + share/avatar, then active & upcoming
-/// flights as countdown cards. Past flights live in Passport.
+/// flights as countdown cards. A flight stays here for 30 minutes after
+/// landing too (arrival gate, baggage claim still visible) before moving
+/// exclusively to Passport history.
 struct MyFlightsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
@@ -12,9 +14,16 @@ struct MyFlightsView: View {
 
     private var flights: [Flight] {
         allFlights
-            .filter { $0.isActive || $0.isUpcoming }
+            .filter { $0.isActive || $0.isUpcoming || $0.isRecentlyLanded }
             .sorted { a, b in
-                if a.isActive != b.isActive { return a.isActive && !b.isActive }
+                // Active and recently-landed are the most time-sensitive —
+                // keep them pinned above the upcoming-by-soonest ordering.
+                let aRank = a.isActive ? 0 : (a.isRecentlyLanded ? 1 : 2)
+                let bRank = b.isActive ? 0 : (b.isRecentlyLanded ? 1 : 2)
+                if aRank != bRank { return aRank < bRank }
+                if aRank == 1 {
+                    return (a.actualArrival ?? a.scheduledArrival) > (b.actualArrival ?? b.scheduledArrival)
+                }
                 return a.scheduledDeparture < b.scheduledDeparture
             }
     }

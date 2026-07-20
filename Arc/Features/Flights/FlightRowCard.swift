@@ -54,6 +54,13 @@ struct FlightRowCard: View {
                 Text("NOW")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(ArcTheme.action)
+            } else if flight.isRecentlyLanded {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(ArcTheme.onTime)
+                Text("LANDED")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(ArcTheme.onTime)
             } else {
                 Text("—").font(.system(size: 24, weight: .heavy)).foregroundStyle(.tertiary)
             }
