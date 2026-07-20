@@ -4,6 +4,7 @@ import SwiftData
 struct ArcRootView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
+    @ObservedObject private var supabase = ArcSupabase.shared
 
     @State private var controller = MapController()
     @State private var tab: ArcTab = ProcessInfo.processInfo.arguments.contains("-tabPassport") ? .passport
@@ -57,6 +58,15 @@ struct ArcRootView: View {
         .onChange(of: tab) { _, newTab in updateCameraForTab(newTab) }
         .onChange(of: detailFlight?.id) { _, _ in
             if let f = detailFlight { controller.focus(on: f) }
+        }
+        .onChange(of: supabase.isSignedIn) { wasSignedIn, isSignedIn in
+            // Backfill flights added before this sign-in — "put flights in
+            // Supabase too" should cover what's already here, not just what's
+            // added from now on.
+            if !wasSignedIn, isSignedIn {
+                let flights = allFlights
+                Task { await ArcSupabase.shared.bulkUploadFlights(flights) }
+            }
         }
         .onAppear {
             DemoSeed.seedIfRequested(into: modelContext, existing: allFlights)

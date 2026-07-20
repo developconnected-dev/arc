@@ -250,6 +250,80 @@ final class ArcSupabase: ObservableObject {
         return try JSONDecoder().decode([SharedFlight].self, from: data)
     }
 
+    // MARK: - Flight Sync (private cloud backup)
+    //
+    // Separate from `shared_flights` above, which is scoped to the Friends/
+    // social feature and only carries a trimmed subset of fields meant for
+    // sharing. This mirrors the full local SwiftData record so a flight isn't
+    // *only* stored on-device. Local-first, always: every call here is a
+    // best-effort background mirror fired after the local save/delete already
+    // succeeded — sync failing (or the user not being signed in at all) never
+    // blocks or breaks the on-device experience, which must keep working fully
+    // offline regardless of Supabase's configuration or auth state.
+
+    /// Upserts one flight into `user_flights`, keyed by its local UUID so
+    /// add/update both resolve to the same row.
+    func upsertUserFlight(_ flight: Flight) async throws {
+        guard let uid = currentUser?.id else { return }
+        let body = Self.userFlightBody(flight, userId: uid)
+        _ = try await upsert(path: "/rest/v1/user_flights", body: body)
+    }
+
+    func deleteUserFlight(id: UUID) async throws {
+        guard currentUser != nil else { return }
+        _ = try await delete(path: "/rest/v1/user_flights?id=eq.\(id.uuidString)")
+    }
+
+    /// Backfills every given flight — called once right after a successful
+    /// sign-in, so flights added before the user ever signed in also end up
+    /// backed up, not just ones added afterward.
+    func bulkUploadFlights(_ flights: [Flight]) async {
+        for flight in flights {
+            try? await upsertUserFlight(flight)
+        }
+    }
+
+    /// Builds the upsert body for a flight. Pure/static so it's testable
+    /// without a network call or a signed-in session.
+    static func userFlightBody(_ flight: Flight, userId: String) -> [String: Any] {
+        let iso = ISO8601DateFormatter()
+        func str(_ d: Date?) -> Any { d.map { iso.string(from: $0) } ?? NSNull() }
+        return [
+            "id": flight.id.uuidString,
+            "user_id": userId,
+            "flight_number": flight.flightNumber,
+            "airline": flight.airline,
+            "airline_icao": flight.airlineICAO,
+            "departure_iata": flight.departureIATA,
+            "arrival_iata": flight.arrivalIATA,
+            "departure_city": flight.departureCity,
+            "arrival_city": flight.arrivalCity,
+            "departure_lat": flight.departureLat,
+            "departure_lon": flight.departureLon,
+            "arrival_lat": flight.arrivalLat,
+            "arrival_lon": flight.arrivalLon,
+            "scheduled_departure": iso.string(from: flight.scheduledDeparture),
+            "scheduled_arrival": iso.string(from: flight.scheduledArrival),
+            "actual_departure": str(flight.actualDeparture),
+            "actual_arrival": str(flight.actualArrival),
+            "estimated_arrival": str(flight.estimatedArrival),
+            "status": flight.statusRaw,
+            "delay_minutes": flight.delayMinutes,
+            "departure_gate": flight.departureGate as Any,
+            "departure_terminal": flight.departureTerminal as Any,
+            "arrival_gate": flight.arrivalGate as Any,
+            "arrival_terminal": flight.arrivalTerminal as Any,
+            "baggage_claim": flight.baggageClaim as Any,
+            "aircraft_type": flight.aircraftType as Any,
+            "aircraft_registration": flight.aircraftRegistration as Any,
+            "aircraft_icao24": flight.aircraftICAO24 as Any,
+            "booking_code": flight.bookingCode as Any,
+            "seat": flight.seat as Any,
+            "notes": flight.notes,
+            "updated_at": iso.string(from: .now),
+        ]
+    }
+
     // MARK: - Shared Journeys
 
     func createSharedJourney(flightId: String) async throws -> String {
@@ -317,6 +391,21 @@ final class ArcSupabase: ObservableObject {
         if auth {
             request.setValue("Bearer \(accessToken ?? anonKey)", forHTTPHeaderField: "Authorization")
         }
+        request.setValue(anonKey, forHTTPHeaderField: "apikey")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return data
+    }
+
+    /// INSERT ... ON CONFLICT (primary key) DO UPDATE, via PostgREST's
+    /// merge-duplicates resolution — lets add and update both call the same
+    /// method without needing to know in advance whether the row exists yet.
+    private func upsert(path: String, body: [String: Any]) async throws -> Data {
+        var request = URLRequest(url: URL(string: baseURL + path)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
+        request.setValue("Bearer \(accessToken ?? anonKey)", forHTTPHeaderField: "Authorization")
         request.setValue(anonKey, forHTTPHeaderField: "apikey")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, _) = try await URLSession.shared.data(for: request)
