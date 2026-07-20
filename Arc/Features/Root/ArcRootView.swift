@@ -8,7 +8,7 @@ struct ArcRootView: View {
     @State private var controller = MapController()
     @State private var tab: ArcTab = ProcessInfo.processInfo.arguments.contains("-tabPassport") ? .passport
         : ProcessInfo.processInfo.arguments.contains("-tabFriends") ? .friends : .myFlights
-    @State private var detent: SheetDetent = .medium
+    @State private var detent: SheetDetent = ProcessInfo.processInfo.arguments.contains("-sheetLarge") ? .large : .medium
     @State private var showAdd = false
     @State private var detailFlight: Flight?
     @State private var detailDetent: PresentationDetent = .large
@@ -128,7 +128,7 @@ struct ArcRootView: View {
     @ViewBuilder private var sheetContent: some View {
         switch tab {
         case .myFlights: MyFlightsView { detailFlight = $0 }
-        case .friends: FriendsSheet()
+        case .friends: FriendsScreen()
         case .passport: PassportView { detailFlight = $0 }
         }
     }
