@@ -37,12 +37,13 @@ struct ArcMapView: View {
 
                     if flight.isCompleted, track.count >= 2 {
                         // Landed: the real recorded path, airport to airport —
-                        // what you actually flew, not a theoretical arc.
+                        // what you actually flew, not a theoretical arc. Past
+                        // routes render dark and muted, no glow.
                         let flown = [dep] + track.map {
                             CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
                         } + [arr]
                         MapPolyline(coordinates: flown)
-                            .stroke(ArcTheme.routeLine, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                            .stroke(ArcTheme.routeLinePast, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                     } else if flight.isActive, track.count >= 2 {
                         // We have real recorded positions: draw the path actually
                         // flown (solid, airport → breadcrumbs → current position)
@@ -56,18 +57,31 @@ struct ArcMapView: View {
                             CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
                         } + [current]
 
+                        // Active: brightest treatment — glow halo under the
+                        // crisp line. (MapPolyline can't take a shadow, so the
+                        // glow is a wide low-opacity stroke of the same path.)
+                        MapPolyline(coordinates: flown)
+                            .stroke(ArcTheme.routeLine.opacity(0.30), style: StrokeStyle(lineWidth: 7, lineCap: .round))
                         MapPolyline(coordinates: flown)
                             .stroke(ArcTheme.routeLine, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                         MapPolyline(coordinates: GeoMath.greatCircle(from: current, to: arr))
                             .stroke(ArcTheme.routeLine.opacity(0.55),
                                     style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [1, 6]))
-                    } else {
+                    } else if flight.isCompleted {
+                        // Past, no recorded track: muted great circle.
                         MapPolyline(coordinates: GeoMath.greatCircle(from: dep, to: arr))
+                            .stroke(ArcTheme.routeLinePast, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                    } else {
+                        // Upcoming (or active without track): bright + glow.
+                        let gc = GeoMath.greatCircle(from: dep, to: arr)
+                        MapPolyline(coordinates: gc)
+                            .stroke(ArcTheme.routeLine.opacity(0.28), style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                        MapPolyline(coordinates: gc)
                             .stroke(ArcTheme.routeLine, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     }
 
-                    Annotation("", coordinate: dep) { endpointDot }
-                    Annotation("", coordinate: arr) { endpointDot }
+                    Annotation("", coordinate: dep) { endpointDot(past: flight.isCompleted) }
+                    Annotation("", coordinate: arr) { endpointDot(past: flight.isCompleted) }
 
                     if flight.isActive, let lat = flight.liveLat, let lon = flight.liveLon {
                         Annotation("", coordinate: .init(latitude: lat, longitude: lon)) {
@@ -97,8 +111,10 @@ struct ArcMapView: View {
         }
     }
 
-    private var endpointDot: some View {
-        Circle().fill(.white).frame(width: 10, height: 10)
-            .overlay(Circle().stroke(ArcTheme.action, lineWidth: 3))
+    private func endpointDot(past: Bool) -> some View {
+        Circle().fill(.white).frame(width: past ? 8 : 10, height: past ? 8 : 10)
+            .overlay(Circle().stroke(past ? ArcTheme.routeLinePast : ArcTheme.action,
+                                     lineWidth: past ? 2 : 3))
+            .opacity(past ? 0.8 : 1)
     }
 }

@@ -12,6 +12,9 @@ enum ArcTheme {
     /// so the great-circle line reads clearly against both map styles instead
     /// of blending into standard UI blue.
     static let routeLine = Color(red: 0.30, green: 0.69, blue: 1.00)   // #4DB0FF
+    /// Past flights' routes: same hue family, darker and muted — history
+    /// recedes, upcoming/current flights glow (Flighty's visual language).
+    static let routeLinePast = Color(red: 0.18, green: 0.38, blue: 0.58).opacity(0.65)
 
     static func timeColor(late: Bool) -> Color { late ? Self.late : Self.onTime }
 
