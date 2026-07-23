@@ -87,3 +87,29 @@ final class ConnectionPlannerTests: XCTestCase {
         XCTAssertEqual(before.layoverMinutes - after.layoverMinutes, 45)
     }
 }
+
+final class GateMatchTests: XCTestCase {
+    private let gates = [
+        FlightAPIClient.Gate(ref: "A54", lat: 47.4539, lon: 8.5618),
+        FlightAPIClient.Gate(ref: "A55", lat: 47.4541, lon: 8.5620),
+        FlightAPIClient.Gate(ref: "B 12", lat: 47.4550, lon: 8.5630),
+    ]
+
+    func testExactMatch() {
+        XCTAssertEqual(FlightAPIClient.matchGate(gates, to: "A54")?.ref, "A54")
+    }
+
+    /// Airlines and OSM disagree about spacing ("B 12" vs "B12").
+    func testMatchIgnoresSpacing() {
+        XCTAssertEqual(FlightAPIClient.matchGate(gates, to: "B12")?.ref, "B 12")
+    }
+
+    /// Some airlines report bare numbers ("54") where OSM has "A54".
+    func testDigitsFallback() {
+        XCTAssertEqual(FlightAPIClient.matchGate(gates, to: "55")?.ref, "A55")
+    }
+
+    func testNoMatchReturnsNil() {
+        XCTAssertNil(FlightAPIClient.matchGate(gates, to: "C99"))
+    }
+}

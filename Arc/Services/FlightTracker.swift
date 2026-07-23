@@ -9,6 +9,7 @@ final class FlightTracker: ObservableObject {
     @Published var isTracking = false
     private var trackingTask: Task<Void, Never>?
     private var lastConnectionRisk: ConnectionPlanner.Risk?
+    private var observedGateSignature: [UUID: String] = [:]
 
     /// Start tracking all active and upcoming flights.
     func startTracking(flights: [Flight], modelContext: ModelContext) {
@@ -207,6 +208,29 @@ final class FlightTracker: ObservableObject {
         }
         if let newGate = flight.departureGate, newGate != oldGate {
             ArcNotifications.notifyGateChange(flight: flight, newGate: newGate)
+        }
+
+        // Gate-prediction flywheel: record what gates this flight used today.
+        // Posted only when the observed set changes (the Worker additionally
+        // upserts one row per flight/day, so storage can't grow per-poll).
+        let signature = [flight.departureGate, flight.departureTerminal,
+                         flight.arrivalGate, flight.arrivalTerminal]
+            .map { $0 ?? "-" }.joined(separator: "|")
+        if signature != "-|-|-|-", observedGateSignature[flight.id] != signature {
+            observedGateSignature[flight.id] = signature
+            let body: [String: Any] = [
+                "flight_number": flight.flightNumber,
+                "departure_iata": flight.departureIATA,
+                "arrival_iata": flight.arrivalIATA,
+                "flight_date": flight.scheduledDeparture.formatted(.iso8601.year().month().day()),
+                "dep_gate": flight.departureGate as Any,
+                "dep_terminal": flight.departureTerminal as Any,
+                "arr_gate": flight.arrivalGate as Any,
+                "arr_terminal": flight.arrivalTerminal as Any,
+            ]
+            if let json = try? JSONSerialization.data(withJSONObject: body) {
+                Task { await FlightAPIClient.shared.observeGates(json) }
+            }
         }
     }
 
