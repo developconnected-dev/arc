@@ -199,4 +199,87 @@ final class FlightUpcomingTests: XCTestCase {
     func testUpcomingFalseOnceLanded() {
         XCTAssertFalse(flight(status: .landed, departureOffset: -3 * 3600).isUpcoming)
     }
+
+    func testUpcomingIncludesBoardingAndGateClosed() {
+        XCTAssertTrue(flight(status: .boarding, departureOffset: 900).isUpcoming)
+        XCTAssertTrue(flight(status: .gateClosed, departureOffset: 300).isUpcoming)
+    }
+}
+
+@MainActor
+final class BoardingDisplayTests: XCTestCase {
+    private func flight(status: FlightStatus) -> Flight {
+        let f = Flight(flightNumber: "LX1413", date: .now.addingTimeInterval(1800))
+        f.scheduledDeparture = .now.addingTimeInterval(1800)
+        f.scheduledArrival = .now.addingTimeInterval(1800 + 2 * 3600)
+        f.status = status
+        return f
+    }
+
+    /// Regression: boarding fell through statusText's default branch, so the
+    /// card read "Departs On Time" while passengers were already boarding.
+    func testBoardingShowsAsStandaloneLabel() {
+        XCTAssertEqual(flight(status: .boarding).statusText, "Boarding")
+        XCTAssertEqual(flight(status: .boarding).cardTopRight, "Boarding")
+    }
+
+    func testGateClosedShowsAsStandaloneLabelInUrgentColor() {
+        let f = flight(status: .gateClosed)
+        XCTAssertEqual(f.cardTopRight, "Gate Closed")
+        XCTAssertEqual(f.cardTopRightColor, ArcTheme.late)
+    }
+}
+
+@MainActor
+final class FlightTrackPointTests: XCTestCase {
+    private func makeFlight() -> Flight {
+        Flight(flightNumber: "LX14", date: .now)
+    }
+
+    func testAppendStoresAndRoundTripsPoints() {
+        let f = makeFlight()
+        f.appendTrackPoint(lat: 47.46, lon: 8.55, altitude: 3000)
+        f.appendTrackPoint(lat: 48.30, lon: 7.20, altitude: 10600)
+        XCTAssertEqual(f.trackPoints.count, 2)
+        XCTAssertEqual(f.trackPoints[1].lat, 48.30, accuracy: 0.0001)
+        XCTAssertEqual(f.trackPoints[1].altitude, 10600)
+    }
+
+    /// A position within 2 km of the last breadcrumb must be dropped —
+    /// otherwise a plane holding/taxiing spams hundreds of near-identical
+    /// points into storage.
+    func testAppendDeduplicatesNearbyPoints() {
+        let f = makeFlight()
+        f.appendTrackPoint(lat: 47.4600, lon: 8.5500, altitude: nil)
+        f.appendTrackPoint(lat: 47.4601, lon: 8.5502, altitude: nil)   // ~15 m away
+        XCTAssertEqual(f.trackPoints.count, 1)
+    }
+}
+
+final class WidgetFlightTests: XCTestCase {
+    private func widgetFlight(status: String, depOffset: TimeInterval, delay: Int = 0) -> WidgetFlight {
+        WidgetFlight(
+            id: "t", flightNumber: "LX1413", airline: "Swiss",
+            departureIATA: "BEG", arrivalIATA: "ZRH",
+            departureCity: "Belgrade", arrivalCity: "Zurich",
+            scheduledDeparture: .now.addingTimeInterval(depOffset),
+            scheduledArrival: .now.addingTimeInterval(depOffset + 2 * 3600),
+            status: status, delayMinutes: delay, departureGate: nil, progress: 0)
+    }
+
+    /// Regression: the widget's isUpcoming had the same dead zone the app
+    /// model did — a delayed flight past its original scheduled time (not yet
+    /// confirmed departed) vanished from the widget right at boarding time.
+    func testWidgetUpcomingSurvivesPassingScheduledTime() {
+        XCTAssertTrue(widgetFlight(status: "scheduled", depOffset: -900, delay: 20).isUpcoming)
+    }
+
+    func testWidgetUpcomingIncludesBoarding() {
+        XCTAssertTrue(widgetFlight(status: "boarding", depOffset: 600).isUpcoming)
+    }
+
+    func testWidgetEffectiveDepartureReflectsDelay() {
+        let f = widgetFlight(status: "scheduled", depOffset: 3600, delay: 30)
+        XCTAssertEqual(f.effectiveDeparture.timeIntervalSince(f.scheduledDeparture), 1800, accuracy: 1)
+    }
 }
