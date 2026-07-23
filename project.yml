@@ -24,6 +24,8 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Arc
         INFOPLIST_KEY_NSSupportsLiveActivities: true
         INFOPLIST_KEY_UILaunchScreen_Generation: true
+        INFOPLIST_KEY_UIBackgroundModes: "fetch"
+        INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers: "com.arc.flighttracker.refresh"
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_IDENTITY: "Apple Development"

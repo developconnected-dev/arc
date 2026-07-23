@@ -95,6 +95,13 @@ struct WheresMyPlaneSection: View {
                 if let inboundNumber = flight.inboundFlightNumber {
                     Divider().background(.white.opacity(0.2))
                     inboundLegRow(number: inboundNumber)
+                } else if flight.inboundChecked && flight.aircraftRegistration != nil {
+                    Divider().background(.white.opacity(0.2))
+                    HStack(spacing: 10) {
+                        Image(systemName: "checkmark.circle").foregroundStyle(.green)
+                        Text("No delays on previous rotation")
+                            .font(.system(size: 13)).foregroundStyle(.white.opacity(0.8))
+                    }
                 }
             }
             .padding(16)
@@ -135,16 +142,46 @@ struct WheresMyPlaneSection: View {
                         Text(route).font(.system(size: 13)).foregroundStyle(.white.opacity(0.75))
                     }
                 }
-                Text(inboundLegStatusText).font(.system(size: 12)).foregroundStyle(.white.opacity(0.65))
+                HStack(spacing: 6) {
+                    Text(inboundLegStatusText).font(.system(size: 12)).foregroundStyle(.white.opacity(0.65))
+                    if let arrTime = flight.inboundArrivalTime {
+                        Text("· \(arrTime.formatted(.dateTime.hour().minute()))")
+                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                    }
+                }
             }
             Spacer()
+            // Status indicator
+            if flight.inboundDelayMinutes > 15 {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.orange)
+            } else if flight.inboundDelayMinutes > 0 {
+                Image(systemName: "clock.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.yellow)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.green)
+            }
         }
     }
 
     private var statusText: String {
         if flight.isActive { return "Tracking live position" }
         if !flight.isUpcoming { return "This flight has already flown" }
-        if !flight.inboundChecked { return "Monitoring the inbound aircraft…" }
+
+        // No registration yet — airline hasn't assigned a tail
+        if flight.aircraftRegistration == nil || flight.aircraftRegistration?.isEmpty == true {
+            let hoursOut = flight.scheduledDeparture.timeIntervalSince(.now) / 3600
+            if hoursOut > 24 {
+                return "Aircraft typically assigned 1–24h before departure"
+            }
+            return "Aircraft not yet assigned by airline"
+        }
+
+        if !flight.inboundChecked { return "Checking previous rotation…" }
         if flight.inboundFlightNumber == nil { return "No prior rotation found for this tail" }
         if flight.inboundDelayMinutes > 0 { return "Inbound aircraft running \(flight.inboundDelayMinutes)m late" }
         return "Inbound aircraft on schedule"

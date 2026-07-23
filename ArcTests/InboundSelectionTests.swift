@@ -10,6 +10,7 @@ final class InboundSelectionTests: XCTestCase {
         .init(flight_number: number, airline_name: "Swiss", airline_iata: "LX",
               dep_iata: dep, arr_iata: arr, dep_city: nil, arr_city: nil,
               dep_scheduled: "2026-07-20T10:00:00.000Z", arr_scheduled: arrScheduled,
+              dep_actual: nil, arr_actual: nil,
               status: "landed", dep_gate: nil, dep_terminal: nil, arr_gate: nil,
               arr_terminal: nil, arr_baggage: nil, delay: delay,
               aircraft_type: nil, aircraft_registration: nil,

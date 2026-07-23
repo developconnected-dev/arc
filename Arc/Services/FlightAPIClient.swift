@@ -26,6 +26,8 @@ actor FlightAPIClient {
         let arr_city: String?
         let dep_scheduled: String
         let arr_scheduled: String
+        let dep_actual: String?
+        let arr_actual: String?
         let status: String
         let dep_gate: String?
         let dep_terminal: String?
@@ -84,5 +86,20 @@ actor FlightAPIClient {
         let (data, response) = try await session.data(from: url)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
         return try JSONDecoder().decode(LivePosition.self, from: data)
+    }
+
+    // MARK: - Security Wait Times
+
+    struct SecurityInfo: Codable, Sendable {
+        let iata: String
+        let securityMinutes: Int?
+        let source: String?
+    }
+
+    func securityWaitTime(iata: String) async throws -> SecurityInfo? {
+        let url = baseURL.appending(path: "/security/\(iata)")
+        let (data, response) = try await session.data(from: url)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+        return try JSONDecoder().decode(SecurityInfo.self, from: data)
     }
 }
