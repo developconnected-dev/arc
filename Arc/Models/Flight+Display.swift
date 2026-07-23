@@ -71,6 +71,8 @@ extension Flight {
         case .landed: return "Landed"
         case .active: return delayMinutes > 0 ? "In Air • \(delayMinutes)m late" : "In Air"
         case .diverted: return "Diverted"
+        case .boarding: return "Boarding"
+        case .gateClosed: return "Gate Closed"
         default: return delayMinutes > 0 ? "Delayed \(delayMinutes)m" : "On Time"
         }
     }
@@ -79,6 +81,8 @@ extension Flight {
     var cardTopRight: String {
         if isActive { return statusText }
         if isRecentlyLanded { return "Landed" }
+        // Boarding/gate-closed read as standalone states, not "Departs Boarding".
+        if isBoarding { return statusText }
         if isSoon { return "Departs \(statusText)" }
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_GB")
@@ -87,7 +91,8 @@ extension Flight {
     }
 
     var cardTopRightColor: Color {
-        (isSoon || isActive || isRecentlyLanded) ? accentColor : Color(.secondaryLabel)
+        if status == .gateClosed { return ArcTheme.late }   // urgency — gate is closing/closed
+        return (isSoon || isActive || isRecentlyLanded || isBoarding) ? accentColor : Color(.secondaryLabel)
     }
 
     // MARK: - Detail screen helpers
