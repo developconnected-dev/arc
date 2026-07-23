@@ -8,6 +8,7 @@ final class FlightTracker: ObservableObject {
 
     @Published var isTracking = false
     private var trackingTask: Task<Void, Never>?
+    private var lastConnectionRisk: ConnectionPlanner.Risk?
 
     /// Start tracking all active and upcoming flights.
     func startTracking(flights: [Flight], modelContext: ModelContext) {
@@ -111,11 +112,33 @@ final class FlightTracker: ObservableObject {
                     }
                 }
 
+                // Connection Assistant: re-rate the connection with the fresh
+                // delays and alert when the tier WORSENS (never on improvement
+                // or repetition — the notification id also dedupes per tier).
+                if let pair = ConnectionPlanner.detectConnection(from: flights) {
+                    let plan = ConnectionPlanner.plan(inbound: pair.inbound, outbound: pair.outbound)
+                    if let last = lastConnectionRisk, rank(plan.risk) > rank(last) {
+                        ArcNotifications.notifyConnectionRisk(plan)
+                    }
+                    lastConnectionRisk = plan.risk
+                } else {
+                    lastConnectionRisk = nil
+                }
+
                 try? modelContext.save()
 
                 // Base loop interval: 60s (individual flights skip if not due)
                 try? await Task.sleep(for: .seconds(60))
             }
+        }
+    }
+
+    private func rank(_ r: ConnectionPlanner.Risk) -> Int {
+        switch r {
+        case .relaxed: 0
+        case .normal: 1
+        case .tight: 2
+        case .risky: 3
         }
     }
 

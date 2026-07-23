@@ -70,6 +70,13 @@ enum DemoSeed {
         upcoming2.predictedDelayMinutes = 32
         upcoming2.predictionReason = "Inbound aircraft lands too late for a 30-min turnaround"
 
+        // Onward leg 55 min after LX1413 lands in ZRH — a border-crossing
+        // connection needing ~67 min ⇒ the Connection Assistant rates it Tight.
+        let onward = make("LX8", "ZRH", "ORD", depOffsetH: 19 + 55.0 / 60, arrOffsetH: 19 + 55.0 / 60 + 9.5, status: "scheduled")
+        onward.aircraftType = "Airbus A340-300"
+        onward.seat = "31K"
+        context.insert(onward)
+
         // Landed 10 minutes ago — proves the 30-minute grace period keeps it
         // in My Flights (with gate/baggage still visible) before it moves
         // exclusively to Passport.
