@@ -103,6 +103,44 @@ actor FlightAPIClient {
         return try JSONDecoder().decode(SecurityInfo.self, from: data)
     }
 
+    // MARK: - Airport Intelligence
+
+    struct AirportStatus: Codable, Sendable {
+        struct Weather: Codable, Sendable {
+            let category: String?
+            let tempC: Double?
+            let windKt: Double?
+            let gustKt: Double?
+            let visibility: String?
+            let wx: String?
+            let raw: String?
+        }
+        struct FaaDelay: Codable, Sendable {
+            let type: String
+            let reason: String
+            let avgMinutes: Int?
+        }
+        let iata: String
+        let severity: String          // "normal" | "minor" | "major" | "unknown"
+        let headline: String
+        let reasons: [String]?
+        let weather: Weather?
+        let faa: FaaDelay?
+        let securityMinutes: Int?
+        let updatedAt: String?
+    }
+
+    func airportStatus(iata: String, icao: String?, country: String?) async throws -> AirportStatus? {
+        var url = baseURL.appending(path: "/airport/\(iata)")
+        var items: [URLQueryItem] = []
+        if let icao, !icao.isEmpty { items.append(.init(name: "icao", value: icao)) }
+        if let country, !country.isEmpty { items.append(.init(name: "country", value: country)) }
+        if !items.isEmpty { url = url.appending(queryItems: items) }
+        let (data, response) = try await session.data(from: url)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+        return try JSONDecoder().decode(AirportStatus.self, from: data)
+    }
+
     // MARK: - Live Activity push registration
 
     /// Registers an APNs Live Activity token with the Worker, which stores it
