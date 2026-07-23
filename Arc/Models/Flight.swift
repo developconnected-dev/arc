@@ -63,6 +63,13 @@ final class Flight {
     // Used to draw the real flight path on the map instead of a generic arc.
     var trackPointsData: Data?
 
+    // The aircraft's full day (JSON-encoded [RotationLeg]) leading up to this
+    // flight, plus Arc's own knock-on delay prediction derived from it —
+    // shown alongside the airline's official number, never replacing it.
+    var rotationData: Data?
+    var predictedDelayMinutes: Int = 0
+    var predictionReason: String?
+
     // User-entered trip details
     var bookingCode: String?
     var seat: String?
@@ -224,6 +231,23 @@ final class Flight {
         set {
             trackPointsData = try? JSONEncoder().encode(newValue)
         }
+    }
+
+    /// The tail's day so far, chronological (immediate inbound last).
+    var rotationLegs: [RotationLeg] {
+        get {
+            guard let data = rotationData else { return [] }
+            return (try? JSONDecoder().decode([RotationLeg].self, from: data)) ?? []
+        }
+        set {
+            rotationData = try? JSONEncoder().encode(newValue)
+        }
+    }
+
+    /// True when Arc's own prediction says meaningfully more than the airline
+    /// has admitted — the only case where showing it adds information.
+    var showsPrediction: Bool {
+        (status == .scheduled || status == .boarding) && predictedDelayMinutes >= delayMinutes + 10
     }
 
     /// Append a new position breadcrumb. Called by FlightTracker each time

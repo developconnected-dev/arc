@@ -83,6 +83,9 @@ extension Flight {
         if isRecentlyLanded { return "Landed" }
         // Boarding/gate-closed read as standalone states, not "Departs Boarding".
         if isBoarding { return statusText }
+        // Arc's own knock-on prediction — only shown while it says meaningfully
+        // more than the airline's official number (showsPrediction gates that).
+        if showsPrediction { return "Predicted +\(predictedDelayMinutes)m" }
         if isSoon { return "Departs \(statusText)" }
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_GB")
@@ -92,6 +95,7 @@ extension Flight {
 
     var cardTopRightColor: Color {
         if status == .gateClosed { return ArcTheme.late }   // urgency — gate is closing/closed
+        if showsPrediction { return .orange }               // predicted, not airline-confirmed
         return (isSoon || isActive || isRecentlyLanded || isBoarding) ? accentColor : Color(.secondaryLabel)
     }
 

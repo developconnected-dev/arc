@@ -51,12 +51,23 @@ enum DemoSeed {
         upcoming2.aircraftType = "Airbus A220-300"
         upcoming2.aircraftRegistration = "HB-JCA"
         // Sample of what InboundMonitor populates from a real /inbound lookup —
-        // the previous rotation of this same tail, landing at BEG before we depart.
+        // the tail's day (two legs) plus a knock-on prediction: the inbound
+        // lands 42m late, so a 30-min A220 turnaround can't make our slot.
         upcoming2.inboundFlightNumber = "LX1412"
         upcoming2.inboundRoute = "ZRH → BEG"
-        upcoming2.inboundDelayMinutes = 8
-        upcoming2.inboundArrivalTime = Date.now.addingTimeInterval(15 * 3600)
+        upcoming2.inboundDelayMinutes = 42
+        upcoming2.inboundArrivalTime = Date.now.addingTimeInterval(16.4 * 3600)
         upcoming2.inboundChecked = true
+        upcoming2.rotationLegs = [
+            RotationLeg(flightNumber: "LX1571", depIATA: "VIE", arrIATA: "ZRH",
+                        scheduledArrival: Date.now.addingTimeInterval(12 * 3600),
+                        actualArrival: nil, delayMinutes: 15, status: "landed"),
+            RotationLeg(flightNumber: "LX1412", depIATA: "ZRH", arrIATA: "BEG",
+                        scheduledArrival: Date.now.addingTimeInterval(16.4 * 3600),
+                        actualArrival: nil, delayMinutes: 42, status: "scheduled"),
+        ]
+        upcoming2.predictedDelayMinutes = 32
+        upcoming2.predictionReason = "Inbound aircraft lands too late for a 30-min turnaround"
 
         // Landed 10 minutes ago — proves the 30-minute grace period keeps it
         // in My Flights (with gate/baggage still visible) before it moves
