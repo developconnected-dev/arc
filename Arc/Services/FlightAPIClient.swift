@@ -102,4 +102,28 @@ actor FlightAPIClient {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
         return try JSONDecoder().decode(SecurityInfo.self, from: data)
     }
+
+    // MARK: - Live Activity push registration
+
+    /// Registers an APNs Live Activity token with the Worker, which stores it
+    /// and pushes content-state updates from its every-minute cron — this is
+    /// what makes the Live Activity move with the app fully closed.
+    /// Takes pre-serialized JSON (`Data` is Sendable; `[String: Any]` isn't,
+    /// so callers on other actors couldn't hand a dictionary across).
+    func registerLiveActivityToken(_ bodyJSON: Data) async {
+        await postJSON(path: "/la/register", data: bodyJSON)
+    }
+
+    func unregisterLiveActivityToken(_ token: String) async {
+        guard let data = try? JSONSerialization.data(withJSONObject: ["token": token]) else { return }
+        await postJSON(path: "/la/unregister", data: data)
+    }
+
+    private func postJSON(path: String, data: Data) async {
+        var req = URLRequest(url: baseURL.appending(path: path))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = data
+        _ = try? await session.data(for: req)   // best-effort; cron just won't know about us on failure
+    }
 }

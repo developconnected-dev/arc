@@ -76,10 +76,15 @@ final class LiveActivityManager {
         )
 
         do {
+            // pushType .token: ActivityKit hands us an APNs token for this
+            // activity, LiveActivityPushSync registers it with the Worker, and
+            // the Worker's cron pushes updates server-side — the activity keeps
+            // moving with the app fully closed. Local update()/end() below
+            // still work exactly the same alongside push.
             let activity = try Activity.request(
                 attributes: attributes,
                 content: .init(state: await makeState(for: flight), staleDate: Self.staleDate),
-                pushType: nil
+                pushType: .token
             )
             activeActivities[flight.id.uuidString] = activity
         } catch {
