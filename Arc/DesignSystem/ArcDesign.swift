@@ -20,6 +20,8 @@ enum ArcColor {
     static func statusColor(for status: FlightStatus, delay: Int = 0) -> Color {
         switch status {
         case .scheduled: delay > 0 ? delayed : onTime
+        case .boarding: onTime
+        case .gateClosed: delayed
         case .active: delay > 15 ? delayed : onTime
         case .landed: onTime
         case .cancelled: cancelled

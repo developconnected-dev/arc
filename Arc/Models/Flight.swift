@@ -58,6 +58,11 @@ final class Flight {
     var liveHeading: Double?             // degrees
     var liveUpdatedAt: Date?
 
+    // Flight path breadcrumbs — actual positions collected during flight.
+    // Stored as JSON-encoded array of [lat, lon, timestamp] triples.
+    // Used to draw the real flight path on the map instead of a generic arc.
+    var trackPointsData: Data?
+
     // User-entered trip details
     var bookingCode: String?
     var seat: String?
@@ -94,7 +99,11 @@ final class Flight {
     /// time comparison — is what actually answers "do we know this departed
     /// yet," so that's what this checks.
     var isUpcoming: Bool {
-        status == .scheduled
+        status == .scheduled || status == .boarding || status == .gateClosed
+    }
+
+    var isBoarding: Bool {
+        status == .boarding || status == .gateClosed
     }
 
     var isActive: Bool {
@@ -136,18 +145,111 @@ final class Flight {
 
     /// Flight progress 0..1 based on time
     var progress: Double {
-        guard status == .active else {
-            return status == .landed ? 1.0 : 0.0
-        }
-        let total = scheduledArrival.timeIntervalSince(scheduledDeparture)
-        let elapsed = Date.now.timeIntervalSince(actualDeparture ?? scheduledDeparture)
+        let depTime = actualDeparture ?? scheduledDeparture.addingTimeInterval(Double(delayMinutes) * 60)
+        let arrTime = estimatedArrival ?? scheduledArrival
+
+        // If arrival time has passed, flight is done
+        if Date.now >= arrTime { return 1.0 }
+
+        // If departure time hasn't passed, no progress yet
+        if Date.now < depTime { return 0.0 }
+
+        // In between: compute time-based progress regardless of status string
+        // This ensures the arc moves even if the API didn't update status to "active"
+        let total = arrTime.timeIntervalSince(depTime)
         guard total > 0 else { return 0 }
-        return min(1.0, max(0, elapsed / total))
+        return min(1.0, max(0, Date.now.timeIntervalSince(depTime) / total))
+    }
+
+    // MARK: - Smarter Arrival ETA
+
+    /// Estimated arrival computed from actual departure + scheduled flight duration,
+    /// rather than just adding departure delay to scheduled arrival.
+    /// When live position data is available, computes ETA from remaining distance / speed.
+    var smartETA: Date {
+        // If API provided an actual/estimated arrival, trust it
+        if let est = estimatedArrival { return est }
+        if let actual = actualArrival { return actual }
+
+        // Compute from actual departure + scheduled flight duration
+        // This naturally gives a better ETA because airlines pad schedules
+        let flightDuration = scheduledArrival.timeIntervalSince(scheduledDeparture)
+        let depTime = actualDeparture ?? scheduledDeparture.addingTimeInterval(Double(delayMinutes) * 60)
+
+        // If we have live position and speed, compute remaining distance ETA
+        if let lat = liveLat, let lon = liveLon, let speed = liveSpeed, speed > 10 {
+            let remainingKm = greatCircleDistance(
+                lat1: lat, lon1: lon,
+                lat2: arrivalLat, lon2: arrivalLon
+            )
+            let remainingSeconds = (remainingKm * 1000) / speed  // speed is m/s
+            let liveETA = Date.now.addingTimeInterval(remainingSeconds)
+
+            // Sanity check: live ETA should be within reasonable range
+            let scheduledETA = depTime.addingTimeInterval(flightDuration)
+            if liveETA > depTime && liveETA < scheduledETA.addingTimeInterval(3600) {
+                return liveETA
+            }
+        }
+
+        return depTime.addingTimeInterval(flightDuration)
+    }
+
+    private func greatCircleDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double) -> Double {
+        let R = 6371.0
+        let dLat = (lat2 - lat1) * .pi / 180
+        let dLon = (lon2 - lon1) * .pi / 180
+        let a = sin(dLat/2) * sin(dLat/2) +
+                cos(lat1 * .pi / 180) * cos(lat2 * .pi / 180) *
+                sin(dLon/2) * sin(dLon/2)
+        let c = 2 * atan2(sqrt(a), sqrt(1-a))
+        return R * c
+    }
+
+    // MARK: - Flight Path Breadcrumbs
+
+    struct TrackPoint: Codable {
+        let lat: Double
+        let lon: Double
+        let timestamp: Date
+        let altitude: Double? // meters
+    }
+
+    /// Decoded track points from stored JSON data
+    var trackPoints: [TrackPoint] {
+        get {
+            guard let data = trackPointsData else { return [] }
+            return (try? JSONDecoder().decode([TrackPoint].self, from: data)) ?? []
+        }
+        set {
+            trackPointsData = try? JSONEncoder().encode(newValue)
+        }
+    }
+
+    /// Append a new position breadcrumb. Called by FlightTracker each time
+    /// OpenSky returns a position. Deduplicates by checking distance from last point.
+    func appendTrackPoint(lat: Double, lon: Double, altitude: Double?) {
+        var points = trackPoints
+
+        // Skip if too close to last point (< 2 km) to avoid bloating storage
+        if let last = points.last {
+            let dist = greatCircleDistance(lat1: last.lat, lon1: last.lon, lat2: lat, lon2: lon)
+            if dist < 2.0 { return }
+        }
+
+        points.append(TrackPoint(lat: lat, lon: lon, timestamp: .now, altitude: altitude))
+
+        // Cap at 500 points max (~8 hours at 60s intervals)
+        if points.count > 500 { points = Array(points.suffix(500)) }
+
+        trackPoints = points
     }
 }
 
 enum FlightStatus: String, Codable, CaseIterable {
     case scheduled
+    case boarding      // from AeroDataBox: passengers boarding
+    case gateClosed    // from AeroDataBox: gate closed, about to depart
     case active
     case landed
     case cancelled

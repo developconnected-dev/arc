@@ -1,5 +1,6 @@
 interface Env {
   RAPIDAPI_KEY: string;          // AeroDataBox key (RapidAPI). Set via `wrangler secret put RAPIDAPI_KEY`.
+  AIRLABS_KEY?: string;          // AirLabs fallback (free 1k/mo). Set via `wrangler secret put AIRLABS_KEY`.
   AVIATIONSTACK_API_KEY?: string; // legacy fallback (optional)
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
@@ -28,8 +29,8 @@ const STATUS_MAP: Record<string, string> = {
   unknown: "scheduled",
   expected: "scheduled",
   checkin: "scheduled",
-  boarding: "scheduled",
-  gateclosed: "scheduled",
+  boarding: "boarding",       // preserve boarding status
+  gateclosed: "gateClosed",   // preserve gate closed status
   delayed: "scheduled",
   enroute: "active",
   departed: "active",
@@ -81,6 +82,8 @@ function mapLeg(f: Record<string, any>): Record<string, unknown> {
     arr_terminal: arr.terminal ?? null,
     arr_baggage: arr.baggageBelt ?? null,
     delay: delayMinutes(depSched, depRev),
+    dep_actual: depRev !== depSched ? toISO(depRev) : null,
+    arr_actual: arrRev !== arrSched ? toISO(arrRev) : null,
     aircraft_type: ac.model ?? null,
     aircraft_registration: ac.reg ?? null,
     dep_lat: depA.location?.lat ?? null,
@@ -94,6 +97,129 @@ async function adbFetch(path: string, env: Env): Promise<Response> {
   return fetch(`https://${ADB_HOST}${path}`, {
     headers: { "X-RapidAPI-Key": env.RAPIDAPI_KEY, "X-RapidAPI-Host": ADB_HOST },
   });
+}
+
+// ── AirLabs fallback ──
+
+const AIRLABS_STATUS_MAP: Record<string, string> = {
+  scheduled: "scheduled",
+  en_route: "active",
+  active: "active",
+  landed: "landed",
+  cancelled: "cancelled",
+  incident: "diverted",
+  diverted: "diverted",
+  unknown: "scheduled",
+};
+
+/// Ensure a time string is proper ISO-8601 with timezone.
+/// AirLabs returns "2026-07-21 09:55" (no T, no Z) for local times
+/// and "2026-07-21T07:55:00.000Z" or "2026-07-21 07:55" for UTC times.
+/// We normalise everything to end with "Z" when it came from a _utc field,
+/// and convert local times via JS Date (which treats bare strings as UTC in
+/// Cloudflare Workers) — but since AirLabs local times are actually local
+/// we must NOT append Z to them. Instead we prefer _utc fields exclusively.
+function airlabsToISO(utcTime: unknown, localTime: unknown): string {
+  // Strongly prefer the UTC time
+  if (typeof utcTime === "string" && utcTime.length >= 16) {
+    let t = utcTime.trim().replace(" ", "T");
+    // Ensure it ends with Z for UTC
+    if (!t.endsWith("Z") && !t.includes("+") && !t.includes("-", 10)) {
+      t += "Z";
+    }
+    const d = new Date(t);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+  // Fallback: local time — but mark as-is and let the app handle it
+  // This is a last resort; the time may be wrong by the TZ offset
+  if (typeof localTime === "string" && localTime.length >= 16) {
+    let t = localTime.trim().replace(" ", "T");
+    // Assume UTC as safe default (better than letting iOS guess device TZ)
+    if (!t.endsWith("Z") && !t.includes("+") && !t.includes("-", 10)) {
+      t += "Z";
+    }
+    const d = new Date(t);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+  return "";
+}
+
+async function airlabsFlightSearch(number: string, env: Env): Promise<Record<string, unknown>[]> {
+  if (!env.AIRLABS_KEY) return [];
+  const clean = number.replace(/\s+/g, "");
+  const res = await fetch(
+    `https://airlabs.co/api/v9/flight?flight_iata=${encodeURIComponent(clean)}&api_key=${env.AIRLABS_KEY}`
+  );
+  if (!res.ok) return [];
+  const data = await res.json() as { response?: Record<string, any> };
+  const f = data.response;
+  if (!f || typeof f !== "object") return [];
+
+  return [{
+    flight_number: f.flight_iata ?? clean,
+    airline_name: f.airline_name ?? "",
+    airline_iata: f.airline_iata ?? "",
+    dep_iata: f.dep_iata ?? "",
+    arr_iata: f.arr_iata ?? "",
+    dep_city: f.dep_city ?? null,
+    arr_city: f.arr_city ?? null,
+    dep_scheduled: airlabsToISO(f.dep_time_utc, f.dep_time),
+    arr_scheduled: airlabsToISO(f.arr_time_utc, f.arr_time),
+    dep_actual: f.dep_actual_utc ? airlabsToISO(f.dep_actual_utc, f.dep_actual) : null,
+    arr_actual: f.arr_actual_utc ? airlabsToISO(f.arr_actual_utc, f.arr_actual) : null,
+    status: AIRLABS_STATUS_MAP[f.status ?? ""] ?? "scheduled",
+    dep_gate: f.dep_gate ?? null,
+    dep_terminal: f.dep_terminal ?? null,
+    arr_gate: f.arr_gate ?? null,
+    arr_terminal: f.arr_terminal ?? null,
+    arr_baggage: f.arr_baggage ?? null,
+    delay: f.delayed ?? 0,
+    aircraft_type: f.aircraft_icao ?? null,
+    aircraft_registration: f.reg_number ?? null,
+    dep_lat: f.dep_lat ?? null,
+    dep_lon: f.dep_lng ?? null,
+    arr_lat: f.arr_lat ?? null,
+    arr_lon: f.arr_lng ?? null,
+  }];
+}
+
+/// Search using AirLabs schedules endpoint (for future flights not yet active)
+async function airlabsScheduleSearch(number: string, env: Env): Promise<Record<string, unknown>[]> {
+  if (!env.AIRLABS_KEY) return [];
+  const clean = number.replace(/\s+/g, "");
+  const res = await fetch(
+    `https://airlabs.co/api/v9/schedules?flight_iata=${encodeURIComponent(clean)}&api_key=${env.AIRLABS_KEY}`
+  );
+  if (!res.ok) return [];
+  const data = await res.json() as { response?: Array<Record<string, any>> };
+  if (!data.response || !Array.isArray(data.response)) return [];
+
+  return data.response.map(f => ({
+    flight_number: f.flight_iata ?? clean,
+    airline_name: f.airline_name ?? f.airline_iata ?? "",
+    airline_iata: f.airline_iata ?? "",
+    dep_iata: f.dep_iata ?? "",
+    arr_iata: f.arr_iata ?? "",
+    dep_city: null,
+    arr_city: null,
+    dep_scheduled: airlabsToISO(f.dep_time_utc, f.dep_time),
+    arr_scheduled: airlabsToISO(f.arr_time_utc, f.arr_time),
+    dep_actual: null,
+    arr_actual: null,
+    status: AIRLABS_STATUS_MAP[f.status ?? ""] ?? "scheduled",
+    dep_gate: f.dep_gate ?? null,
+    dep_terminal: f.dep_terminal ?? null,
+    arr_gate: f.arr_gate ?? null,
+    arr_terminal: f.arr_terminal ?? null,
+    arr_baggage: null,
+    delay: f.delayed ?? 0,
+    aircraft_type: f.aircraft_icao ?? null,
+    aircraft_registration: null,
+    dep_lat: null,
+    dep_lon: null,
+    arr_lat: null,
+    arr_lon: null,
+  }));
 }
 
 export default {
@@ -113,7 +239,15 @@ export default {
     }
 
     if (url.pathname === "/health") {
-      return Response.json({ ok: true, provider: env.RAPIDAPI_KEY ? "aerodatabox" : "unconfigured" }, { headers: cors });
+      return Response.json({
+        ok: true,
+        providers: {
+          aerodatabox: !!env.RAPIDAPI_KEY,
+          airlabs: !!env.AIRLABS_KEY,
+          opensky: true,
+          waitport: true,
+        }
+      }, { headers: cors });
     }
 
     // ── /flight?number=LX1413&date=2026-07-20 ── status by flight number + date
@@ -121,18 +255,40 @@ export default {
       const number = url.searchParams.get("number");
       const date = url.searchParams.get("date");
       if (!number) return new Response("missing number", { status: 400 });
-      if (!env.RAPIDAPI_KEY) return Response.json([], { headers: cors });
-      try {
-        const path = `/flights/number/${encodeURIComponent(number)}${date ? `/${date}` : ""}` +
-          `?withAircraftImage=false&withLocation=true`;
-        const res = await adbFetch(path, env);
-        if (!res.ok) return Response.json([], { headers: cors });
-        const raw = (await res.json()) as unknown;
-        const legs = Array.isArray(raw) ? raw : [];
-        return Response.json(legs.map((l) => mapLeg(l as Record<string, any>)), { headers: cors });
-      } catch {
-        return Response.json([], { headers: cors });
+
+      // 1. Try AeroDataBox first (if key available and not exhausted)
+      if (env.RAPIDAPI_KEY) {
+        try {
+          const path = `/flights/number/${encodeURIComponent(number)}${date ? `/${date}` : ""}` +
+            `?withAircraftImage=false&withLocation=true`;
+          const res = await adbFetch(path, env);
+          if (res.ok) {
+            const raw = (await res.json()) as unknown;
+            const legs = Array.isArray(raw) ? raw : [];
+            if (legs.length > 0) {
+              return Response.json(legs.map((l) => mapLeg(l as Record<string, any>)), { headers: cors });
+            }
+          }
+          // If 429 (rate limited) or other error, fall through to AirLabs
+        } catch { /* fall through */ }
       }
+
+      // 2. Fallback: AirLabs
+      if (env.AIRLABS_KEY) {
+        try {
+          // Try real-time flight endpoint first (active flights)
+          let results = await airlabsFlightSearch(number, env);
+          // If no active flight, try schedules
+          if (results.length === 0) {
+            results = await airlabsScheduleSearch(number, env);
+          }
+          if (results.length > 0) {
+            return Response.json(results, { headers: cors });
+          }
+        } catch { /* fall through */ }
+      }
+
+      return Response.json([], { headers: cors });
     }
 
     // ── /inbound?reg=HB-JMB&date=2026-07-20 ── previous leg of the same tail
@@ -186,6 +342,43 @@ export default {
       return new Response(sharedJourneyHTML(code, env.SUPABASE_URL, env.SUPABASE_ANON_KEY), {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
+    }
+
+    // ── /security/:iata — airport security wait time ──
+    const securityMatch = url.pathname.match(/^\/security\/([A-Z]{3})$/i);
+    if (securityMatch) {
+      const iata = securityMatch[1]!.toUpperCase();
+      try {
+        // 1. Try Waitport (free, covers EU: FRA, MUC, DUS, AMS, LHR, CPH, ARN, EDI, DUB, IST)
+        const wpRes = await fetch(`https://waitport.com/api/v1/all?airport=eq.${iata}&order=id.desc&limit=1`);
+        if (wpRes.ok) {
+          const wpData = await wpRes.json() as Array<{ queue: number; timestamp: string; airport: string }>;
+          if (wpData.length > 0 && wpData[0]) {
+            return Response.json({
+              iata,
+              securityMinutes: wpData[0].queue,
+              source: "waitport",
+              updatedAt: wpData[0].timestamp
+            }, { headers: cors });
+          }
+        }
+
+        // 2. Fallback: time-of-day estimate
+        const hour = new Date().getUTCHours();
+        let estimated: number;
+        if (hour >= 5 && hour <= 8) estimated = 20;
+        else if (hour >= 15 && hour <= 18) estimated = 15;
+        else if (hour >= 9 && hour <= 14) estimated = 10;
+        else estimated = 5;
+
+        return Response.json({
+          iata,
+          securityMinutes: estimated,
+          source: "estimate",
+        }, { headers: cors });
+      } catch {
+        return Response.json({ iata, securityMinutes: null, source: "error" }, { headers: cors });
+      }
     }
 
     return new Response("not found", { status: 404 });

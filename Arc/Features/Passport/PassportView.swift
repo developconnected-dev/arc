@@ -63,7 +63,12 @@ struct PassportView: View {
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                            .overlay(alignment: .bottom) { Divider() }
+                            .overlay(alignment: .bottom) {
+                                Rectangle()
+                                    .fill(Color(.separator))
+                                    .frame(height: 1.0 / UIScreen.main.scale)
+                                    .frame(maxWidth: .infinity)
+                            }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) { delete(f) } label: {
                                     Label("Delete", systemImage: "trash")
