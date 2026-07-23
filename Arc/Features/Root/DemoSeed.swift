@@ -132,29 +132,32 @@ enum DemoSeed {
     @MainActor
     static func startDemoLiveActivityIfRequested() {
         let args = ProcessInfo.processInfo.arguments
-        guard args.contains("-laDemo") || args.contains("-laDemoLanding") else { return }
+        guard args.contains("-laDemo") || args.contains("-laDemoLanding") || args.contains("-laDemoTakeoff") else { return }
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         // -laDemoLanding: lands in ~1 min — verifies the offline in-flight →
         // landed flip (and that nothing counts UP afterwards) within minutes.
+        // -laDemoTakeoff: boarding, departs in ~1 min — verifies the offline
+        // pre-flight → in-flight flip and its 'estimated' honesty label.
         let landingSoon = args.contains("-laDemoLanding")
+        let takeoffSoon = args.contains("-laDemoTakeoff")
         let attrs = FlightActivityAttributes(
             flightNumber: "B6 416", departureIATA: "SFO", arrivalIATA: "JFK",
             departureCity: "San Francisco", arrivalCity: "New York",
             airline: "JetBlue", aircraftType: "Airbus A321", seat: "1A")
         let state = FlightActivityAttributes.ContentState(
-            status: "active",
-            departureTime: .now.addingTimeInterval(landingSoon ? -9 * 60 : -3 * 60),
-            arrivalTime: .now.addingTimeInterval(landingSoon ? 60 : 7 * 60),
+            status: takeoffSoon ? "boarding" : "active",
+            departureTime: .now.addingTimeInterval(takeoffSoon ? 60 : (landingSoon ? -9 * 60 : -3 * 60)),
+            arrivalTime: .now.addingTimeInterval(takeoffSoon ? 11 * 60 : (landingSoon ? 60 : 7 * 60)),
             boardingTime: nil, securityWaitMinutes: nil,
             delayMinutes: -10,   // photo parity: "10m Early"
             departureGate: "B7", departureTerminal: "2",
             arrivalGate: nil, arrivalTerminal: "5", baggageClaim: nil,
             altitude: 10600, speed: 480, heading: 90, progress: 0.3)
-        // staleDate = arrival: same phase-flip scheduling as the real
-        // LiveActivityManager — the offline landed flip depends on it.
+        // staleDate = next phase boundary: same scheduling as the real
+        // LiveActivityManager — the offline flips depend on it.
         _ = try? Activity.request(
             attributes: attrs,
-            content: .init(state: state, staleDate: state.arrivalTime),
+            content: .init(state: state, staleDate: takeoffSoon ? state.departureTime : state.arrivalTime),
             pushType: nil)
     }
 
