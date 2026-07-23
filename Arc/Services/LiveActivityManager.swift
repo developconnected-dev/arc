@@ -22,9 +22,12 @@ final class LiveActivityManager {
         let boardingMinutes = Self.estimateBoardingMinutes(airline: flight.airlineICAO, duration: flight.duration)
         let boardingTime = depTime.addingTimeInterval(-Double(boardingMinutes) * 60)
 
-        // Fetch security wait time for upcoming flights
+        // Fetch security wait time while the user could still be landside.
+        // ("delayed" was checked here before, but that string never occurs —
+        // the Worker normalizes it to "scheduled". boarding/gateClosed are
+        // real statuses where the wait is no longer actionable, so skip them.)
         var securityWait: Int? = nil
-        if flight.statusRaw == "scheduled" || flight.statusRaw == "delayed" {
+        if flight.statusRaw == "scheduled" {
             securityWait = try? await FlightAPIClient.shared.securityWaitTime(iata: flight.departureIATA)?.securityMinutes
         }
 
@@ -75,7 +78,7 @@ final class LiveActivityManager {
         do {
             let activity = try Activity.request(
                 attributes: attributes,
-                content: .init(state: await makeState(for: flight), staleDate: nil),
+                content: .init(state: await makeState(for: flight), staleDate: Self.staleDate),
                 pushType: nil
             )
             activeActivities[flight.id.uuidString] = activity
@@ -84,10 +87,30 @@ final class LiveActivityManager {
         }
     }
 
+    /// Without remote push, updates only flow while our process is alive —
+    /// tell iOS when the content should be considered outdated so the system
+    /// (and our own `isStale`-aware UI) can reflect that instead of showing
+    /// a frozen state as if it were current.
+    private static var staleDate: Date { .now.addingTimeInterval(20 * 60) }
+
     func updateActivity(for flight: Flight) async {
+        // `activeActivities` is in-memory only. After an app relaunch
+        // mid-flight, the tracker never calls startActivity for an
+        // already-active flight (that path only runs pre-departure), so
+        // without this reconciliation every update would silently no-op and
+        // the Live Activity would stay frozen at its pre-relaunch state.
+        if activeActivities[flight.id.uuidString] == nil {
+            if let existing = Activity<FlightActivityAttributes>.activities.first(where: {
+                $0.attributes.flightNumber == flight.flightNumber &&
+                $0.attributes.departureIATA == flight.departureIATA &&
+                $0.attributes.arrivalIATA == flight.arrivalIATA
+            }) {
+                activeActivities[flight.id.uuidString] = existing
+            }
+        }
         guard let activity = activeActivities[flight.id.uuidString] else { return }
 
-        let content = ActivityContent(state: await makeState(for: flight), staleDate: nil)
+        let content = ActivityContent(state: await makeState(for: flight), staleDate: Self.staleDate)
         nonisolated(unsafe) let act = activity
         await act.update(content)
     }
