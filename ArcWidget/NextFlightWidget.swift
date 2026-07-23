@@ -75,7 +75,7 @@ struct NextFlightSmallView: View {
                     case .landed: Text(flight.status == "landed" ? "Landed" : "Arriving")
                     }
                 }
-                .font(.system(size: 22, weight: .heavy, design: .rounded))
+                .font(.system(size: 22, weight: .heavy).monospacedDigit())
                 .foregroundStyle(countdownColor(flight, phase: phase))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
@@ -83,12 +83,12 @@ struct NextFlightSmallView: View {
                 // Route
                 HStack(spacing: 4) {
                     Text(flight.departureIATA)
-                        .font(.system(size: 15, weight: .heavy, design: .rounded))
+                        .font(.system(size: 15, weight: .heavy))
                     Image(systemName: phase == .landed ? "checkmark" : "arrow.right")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(phase == .landed ? .green : .secondary)
                     Text(flight.arrivalIATA)
-                        .font(.system(size: 15, weight: .heavy, design: .rounded))
+                        .font(.system(size: 15, weight: .heavy))
                 }
 
                 // Flight number
@@ -220,7 +220,7 @@ struct NextFlightMediumView: View {
                 case .landed: Text(flight.status == "landed" ? "Landed" : "Arriving")
                 }
             }
-            .font(.system(size: 12, weight: .heavy, design: .rounded))
+            .font(.system(size: 12, weight: .heavy).monospacedDigit())
             .foregroundStyle(phase != .upcoming ? Color.green :
                                 flight.delayMinutes > 0 ? .orange : .primary)
             .lineLimit(1)
@@ -231,12 +231,12 @@ struct NextFlightMediumView: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 3) {
                     Text(flight.departureIATA)
-                        .font(.system(size: 13, weight: .heavy, design: .rounded))
+                        .font(.system(size: 13, weight: .heavy))
                     Image(systemName: "arrow.right")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(.secondary)
                     Text(flight.arrivalIATA)
-                        .font(.system(size: 13, weight: .heavy, design: .rounded))
+                        .font(.system(size: 13, weight: .heavy))
                 }
                 Text(flight.flightNumber)
                     .font(.system(size: 10, weight: .medium))
