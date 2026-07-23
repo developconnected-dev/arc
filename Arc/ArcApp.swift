@@ -5,6 +5,7 @@ import BackgroundTasks
 @main
 struct ArcApp: App {
     @StateObject private var tracker = FlightTracker.shared
+    @Environment(\.scenePhase) private var scenePhase
     let modelContainer: ModelContainer
 
     init() {
@@ -23,7 +24,6 @@ struct ArcApp: App {
                         ArcNotifications.requestPermission()
                     }
                     NetworkMonitor.shared.start()
-                    registerBackgroundRefresh()
 
                     // Start the background Live Activity updater at app level
                     // This runs independently of views and survives backgrounding
@@ -31,32 +31,33 @@ struct ArcApp: App {
                 }
         }
         .modelContainer(modelContainer)
-    }
-
-    private func registerBackgroundRefresh() {
-        BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: "com.arc.flighttracker.refresh",
-            using: nil
-        ) { task in
-            guard let bgTask = task as? BGAppRefreshTask else { return }
-            bgTask.expirationHandler = { bgTask.setTaskCompleted(success: false) }
-
-            // When iOS wakes us for background refresh, push Live Activity updates
-            Task { @MainActor in
-                let context = ModelContext(self.modelContainer)
-                let descriptor = FetchDescriptor<Flight>()
-                if let flights = try? context.fetch(descriptor) {
-                    await FlightTracker.shared.burstUpdate(flights: flights, modelContext: context)
-                }
-            }
-
-            scheduleBackgroundRefresh()
-            bgTask.setTaskCompleted(success: true)
+        // The SwiftUI scene modifier — not BGTaskScheduler.register — because
+        // registration must happen before the app finishes launching. The
+        // previous hand-rolled version registered inside onAppear (too late,
+        // so iOS would never fire the task) and also called setTaskCompleted
+        // immediately after *spawning* the refresh work rather than after
+        // finishing it, so iOS could suspend the process mid-fetch. This
+        // modifier registers at scene-build time and awaits the actual work.
+        .backgroundTask(.appRefresh("com.arc.flighttracker.refresh")) { [modelContainer] in
+            await Self.scheduleBackgroundRefresh()   // chain the next wakeup first
+            await Self.runBackgroundRefresh(container: modelContainer)
         }
-        scheduleBackgroundRefresh()
+        .onChange(of: scenePhase) { _, phase in
+            // (Re)arm a refresh request whenever we leave the foreground —
+            // iOS only honors submissions from apps it has seen active recently.
+            if phase == .background { Self.scheduleBackgroundRefresh() }
+        }
     }
 
-    private func scheduleBackgroundRefresh() {
+    @MainActor
+    private static func runBackgroundRefresh(container: ModelContainer) async {
+        let context = ModelContext(container)
+        let descriptor = FetchDescriptor<Flight>()
+        guard let flights = try? context.fetch(descriptor) else { return }
+        await FlightTracker.shared.burstUpdate(flights: flights, modelContext: context)
+    }
+
+    private static func scheduleBackgroundRefresh() {
         let request = BGAppRefreshTaskRequest(identifier: "com.arc.flighttracker.refresh")
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
         try? BGTaskScheduler.shared.submit(request)
