@@ -13,9 +13,30 @@ struct ArcMapView: View {
                 if flight.departureLat != 0 && flight.arrivalLat != 0 {
                     let dep = CLLocationCoordinate2D(latitude: flight.departureLat, longitude: flight.departureLon)
                     let arr = CLLocationCoordinate2D(latitude: flight.arrivalLat, longitude: flight.arrivalLon)
+                    let track = flight.trackPoints
 
-                    MapPolyline(coordinates: GeoMath.greatCircle(from: dep, to: arr))
-                        .stroke(ArcTheme.routeLine, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    if flight.isActive, track.count >= 2 {
+                        // We have real recorded positions: draw the path actually
+                        // flown (solid, airport → breadcrumbs → current position)
+                        // and the projected remainder (dashed great-circle from
+                        // current position to the arrival airport) — instead of a
+                        // theoretical arc the plane may not be on at all.
+                        let current = CLLocationCoordinate2D(
+                            latitude: flight.liveLat ?? track[track.count - 1].lat,
+                            longitude: flight.liveLon ?? track[track.count - 1].lon)
+                        let flown = [dep] + track.map {
+                            CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
+                        } + [current]
+
+                        MapPolyline(coordinates: flown)
+                            .stroke(ArcTheme.routeLine, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        MapPolyline(coordinates: GeoMath.greatCircle(from: current, to: arr))
+                            .stroke(ArcTheme.routeLine.opacity(0.55),
+                                    style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [1, 6]))
+                    } else {
+                        MapPolyline(coordinates: GeoMath.greatCircle(from: dep, to: arr))
+                            .stroke(ArcTheme.routeLine, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    }
 
                     Annotation("", coordinate: dep) { endpointDot }
                     Annotation("", coordinate: arr) { endpointDot }

@@ -283,6 +283,31 @@ final class ArcSupabase: ObservableObject {
         }
     }
 
+    /// Uploads the recorded ADS-B breadcrumb track after landing. Conflict key
+    /// is the table's (user_id, flight_number, flight_date) unique constraint —
+    /// not the row's own generated id — so re-landing the same flight (status
+    /// flapping, re-poll) overwrites rather than erroring or duplicating.
+    func uploadFlightTrack(_ flight: Flight) async throws {
+        guard let uid = currentUser?.id else { return }
+        let points = flight.trackPoints
+        guard !points.isEmpty else { return }
+        let iso = ISO8601DateFormatter()
+        let day = flight.scheduledDeparture.formatted(.iso8601.year().month().day())
+        let body: [String: Any] = [
+            "user_id": uid,
+            "flight_number": flight.flightNumber,
+            "departure_iata": flight.departureIATA,
+            "arrival_iata": flight.arrivalIATA,
+            "flight_date": day,
+            "track_points": points.map { p in
+                var d: [String: Any] = ["lat": p.lat, "lon": p.lon, "timestamp": iso.string(from: p.timestamp)]
+                if let alt = p.altitude { d["altitude"] = alt }
+                return d
+            },
+        ]
+        _ = try await upsert(path: "/rest/v1/flight_tracks?on_conflict=user_id,flight_number,flight_date", body: body)
+    }
+
     /// Builds the upsert body for a flight. Pure/static so it's testable
     /// without a network call or a signed-in session.
     static func userFlightBody(_ flight: Flight, userId: String) -> [String: Any] {
