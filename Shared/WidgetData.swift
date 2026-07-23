@@ -64,6 +64,23 @@ struct WidgetFlight: Codable, Identifiable {
         scheduledArrival.addingTimeInterval(Double(max(0, delayMinutes)) * 60)
     }
 
+    enum Phase { case upcoming, inFlight, landed }
+
+    /// Phase as of a given moment — CLOCK-based, not status-string-based.
+    /// The stored status only changes when the app runs; widget timeline
+    /// entries render at future dates while the app may be closed and the
+    /// device offline. Deriving the phase from the entry's own date is what
+    /// makes the pre-flight → in-flight → landed layout switch happen
+    /// automatically without the user ever opening the app. A trusted status
+    /// (active/landed from the API) still wins when it's ahead of the clock.
+    func phase(at date: Date) -> Phase {
+        if status == "landed" || status == "cancelled" || status == "diverted" { return .landed }
+        if status == "active" { return date >= effectiveArrival ? .landed : .inFlight }
+        if date >= effectiveArrival { return .landed }
+        if date >= effectiveDeparture { return .inFlight }
+        return .upcoming
+    }
+
     var timeUntilDeparture: TimeInterval {
         scheduledDeparture.timeIntervalSince(.now)
     }

@@ -282,4 +282,41 @@ final class WidgetFlightTests: XCTestCase {
         let f = widgetFlight(status: "scheduled", depOffset: 3600, delay: 30)
         XCTAssertEqual(f.effectiveDeparture.timeIntervalSince(f.scheduledDeparture), 1800, accuracy: 1)
     }
+
+    // MARK: - phase(at:) — the clock-based logic that flips the widget's
+    // layout pre → during → after WITHOUT the app running (the stored status
+    // string can't change while the app is closed, so the phase must come
+    // from the timeline entry's own date).
+
+    func testPhaseUpcomingBeforeDeparture() {
+        let f = widgetFlight(status: "scheduled", depOffset: 3600)
+        XCTAssertEqual(f.phase(at: .now), .upcoming)
+    }
+
+    func testPhaseFlipsToInFlightAtDepartureDespiteStaleStatus() {
+        let f = widgetFlight(status: "scheduled", depOffset: 3600)
+        XCTAssertEqual(f.phase(at: f.effectiveDeparture.addingTimeInterval(60)), .inFlight)
+    }
+
+    func testPhaseFlipsToLandedAtArrivalDespiteStaleStatus() {
+        let f = widgetFlight(status: "scheduled", depOffset: 3600)
+        XCTAssertEqual(f.phase(at: f.effectiveArrival.addingTimeInterval(60)), .landed)
+    }
+
+    func testPhaseDelayShiftsTheFlipMoment() {
+        let f = widgetFlight(status: "scheduled", depOffset: 3600, delay: 30)
+        // At scheduled departure the delayed flight hasn't left yet.
+        XCTAssertEqual(f.phase(at: f.scheduledDeparture.addingTimeInterval(60)), .upcoming)
+        XCTAssertEqual(f.phase(at: f.effectiveDeparture.addingTimeInterval(60)), .inFlight)
+    }
+
+    func testPhaseTrustsExplicitActiveStatus() {
+        let f = widgetFlight(status: "active", depOffset: 600)   // departed early per API
+        XCTAssertEqual(f.phase(at: .now), .inFlight)
+    }
+
+    func testPhaseTrustsExplicitLandedStatus() {
+        let f = widgetFlight(status: "landed", depOffset: -3600)
+        XCTAssertEqual(f.phase(at: .now), .landed)
+    }
 }
