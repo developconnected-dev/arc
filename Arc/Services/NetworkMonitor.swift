@@ -1,9 +1,12 @@
 import Foundation
 import Network
 
-/// Monitors network connectivity and triggers burst updates when WiFi reconnects mid-flight.
-/// This is especially useful for in-flight WiFi — when the user gets internet back at 35,000ft,
-/// Arc immediately fetches fresh delay/ETA/arrival gate data instead of waiting for the next poll.
+/// Monitors network connectivity and triggers burst updates when ANY
+/// connectivity returns — cellular or WiFi. That interface-agnostic detail is
+/// load-bearing: after landing, the FIRST connection back is almost always
+/// mobile data (airplane mode off, LTE), and in-flight it's WiFi at 35,000ft.
+/// Both must trigger the immediate belt/gate/delay refresh, so the check is
+/// `path.status == .satisfied`, never `usesInterfaceType(.wifi)`.
 @MainActor
 final class NetworkMonitor: ObservableObject {
     static let shared = NetworkMonitor()
@@ -16,7 +19,8 @@ final class NetworkMonitor: ObservableObject {
     private let queue = DispatchQueue(label: "arc.network.monitor")
     private var wasDisconnected = false
 
-    /// Called when WiFi reconnects after being offline (e.g. in-flight WiFi comes on)
+    /// Called when connectivity returns after being offline — any interface:
+    /// mobile data after landing, or in-flight WiFi mid-air.
     var onReconnect: (() -> Void)?
 
     func start() {

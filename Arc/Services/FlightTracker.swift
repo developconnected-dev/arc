@@ -56,21 +56,7 @@ final class FlightTracker: ObservableObject {
                     }
                     lastPolled[flight.id] = now
 
-                    let oldStatus = flight.statusRaw
-                    let oldDelay = flight.delayMinutes
-                    let oldGate = flight.departureGate
-
-                    await updateFlightStatus(flight)
-
-                    if flight.statusRaw != oldStatus {
-                        await handleStatusChange(flight: flight, from: oldStatus)
-                    }
-                    if flight.delayMinutes != oldDelay && flight.delayMinutes > 0 {
-                        ArcNotifications.notifyDelay(flight: flight)
-                    }
-                    if let newGate = flight.departureGate, newGate != oldGate {
-                        ArcNotifications.notifyGateChange(flight: flight, newGate: newGate)
-                    }
+                    await pollWithChangeHandling(flight)
 
                     // Start Live Activity within 3 hours (idempotent)
                     if flight.isUpcoming && hoursUntilDep <= 3 {
@@ -175,10 +161,38 @@ final class FlightTracker: ObservableObject {
         try? modelContext.save()
     }
 
-    // MARK: - Burst Update (WiFi reconnection)
+    // MARK: - Shared poll
 
-    /// Immediately fetches fresh data for all active/upcoming flights.
-    /// Called when network reconnects (e.g. in-flight WiFi comes on).
+    /// One data refresh WITH full change handling — notifications, Live
+    /// Activity start/end, track upload all hang off status transitions, so
+    /// every code path that refreshes a flight must run this, not a bare
+    /// updateFlightStatus. (The reconnect burst used to skip it: a landing
+    /// discovered via reconnect updated the UI but silently dropped the
+    /// landed notification, the activity end, and the track upload.)
+    private func pollWithChangeHandling(_ flight: Flight) async {
+        let oldStatus = flight.statusRaw
+        let oldDelay = flight.delayMinutes
+        let oldGate = flight.departureGate
+
+        await updateFlightStatus(flight)
+
+        if flight.statusRaw != oldStatus {
+            await handleStatusChange(flight: flight, from: oldStatus)
+        }
+        if flight.delayMinutes != oldDelay && flight.delayMinutes > 0 {
+            ArcNotifications.notifyDelay(flight: flight)
+        }
+        if let newGate = flight.departureGate, newGate != oldGate {
+            ArcNotifications.notifyGateChange(flight: flight, newGate: newGate)
+        }
+    }
+
+    // MARK: - Burst Update (connectivity returns)
+
+    /// Immediately fetches fresh data the moment ANY connectivity returns —
+    /// mobile data after landing or in-flight WiFi. This is what flips the
+    /// Live Activity straight to confirmed-landed (belt, gate, actual times)
+    /// when the flight beat its cached ETA, without waiting for any timer.
     func burstUpdate(flights: [Flight], modelContext: ModelContext) async {
         // isRecentlyLanded matters most here: reconnecting right after
         // touchdown is exactly when the arrival gate and baggage belt appear,
@@ -186,7 +200,7 @@ final class FlightTracker: ObservableObject {
         // the refresh was the one skipped.
         let relevant = flights.filter { $0.isActive || $0.isUpcoming || $0.isRecentlyLanded }
         for flight in relevant {
-            await updateFlightStatus(flight)
+            await pollWithChangeHandling(flight)
             await LiveActivityManager.shared.updateActivity(for: flight)
         }
         try? modelContext.save()

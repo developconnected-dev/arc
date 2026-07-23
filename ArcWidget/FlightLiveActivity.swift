@@ -79,10 +79,10 @@ struct FlightLiveActivity: Widget {
                         }
                     } else if phase == .landed {
                         HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle.fill")
+                            Image(systemName: isConfirmedLanded(context.state) ? "checkmark.circle.fill" : "airplane.arrival")
                                 .font(.system(size: 12))
                                 .foregroundStyle(.green)
-                            Text("Landed")
+                            Text(isConfirmedLanded(context.state) ? "Landed" : "Landing soon")
                                 .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(.green)
                             if let belt = context.state.baggageClaim {
@@ -169,9 +169,13 @@ struct FlightLiveActivity: Widget {
                                 .font(.system(size: 11, weight: .bold))
                         }
                         .foregroundStyle(.green)
-                    } else {
+                    } else if isConfirmedLanded(context.state) {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 14))
+                            .foregroundStyle(.green)
+                    } else {
+                        Text("Soon")
+                            .font(.system(size: 11, weight: .bold))
                             .foregroundStyle(.green)
                     }
                 } else {
@@ -183,7 +187,7 @@ struct FlightLiveActivity: Widget {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.green)
                 } else if phase == .landed {
-                    Image(systemName: "checkmark.circle.fill")
+                    Image(systemName: isConfirmedLanded(context.state) ? "checkmark.circle.fill" : "airplane.arrival")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.green)
                 } else {
@@ -200,6 +204,14 @@ struct FlightLiveActivity: Widget {
     // MARK: - Phase
 
     private enum Phase { case preDeparture, inFlight, landed }
+
+    /// True only when a data source actually reported the landing. A phase of
+    /// .landed with this false means the CLOCK passed the cached ETA while
+    /// offline — the plane is probably down, but nobody has confirmed it, so
+    /// the UI says "Landing soon" instead of claiming "Landed".
+    private func isConfirmedLanded(_ state: FlightActivityAttributes.ContentState) -> Bool {
+        state.status == "landed"
+    }
 
     private func effectivePhase(_ state: FlightActivityAttributes.ContentState) -> Phase {
         if state.status == "landed" { return .landed }
@@ -396,10 +408,10 @@ struct FlightLiveActivity: Widget {
             Spacer()
             VStack(spacing: 2) {
                 if Date.now >= state.arrivalTime {
-                    Text("LANDED")
+                    Text(isConfirmedLanded(state) ? "LANDED" : "LANDING SOON")
                         .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundStyle(.green)
-                    Text("ARRIVED")
+                    Text(isConfirmedLanded(state) ? "ARRIVED" : "WAITING FOR CONFIRMATION")
                         .font(.system(size: 8, weight: .semibold))
                         .foregroundStyle(.tertiary)
                         .tracking(0.4)
@@ -448,7 +460,7 @@ struct FlightLiveActivity: Widget {
                         .font(.system(size: 14, weight: .semibold))
                 }
                 Spacer()
-                Text("LANDED")
+                Text(isConfirmedLanded(state) ? "LANDED" : "LANDING SOON")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.green)
                     .padding(.horizontal, 8)
@@ -461,7 +473,7 @@ struct FlightLiveActivity: Widget {
                 Text(attrs.departureIATA)
                     .font(.system(size: 20, weight: .bold, design: .rounded))
                 Spacer()
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: isConfirmedLanded(state) ? "checkmark.circle.fill" : "airplane.arrival")
                     .font(.system(size: 14))
                     .foregroundStyle(.green)
                 Spacer()
