@@ -15,6 +15,7 @@ struct ArcRootView: View {
     @State private var detailDetent: PresentationDetent = .large
     @State private var pendingOpenDetail = ProcessInfo.processInfo.arguments.contains("-openDetail")
     @State private var lastMapMode: Bool?   // true = Passport/hybrid, false = standard
+    @State private var planeWatchTask: Task<Void, Never>?
 
     /// Test hooks for headless screenshots.
     private var addInitialQuery: String? {
@@ -36,7 +37,12 @@ struct ArcRootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 .padding(.trailing, 12).padding(.top, 8)
 
+            // The tab sheet and any presented sheet (detail/add) EXCHANGE —
+            // the tab sheet slides away while another sheet is up, so two
+            // sheets are never stacked on top of each other.
             BottomSheet(detent: $detent) { sheetContent }
+                .offset(y: (detailFlight != nil || showAdd) ? 1500 : 0)
+                .animation(.spring(duration: 0.45), value: detailFlight != nil || showAdd)
 
             ArcTabBar(selection: $tab, onSearch: { showAdd = true })
                 .padding(.bottom, 8)
@@ -131,22 +137,50 @@ struct ArcRootView: View {
         if changed { try? modelContext.save() }
     }
 
-    /// "Plane at gate": look up the arrival airport's OSM gate coordinates,
-    /// match the reported gate, zoom the shared map onto it and shrink the
-    /// detail sheet to medium so the map is actually visible.
+    /// "Plane at gate": zoom the shared map onto the relevant gate (OSM
+    /// coordinates) and shrink the detail sheet to medium so the map shows.
+    ///
+    /// Landed flight → the ARRIVAL gate, static parked-plane marker.
+    /// Upcoming flight → the DEPARTURE gate (where the user boards), plus a
+    /// LIVE feed of their actual aircraft: the same tail is flying its
+    /// inbound rotation, and ADS-B covers arrival, taxi, and parking — so
+    /// the user literally watches their plane pull up to the gate. Polling
+    /// runs at 8s ONLY while this view is open (user-initiated and bounded,
+    /// unlike the global 3-min in-flight throttle).
     private func showPlaneAtGate(_ flight: Flight) {
-        guard let gateRef = flight.arrivalGate else { return }
-        let iata = flight.arrivalIATA
-        let lat = flight.arrivalLat, lon = flight.arrivalLon
+        let watching = flight.isUpcoming
+        let iata = watching ? flight.departureIATA : flight.arrivalIATA
+        let lat = watching ? flight.departureLat : flight.arrivalLat
+        let lon = watching ? flight.departureLon : flight.arrivalLon
+        let gateRef = watching ? flight.departureGate : flight.arrivalGate
         Task {
-            let gates = await FlightAPIClient.shared.gates(iata: iata, lat: lat, lon: lon)
-            let matched = FlightAPIClient.matchGate(gates, to: gateRef)
-            // Fall back to the airport itself when OSM doesn't know the gate —
-            // still useful, just less precise.
-            controller.showGate(lat: matched?.lat ?? lat,
-                                lon: matched?.lon ?? lon,
-                                label: matched != nil ? "Gate \(gateRef)" : iata)
+            var target = (lat: lat, lon: lon, label: iata)
+            if let gateRef {
+                let gates = await FlightAPIClient.shared.gates(iata: iata, lat: lat, lon: lon)
+                if let matched = FlightAPIClient.matchGate(gates, to: gateRef) {
+                    target = (matched.lat, matched.lon, "Gate \(gateRef)")
+                }
+            }
+            controller.showGate(lat: target.lat, lon: target.lon, label: target.label)
             detailDetent = .medium
+            if watching { startPlaneWatch(flight) }
+        }
+    }
+
+    private func startPlaneWatch(_ flight: Flight) {
+        planeWatchTask?.cancel()
+        guard let icao24 = flight.aircraftICAO24 else { return }
+        planeWatchTask = Task {
+            while !Task.isCancelled {
+                // Back button clears the marker — stop burning OpenSky quota.
+                guard controller.gateMarker != nil else { break }
+                if let pos = try? await FlightAPIClient.shared.livePosition(icao24: icao24) {
+                    controller.livePlane = .init(
+                        lat: pos.lat, lon: pos.lon,
+                        heading: pos.heading, onGround: pos.on_ground)
+                }
+                try? await Task.sleep(for: .seconds(8))
+            }
         }
     }
 

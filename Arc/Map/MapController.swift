@@ -7,11 +7,21 @@ final class MapController {
     var position: MapCameraPosition = .automatic
     var style: MapStyleKind = .standard
     var gateMarker: GateMarker?
+    var livePlane: LivePlane?
 
     struct GateMarker: Equatable {
         let lat: Double
         let lon: Double
         let label: String
+    }
+
+    /// The user's actual aircraft, live (ADS-B), while the airport gate view
+    /// is open — arriving, taxiing, parking.
+    struct LivePlane: Equatable {
+        let lat: Double
+        let lon: Double
+        let heading: Double
+        let onGround: Bool
     }
 
     /// Zoom tight onto a gate and drop the plane there — the "your plane is
@@ -31,6 +41,7 @@ final class MapController {
 
     func clearGateMarker() {
         gateMarker = nil
+        livePlane = nil
     }
 
     enum MapStyleKind { case standard, hybrid }

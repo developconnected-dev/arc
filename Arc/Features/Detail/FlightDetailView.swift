@@ -174,7 +174,18 @@ struct FlightDetailView: View {
             }
             .buttonStyle(.plain)
 
-            if flight.isCompleted || flight.isRecentlyLanded, let gate = flight.arrivalGate, onShowAtGate != nil {
+            if flight.isUpcoming, onShowAtGate != nil {
+                Button { onShowAtGate?(flight) } label: {
+                    Label(flight.departureGate.map { "My plane · Gate \($0)" } ?? "My plane",
+                          systemImage: "airplane.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(ArcTheme.action.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                        .foregroundStyle(ArcTheme.action)
+                }
+                .buttonStyle(.plain)
+            } else if flight.isCompleted || flight.isRecentlyLanded, let gate = flight.arrivalGate, onShowAtGate != nil {
                 Button { onShowAtGate?(flight) } label: {
                     Label("Plane at \(gate)", systemImage: "airplane.circle.fill")
                         .font(.system(size: 14, weight: .semibold))

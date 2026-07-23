@@ -304,6 +304,8 @@ final class FlightTracker: ObservableObject {
             if let gate = latest.arr_gate, !gate.isEmpty { flight.arrivalGate = gate }
             if let terminal = latest.arr_terminal, !terminal.isEmpty { flight.arrivalTerminal = terminal }
             if let baggage = latest.arr_baggage, !baggage.isEmpty { flight.baggageClaim = baggage }
+            if let reg = latest.aircraft_registration, !reg.isEmpty { flight.aircraftRegistration = reg }
+            if let icao24 = latest.aircraft_icao24, !icao24.isEmpty { flight.aircraftICAO24 = icao24 }
 
         } catch {
             // Silently skip — will retry next cycle

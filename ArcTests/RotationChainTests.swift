@@ -12,7 +12,7 @@ final class RotationChainTests: XCTestCase {
               dep_actual: nil, arr_actual: arrActual,
               status: status, dep_gate: nil, dep_terminal: nil, arr_gate: nil,
               arr_terminal: nil, arr_baggage: nil, delay: delay,
-              aircraft_type: nil, aircraft_registration: nil,
+              aircraft_type: nil, aircraft_registration: nil, aircraft_icao24: nil,
               dep_lat: nil, dep_lon: nil, arr_lat: nil, arr_lon: nil)
     }
 

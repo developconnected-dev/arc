@@ -715,6 +715,7 @@ struct AddFlightView: View {
         f.departureGate = r.dep_gate; f.departureTerminal = r.dep_terminal
         f.arrivalGate = r.arr_gate; f.arrivalTerminal = r.arr_terminal; f.baggageClaim = r.arr_baggage
         f.aircraftType = r.aircraft_type; f.aircraftRegistration = r.aircraft_registration
+        f.aircraftICAO24 = r.aircraft_icao24
 
         modelContext.insert(f)
         do {
