@@ -75,6 +75,7 @@ final class LiveActivityManager {
             seat: flight.seat
         )
 
+        let state = await makeState(for: flight)
         do {
             // pushType .token: ActivityKit hands us an APNs token for this
             // activity, LiveActivityPushSync registers it with the Worker, and
@@ -83,7 +84,7 @@ final class LiveActivityManager {
             // still work exactly the same alongside push.
             let activity = try Activity.request(
                 attributes: attributes,
-                content: .init(state: await makeState(for: flight), staleDate: Self.staleDate),
+                content: .init(state: state, staleDate: Self.staleDate(for: state)),
                 pushType: .token
             )
             activeActivities[flight.id.uuidString] = activity
@@ -92,11 +93,19 @@ final class LiveActivityManager {
         }
     }
 
-    /// Without remote push, updates only flow while our process is alive —
-    /// tell iOS when the content should be considered outdated so the system
-    /// (and our own `isStale`-aware UI) can reflect that instead of showing
-    /// a frozen state as if it were current.
-    private static var staleDate: Date { .now.addingTimeInterval(20 * 60) }
+    /// staleDate doubles as our offline phase-flip scheduler: iOS re-renders
+    /// the Live Activity view once when content goes stale, and that render
+    /// re-evaluates `effectivePhase(Date.now)`. Pointing staleDate at the
+    /// NEXT phase boundary (departure while pre-flight, arrival while
+    /// in-flight) makes the layout switch pre → during → after at exactly
+    /// the right moment even with the app dead and the device offline —
+    /// which is precisely the in-flight situation. While online, pushes
+    /// keep resetting it anyway.
+    private static func staleDate(for state: FlightActivityAttributes.ContentState) -> Date {
+        if state.status == "landed" { return .now.addingTimeInterval(3600) }
+        if Date.now < state.departureTime { return state.departureTime }
+        return max(state.arrivalTime, .now.addingTimeInterval(60))
+    }
 
     func updateActivity(for flight: Flight) async {
         // `activeActivities` is in-memory only. After an app relaunch
@@ -115,7 +124,8 @@ final class LiveActivityManager {
         }
         guard let activity = activeActivities[flight.id.uuidString] else { return }
 
-        let content = ActivityContent(state: await makeState(for: flight), staleDate: Self.staleDate)
+        let state = await makeState(for: flight)
+        let content = ActivityContent(state: state, staleDate: Self.staleDate(for: state))
         nonisolated(unsafe) let act = activity
         await act.update(content)
     }

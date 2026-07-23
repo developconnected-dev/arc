@@ -599,11 +599,18 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   // Not yet in the window where updates matter (>4h before departure): skip.
   if (now < depMs - 4 * 60 * 60 * 1000) return;
 
+  // stale-date = next phase boundary: iOS re-renders the Live Activity once
+  // when content goes stale, and that render re-evaluates the clock-based
+  // phase — so the pre→during→after layout flips on time even if this was
+  // the last push before the device went offline (i.e. takeoff).
+  const staleAt = status === "scheduled" || status === "boarding" || status === "gateClosed"
+    ? Math.floor(depMs / 1000)
+    : Math.floor(Math.max(arrMs, now + 60_000) / 1000);
   const payload = {
     aps: {
       timestamp: Math.floor(now / 1000),
       event: "update",
-      "stale-date": Math.floor(now / 1000) + 20 * 60,
+      "stale-date": staleAt,
       "content-state": contentState(status, depMs, arrMs, delay, flight),
       ...(dataChanged && flight?.["dep_gate"] ? {
         alert: {
