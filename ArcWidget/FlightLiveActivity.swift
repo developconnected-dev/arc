@@ -14,6 +14,10 @@ struct FlightLiveActivity: Widget {
                 // stack in the bottom region.
                 DynamicIslandExpandedRegion(.leading) {
                     if phase == .inFlight {
+                        // The island's rounded corners curve INTO the top of the
+                        // leading/trailing regions — content flush with the top
+                        // edge gets visually clipped by the bezel. Nudge it down
+                        // and inward, clear of the curvature.
                         HStack(spacing: 4) {
                             Image(systemName: "airplane")
                                 .font(.system(size: 10, weight: .semibold))
@@ -22,6 +26,8 @@ struct FlightLiveActivity: Widget {
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(.secondary)
                         }
+                        .padding(.top, 6)
+                        .padding(.leading, 4)
                     } else {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(context.attributes.departureIATA)
@@ -30,6 +36,7 @@ struct FlightLiveActivity: Widget {
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
+                        .padding(.top, 4)
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
@@ -43,6 +50,8 @@ struct FlightLiveActivity: Widget {
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundStyle(.secondary)
                             }
+                            .padding(.top, 6)
+                            .padding(.trailing, 4)
                         }
                     } else {
                         VStack(alignment: .trailing, spacing: 2) {
@@ -52,6 +61,7 @@ struct FlightLiveActivity: Widget {
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(context.state.delayMinutes > 0 ? .orange : .secondary)
                         }
+                        .padding(.top, 4)
                     }
                 }
                 DynamicIslandExpandedRegion(.center) {
@@ -72,10 +82,8 @@ struct FlightLiveActivity: Widget {
                                     .foregroundStyle(arrivalStatusColor(context.state))
                             }
                             FlightPathProgress(state: context.state)
-                                .frame(height: 22)
-                                .padding(.top, 2)
+                                .frame(height: 18)
                             arrivalCountdown(context.state)
-                                .padding(.top, 2)
                         }
                     } else if phase == .landed {
                         HStack(spacing: 6) {
