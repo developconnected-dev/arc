@@ -71,6 +71,7 @@ struct ArcRootView: View {
         .onAppear {
             DemoSeed.seedIfRequested(into: modelContext, existing: allFlights)
             DemoSeed.seedStuckFlightIfRequested(into: modelContext, existing: allFlights)
+            DemoSeed.startDemoLiveActivityIfRequested()
             refitMapForCurrentData()
             openDetailIfPending()
             bootstrapTrackingAndWidgets()
@@ -85,12 +86,13 @@ struct ArcRootView: View {
         }
     }
 
-    /// Passport shows a different flight set in a different (photoreal) map
-    /// style, so switching to/from it genuinely needs a transition. Switching
-    /// between My Flights and Friends shows the identical flights in the
-    /// identical style — reassigning `controller.style`/refitting there was
-    /// swapping the whole tile layer on every single tab tap for no reason,
-    /// which is what read as "the map reloads completely at every switch."
+    /// Tab switches only MOVE THE CAMERA — never touch `controller.style`.
+    /// A style change swaps MapKit's entire tile layer (a visible full map
+    /// reload), and doing that automatically on every Passport switch was
+    /// exactly the "map reloads in the background" complaint. Passport's
+    /// globe feel comes purely from the zoomed-out camera framing; the
+    /// photoreal/hybrid look remains available via the map-style button in
+    /// MapControls, where the reload is something the user asked for.
     private func updateCameraForTab(_ t: ArcTab) {
         let wantsPassport = (t == .passport)
         guard lastMapMode != wantsPassport else { return }
@@ -99,8 +101,7 @@ struct ArcRootView: View {
     }
 
     /// Called when the underlying flight data changes, or on first appear —
-    /// always refits (the route set may genuinely differ) but reuses whatever
-    /// style is already active instead of reassigning it.
+    /// always refits (the route set may genuinely differ).
     private func refitMapForCurrentData() {
         let wantsPassport = (tab == .passport)
         lastMapMode = wantsPassport
@@ -108,13 +109,7 @@ struct ArcRootView: View {
     }
 
     private func applyCameraForCurrentMode(_ passport: Bool) {
-        if passport {
-            controller.style = .hybrid
-            controller.fitAll(mapFlights, padding: 2.2)
-        } else {
-            controller.style = .standard
-            controller.fitAll(mapFlights)
-        }
+        controller.fitAll(mapFlights, padding: passport ? 2.2 : 1.4)
     }
 
     private func bootstrapTrackingAndWidgets() {
