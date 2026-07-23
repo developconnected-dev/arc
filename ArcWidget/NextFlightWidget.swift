@@ -66,7 +66,11 @@ struct NextFlightSmallView: View {
                 // unlike the old pre-rendered countdownText string.
                 Group {
                     switch phase {
-                    case .inFlight: Text(flight.effectiveArrival, style: .relative)
+                    case .inFlight:
+                        // Clamps at 0:00 at the cached ETA — .relative would
+                        // count UP past it until the landed entry renders.
+                        Text(timerInterval: min(flight.effectiveDeparture, flight.effectiveArrival - 60)...flight.effectiveArrival,
+                             countsDown: true)
                     case .upcoming: Text(flight.effectiveDeparture, style: .relative)
                     case .landed: Text("Landed")
                     }
@@ -209,7 +213,9 @@ struct NextFlightMediumView: View {
             // Countdown — live .relative style, not a pre-rendered string
             Group {
                 switch phase {
-                case .inFlight: Text(flight.effectiveArrival, style: .relative)
+                case .inFlight:
+                    Text(timerInterval: min(flight.effectiveDeparture, flight.effectiveArrival - 60)...flight.effectiveArrival,
+                         countsDown: true)
                 case .upcoming: Text(flight.effectiveDeparture, style: .relative)
                 case .landed: Text("Landed")
                 }

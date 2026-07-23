@@ -131,24 +131,30 @@ enum DemoSeed {
     /// minutes is provably iOS's own offline self-animation.
     @MainActor
     static func startDemoLiveActivityIfRequested() {
-        guard ProcessInfo.processInfo.arguments.contains("-laDemo") else { return }
+        let args = ProcessInfo.processInfo.arguments
+        guard args.contains("-laDemo") || args.contains("-laDemoLanding") else { return }
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        // -laDemoLanding: lands in ~1 min — verifies the offline in-flight →
+        // landed flip (and that nothing counts UP afterwards) within minutes.
+        let landingSoon = args.contains("-laDemoLanding")
         let attrs = FlightActivityAttributes(
             flightNumber: "B6 416", departureIATA: "SFO", arrivalIATA: "JFK",
             departureCity: "San Francisco", arrivalCity: "New York",
             airline: "JetBlue", aircraftType: "Airbus A321", seat: "1A")
         let state = FlightActivityAttributes.ContentState(
             status: "active",
-            departureTime: .now.addingTimeInterval(-3 * 60),
-            arrivalTime: .now.addingTimeInterval(7 * 60),
+            departureTime: .now.addingTimeInterval(landingSoon ? -9 * 60 : -3 * 60),
+            arrivalTime: .now.addingTimeInterval(landingSoon ? 60 : 7 * 60),
             boardingTime: nil, securityWaitMinutes: nil,
             delayMinutes: -10,   // photo parity: "10m Early"
             departureGate: "B7", departureTerminal: "2",
             arrivalGate: nil, arrivalTerminal: "5", baggageClaim: nil,
             altitude: 10600, speed: 480, heading: 90, progress: 0.3)
+        // staleDate = arrival: same phase-flip scheduling as the real
+        // LiveActivityManager — the offline landed flip depends on it.
         _ = try? Activity.request(
             attributes: attrs,
-            content: .init(state: state, staleDate: nil),
+            content: .init(state: state, staleDate: state.arrivalTime),
             pushType: nil)
     }
 

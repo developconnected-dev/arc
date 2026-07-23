@@ -180,7 +180,11 @@ final class FlightTracker: ObservableObject {
     /// Immediately fetches fresh data for all active/upcoming flights.
     /// Called when network reconnects (e.g. in-flight WiFi comes on).
     func burstUpdate(flights: [Flight], modelContext: ModelContext) async {
-        let relevant = flights.filter { $0.isActive || $0.isUpcoming }
+        // isRecentlyLanded matters most here: reconnecting right after
+        // touchdown is exactly when the arrival gate and baggage belt appear,
+        // and excluding just-landed flights meant the flight that most needed
+        // the refresh was the one skipped.
+        let relevant = flights.filter { $0.isActive || $0.isUpcoming || $0.isRecentlyLanded }
         for flight in relevant {
             await updateFlightStatus(flight)
             await LiveActivityManager.shared.updateActivity(for: flight)

@@ -77,6 +77,27 @@ struct FlightLiveActivity: Widget {
                             arrivalCountdown(context.state)
                                 .padding(.top, 2)
                         }
+                    } else if phase == .landed {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.green)
+                            Text("Landed")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.green)
+                            if let belt = context.state.baggageClaim {
+                                Text("· Belt \(belt)")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            if let terminal = context.state.arrivalTerminal {
+                                Text("· T\(terminal)")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            gateBadge(context.state.arrivalGate)
+                        }
                     } else {
                         HStack {
                             Image(systemName: "arrow.up.right")
@@ -85,7 +106,7 @@ struct FlightLiveActivity: Widget {
                             Text("Departs Gate in ")
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
-                            + Text(context.state.departureTime, style: .timer)
+                            + Text(timerInterval: clamped(to: context.state.departureTime), countsDown: true)
                                 .font(.system(size: 11, weight: .bold))
                                 .foregroundStyle(.primary)
                             Spacer()
@@ -113,6 +134,10 @@ struct FlightLiveActivity: Widget {
                             .font(.system(size: 7, weight: .bold))
                             .foregroundStyle(.green)
                     }
+                } else if phase == .landed {
+                    Image(systemName: "airplane.arrival")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.green)
                 } else {
                     HStack(spacing: 3) {
                         Image(systemName: "arrow.up.right")
@@ -120,22 +145,34 @@ struct FlightLiveActivity: Widget {
                             .padding(3)
                             .background(.green, in: Circle())
                             .foregroundStyle(.black)
-                        Text(context.state.departureTime, style: .timer)
+                        // timerInterval, not .timer: clamps at 0:00 instead of
+                        // counting UP once the date passes.
+                        Text(timerInterval: clamped(to: context.state.departureTime), countsDown: true)
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .frame(width: 36)
                     }
                 }
             } compactTrailing: {
                 if phase == .inFlight {
-                    if Date.now >= context.state.arrivalTime {
+                    // Clamps at 0:00 — never counts up, even if the landed
+                    // re-render is late or the plane beat its cached ETA.
+                    Text(timerInterval: progressInterval(context.state), countsDown: true)
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .frame(width: 52)
+                        .multilineTextAlignment(.trailing)
+                } else if phase == .landed {
+                    if let belt = context.state.baggageClaim {
+                        HStack(spacing: 2) {
+                            Image(systemName: "suitcase.fill")
+                                .font(.system(size: 9))
+                            Text(belt)
+                                .font(.system(size: 11, weight: .bold))
+                        }
+                        .foregroundStyle(.green)
+                    } else {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 14))
                             .foregroundStyle(.green)
-                    } else {
-                        Text(context.state.arrivalTime, style: .timer)
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .frame(width: 52)
-                            .multilineTextAlignment(.trailing)
                     }
                 } else {
                     gateBadge(context.state.departureGate)
@@ -143,6 +180,10 @@ struct FlightLiveActivity: Widget {
             } minimal: {
                 if phase == .inFlight {
                     Image(systemName: "airplane")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.green)
+                } else if phase == .landed {
+                    Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.green)
                 } else {
@@ -162,7 +203,11 @@ struct FlightLiveActivity: Widget {
 
     private func effectivePhase(_ state: FlightActivityAttributes.ContentState) -> Phase {
         if state.status == "landed" { return .landed }
-        if state.status == "active" { return .inFlight }
+        // "active" must NOT bypass the clock: offline nobody flips the status
+        // to landed, so the staleDate re-render at arrival has to be able to
+        // conclude "landed" from the time alone — otherwise the island wears
+        // its in-flight clothes forever.
+        if state.status == "active" { return Date.now >= state.arrivalTime ? .landed : .inFlight }
         if Date.now >= state.departureTime && Date.now < state.arrivalTime { return .inFlight }
         if Date.now >= state.arrivalTime { return .landed }
         return .preDeparture
@@ -296,7 +341,7 @@ struct FlightLiveActivity: Widget {
                     Text("Departs Gate in ")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(.primary)
-                    + Text(state.departureTime, style: .timer)
+                    + Text(timerInterval: clamped(to: state.departureTime), countsDown: true)
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(.primary)
                 }
@@ -359,7 +404,10 @@ struct FlightLiveActivity: Widget {
                         .foregroundStyle(.tertiary)
                         .tracking(0.4)
                 } else {
-                    Text(state.arrivalTime, style: .relative)
+                    // timerInterval clamps at 0:00 — a .relative Text would
+                    // silently start counting UP after the arrival time if
+                    // the landed re-render hadn't fired yet.
+                    Text(timerInterval: progressInterval(state), countsDown: true)
                         .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundStyle(.green)
                         .multilineTextAlignment(.center)
@@ -377,6 +425,13 @@ struct FlightLiveActivity: Widget {
     /// scheduled arrival).
     private func progressInterval(_ state: FlightActivityAttributes.ContentState) -> ClosedRange<Date> {
         state.departureTime...max(state.arrivalTime, state.departureTime.addingTimeInterval(60))
+    }
+
+    /// Countdown interval ending at `end`, valid even if `end` already passed
+    /// (the text then just sits at 0:00 instead of counting up).
+    private func clamped(to end: Date) -> ClosedRange<Date> {
+        let start = min(Date.now, end.addingTimeInterval(-1))
+        return start...end
     }
 
     // ── LANDED ──
