@@ -9,52 +9,73 @@ struct FlightLiveActivity: Widget {
         } dynamicIsland: { context in
             let phase = effectivePhase(context.state)
             return DynamicIsland {
+                // Flighty's expanded in-flight layout: flight number top-left,
+                // seat top-right, then the full-width route/path/countdown
+                // stack in the bottom region.
                 DynamicIslandExpandedRegion(.leading) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(context.attributes.departureIATA)
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
-                        Text(context.state.departureTime, style: .time)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
+                    if phase == .inFlight {
+                        HStack(spacing: 4) {
+                            Image(systemName: "airplane")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                            Text(context.attributes.flightNumber)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(context.attributes.departureIATA)
+                                .font(.system(size: 22, weight: .bold, design: .rounded))
+                            Text(context.state.departureTime, style: .time)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(context.attributes.arrivalIATA)
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
-                        Text(context.state.arrivalTime, style: .time)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(context.state.delayMinutes > 0 ? .orange : .secondary)
+                    if phase == .inFlight {
+                        if let seat = context.attributes.seat, !seat.isEmpty {
+                            HStack(spacing: 3) {
+                                Image(systemName: "carseat.right.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                                Text(seat)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    } else {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(context.attributes.arrivalIATA)
+                                .font(.system(size: 22, weight: .bold, design: .rounded))
+                            Text(context.state.arrivalTime, style: .time)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(context.state.delayMinutes > 0 ? .orange : .secondary)
+                        }
                     }
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    // Empty — route codes in leading/trailing are enough
+                    // Empty — route codes live in leading/trailing (pre-flight)
+                    // or the bottom stack (in-flight)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     if phase == .inFlight {
-                        VStack(spacing: 4) {
-                            // System-animated progress: ProgressView(timerInterval:)
-                            // is one of the few things iOS itself keeps moving in a
-                            // Live Activity with no app process running. The old
-                            // hand-drawn version computed `pct` from Date.now at
-                            // render time — frozen the moment the app was suspended.
-                            liveProgressBar(context.state)
-
+                        VStack(spacing: 2) {
+                            routeRow(attrs: context.attributes, state: context.state)
                             HStack {
-                                if Date.now >= context.state.arrivalTime {
-                                    Text("LANDED")
-                                        .font(.system(size: 12, weight: .bold))
-                                        .foregroundStyle(.green)
-                                } else {
-                                    Text(context.state.arrivalTime, style: .timer)
-                                        .font(.system(size: 12, weight: .bold, design: .monospaced))
-                                        .foregroundStyle(.green)
-                                }
+                                Text(departureStatusText(context.state))
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(departureStatusColor(context.state))
                                 Spacer()
-                                Text(Date.now >= context.state.arrivalTime ? "ARRIVED" : "UNTIL ARRIVAL")
-                                    .font(.system(size: 8, weight: .semibold))
-                                    .foregroundStyle(.tertiary)
+                                Text(arrivalStatusText(context.state))
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(arrivalStatusColor(context.state))
                             }
+                            FlightPathProgress(state: context.state)
+                                .frame(height: 22)
+                                .padding(.top, 2)
+                            arrivalCountdown(context.state)
+                                .padding(.top, 2)
                         }
                     } else {
                         HStack {
@@ -73,14 +94,24 @@ struct FlightLiveActivity: Widget {
                     }
                 }
             } compactLeading: {
-                // Pre-departure: arrow + countdown. In-flight: plane + dep IATA
+                // In-flight: Flighty's little self-filling progress ring with
+                // the plane in it. ProgressView(timerInterval:) with the
+                // circular style is system-animated — the ring keeps filling
+                // with the app dead and no internet, which matters because
+                // in-flight is exactly when there IS no internet.
                 if phase == .inFlight {
-                    HStack(spacing: 3) {
+                    ZStack {
+                        ProgressView(
+                            timerInterval: progressInterval(context.state),
+                            countsDown: false,
+                            label: { EmptyView() },
+                            currentValueLabel: { EmptyView() }
+                        )
+                        .progressViewStyle(.circular)
+                        .tint(.green)
                         Image(systemName: "airplane")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 7, weight: .bold))
                             .foregroundStyle(.green)
-                        Text(context.attributes.departureIATA)
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
                     }
                 } else {
                     HStack(spacing: 3) {
@@ -300,43 +331,52 @@ struct FlightLiveActivity: Widget {
             .padding(.top, 3)
             .padding(.bottom, 14)
 
-            // Swooping progress arc. Honest limitation: the arc's fill is
-            // `state.progress`, a frozen snapshot — without ActivityKit remote
-            // push (needs a paid Apple Developer membership + APNs), a custom
-            // Path can only move when OUR process pushes an update (app open,
-            // the 60s updater while alive, WiFi-reconnect bursts, BG refresh
-            // wakeups). The thin bar underneath is the system-animated
-            // ProgressView(timerInterval:) — iOS itself keeps THAT moving with
-            // no process running, so the surface is never fully frozen.
-            let hasArrived = Date.now >= state.arrivalTime
-            FlightProgressArc(progress: hasArrived ? 1.0 : state.progress, color: .green)
-                .frame(height: 28)
-            liveProgressBar(state)
-                .padding(.bottom, 6)
+            // Flighty's glowing flight-path line, filling left→right with
+            // progress — self-animating even offline (see FlightPathProgress).
+            FlightPathProgress(state: state)
+                .frame(height: 30)
+                .padding(.bottom, 4)
 
-            // Centered countdown or LANDED
-            HStack {
-                Spacer()
-                VStack(spacing: 2) {
-                    if hasArrived {
-                        Text("LANDED")
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-                            .foregroundStyle(.green)
-                    } else {
-                        Text(state.arrivalTime, style: .timer)
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-                            .foregroundStyle(.green)
-                            .multilineTextAlignment(.center)
-                    }
-                    Text(hasArrived ? "ARRIVED" : "UNTIL GATE ARRIVAL")
+            arrivalCountdown(state)
+        }
+        .padding(20)
+    }
+
+    /// Big centered "1 hr, 20 min / UNTIL GATE ARRIVAL". `.relative` text is
+    /// system-animated — it keeps counting down with the app dead and no
+    /// internet, exactly the in-flight situation.
+    @ViewBuilder
+    private func arrivalCountdown(_ state: FlightActivityAttributes.ContentState) -> some View {
+        HStack {
+            Spacer()
+            VStack(spacing: 2) {
+                if Date.now >= state.arrivalTime {
+                    Text("LANDED")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(.green)
+                    Text("ARRIVED")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .tracking(0.4)
+                } else {
+                    Text(state.arrivalTime, style: .relative)
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(.green)
+                        .multilineTextAlignment(.center)
+                    Text("UNTIL GATE ARRIVAL")
                         .font(.system(size: 8, weight: .semibold))
                         .foregroundStyle(.tertiary)
                         .tracking(0.4)
                 }
-                Spacer()
             }
+            Spacer()
         }
-        .padding(20)
+    }
+
+    /// Valid interval even for odd data (delayed departure recorded after
+    /// scheduled arrival).
+    private func progressInterval(_ state: FlightActivityAttributes.ContentState) -> ClosedRange<Date> {
+        state.departureTime...max(state.arrivalTime, state.departureTime.addingTimeInterval(60))
     }
 
     // ── LANDED ──
@@ -458,22 +498,6 @@ struct FlightLiveActivity: Widget {
         }
     }
 
-    /// The one progress element iOS keeps animating with no app process
-    /// running. The interval must be valid even for odd data (delayed
-    /// departure recorded after scheduled arrival), hence the max().
-    private func liveProgressBar(_ state: FlightActivityAttributes.ContentState) -> some View {
-        let end = max(state.arrivalTime, state.departureTime.addingTimeInterval(60))
-        return ProgressView(
-            timerInterval: state.departureTime...end,
-            countsDown: false,
-            label: { EmptyView() },
-            currentValueLabel: { EmptyView() }
-        )
-        .progressViewStyle(.linear)
-        .tint(.green)
-        .frame(height: 4)
-    }
-
     /// Yellow gate badge matching Flighty's style: walking person icon + gate code
     @ViewBuilder
     private func gateBadge(_ gate: String?) -> some View {
@@ -514,51 +538,67 @@ struct FlightLiveActivity: Widget {
     }
 }
 
-// MARK: - Swooping Progress Arc
-// Updated every 60s by BackgroundFlightUpdater via Activity.update()
+// MARK: - Flight Path Progress (Flighty-style sloped line)
 
-struct FlightProgressArc: View {
-    let progress: Double
-    let color: Color
+/// The glowing "flight path" line from Flighty's in-flight Live Activity —
+/// a climb ramp into a long cruise — filling left→right with flight progress.
+///
+/// The offline trick: a custom Path can't self-animate (WidgetKit renders it
+/// once per content update), so the bright line is REVEALED by masking it
+/// with a system `ProgressView(timerInterval:)` stretched to full height.
+/// The system animates that timer bar's fill in the render server with no
+/// app process and no network — so the reveal sweeps across the path in
+/// real time even mid-flight in airplane mode. Verified empirically with the
+/// app terminated (see the -laDemo hook).
+struct FlightPathProgress: View {
+    let state: FlightActivityAttributes.ContentState
 
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
             ZStack {
-                swoopPath(in: size)
-                    .stroke(Color.secondary.opacity(0.15), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                swoopPath(in: size)
-                    .trim(from: 0, to: max(0.005, progress))
-                    .stroke(color, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                Circle()
-                    .fill(color)
-                    .frame(width: 7, height: 7)
-                    .shadow(color: color.opacity(0.5), radius: 3)
-                    .position(swoopPoint(at: progress, in: size))
+                flightPath(in: size)
+                    .stroke(Color.secondary.opacity(0.25),
+                            style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                flightPath(in: size)
+                    .stroke(Color.green, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .shadow(color: .green.opacity(0.7), radius: 3)
+                    .mask(
+                        ProgressView(
+                            timerInterval: state.departureTime...max(state.arrivalTime, state.departureTime.addingTimeInterval(60)),
+                            countsDown: false,
+                            label: { EmptyView() },
+                            currentValueLabel: { EmptyView() }
+                        )
+                        .progressViewStyle(.linear)
+                        .tint(.white)
+                        // The linear bar is only ~4pt tall; as a mask, only
+                        // its alpha matters — stretch it to cover the full
+                        // path height so the growing width reveals everything.
+                        .scaleEffect(x: 1, y: size.height * 3, anchor: .center)
+                    )
             }
         }
     }
 
-    private func swoopPath(in size: CGSize) -> Path {
-        Path { p in
-            p.move(to: CGPoint(x: 0, y: size.height * 0.85))
+    /// Symmetric flight profile: climb, long flat cruise, descent back to
+    /// the same level it started from — takeoff and landing mirror each other.
+    private func flightPath(in size: CGSize) -> Path {
+        let ground = size.height * 0.90
+        let cruise = size.height * 0.18
+        return Path { p in
+            p.move(to: CGPoint(x: 1, y: ground))
             p.addCurve(
-                to: CGPoint(x: size.width, y: size.height * 0.85),
-                control1: CGPoint(x: size.width * 0.3, y: -size.height * 0.2),
-                control2: CGPoint(x: size.width * 0.7, y: -size.height * 0.2)
+                to: CGPoint(x: size.width * 0.24, y: cruise),
+                control1: CGPoint(x: size.width * 0.10, y: ground),
+                control2: CGPoint(x: size.width * 0.14, y: cruise)
+            )
+            p.addLine(to: CGPoint(x: size.width * 0.76, y: cruise))
+            p.addCurve(
+                to: CGPoint(x: size.width - 1, y: ground),
+                control1: CGPoint(x: size.width * 0.86, y: cruise),
+                control2: CGPoint(x: size.width * 0.90, y: ground)
             )
         }
-    }
-
-    private func swoopPoint(at t: Double, in size: CGSize) -> CGPoint {
-        let p0 = CGPoint(x: 0, y: size.height * 0.85)
-        let p1 = CGPoint(x: size.width * 0.3, y: -size.height * 0.2)
-        let p2 = CGPoint(x: size.width * 0.7, y: -size.height * 0.2)
-        let p3 = CGPoint(x: size.width, y: size.height * 0.85)
-        let t1 = CGFloat(t), mt = 1 - t1
-        return CGPoint(
-            x: mt*mt*mt*p0.x + 3*mt*mt*t1*p1.x + 3*mt*t1*t1*p2.x + t1*t1*t1*p3.x,
-            y: mt*mt*mt*p0.y + 3*mt*mt*t1*p1.y + 3*mt*t1*t1*p2.y + t1*t1*t1*p3.y
-        )
     }
 }
