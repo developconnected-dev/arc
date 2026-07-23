@@ -46,7 +46,7 @@ struct ArcRootView: View {
                 .presentationDetents([.large])
         }
         .sheet(item: $detailFlight) { flight in
-            FlightDetailView(flight: flight)
+            FlightDetailView(flight: flight, onShowAtGate: { f in showPlaneAtGate(f) })
                 .presentationDetents([.medium, .large], selection: $detailDetent)
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
@@ -129,6 +129,25 @@ struct ArcRootView: View {
             changed = true
         }
         if changed { try? modelContext.save() }
+    }
+
+    /// "Plane at gate": look up the arrival airport's OSM gate coordinates,
+    /// match the reported gate, zoom the shared map onto it and shrink the
+    /// detail sheet to medium so the map is actually visible.
+    private func showPlaneAtGate(_ flight: Flight) {
+        guard let gateRef = flight.arrivalGate else { return }
+        let iata = flight.arrivalIATA
+        let lat = flight.arrivalLat, lon = flight.arrivalLon
+        Task {
+            let gates = await FlightAPIClient.shared.gates(iata: iata, lat: lat, lon: lon)
+            let matched = FlightAPIClient.matchGate(gates, to: gateRef)
+            // Fall back to the airport itself when OSM doesn't know the gate —
+            // still useful, just less precise.
+            controller.showGate(lat: matched?.lat ?? lat,
+                                lon: matched?.lon ?? lon,
+                                label: matched != nil ? "Gate \(gateRef)" : iata)
+            detailDetent = .medium
+        }
     }
 
     private var activeFlight: Flight? { allFlights.first { $0.isActive } }

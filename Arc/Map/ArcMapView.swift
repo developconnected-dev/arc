@@ -9,13 +9,32 @@ struct ArcMapView: View {
 
     var body: some View {
         Map(position: $controller.position) {
+            if let marker = controller.gateMarker {
+                Annotation(marker.label, coordinate: .init(latitude: marker.lat, longitude: marker.lon)) {
+                    ZStack {
+                        Circle().fill(ArcTheme.action).frame(width: 34, height: 34)
+                            .shadow(color: ArcTheme.action.opacity(0.5), radius: 5)
+                        Image(systemName: "airplane")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                }
+            }
             ForEach(flights) { flight in
                 if flight.departureLat != 0 && flight.arrivalLat != 0 {
                     let dep = CLLocationCoordinate2D(latitude: flight.departureLat, longitude: flight.departureLon)
                     let arr = CLLocationCoordinate2D(latitude: flight.arrivalLat, longitude: flight.arrivalLon)
                     let track = flight.trackPoints
 
-                    if flight.isActive, track.count >= 2 {
+                    if flight.isCompleted, track.count >= 2 {
+                        // Landed: the real recorded path, airport to airport —
+                        // what you actually flew, not a theoretical arc.
+                        let flown = [dep] + track.map {
+                            CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
+                        } + [arr]
+                        MapPolyline(coordinates: flown)
+                            .stroke(ArcTheme.routeLine, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    } else if flight.isActive, track.count >= 2 {
                         // We have real recorded positions: draw the path actually
                         // flown (solid, airport → breadcrumbs → current position)
                         // and the projected remainder (dashed great-circle from
@@ -55,6 +74,18 @@ struct ArcMapView: View {
         }
         .mapStyle(controller.style == .hybrid ? .hybrid(elevation: .realistic) : .standard(elevation: .realistic))
         .mapControlVisibility(.hidden)
+        .overlay(alignment: .topLeading) {
+            if controller.gateMarker != nil {
+                Button { controller.clearGateMarker() } label: {
+                    Label("Back", systemImage: "chevron.left")
+                        .font(.system(size: 14, weight: .semibold))
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(.regularMaterial, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 12).padding(.top, 8)
+            }
+        }
     }
 
     private var endpointDot: some View {

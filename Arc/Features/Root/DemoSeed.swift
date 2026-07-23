@@ -86,6 +86,14 @@ enum DemoSeed {
         justLanded.aircraftType = "Airbus A220-100"
         justLanded.arrivalGate = "A54"
         justLanded.baggageClaim = "7"
+        // Recorded track VIE → ZRH so Passport shows the real flown path.
+        for (i, bc) in [(48.2, 16.1), (48.15, 15.0), (48.0, 13.8), (47.85, 12.4),
+                        (47.7, 11.0), (47.6, 9.8)].enumerated() {
+            justLanded.trackPoints.append(Flight.TrackPoint(
+                lat: bc.0, lon: bc.1,
+                timestamp: Date.now.addingTimeInterval(Double(i - 7) * 600),
+                altitude: 9800))
+        }
 
         // Delayed 12 minutes, past its own original scheduled departure, but
         // the API hasn't confirmed "active" yet — proves this stays visible

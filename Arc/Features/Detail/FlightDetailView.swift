@@ -4,8 +4,10 @@ import SwiftData
 /// Flighty-parity flight detail, presented as a bottom sheet over the shared map.
 struct FlightDetailView: View {
     @Bindable var flight: Flight
+    var onShowAtGate: ((Flight) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openURL) private var openURL
 
     @State private var editing: EditField?
     @State private var editText = ""
@@ -31,6 +33,7 @@ struct FlightDetailView: View {
                     header
                     statusBanner
                     endpointsCard
+                    mapActionsRow
                     bookingSeatRow
                     GoodToKnowSection(flight: flight)
                     if let plan = connection {
@@ -144,6 +147,44 @@ struct FlightDetailView: View {
             }
             .padding(.vertical, 10)
             endpoint(isArrival: true)
+        }
+    }
+
+    /// Terminal map (Apple Maps has real indoor maps for most major airports)
+    /// and, after landing, the plane parked at its actual arrival gate on our
+    /// own map (OSM gate coordinates).
+    private var mapActionsRow: some View {
+        // Which airport matters right now: before the trip it's where you
+        // depart; once flying/landed it's where you arrive.
+        let iata = flight.isUpcoming ? flight.departureIATA : flight.arrivalIATA
+        let airport = ReferenceData.shared.airport(iata)
+        return HStack(spacing: 10) {
+            Button {
+                let name = (airport?.name ?? iata).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? iata
+                if let a = airport,
+                   let url = URL(string: "https://maps.apple.com/?ll=\(a.lat),\(a.lon)&q=\(name)&z=17") {
+                    openURL(url)
+                }
+            } label: {
+                Label("Terminal Map", systemImage: "map")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
+                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+
+            if flight.isCompleted || flight.isRecentlyLanded, let gate = flight.arrivalGate, onShowAtGate != nil {
+                Button { onShowAtGate?(flight) } label: {
+                    Label("Plane at \(gate)", systemImage: "airplane.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .background(ArcTheme.action.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                        .foregroundStyle(ArcTheme.action)
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 

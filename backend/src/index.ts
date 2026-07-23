@@ -427,6 +427,101 @@ export default {
       }
     }
 
+    // ── Gate observation flywheel: ONE upserted row per flight per day ──
+    if (url.pathname === "/gates/observe" && req.method === "POST") {
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false }, { headers: cors });
+      try {
+        const b = await req.json() as Record<string, unknown>;
+        if (!b["flight_number"] || !b["departure_iata"] || !b["flight_date"]) {
+          return new Response("bad request", { status: 400, headers: cors });
+        }
+        const res = await sbService(env, "POST",
+          "/gate_observations?on_conflict=flight_number,departure_iata,flight_date", {
+          flight_number: b["flight_number"],
+          departure_iata: b["departure_iata"],
+          arrival_iata: b["arrival_iata"] ?? "",
+          flight_date: b["flight_date"],
+          dep_gate: b["dep_gate"] ?? null,
+          dep_terminal: b["dep_terminal"] ?? null,
+          arr_gate: b["arr_gate"] ?? null,
+          arr_terminal: b["arr_terminal"] ?? null,
+          updated_at: new Date().toISOString(),
+        });
+        return Response.json({ ok: res.ok }, { headers: cors });
+      } catch {
+        return new Response("bad request", { status: 400, headers: cors });
+      }
+    }
+
+    // ── POST /gates/store — app-fetched OSM gates into the cache ──
+    // Overpass rejects Cloudflare egress IPs, so the APP fetches OSM directly
+    // (native URLSession, residential IP) and stores here; reads below stay
+    // cache-first so each airport is fetched from Overpass once per ~90 days.
+    if (url.pathname === "/gates/store" && req.method === "POST") {
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false }, { headers: cors });
+      try {
+        const b = await req.json() as { iata?: string; gates?: Array<{ ref: string; lat: number; lon: number }> };
+        const iata = (b.iata ?? "").toUpperCase();
+        const gates = (b.gates ?? []).filter(g => g.ref && typeof g.lat === "number" && typeof g.lon === "number");
+        if (!/^[A-Z]{3}$/.test(iata) || gates.length === 0 || gates.length > 500) {
+          return new Response("bad request", { status: 400, headers: cors });
+        }
+        const now = new Date().toISOString();
+        await sbService(env, "DELETE", `/airport_gates?iata=eq.${iata}`);
+        await sbService(env, "POST", "/airport_gates",
+          gates.map(g => ({ iata, ref: g.ref, lat: g.lat, lon: g.lon, fetched_at: now })));
+        return Response.json({ ok: true, stored: gates.length }, { headers: cors });
+      } catch {
+        return new Response("bad request", { status: 400, headers: cors });
+      }
+    }
+
+    // ── /gates/:iata?lat=..&lon=.. — gate coordinates (OSM, cached 90 days) ──
+    const gatesMatch = url.pathname.match(/^\/gates\/([A-Z]{3})$/i);
+    if (gatesMatch) {
+      const iata = gatesMatch[1]!.toUpperCase();
+      const lat = parseFloat(url.searchParams.get("lat") ?? "");
+      const lon = parseFloat(url.searchParams.get("lon") ?? "");
+      try {
+        if (env.SUPABASE_SERVICE_KEY) {
+          const cached = await sbSelect(env, `/airport_gates?iata=eq.${iata}&select=ref,lat,lon,fetched_at`);
+          const fresh = cached.length > 0 &&
+            Date.now() - new Date(cached[0]!.fetched_at).getTime() < 90 * 24 * 3600 * 1000;
+          if (fresh) {
+            return Response.json(cached.map(g => ({ ref: g.ref, lat: g.lat, lon: g.lon })), { headers: cors });
+          }
+        }
+        if (isNaN(lat) || isNaN(lon)) return Response.json([], { headers: cors });
+
+        // Overpass rejects requests without a User-Agent.
+        const q = `[out:json][timeout:15];node["aeroway"="gate"](around:3500,${lat},${lon});out;`;
+        const res = await fetch("https://overpass-api.de/api/interpreter", {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": "ArcFlightTracker/1.0 (personal project)" },
+          body: `data=${encodeURIComponent(q)}`,
+        });
+        if (!res.ok) return Response.json([], { headers: cors });
+        const data = await res.json() as { elements?: Array<{ lat: number; lon: number; tags?: Record<string, string> }> };
+        const gates = (data.elements ?? [])
+          .filter(e => e.tags?.["ref"])
+          .map(e => ({ ref: e.tags!["ref"]!, lat: e.lat, lon: e.lon }));
+
+        if (env.SUPABASE_SERVICE_KEY && gates.length > 0) {
+          const now = new Date().toISOString();
+          // Refresh the cache wholesale for this airport.
+          await sbService(env, "DELETE", `/airport_gates?iata=eq.${iata}`);
+          for (const chunk of [gates]) {
+            await sbService(env, "POST", "/airport_gates", chunk.map(g => ({
+              iata, ref: g.ref, lat: g.lat, lon: g.lon, fetched_at: now,
+            })));
+          }
+        }
+        return Response.json(gates, { headers: cors });
+      } catch {
+        return Response.json([], { headers: cors });
+      }
+    }
+
     // ── Live Activity push registration ──
     if (url.pathname === "/la/register" && req.method === "POST") {
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, reason: "unconfigured" }, { headers: cors });
