@@ -282,14 +282,20 @@ export default {
         } catch { /* fall through */ }
       }
 
-      // 2. Fallback: AirLabs
+      // 2. Fallback: AirLabs. Its /flight endpoint is REAL-TIME ONLY — it
+      // returns the flight's current leg regardless of what date was asked
+      // for. Without the date filter below, polling tomorrow's flight while
+      // AeroDataBox is down stamped TODAY's landed leg (status + actual
+      // times) onto it, corrupting the stored flight.
       if (env.AIRLABS_KEY) {
         try {
+          const matchesDate = (r: Record<string, unknown>) =>
+            !date || String(r["dep_scheduled"] ?? "").slice(0, 10) === date;
           // Try real-time flight endpoint first (active flights)
-          let results = await airlabsFlightSearch(number, env);
+          let results = (await airlabsFlightSearch(number, env)).filter(matchesDate);
           // If no active flight, try schedules
           if (results.length === 0) {
-            results = await airlabsScheduleSearch(number, env);
+            results = (await airlabsScheduleSearch(number, env)).filter(matchesDate);
           }
           if (results.length > 0) {
             return Response.json(results, { headers: cors });
