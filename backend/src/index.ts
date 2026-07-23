@@ -1,10 +1,19 @@
+import { apnsConfigured, sendLiveActivityPush } from "./apns";
+
 interface Env {
   RAPIDAPI_KEY: string;          // AeroDataBox key (RapidAPI). Set via `wrangler secret put RAPIDAPI_KEY`.
   AIRLABS_KEY?: string;          // AirLabs fallback (free 1k/mo). Set via `wrangler secret put AIRLABS_KEY`.
   AVIATIONSTACK_API_KEY?: string; // legacy fallback (optional)
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
+  // Remote Live Activity pushes — all four required before the cron does anything:
+  SUPABASE_SERVICE_KEY?: string; // service-role key (token table has no anon access)
+  APNS_TEAM_ID?: string;         // Apple Developer Team ID
+  APNS_KEY_ID?: string;          // APNs auth key ID
+  APNS_P8?: string;              // full .p8 file contents
 }
+
+const APP_BUNDLE_ID = "com.arc.flighttracker";
 
 const ADB_HOST = "aerodatabox.p.rapidapi.com";
 
@@ -381,9 +390,327 @@ export default {
       }
     }
 
+    // ── Live Activity push registration ──
+    if (url.pathname === "/la/register" && req.method === "POST") {
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, reason: "unconfigured" }, { headers: cors });
+      try {
+        const body = await req.json() as { token?: string; type?: string; env?: string; flight?: Record<string, unknown> };
+        if (!body.token || (body.type !== "update" && body.type !== "start")) {
+          return new Response("bad request", { status: 400, headers: cors });
+        }
+        const f = body.flight ?? {};
+        const row: Record<string, unknown> = {
+          token: body.token,
+          token_type: body.type,
+          apns_env: body.env === "production" ? "production" : "sandbox",
+          flight_number: f["flight_number"] ?? null,
+          departure_iata: f["departure_iata"] ?? null,
+          arrival_iata: f["arrival_iata"] ?? null,
+          departure_city: f["departure_city"] ?? null,
+          arrival_city: f["arrival_city"] ?? null,
+          airline: f["airline"] ?? null,
+          aircraft_type: f["aircraft_type"] ?? null,
+          seat: f["seat"] ?? null,
+          scheduled_departure: f["scheduled_departure"] ?? null,
+          scheduled_arrival: f["scheduled_arrival"] ?? null,
+          updated_at: new Date().toISOString(),
+        };
+        const res = await sbService(env, "POST", "/live_activity_tokens?on_conflict=token", row);
+        return Response.json({ ok: res.ok }, { headers: cors });
+      } catch {
+        return new Response("bad request", { status: 400, headers: cors });
+      }
+    }
+
+    if (url.pathname === "/la/unregister" && req.method === "POST") {
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false }, { headers: cors });
+      try {
+        const body = await req.json() as { token?: string };
+        if (!body.token) return new Response("bad request", { status: 400, headers: cors });
+        await sbService(env, "DELETE", `/live_activity_tokens?token=eq.${encodeURIComponent(body.token)}`);
+        return Response.json({ ok: true }, { headers: cors });
+      } catch {
+        return new Response("bad request", { status: 400, headers: cors });
+      }
+    }
+
     return new Response("not found", { status: 404 });
   },
+
+  // ── Every-minute cron: push Live Activity updates server-side ──
+  // This is what makes the lock screen move with the app fully closed:
+  // progress is recomputed each minute (free), provider data refreshed at
+  // most every 5 minutes per flight (metered), and phase transitions
+  // (scheduled→active→landed) are derived from the clock in between.
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (!apnsConfigured(env) || !env.SUPABASE_SERVICE_KEY) return;
+    ctx.waitUntil(runLiveActivityCron(env));
+  },
 };
+
+// ── Live Activity cron internals ──
+
+async function sbService(env: Env, method: string, path: string, body?: unknown): Promise<Response> {
+  return fetch(`${env.SUPABASE_URL}/rest/v1${path}`, {
+    method,
+    headers: {
+      apikey: env.SUPABASE_SERVICE_KEY!,
+      authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      "content-type": "application/json",
+      prefer: method === "POST" ? "resolution=merge-duplicates,return=minimal" : "return=minimal",
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+async function sbSelect(env: Env, path: string): Promise<Record<string, any>[]> {
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1${path}`, {
+    headers: {
+      apikey: env.SUPABASE_SERVICE_KEY!,
+      authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    },
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data) ? data as Record<string, any>[] : [];
+}
+
+/// ActivityKit decodes remote content-state with a default JSONDecoder, whose
+/// Date strategy is seconds since 2001-01-01 (timeIntervalSinceReferenceDate) —
+/// NOT unix epoch and NOT ISO strings. Getting this wrong fails silently.
+function refDate(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime();
+  if (isNaN(ms)) return null;
+  return ms / 1000 - 978307200;
+}
+
+interface TokenRow {
+  token: string;
+  token_type: string;
+  apns_env: "sandbox" | "production";
+  flight_number: string | null;
+  departure_iata: string | null;
+  arrival_iata: string | null;
+  departure_city: string | null;
+  arrival_city: string | null;
+  airline: string | null;
+  aircraft_type: string | null;
+  seat: string | null;
+  scheduled_departure: string | null;
+  scheduled_arrival: string | null;
+  last_state: Record<string, any>;
+}
+
+async function runLiveActivityCron(env: Env): Promise<void> {
+  const rows = await sbSelect(env, "/live_activity_tokens?select=*") as unknown as TokenRow[];
+  const updateRows = rows.filter(r => r.token_type === "update" && r.flight_number && r.scheduled_departure);
+
+  for (const row of updateRows) {
+    try {
+      await pushUpdateForRow(env, row);
+    } catch { /* keep the loop alive for other rows */ }
+  }
+
+  // Push-to-start: begin a Live Activity server-side for flights entering the
+  // 3h window, even if the app hasn't been opened. Upcoming flights come from
+  // user_flights (the signed-in cloud mirror); without sign-in the app's own
+  // local 3h check still covers the app-was-opened-recently case.
+  const startRows = rows.filter(r => r.token_type === "start");
+  if (startRows.length > 0) {
+    try {
+      await pushStarts(env, startRows, updateRows);
+    } catch { /* best-effort */ }
+  }
+}
+
+async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
+  const now = Date.now();
+  const prior = row.last_state ?? {};
+  let flight: Record<string, any> | null = prior.flight ?? null;
+  const fetchedAt: number = prior.fetched_at ?? 0;
+  let dataChanged = false;
+
+  // Refresh provider data at most every 5 minutes per flight.
+  if (env.RAPIDAPI_KEY && now - fetchedAt > 5 * 60 * 1000) {
+    try {
+      const day = row.scheduled_departure!.slice(0, 10);
+      const res = await adbFetch(
+        `/flights/number/${encodeURIComponent(row.flight_number!)}/${day}?withAircraftImage=false&withLocation=true`,
+        env
+      );
+      if (res.ok) {
+        const raw = await res.json();
+        const legs = Array.isArray(raw) ? raw : [];
+        // A flight number can have multiple legs that day — match ours by route.
+        const leg = legs.map(l => mapLeg(l as Record<string, any>)).find(l =>
+          l["dep_iata"] === row.departure_iata && l["arr_iata"] === row.arrival_iata
+        ) ?? (legs.length > 0 ? mapLeg(legs[0] as Record<string, any>) : null);
+        if (leg) {
+          dataChanged = !!flight && (
+            leg["status"] !== flight["status"] ||
+            leg["delay"] !== flight["delay"] ||
+            leg["dep_gate"] !== flight["dep_gate"] ||
+            leg["arr_gate"] !== flight["arr_gate"] ||
+            leg["arr_baggage"] !== flight["arr_baggage"]
+          );
+          flight = leg;
+        }
+      }
+    } catch { /* fly on cached data */ }
+    await sbService(env, "PATCH", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`, {
+      last_state: { flight, fetched_at: now },
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  const delay: number = flight?.["delay"] ?? 0;
+  const schedDepMs = new Date(row.scheduled_departure!).getTime();
+  const schedArrMs = new Date(row.scheduled_arrival ?? row.scheduled_departure!).getTime();
+  const depMs = flight?.["dep_actual"] ? new Date(flight["dep_actual"]).getTime() : schedDepMs + delay * 60_000;
+  const arrMs = flight?.["arr_actual"] ? new Date(flight["arr_actual"]).getTime() : schedArrMs + delay * 60_000;
+
+  // Status: provider value, then clock-healed the same way the app heals.
+  let status: string = flight?.["status"] ?? "scheduled";
+  if ((status === "scheduled" || status === "boarding" || status === "gateClosed") && now >= depMs) status = "active";
+  if (status === "active" && now >= arrMs) status = "landed";
+
+  // Done: final "end" push (keeps the landed card up an hour), then forget the token.
+  if (now > arrMs + 45 * 60 * 1000 || status === "cancelled") {
+    const endPayload = {
+      aps: {
+        timestamp: Math.floor(now / 1000),
+        event: "end",
+        "dismissal-date": Math.floor(now / 1000) + 3600,
+        "content-state": contentState(status, depMs, arrMs, delay, flight),
+      },
+    };
+    await sendLiveActivityPush(env, row.token, row.apns_env, APP_BUNDLE_ID, endPayload, 5);
+    await sbService(env, "DELETE", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`);
+    return;
+  }
+
+  // Not yet in the window where updates matter (>4h before departure): skip.
+  if (now < depMs - 4 * 60 * 60 * 1000) return;
+
+  const payload = {
+    aps: {
+      timestamp: Math.floor(now / 1000),
+      event: "update",
+      "stale-date": Math.floor(now / 1000) + 20 * 60,
+      "content-state": contentState(status, depMs, arrMs, delay, flight),
+      ...(dataChanged && flight?.["dep_gate"] ? {
+        alert: {
+          title: `${row.flight_number} update`,
+          body: `Gate ${flight["dep_gate"]}${delay > 0 ? ` · ${delay}m late` : ""}`,
+        },
+      } : {}),
+    },
+  };
+  // Priority 10 (immediate) only when something real changed — routine
+  // progress ticks go at 5 to respect the system's update budget.
+  const st = await sendLiveActivityPush(env, row.token, row.apns_env, APP_BUNDLE_ID, payload, dataChanged ? 10 : 5);
+  if (st === 410 || st === 400) {
+    await sbService(env, "DELETE", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`);
+  }
+}
+
+/// Mirror of FlightActivityAttributes.ContentState — field names and types are
+/// a wire contract with the app; change them together or pushes silently fail.
+function contentState(
+  status: string, depMs: number, arrMs: number, delay: number, flight: Record<string, any> | null
+): Record<string, unknown> {
+  const now = Date.now();
+  const total = arrMs - depMs;
+  const progress = total > 0 ? Math.min(1, Math.max(0, (now - depMs) / total)) : 0;
+  return {
+    status,
+    departureTime: depMs / 1000 - 978307200,
+    arrivalTime: arrMs / 1000 - 978307200,
+    boardingTime: null,
+    securityWaitMinutes: null,
+    delayMinutes: delay,
+    departureGate: flight?.["dep_gate"] ?? null,
+    departureTerminal: flight?.["dep_terminal"] ?? null,
+    arrivalGate: flight?.["arr_gate"] ?? null,
+    arrivalTerminal: flight?.["arr_terminal"] ?? null,
+    baggageClaim: flight?.["arr_baggage"] ?? null,
+    altitude: null,
+    speed: null,
+    heading: null,
+    progress,
+  };
+}
+
+async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[]): Promise<void> {
+  const now = Date.now();
+  const soon = new Date(now + 3 * 60 * 60 * 1000).toISOString();
+  const nowIso = new Date(now).toISOString();
+  const upcoming = await sbSelect(
+    env,
+    `/user_flights?select=*&scheduled_departure=gte.${nowIso}&scheduled_departure=lte.${soon}&status=in.(scheduled,boarding,gateClosed)`
+  );
+  if (upcoming.length === 0) return;
+
+  for (const startRow of startRows) {
+    const sent: Record<string, number> = startRow.last_state?.sent ?? {};
+    let sentChanged = false;
+
+    for (const f of upcoming) {
+      const key = `${f.flight_number}-${String(f.scheduled_departure).slice(0, 10)}`;
+      // Skip if an update token already exists for this flight (activity is
+      // already running) or we already sent a start recently.
+      const alreadyLive = updateRows.some(u =>
+        u.flight_number === f.flight_number &&
+        u.scheduled_departure?.slice(0, 10) === String(f.scheduled_departure).slice(0, 10)
+      );
+      if (alreadyLive || (sent[key] && now - sent[key] < 6 * 60 * 60 * 1000)) continue;
+
+      const depMs = new Date(f.scheduled_departure).getTime() + (f.delay_minutes ?? 0) * 60_000;
+      const arrMs = new Date(f.scheduled_arrival).getTime() + (f.delay_minutes ?? 0) * 60_000;
+      const payload = {
+        aps: {
+          timestamp: Math.floor(now / 1000),
+          event: "start",
+          "attributes-type": "FlightActivityAttributes",
+          attributes: {
+            flightNumber: f.flight_number,
+            departureIATA: f.departure_iata,
+            arrivalIATA: f.arrival_iata,
+            departureCity: f.departure_city ?? "",
+            arrivalCity: f.arrival_city ?? "",
+            airline: f.airline ?? "",
+            aircraftType: f.aircraft_type ?? null,
+            seat: f.seat ?? null,
+          },
+          "content-state": contentState(f.status ?? "scheduled", depMs, arrMs, f.delay_minutes ?? 0, {
+            dep_gate: f.departure_gate, dep_terminal: f.departure_terminal,
+            arr_gate: f.arrival_gate, arr_terminal: f.arrival_terminal,
+            arr_baggage: f.baggage_claim,
+          }),
+          alert: {
+            title: `${f.flight_number} to ${f.arrival_city ?? f.arrival_iata}`,
+            body: "Departing soon — live tracking started",
+          },
+        },
+      };
+      const st = await sendLiveActivityPush(env, startRow.token, startRow.apns_env, APP_BUNDLE_ID, payload, 10);
+      if (st === 410 || st === 400) {
+        await sbService(env, "DELETE", `/live_activity_tokens?token=eq.${encodeURIComponent(startRow.token)}`);
+        break;
+      }
+      sent[key] = now;
+      sentChanged = true;
+    }
+
+    if (sentChanged) {
+      await sbService(env, "PATCH", `/live_activity_tokens?token=eq.${encodeURIComponent(startRow.token)}`, {
+        last_state: { sent },
+        updated_at: new Date().toISOString(),
+      });
+    }
+  }
+}
 
 function sharedJourneyHTML(code: string, supabaseUrl: string, anonKey: string): string {
   return `<!DOCTYPE html>

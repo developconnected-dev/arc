@@ -35,6 +35,11 @@ targets:
       properties:
         com.apple.security.application-groups:
           - group.com.arc.flighttracker
+        # Remote-pushed Live Activities (server-side APNs updates). Needs the
+        # paid Apple Developer team — with a free/personal team this entitlement
+        # can't be provisioned for device builds (simulator builds don't care).
+        # Xcode swaps development → production automatically when archiving.
+        aps-environment: development
     dependencies:
       - target: ArcWidget
         embed: true

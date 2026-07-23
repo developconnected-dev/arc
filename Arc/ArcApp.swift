@@ -24,6 +24,7 @@ struct ArcApp: App {
                         ArcNotifications.requestPermission()
                     }
                     NetworkMonitor.shared.start()
+                    LiveActivityPushSync.start()
 
                     // Start the background Live Activity updater at app level
                     // This runs independently of views and survives backgrounding
