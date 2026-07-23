@@ -72,7 +72,7 @@ struct NextFlightSmallView: View {
                         Text(timerInterval: min(flight.effectiveDeparture, flight.effectiveArrival - 60)...flight.effectiveArrival,
                              countsDown: true)
                     case .upcoming: Text(flight.effectiveDeparture, style: .relative)
-                    case .landed: Text("Landed")
+                    case .landed: Text(flight.status == "landed" ? "Landed" : "Arriving")
                     }
                 }
                 .font(.system(size: 22, weight: .heavy, design: .rounded))
@@ -159,7 +159,7 @@ struct NextFlightSmallView: View {
     private func statusText(_ flight: WidgetFlight, phase: WidgetFlight.Phase) -> String {
         switch phase {
         case .inFlight: return "In Flight"
-        case .landed: return "Arrived"
+        case .landed: return flight.status == "landed" ? "Arrived" : "Arriving soon"
         case .upcoming:
             if flight.delayMinutes > 0 { return "Delayed \(flight.delayMinutes)m" }
             if flight.status == "cancelled" { return "Cancelled" }
@@ -217,7 +217,7 @@ struct NextFlightMediumView: View {
                     Text(timerInterval: min(flight.effectiveDeparture, flight.effectiveArrival - 60)...flight.effectiveArrival,
                          countsDown: true)
                 case .upcoming: Text(flight.effectiveDeparture, style: .relative)
-                case .landed: Text("Landed")
+                case .landed: Text(flight.status == "landed" ? "Landed" : "Arriving")
                 }
             }
             .font(.system(size: 12, weight: .heavy, design: .rounded))
