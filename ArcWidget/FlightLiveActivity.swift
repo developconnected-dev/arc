@@ -25,7 +25,7 @@ struct FlightLiveActivity: Widget {
                     } else {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(context.attributes.departureIATA)
-                                .font(.system(size: 22, weight: .bold, design: .rounded))
+                                .font(.system(size: 22, weight: .bold))
                             Text(context.state.departureTime, style: .time)
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
@@ -47,7 +47,7 @@ struct FlightLiveActivity: Widget {
                     } else {
                         VStack(alignment: .trailing, spacing: 2) {
                             Text(context.attributes.arrivalIATA)
-                                .font(.system(size: 22, weight: .bold, design: .rounded))
+                                .font(.system(size: 22, weight: .bold))
                             Text(context.state.arrivalTime, style: .time)
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(context.state.delayMinutes > 0 ? .orange : .secondary)
@@ -148,7 +148,7 @@ struct FlightLiveActivity: Widget {
                         // timerInterval, not .timer: clamps at 0:00 instead of
                         // counting UP once the date passes.
                         Text(timerInterval: clamped(to: context.state.departureTime), countsDown: true)
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .font(.system(size: 11, weight: .bold).monospacedDigit())
                             .frame(width: 36)
                     }
                 }
@@ -157,7 +157,7 @@ struct FlightLiveActivity: Widget {
                     // Clamps at 0:00 — never counts up, even if the landed
                     // re-render is late or the plane beat its cached ETA.
                     Text(timerInterval: progressInterval(context.state), countsDown: true)
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .font(.system(size: 11, weight: .bold).monospacedDigit())
                         .frame(width: 52)
                         .multilineTextAlignment(.trailing)
                 } else if phase == .landed {
@@ -409,7 +409,7 @@ struct FlightLiveActivity: Widget {
             VStack(spacing: 2) {
                 if Date.now >= state.arrivalTime {
                     Text(isConfirmedLanded(state) ? "LANDED" : "LANDING SOON")
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .font(.system(size: 16, weight: .bold).monospacedDigit())
                         .foregroundStyle(.green)
                     Text(isConfirmedLanded(state) ? "ARRIVED" : "WAITING FOR CONFIRMATION")
                         .font(.system(size: 8, weight: .semibold))
@@ -420,7 +420,7 @@ struct FlightLiveActivity: Widget {
                     // silently start counting UP after the arrival time if
                     // the landed re-render hadn't fired yet.
                     Text(timerInterval: progressInterval(state), countsDown: true)
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .font(.system(size: 16, weight: .bold).monospacedDigit())
                         .foregroundStyle(.green)
                         .multilineTextAlignment(.center)
                     // Deliberately NO estimated/confirmed hedge at the departure
@@ -478,14 +478,14 @@ struct FlightLiveActivity: Widget {
 
             HStack {
                 Text(attrs.departureIATA)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .font(.system(size: 20, weight: .bold))
                 Spacer()
                 Image(systemName: isConfirmedLanded(state) ? "checkmark.circle.fill" : "airplane.arrival")
                     .font(.system(size: 14))
                     .foregroundStyle(.green)
                 Spacer()
                 Text(attrs.arrivalIATA)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .font(.system(size: 20, weight: .bold))
             }
             .padding(.bottom, 14)
 
@@ -544,7 +544,7 @@ struct FlightLiveActivity: Widget {
         HStack(spacing: 0) {
             HStack(spacing: 4) {
                 Text(attrs.departureIATA)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .font(.system(size: 20, weight: .bold))
                 Text(state.departureTime, style: .time)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.green)
@@ -567,7 +567,7 @@ struct FlightLiveActivity: Widget {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(state.delayMinutes > 0 ? .orange : .secondary)
                 Text(attrs.arrivalIATA)
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .font(.system(size: 20, weight: .bold))
             }
         }
     }
