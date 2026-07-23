@@ -33,17 +33,12 @@ struct FlightLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.bottom) {
                     if phase == .inFlight {
                         VStack(spacing: 4) {
-                            // Compact progress bar
-                            GeometryReader { geo in
-                                let totalFlight = context.state.arrivalTime.timeIntervalSince(context.state.departureTime)
-                                let elapsed = Date.now.timeIntervalSince(context.state.departureTime)
-                                let pct = totalFlight > 0 ? max(0, min(1, elapsed / totalFlight)) : 0
-                                ZStack(alignment: .leading) {
-                                    Capsule().fill(Color.secondary.opacity(0.2)).frame(height: 3)
-                                    Capsule().fill(.green).frame(width: geo.size.width * pct, height: 3)
-                                }
-                            }
-                            .frame(height: 3)
+                            // System-animated progress: ProgressView(timerInterval:)
+                            // is one of the few things iOS itself keeps moving in a
+                            // Live Activity with no app process running. The old
+                            // hand-drawn version computed `pct` from Date.now at
+                            // render time — frozen the moment the app was suspended.
+                            liveProgressBar(context.state)
 
                             HStack {
                                 if Date.now >= context.state.arrivalTime {
@@ -192,6 +187,22 @@ struct FlightLiveActivity: Widget {
             .padding(.top, 3)
             .padding(.bottom, 16)
 
+            // Security wait (Waitport live data or time-of-day estimate) —
+            // only meaningful while still landside, i.e. before boarding.
+            if let wait = state.securityWaitMinutes, wait > 0,
+               state.status != "boarding", state.status != "gateClosed" {
+                HStack(spacing: 5) {
+                    Image(systemName: "figure.walk.motion")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text("Security wait ~\(wait) min")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.bottom, 8)
+            }
+
             // Row 4: Boarding status + gate badge
             if state.status == "boarding" {
                 // Real boarding status from API
@@ -289,10 +300,18 @@ struct FlightLiveActivity: Widget {
             .padding(.top, 3)
             .padding(.bottom, 14)
 
-            // Swooping progress arc — updated every 60s by BackgroundFlightUpdater
+            // Swooping progress arc. Honest limitation: the arc's fill is
+            // `state.progress`, a frozen snapshot — without ActivityKit remote
+            // push (needs a paid Apple Developer membership + APNs), a custom
+            // Path can only move when OUR process pushes an update (app open,
+            // the 60s updater while alive, WiFi-reconnect bursts, BG refresh
+            // wakeups). The thin bar underneath is the system-animated
+            // ProgressView(timerInterval:) — iOS itself keeps THAT moving with
+            // no process running, so the surface is never fully frozen.
             let hasArrived = Date.now >= state.arrivalTime
             FlightProgressArc(progress: hasArrived ? 1.0 : state.progress, color: .green)
                 .frame(height: 28)
+            liveProgressBar(state)
                 .padding(.bottom, 6)
 
             // Centered countdown or LANDED
@@ -437,6 +456,22 @@ struct FlightLiveActivity: Widget {
                     .font(.system(size: 20, weight: .bold, design: .rounded))
             }
         }
+    }
+
+    /// The one progress element iOS keeps animating with no app process
+    /// running. The interval must be valid even for odd data (delayed
+    /// departure recorded after scheduled arrival), hence the max().
+    private func liveProgressBar(_ state: FlightActivityAttributes.ContentState) -> some View {
+        let end = max(state.arrivalTime, state.departureTime.addingTimeInterval(60))
+        return ProgressView(
+            timerInterval: state.departureTime...end,
+            countsDown: false,
+            label: { EmptyView() },
+            currentValueLabel: { EmptyView() }
+        )
+        .progressViewStyle(.linear)
+        .tint(.green)
+        .frame(height: 4)
     }
 
     /// Yellow gate badge matching Flighty's style: walking person icon + gate code

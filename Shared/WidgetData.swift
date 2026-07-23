@@ -42,12 +42,26 @@ struct WidgetFlight: Codable, Identifiable {
     let departureGate: String?
     let progress: Double
 
+    /// Status-only, no clock comparison — mirrors Flight.isUpcoming. The old
+    /// `&& scheduledDeparture > .now` had the same dead zone the app model
+    /// did: any delayed flight past its original scheduled time (but not yet
+    /// confirmed departed) vanished from the widget exactly when the user
+    /// most wants to see it.
     var isUpcoming: Bool {
-        status == "scheduled" && scheduledDeparture > .now
+        status == "scheduled" || status == "boarding" || status == "gateClosed"
     }
 
     var isActive: Bool {
         status == "active"
+    }
+
+    /// Departure adjusted by the known delay — what countdowns should target.
+    var effectiveDeparture: Date {
+        scheduledDeparture.addingTimeInterval(Double(max(0, delayMinutes)) * 60)
+    }
+
+    var effectiveArrival: Date {
+        scheduledArrival.addingTimeInterval(Double(max(0, delayMinutes)) * 60)
     }
 
     var timeUntilDeparture: TimeInterval {

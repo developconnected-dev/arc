@@ -17,11 +17,22 @@ struct NextFlightProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<NextFlightEntry>) -> Void) {
         let flights = WidgetData.loadFlights()
         let next = flights.first { $0.isUpcoming || $0.isActive }
-        let entry = NextFlightEntry(date: .now, flight: next)
 
-        // Refresh every 15 minutes
+        // Widget views are rendered ONCE per entry, at timeline-build time —
+        // anything computed from Date.now in the view is frozen into that
+        // render. Live movement comes from two places instead: auto-updating
+        // date text/progress styles (system-animated, no process needed), and
+        // extra entries at the moments the *layout* itself changes phase
+        // (departure → in-flight look, arrival → landed look), so those flips
+        // happen on time even if iOS never grants us a data refresh.
+        var entries = [NextFlightEntry(date: .now, flight: next)]
+        if let f = next {
+            for moment in [f.effectiveDeparture, f.effectiveArrival] where moment > .now {
+                entries.append(NextFlightEntry(date: moment, flight: f))
+            }
+        }
         let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: .now)!
-        completion(Timeline(entries: [entry], policy: .after(nextUpdate)))
+        completion(Timeline(entries: entries.sorted { $0.date < $1.date }, policy: .after(nextUpdate)))
     }
 }
 
@@ -38,10 +49,20 @@ struct NextFlightSmallView: View {
     var body: some View {
         if let flight = entry.flight {
             VStack(alignment: .leading, spacing: 6) {
-                // Countdown
-                Text(flight.countdownText)
-                    .font(.system(size: 28, weight: .heavy, design: .rounded))
-                    .foregroundStyle(countdownColor(flight))
+                // Countdown — .relative style is system-animated: it keeps
+                // ticking on the lock/home screen with no app process running,
+                // unlike the old pre-rendered countdownText string.
+                Group {
+                    if flight.isActive {
+                        Text(flight.effectiveArrival, style: .relative)
+                    } else {
+                        Text(flight.effectiveDeparture, style: .relative)
+                    }
+                }
+                .font(.system(size: 22, weight: .heavy, design: .rounded))
+                .foregroundStyle(countdownColor(flight))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
 
                 // Route
                 HStack(spacing: 4) {
@@ -155,12 +176,20 @@ struct NextFlightMediumView: View {
 
     private func flightRow(_ flight: WidgetFlight) -> some View {
         HStack(spacing: 10) {
-            // Countdown
-            Text(flight.countdownText)
-                .font(.system(size: 16, weight: .heavy, design: .rounded))
-                .foregroundStyle(flight.isActive ? Color.green :
-                                    flight.delayMinutes > 0 ? .orange : .primary)
-                .frame(width: 55, alignment: .leading)
+            // Countdown — live .relative style, not a pre-rendered string
+            Group {
+                if flight.isActive {
+                    Text(flight.effectiveArrival, style: .relative)
+                } else {
+                    Text(flight.effectiveDeparture, style: .relative)
+                }
+            }
+            .font(.system(size: 12, weight: .heavy, design: .rounded))
+            .foregroundStyle(flight.isActive ? Color.green :
+                                flight.delayMinutes > 0 ? .orange : .primary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .frame(width: 62, alignment: .leading)
 
             // Route
             VStack(alignment: .leading, spacing: 1) {
@@ -183,15 +212,17 @@ struct NextFlightMediumView: View {
             // Status + gate
             VStack(alignment: .trailing, spacing: 1) {
                 if flight.isActive {
-                    // Progress bar
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(.quaternary).frame(height: 3)
-                            Capsule().fill(Color.green)
-                                .frame(width: geo.size.width * flight.progress, height: 3)
-                        }
-                    }
-                    .frame(width: 50, height: 3)
+                    // System-animated — keeps filling with no process running,
+                    // unlike the old frozen-at-render GeometryReader bar.
+                    ProgressView(
+                        timerInterval: min(flight.effectiveDeparture, flight.effectiveArrival - 60)...flight.effectiveArrival,
+                        countsDown: false,
+                        label: { EmptyView() },
+                        currentValueLabel: { EmptyView() }
+                    )
+                    .progressViewStyle(.linear)
+                    .tint(.green)
+                    .frame(width: 50)
                 }
                 if let gate = flight.departureGate {
                     Text("Gate \(gate)")
