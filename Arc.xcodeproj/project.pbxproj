@@ -40,6 +40,7 @@
 		7B0F471853BB32A87C2C3C75 /* FlightDetailSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8483E3B4C6E1B44F201F2AAD /* FlightDetailSections.swift */; };
 		7E14E00521A22BF09D8F195B /* Flight+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F99ECA03255BFC524189A60 /* Flight+Display.swift */; };
 		825FA5FD9518679A5102F8E5 /* ReferenceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3656C3156166F8E024EE5B7D /* ReferenceModels.swift */; };
+		8279A76C5C2594EBFC72E84C /* RotationChain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 265784352B3CDD1B671088AA /* RotationChain.swift */; };
 		8625562A2DEDFF9FE944C920 /* DemoSeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78C36DE016E979779A485A54 /* DemoSeed.swift */; };
 		86B066ECAFCF0E3B5E177C8C /* LiveActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFC83E4E29772AC89D75C9E8 /* LiveActivityManager.swift */; };
 		8ED498F91B66740B412D0611 /* SupabaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B5B63F833E1CB9C679CD6C1 /* SupabaseClient.swift */; };
@@ -57,6 +58,7 @@
 		AE8A969D54CC001AF4336515 /* Flight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 210826009A37E90654E69671 /* Flight.swift */; };
 		B25EC52E0FA211AB82FC6644 /* AirlineBranding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E523F671AB6E8AFA8FCF1C3 /* AirlineBranding.swift */; };
 		B646A862A5FB908BF520D1E8 /* MapController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD77AF2CE7584E492AA0A637 /* MapController.swift */; };
+		C8FFD2D8D6BF9BD7326C11AF /* RotationChainTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38329F5149CBA92432A823C7 /* RotationChainTests.swift */; };
 		C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6203F2E6D1096F29FA5083FC /* ArcApp.swift */; };
 		C95804ADD76EDEB2671A5121 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */; };
 		CAD442F2201C5E0593480795 /* GeoMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CCB5157053AA1F3BD9AF495 /* GeoMath.swift */; };
@@ -117,6 +119,7 @@
 		2091849463E3B42B39109819 /* ArcTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcTheme.swift; sourceTree = "<group>"; };
 		210826009A37E90654E69671 /* Flight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Flight.swift; sourceTree = "<group>"; };
 		234B3612AF40D9B0CBA15CBE /* FlightTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightTracker.swift; sourceTree = "<group>"; };
+		265784352B3CDD1B671088AA /* RotationChain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationChain.swift; sourceTree = "<group>"; };
 		2689BBDC633D503741A61075 /* AirportDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirportDatabase.swift; sourceTree = "<group>"; };
 		3104AD04269DDBC745E354F1 /* airports.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = airports.json; sourceTree = "<group>"; };
 		343257F6CBC830BB8386C5BA /* FriendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsView.swift; sourceTree = "<group>"; };
@@ -124,6 +127,7 @@
 		350CDBD64C98220C09B88C41 /* StatsDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsDetailView.swift; sourceTree = "<group>"; };
 		3656C3156166F8E024EE5B7D /* ReferenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceModels.swift; sourceTree = "<group>"; };
 		37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		38329F5149CBA92432A823C7 /* RotationChainTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationChainTests.swift; sourceTree = "<group>"; };
 		3982B16A2E83D23E09279400 /* InboundSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboundSelectionTests.swift; sourceTree = "<group>"; };
 		45CDEF12D33E504034C15720 /* Airport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Airport.swift; sourceTree = "<group>"; };
 		4864581CF99C026C4AB5136F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -278,6 +282,7 @@
 				7219FA5EF2671212E6AFBC29 /* NetworkMonitor.swift */,
 				37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */,
 				178D23CC53F67645C9230260 /* ReferenceData.swift */,
+				265784352B3CDD1B671088AA /* RotationChain.swift */,
 				8B5B63F833E1CB9C679CD6C1 /* SupabaseClient.swift */,
 				A2D08589F3ED37C33758DAC5 /* TextHelpers.swift */,
 				E909886CA15B1B79B6D631A0 /* WidgetSync.swift */,
@@ -388,6 +393,7 @@
 				66A38232A6E768DF2669A448 /* GeoMathTests.swift */,
 				3982B16A2E83D23E09279400 /* InboundSelectionTests.swift */,
 				A136200E180C33472B503DE3 /* ReferenceDataTests.swift */,
+				38329F5149CBA92432A823C7 /* RotationChainTests.swift */,
 				8011F1F9596F27743C731E2F /* SmokeTests.swift */,
 				E21CAF83A7006D3DEE031E7A /* SupabaseSyncTests.swift */,
 			);
@@ -526,6 +532,7 @@
 				147ED96EDE432F34CFA07B0F /* GeoMathTests.swift in Sources */,
 				132186CB080D804A397303E6 /* InboundSelectionTests.swift in Sources */,
 				3190C8FCAC6039B71113589D /* ReferenceDataTests.swift in Sources */,
+				C8FFD2D8D6BF9BD7326C11AF /* RotationChainTests.swift in Sources */,
 				055E0F22DAEA1DCEC41CEE5F /* SmokeTests.swift in Sources */,
 				AC72B4ED862C05DA412F6850 /* SupabaseSyncTests.swift in Sources */,
 			);
@@ -576,6 +583,7 @@
 				E84B095C2CDB1EAAB5567249 /* PassportView.swift in Sources */,
 				AD144643F6272369E3A1D584 /* ReferenceData.swift in Sources */,
 				825FA5FD9518679A5102F8E5 /* ReferenceModels.swift in Sources */,
+				8279A76C5C2594EBFC72E84C /* RotationChain.swift in Sources */,
 				5BFC4245B668EF91BE8CF988 /* SettingsView.swift in Sources */,
 				301E39861AE25DD77B097AE0 /* StatsDetailView.swift in Sources */,
 				8ED498F91B66740B412D0611 /* SupabaseClient.swift in Sources */,

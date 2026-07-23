@@ -92,7 +92,23 @@ struct WheresMyPlaneSection: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 thisFlightRow
-                if let inboundNumber = flight.inboundFlightNumber {
+
+                if flight.showsPrediction, let reason = flight.predictionReason {
+                    predictionRow(minutes: flight.predictedDelayMinutes, reason: reason)
+                }
+
+                if !flight.rotationLegs.isEmpty {
+                    Divider().background(.white.opacity(0.2))
+                    Text("This aircraft today")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .textCase(.uppercase)
+                    // Most relevant first: the immediate inbound, then the
+                    // legs that fed it, walking back through the day.
+                    ForEach(Array(flight.rotationLegs.reversed().enumerated()), id: \.offset) { _, leg in
+                        rotationLegRow(leg)
+                    }
+                } else if let inboundNumber = flight.inboundFlightNumber {
                     Divider().background(.white.opacity(0.2))
                     inboundLegRow(number: inboundNumber)
                 } else if flight.inboundChecked && flight.aircraftRegistration != nil {
@@ -129,6 +145,71 @@ struct WheresMyPlaneSection: View {
                 Text(reg).font(.system(size: 13, weight: .medium, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.9))
             }
+        }
+    }
+
+    /// Arc's own knock-on prediction, shown alongside — never replacing —
+    /// the airline's official time.
+    private func predictionRow(minutes: Int, reason: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "wand.and.stars")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Arc predicts ~\(minutes)m late")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.orange)
+                Text(reason + " — the airline still shows \(flight.delayMinutes > 0 ? "+\(flight.delayMinutes)m" : "on time").")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func rotationLegRow(_ leg: RotationLeg) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: leg.status == "active" ? "airplane"
+                  : leg.status == "landed" ? "checkmark.circle.fill" : "clock")
+                .font(.system(size: 12))
+                .foregroundStyle(leg.status == "landed" ? .green : .white.opacity(0.85))
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text(leg.flightNumber).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                    Text("\(leg.depIATA) → \(leg.arrIATA)").font(.system(size: 13)).foregroundStyle(.white.opacity(0.75))
+                }
+                HStack(spacing: 6) {
+                    Text(rotationLegStatus(leg)).font(.system(size: 12)).foregroundStyle(.white.opacity(0.65))
+                    if let arr = leg.effectiveArrival {
+                        Text("· \(arr.formatted(.dateTime.hour().minute()))")
+                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                    }
+                }
+            }
+            Spacer()
+            if leg.delayMinutes > 15 {
+                Text("+\(leg.delayMinutes)m")
+                    .font(.system(size: 12, weight: .bold)).foregroundStyle(.orange)
+            } else if leg.delayMinutes > 0 {
+                Text("+\(leg.delayMinutes)m")
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(.yellow)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 13)).foregroundStyle(.green)
+            }
+        }
+    }
+
+    private func rotationLegStatus(_ leg: RotationLeg) -> String {
+        switch leg.status {
+        case "active": return "In the air"
+        case "landed": return leg.delayMinutes > 0 ? "Landed \(leg.delayMinutes)m late" : "Landed on time"
+        case "cancelled": return "Cancelled"
+        default: return leg.delayMinutes > 0 ? "Running \(leg.delayMinutes)m late" : "Scheduled"
         }
     }
 

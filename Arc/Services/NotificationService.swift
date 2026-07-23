@@ -73,6 +73,17 @@ enum ArcNotifications {
         )
     }
 
+    /// Arc's own knock-on prediction — fires BEFORE the airline admits a
+    /// delay, which is the whole point. Deduped by predicted magnitude.
+    static func notifyPredictedDelay(flight: Flight, minutes: Int) {
+        guard prefs.object(forKey: "notifyDelays") == nil || prefs.bool(forKey: "notifyDelays") else { return }
+        send(
+            title: "\(flight.flightNumber) likely delayed",
+            body: "Arc predicts ~\(minutes) min late — the inbound aircraft is running behind. The airline hasn't updated the schedule yet.",
+            id: "predicted-\(flight.flightNumber)-\(minutes)"
+        )
+    }
+
     static func notifyCancelled(flight: Flight) {
         send(
             title: "\(flight.flightNumber) cancelled",
@@ -90,6 +101,7 @@ enum ArcNotifications {
                 .filter { $0.identifier.hasPrefix("departure-\(flightNum)") ||
                           $0.identifier.hasPrefix("gate-\(flightNum)") ||
                           $0.identifier.hasPrefix("delay-\(flightNum)") ||
+                          $0.identifier.hasPrefix("predicted-\(flightNum)") ||
                           $0.identifier.hasPrefix("landed-\(flightNum)") ||
                           $0.identifier.hasPrefix("cancelled-\(flightNum)") }
                 .map(\.identifier)

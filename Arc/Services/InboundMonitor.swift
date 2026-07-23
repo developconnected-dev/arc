@@ -1,9 +1,10 @@
 import Foundation
 
-/// Monitors the inbound aircraft for a flight — the previous rotation of the
-/// same tail — via the Worker's `/inbound` endpoint (AeroDataBox tail-number
-/// history). Populates `Flight.inbound*` with the real previous leg instead of
-/// guessing from this flight's own status.
+/// Monitors the inbound aircraft for a flight — the tail's whole day of legs
+/// leading up to it — via the Worker's `/inbound` endpoint (AeroDataBox
+/// tail-number history). Populates the rotation chain, the legacy
+/// `Flight.inbound*` fields (immediate inbound), and Arc's knock-on delay
+/// prediction with a notification when it materially worsens.
 enum InboundMonitor {
 
     @MainActor
@@ -22,16 +23,44 @@ enum InboundMonitor {
 
         flight.inboundChecked = true
 
-        guard let inbound = InboundSelection.selectInboundLeg(
+        let chain = RotationChain.buildChain(
             from: legs,
-            excludingFlightNumber: flight.flightNumber,
-            arrivingAt: flight.departureIATA,
-            before: flight.scheduledDeparture
-        ) else { return }
+            endingAt: flight.departureIATA,
+            before: flight.scheduledDeparture,
+            excludingFlightNumber: flight.flightNumber)
+        flight.rotationLegs = chain
 
-        flight.inboundFlightNumber = inbound.flight_number
-        flight.inboundRoute = "\(inbound.dep_iata) → \(inbound.arr_iata)"
-        flight.inboundDelayMinutes = inbound.delay ?? 0
-        flight.inboundArrivalTime = DateHelpers.parseAPIDate(inbound.arr_scheduled)
+        guard let inbound = chain.last else {
+            flight.predictedDelayMinutes = 0
+            flight.predictionReason = nil
+            return
+        }
+
+        // Legacy single-inbound fields — still what the detail card and
+        // late-inbound notification read.
+        flight.inboundFlightNumber = inbound.flightNumber
+        flight.inboundRoute = "\(inbound.depIATA) → \(inbound.arrIATA)"
+        flight.inboundDelayMinutes = inbound.delayMinutes
+        flight.inboundArrivalTime = inbound.scheduledArrival
+
+        // Knock-on prediction: can the plane physically make our departure?
+        let previous = flight.predictedDelayMinutes
+        if let eta = inbound.effectiveArrival,
+           let p = RotationChain.predictDelay(
+               inboundEffectiveArrival: eta,
+               scheduledDeparture: flight.scheduledDeparture,
+               aircraftType: flight.aircraftType,
+               officialDelayMinutes: flight.delayMinutes) {
+            flight.predictedDelayMinutes = p.minutes
+            flight.predictionReason = p.reason
+            // Notify only when the picture worsens meaningfully — not on
+            // every re-poll of the same prediction.
+            if p.minutes >= previous + 10 {
+                ArcNotifications.notifyPredictedDelay(flight: flight, minutes: p.minutes)
+            }
+        } else {
+            flight.predictedDelayMinutes = 0
+            flight.predictionReason = nil
+        }
     }
 }
