@@ -32,6 +32,18 @@ enum DemoSeed {
         active.liveLat = 55.0; active.liveLon = -25.0
         active.liveHeading = 285; active.liveAltitude = 10600; active.liveSpeed = 245
         active.liveUpdatedAt = .now
+        // Recorded ADS-B breadcrumbs ZRH → mid-Atlantic, so the map draws the
+        // actually-flown path (solid) + projected remainder (dashed).
+        let breadcrumbs: [(Double, Double)] = [
+            (48.3, 7.2), (49.6, 5.1), (50.9, 2.6), (52.0, -1.4),
+            (53.0, -5.6), (53.9, -10.2), (54.5, -15.1), (54.9, -20.3),
+        ]
+        for (i, bc) in breadcrumbs.enumerated() {
+            active.trackPoints.append(Flight.TrackPoint(
+                lat: bc.0, lon: bc.1,
+                timestamp: Date.now.addingTimeInterval(Double(i - breadcrumbs.count) * 600),
+                altitude: 10600))
+        }
 
         let upcoming1 = make("GQ873", "HAM", "ATH", depOffsetH: 49 * 24, arrOffsetH: 49 * 24 + 4, status: "scheduled")
         upcoming1.airline = "Sky Express"

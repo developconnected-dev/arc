@@ -25,6 +25,7 @@ final class FlightTracker: ObservableObject {
         // Track last poll time per flight to implement smart polling tiers
         var lastPolled: [UUID: Date] = [:]
         var lastInboundCheck: [UUID: Date] = [:]
+        var lastPositionPoll: [UUID: Date] = [:]
 
         trackingTask = Task {
             while !Task.isCancelled {
@@ -80,9 +81,19 @@ final class FlightTracker: ObservableObject {
 
                     await LiveActivityManager.shared.updateActivity(for: flight)
 
-                    // Live position: only for active flights, uses free OpenSky (not counted)
+                    // Live position: only for active flights. OpenSky is "free"
+                    // but NOT unmetered — anonymous access gets ~400 requests/day,
+                    // and it's shared per source IP (worse through the Worker's
+                    // shared Cloudflare egress). At 60s a single long-haul burns
+                    // the whole budget mid-flight and positions silently freeze
+                    // at the 429s. 3-minute polling keeps an 8h flight at ~160
+                    // requests and still moves the plane visibly.
                     if let icao24 = flight.aircraftICAO24, flight.isActive {
-                        await updateLivePosition(flight, icao24: icao24)
+                        let lastPos = lastPositionPoll[flight.id] ?? .distantPast
+                        if now.timeIntervalSince(lastPos) >= 180 {
+                            await updateLivePosition(flight, icao24: icao24)
+                            lastPositionPoll[flight.id] = now
+                        }
                     }
 
                     // Inbound check: max once per 15 min (saves API calls)
@@ -186,6 +197,10 @@ final class FlightTracker: ObservableObject {
         case "landed":
             ArcNotifications.notifyLanded(flight: flight)
             await LiveActivityManager.shared.endActivity(for: flight)
+            // Back up the recorded flight path (fire-and-forget; no-ops when
+            // signed out or when no breadcrumbs were collected).
+            let landed = flight
+            Task { try? await ArcSupabase.shared.uploadFlightTrack(landed) }
         case "cancelled":
             ArcNotifications.notifyCancelled(flight: flight)
             await LiveActivityManager.shared.endActivity(for: flight)
