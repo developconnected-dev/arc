@@ -75,6 +75,7 @@ enum DemoSeed {
         let onward = make("LX8", "ZRH", "ORD", depOffsetH: 19 + 55.0 / 60, arrOffsetH: 19 + 55.0 / 60 + 9.5, status: "scheduled")
         onward.aircraftType = "Airbus A340-300"
         onward.seat = "31K"
+        onward.departureGate = "A66"
         context.insert(onward)
 
         // Landed 10 minutes ago — proves the 30-minute grace period keeps it

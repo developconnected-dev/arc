@@ -37,6 +37,7 @@ actor FlightAPIClient {
         let delay: Int?
         let aircraft_type: String?
         let aircraft_registration: String?
+        let aircraft_icao24: String?
         let dep_lat: Double?
         let dep_lon: Double?
         let arr_lat: Double?

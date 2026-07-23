@@ -9,6 +9,15 @@ struct ArcMapView: View {
 
     var body: some View {
         Map(position: $controller.position) {
+            if let plane = controller.livePlane {
+                Annotation("", coordinate: .init(latitude: plane.lat, longitude: plane.lon)) {
+                    Image(systemName: "airplane")
+                        .font(.system(size: 20, weight: .black))
+                        .foregroundStyle(.orange)
+                        .rotationEffect(.degrees(plane.heading - 90))
+                        .shadow(color: .black.opacity(0.4), radius: 2)
+                }
+            }
             if let marker = controller.gateMarker {
                 Annotation(marker.label, coordinate: .init(latitude: marker.lat, longitude: marker.lon)) {
                     ZStack {
