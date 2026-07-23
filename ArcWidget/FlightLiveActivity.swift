@@ -423,6 +423,13 @@ struct FlightLiveActivity: Widget {
                         .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundStyle(.green)
                         .multilineTextAlignment(.center)
+                    // Deliberately NO estimated/confirmed hedge at the departure
+                    // side (unlike landing): departure confirmation almost always
+                    // arrives after the user is already airborne and offline, so
+                    // a hedge label would show on virtually every flight —
+                    // permanent noise, not honesty. The flip runs off the last
+                    // cached delay-adjusted estimate, refreshed every poll until
+                    // connectivity was lost.
                     Text("UNTIL GATE ARRIVAL")
                         .font(.system(size: 8, weight: .semibold))
                         .foregroundStyle(.tertiary)
