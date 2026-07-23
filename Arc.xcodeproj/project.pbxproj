@@ -16,6 +16,7 @@
 		132186CB080D804A397303E6 /* InboundSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3982B16A2E83D23E09279400 /* InboundSelectionTests.swift */; };
 		147ED96EDE432F34CFA07B0F /* GeoMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A38232A6E768DF2669A448 /* GeoMathTests.swift */; };
 		23E38F386FC1075984846921 /* FlightDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 734A69EC4EB99125C060E4F5 /* FlightDetailView.swift */; };
+		24335899C998B9EE85F3DE8D /* ConnectionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07671944B30A0ADDE336955B /* ConnectionCard.swift */; };
 		28B41532664F0666774F2FA6 /* ArcWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		2FF54C18096971D871B206B9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0E950A3B65137B3F46CF9625 /* Assets.xcassets */; };
 		301E39861AE25DD77B097AE0 /* StatsDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 350CDBD64C98220C09B88C41 /* StatsDetailView.swift */; };
@@ -30,6 +31,7 @@
 		5A687F07602155831DF39840 /* airlines.json in Resources */ = {isa = PBXBuildFile; fileRef = 85DB98F13E1308062AC4A2A9 /* airlines.json */; };
 		5BFC4245B668EF91BE8CF988 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4864581CF99C026C4AB5136F /* SettingsView.swift */; };
 		67CD1CA79C762C8CFD137523 /* ArcTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98164F646EF99E31FD3731AD /* ArcTabBar.swift */; };
+		698CBD586ABAF42BA0EED43B /* ConnectionPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1450F4FF4653A6D0BF449CA /* ConnectionPlannerTests.swift */; };
 		6C55946D9BE8B1E555ADBF45 /* AircraftImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A223847338A51B850FB3B5A /* AircraftImage.swift */; };
 		702FE8D083DF0D14242F484C /* FlightExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A904E8731146A7FB8744B074 /* FlightExporter.swift */; };
 		74936AF03801B1DEC0E40739 /* AddFlightView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6B0AA5B39E6C21E26E17DE7 /* AddFlightView.swift */; };
@@ -58,12 +60,14 @@
 		AE8A969D54CC001AF4336515 /* Flight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 210826009A37E90654E69671 /* Flight.swift */; };
 		B25EC52E0FA211AB82FC6644 /* AirlineBranding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E523F671AB6E8AFA8FCF1C3 /* AirlineBranding.swift */; };
 		B646A862A5FB908BF520D1E8 /* MapController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD77AF2CE7584E492AA0A637 /* MapController.swift */; };
+		BDA9D40E00E8F38131B3C8FD /* AirportStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9371C57F0DE1D1A4B88E3 /* AirportStatusView.swift */; };
 		C8FFD2D8D6BF9BD7326C11AF /* RotationChainTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38329F5149CBA92432A823C7 /* RotationChainTests.swift */; };
 		C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6203F2E6D1096F29FA5083FC /* ArcApp.swift */; };
 		C95804ADD76EDEB2671A5121 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */; };
 		CAD442F2201C5E0593480795 /* GeoMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CCB5157053AA1F3BD9AF495 /* GeoMath.swift */; };
 		CE8EDCF06AF9286001FAB953 /* airports.json in Resources */ = {isa = PBXBuildFile; fileRef = 3104AD04269DDBC745E354F1 /* airports.json */; };
 		CF9EC77C1A77F199DAD62E77 /* BottomSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85FA6BAFEA7DEBB5CB2DB08F /* BottomSheet.swift */; };
+		D262DB5DCAC33D8852BB44F0 /* ConnectionPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1301041A06C6716593057B /* ConnectionPlanner.swift */; };
 		D26812028267EF8CE41C593F /* ArcWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E939CF90FDCC989380305A0 /* ArcWidgetBundle.swift */; };
 		E11048770A6E49C8C938397D /* FlightAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E47BF7D61BAF11682C2B4E2 /* FlightAPIClient.swift */; };
 		E64226C8F2F29728DFB84855 /* WidgetSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = E909886CA15B1B79B6D631A0 /* WidgetSync.swift */; };
@@ -107,6 +111,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		07671944B30A0ADDE336955B /* ConnectionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionCard.swift; sourceTree = "<group>"; };
 		0A54EAE7163E5314C68F828C /* ArcRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcRootView.swift; sourceTree = "<group>"; };
 		0DDC05441C6505A7B01620F3 /* PassportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassportView.swift; sourceTree = "<group>"; };
 		0E523F671AB6E8AFA8FCF1C3 /* AirlineBranding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirlineBranding.swift; sourceTree = "<group>"; };
@@ -132,6 +137,7 @@
 		45CDEF12D33E504034C15720 /* Airport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Airport.swift; sourceTree = "<group>"; };
 		4864581CF99C026C4AB5136F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		4B59DFF600FEDEB5C44BEED7 /* FlightActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightActivityAttributes.swift; sourceTree = "<group>"; };
+		4C1301041A06C6716593057B /* ConnectionPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionPlanner.swift; sourceTree = "<group>"; };
 		4CDBA155BE116022B7E2F90F /* MapControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapControls.swift; sourceTree = "<group>"; };
 		4F7A0EB241567A257D24DFD0 /* FlightRowCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightRowCard.swift; sourceTree = "<group>"; };
 		4FB40E7D146DE8662884B50D /* FlightLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightLiveActivity.swift; sourceTree = "<group>"; };
@@ -163,7 +169,9 @@
 		A99FE65B13FFE0D0203987D5 /* MyFlightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyFlightsView.swift; sourceTree = "<group>"; };
 		B2ED974C878C66DFB8E89AFE /* DateHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateHelpers.swift; sourceTree = "<group>"; };
 		B38DA68A6519FA66B43996E0 /* PassportStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassportStats.swift; sourceTree = "<group>"; };
+		B7F9371C57F0DE1D1A4B88E3 /* AirportStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirportStatusView.swift; sourceTree = "<group>"; };
 		BFC83E4E29772AC89D75C9E8 /* LiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityManager.swift; sourceTree = "<group>"; };
+		C1450F4FF4653A6D0BF449CA /* ConnectionPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionPlannerTests.swift; sourceTree = "<group>"; };
 		C3BA60104125C5743ECF86F8 /* InboundMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboundMonitor.swift; sourceTree = "<group>"; };
 		C6B0AA5B39E6C21E26E17DE7 /* AddFlightView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddFlightView.swift; sourceTree = "<group>"; };
 		CD77AF2CE7584E492AA0A637 /* MapController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapController.swift; sourceTree = "<group>"; };
@@ -194,9 +202,18 @@
 			path = Add;
 			sourceTree = "<group>";
 		};
+		1CE7FC13C801819D0E86B097 /* Airport */ = {
+			isa = PBXGroup;
+			children = (
+				B7F9371C57F0DE1D1A4B88E3 /* AirportStatusView.swift */,
+			);
+			path = Airport;
+			sourceTree = "<group>";
+		};
 		2BA66D31C4D7DB9B51EA66E2 /* Detail */ = {
 			isa = PBXGroup;
 			children = (
+				07671944B30A0ADDE336955B /* ConnectionCard.swift */,
 				8483E3B4C6E1B44F201F2AAD /* FlightDetailSections.swift */,
 				734A69EC4EB99125C060E4F5 /* FlightDetailView.swift */,
 			);
@@ -271,6 +288,7 @@
 				0E523F671AB6E8AFA8FCF1C3 /* AirlineBranding.swift */,
 				2689BBDC633D503741A61075 /* AirportDatabase.swift */,
 				D055CC753814BAE54C3C7094 /* BackgroundFlightUpdater.swift */,
+				4C1301041A06C6716593057B /* ConnectionPlanner.swift */,
 				B2ED974C878C66DFB8E89AFE /* DateHelpers.swift */,
 				1E47BF7D61BAF11682C2B4E2 /* FlightAPIClient.swift */,
 				A904E8731146A7FB8744B074 /* FlightExporter.swift */,
@@ -365,6 +383,7 @@
 			isa = PBXGroup;
 			children = (
 				1B522C3FE92208C579B8483A /* Add */,
+				1CE7FC13C801819D0E86B097 /* Airport */,
 				2BA66D31C4D7DB9B51EA66E2 /* Detail */,
 				F14CA8B67EED69A8D8D012C6 /* Flights */,
 				46D873BC1EA7F6A4DC87082E /* Friends */,
@@ -388,6 +407,7 @@
 			isa = PBXGroup;
 			children = (
 				8296407C7B6624104AE2703D /* BrandingTests.swift */,
+				C1450F4FF4653A6D0BF449CA /* ConnectionPlannerTests.swift */,
 				64047F33627992F4D8030E71 /* FlightDisplayTests.swift */,
 				345D5BC68228BFA3CD7DD4DB /* FlightExporterTests.swift */,
 				66A38232A6E768DF2669A448 /* GeoMathTests.swift */,
@@ -527,6 +547,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				91538C97272ECB2B1CE14434 /* BrandingTests.swift in Sources */,
+				698CBD586ABAF42BA0EED43B /* ConnectionPlannerTests.swift in Sources */,
 				FF28A915F2E461B6A44D4F3A /* FlightDisplayTests.swift in Sources */,
 				76A42DE217B99FCC67076406 /* FlightExporterTests.swift in Sources */,
 				147ED96EDE432F34CFA07B0F /* GeoMathTests.swift in Sources */,
@@ -549,6 +570,7 @@
 				782E9CE6FC733FBD77E43A5E /* AirlineLogoView.swift in Sources */,
 				A0CFDAC70BB886B090D73B83 /* Airport.swift in Sources */,
 				E6F67237EDC556551CEAEE73 /* AirportDatabase.swift in Sources */,
+				BDA9D40E00E8F38131B3C8FD /* AirportStatusView.swift in Sources */,
 				C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */,
 				4DC5DD74216D89BCF661E139 /* ArcDesign.swift in Sources */,
 				066B813B251042A5C7326EA9 /* ArcMapView.swift in Sources */,
@@ -557,6 +579,8 @@
 				12441CF9EEA5848E9DFE70A8 /* ArcTheme.swift in Sources */,
 				F426D81F00E9F6FAF3A09D17 /* BackgroundFlightUpdater.swift in Sources */,
 				CF9EC77C1A77F199DAD62E77 /* BottomSheet.swift in Sources */,
+				24335899C998B9EE85F3DE8D /* ConnectionCard.swift in Sources */,
+				D262DB5DCAC33D8852BB44F0 /* ConnectionPlanner.swift in Sources */,
 				9B63152237B6E5F4B7FA9392 /* DateHelpers.swift in Sources */,
 				8625562A2DEDFF9FE944C920 /* DemoSeed.swift in Sources */,
 				7E14E00521A22BF09D8F195B /* Flight+Display.swift in Sources */,

@@ -9,6 +9,18 @@ struct FlightDetailView: View {
 
     @State private var editing: EditField?
     @State private var editText = ""
+    @State private var airportSheet: AirportSheetTarget?
+    @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
+
+    private struct AirportSheetTarget: Identifiable { let id: String }
+
+    /// The connection this flight belongs to, if any (as either leg).
+    private var connection: ConnectionPlanner.Plan? {
+        guard let pair = ConnectionPlanner.detectConnection(from: allFlights),
+              pair.inbound.id == flight.id || pair.outbound.id == flight.id
+        else { return nil }
+        return ConnectionPlanner.plan(inbound: pair.inbound, outbound: pair.outbound)
+    }
 
     enum EditField: String, Identifiable { case bookingCode, seat, notes; var id: String { rawValue } }
 
@@ -21,6 +33,9 @@ struct FlightDetailView: View {
                     endpointsCard
                     bookingSeatRow
                     GoodToKnowSection(flight: flight)
+                    if let plan = connection {
+                        ConnectionCard(plan: plan, currentFlightID: flight.id)
+                    }
                     WheresMyPlaneSection(flight: flight).id("plane")
                     DetailedTimetableSection(flight: flight)
                     AirlineInfoSection(flight: flight)
@@ -44,6 +59,10 @@ struct FlightDetailView: View {
             }
         }
         .presentationDragIndicator(.visible)
+        .sheet(item: $airportSheet) { target in
+            AirportStatusView(iata: target.id)
+                .presentationDetents([.medium, .large])
+        }
         .alert(editTitle, isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
             TextField(editTitle, text: $editText)
             Button("Cancel", role: .cancel) { editing = nil }
@@ -141,15 +160,18 @@ struct FlightDetailView: View {
         let arrow = isArrival ? "arrow.down.right" : "arrow.up.right"
 
         return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: arrow).font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Color(.systemBackground))
-                    .frame(width: 18, height: 18).background(Color.primary, in: Circle())
-                Text(iata).font(.system(size: 15, weight: .bold))
-                Text("• \(name)").font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1)
-                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
-                Spacer(minLength: 0)
+            Button { airportSheet = AirportSheetTarget(id: iata) } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: arrow).font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color(.systemBackground))
+                        .frame(width: 18, height: 18).background(Color.primary, in: Circle())
+                    Text(iata).font(.system(size: 15, weight: .bold))
+                    Text("• \(name)").font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1)
+                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
+                    Spacer(minLength: 0)
+                }
             }
+            .buttonStyle(.plain)
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {

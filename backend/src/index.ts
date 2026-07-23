@@ -396,6 +396,37 @@ export default {
       }
     }
 
+    // ── /airport/:iata?icao=LSZH&country=CH — Airport Intelligence ──
+    // Aggregates free sources into one plain-English status: METAR aviation
+    // weather (global, aviationweather.gov, keyless), FAA NAS status (US
+    // ground stops/delay programs with named reasons), Waitport security.
+    const airportMatch = url.pathname.match(/^\/airport\/([A-Z]{3})$/i);
+    if (airportMatch) {
+      const iata = airportMatch[1]!.toUpperCase();
+      const icao = (url.searchParams.get("icao") ?? "").toUpperCase();
+      const country = (url.searchParams.get("country") ?? "").toUpperCase();
+      try {
+        const [weather, faa, security] = await Promise.all([
+          icao ? fetchMetar(icao) : Promise.resolve(null),
+          country === "US" ? fetchFaaStatus(iata) : Promise.resolve(null),
+          fetchSecurityWait(iata),
+        ]);
+        const synth = synthesizeAirportStatus(weather, faa);
+        return Response.json({
+          iata, icao,
+          updatedAt: new Date().toISOString(),
+          severity: synth.severity,          // "normal" | "minor" | "major"
+          headline: synth.headline,
+          reasons: synth.reasons,
+          weather,
+          faa,
+          securityMinutes: security,
+        }, { headers: cors });
+      } catch {
+        return Response.json({ iata, severity: "unknown", headline: "Status unavailable" }, { headers: cors });
+      }
+    }
+
     // ── Live Activity push registration ──
     if (url.pathname === "/la/register" && req.method === "POST") {
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, reason: "unconfigured" }, { headers: cors });
@@ -453,6 +484,120 @@ export default {
     ctx.waitUntil(runLiveActivityCron(env));
   },
 };
+
+// ── Airport Intelligence internals ──
+
+interface AirportWeather {
+  category: string | null;    // VFR / MVFR / IFR / LIFR
+  tempC: number | null;
+  windKt: number | null;
+  gustKt: number | null;
+  visibility: string | null;
+  wx: string | null;          // raw weather phenomena, e.g. "TSRA", "-SN"
+  raw: string | null;
+}
+
+async function fetchMetar(icao: string): Promise<AirportWeather | null> {
+  try {
+    const res = await fetch(`https://aviationweather.gov/api/data/metar?ids=${icao}&format=json`);
+    if (!res.ok) return null;
+    const arr = await res.json() as Array<Record<string, any>>;
+    const m = arr?.[0];
+    if (!m) return null;
+    return {
+      category: m.fltCat ?? null,
+      tempC: typeof m.temp === "number" ? m.temp : null,
+      windKt: typeof m.wspd === "number" ? m.wspd : null,
+      gustKt: typeof m.wgst === "number" ? m.wgst : null,
+      visibility: m.visib != null ? String(m.visib) : null,
+      wx: m.wxString ?? null,
+      raw: m.rawOb ?? null,
+    };
+  } catch { return null; }
+}
+
+interface FaaDelay {
+  type: string;       // "Ground Stop" | "Ground Delay" | "Closure" | "Arrival/Departure Delay"
+  reason: string;
+  avgMinutes: number | null;
+}
+
+/// FAA NAS status is XML; the structure is flat enough to extract per-airport
+/// blocks with regexes rather than shipping an XML parser to the edge.
+async function fetchFaaStatus(iata: string): Promise<FaaDelay | null> {
+  try {
+    const res = await fetch("https://nasstatus.faa.gov/api/airport-status-information");
+    if (!res.ok) return null;
+    const xml = await res.text();
+
+    const block = (tag: string) => new RegExp(`<${tag}>(?:(?!</${tag}>).)*?<ARPT>${iata}</ARPT>(?:(?!</${tag}>).)*?</${tag}>`, "s").exec(xml)?.[0] ?? null;
+    const field = (b: string, tag: string) => new RegExp(`<${tag}>(.*?)</${tag}>`, "s").exec(b)?.[1]?.trim() ?? null;
+    const minutes = (s: string | null): number | null => {
+      if (!s) return null;
+      const h = /(\d+)\s*hour/.exec(s); const m = /(\d+)\s*minute/.exec(s);
+      const total = (h ? parseInt(h[1]!) * 60 : 0) + (m ? parseInt(m[1]!) : 0);
+      return total > 0 ? total : null;
+    };
+
+    const gs = block("Ground_Stop");
+    if (gs) return { type: "Ground Stop", reason: field(gs, "Reason") ?? "ATC ground stop", avgMinutes: null };
+    const gd = block("Ground_Delay");
+    if (gd) return { type: "Ground Delay", reason: field(gd, "Reason") ?? "traffic management", avgMinutes: minutes(field(gd, "Avg")) };
+    const cl = block("Airport_Closure");
+    if (cl) return { type: "Closure", reason: field(cl, "Reason") ?? "airport closed", avgMinutes: null };
+    const ad = block("Delay");   // Arrival/Departure delay entries
+    if (ad && ad.includes(`<ARPT>${iata}</ARPT>`)) {
+      return { type: "Arrival/Departure Delay", reason: field(ad, "Reason") ?? "delays", avgMinutes: minutes(field(ad, "Max")) };
+    }
+    return null;
+  } catch { return null; }
+}
+
+async function fetchSecurityWait(iata: string): Promise<number | null> {
+  try {
+    const res = await fetch(`https://waitport.com/api/v1/all?airport=eq.${iata}&order=id.desc&limit=1`);
+    if (!res.ok) return null;
+    const data = await res.json() as Array<{ queue: number }>;
+    return data?.[0]?.queue ?? null;
+  } catch { return null; }
+}
+
+/// Rule-based plain-English synthesis — deliberately deterministic (no LLM):
+/// the vocabulary of airport disruption is small and the stakes of a wrong
+/// dramatic headline are high.
+function synthesizeAirportStatus(w: AirportWeather | null, faa: FaaDelay | null):
+  { severity: "normal" | "minor" | "major"; headline: string; reasons: string[] } {
+  const reasons: string[] = [];
+  let severity: "normal" | "minor" | "major" = "normal";
+  const bump = (s: "minor" | "major") => {
+    if (s === "major" || severity === "major") severity = "major";
+    else severity = "minor";
+  };
+
+  if (faa) {
+    if (faa.type === "Ground Stop") { bump("major"); reasons.push(`FAA ground stop — ${faa.reason}`); }
+    else if (faa.type === "Closure") { bump("major"); reasons.push(`Airport closure — ${faa.reason}`); }
+    else if (faa.type === "Ground Delay") {
+      bump((faa.avgMinutes ?? 0) >= 45 ? "major" : "minor");
+      reasons.push(`FAA ground delay program — ${faa.reason}${faa.avgMinutes ? ` (avg ${faa.avgMinutes} min)` : ""}`);
+    } else { bump("minor"); reasons.push(`${faa.type} — ${faa.reason}`); }
+  }
+
+  if (w) {
+    const wx = (w.wx ?? "").toUpperCase();
+    if (wx.includes("TS")) { bump("major"); reasons.push("Thunderstorms at the airport"); }
+    if (wx.includes("SN") || wx.includes("FZ")) { bump("major"); reasons.push("Snow or freezing conditions"); }
+    if (w.category === "LIFR") { bump("major"); reasons.push("Very low visibility operations"); }
+    else if (w.category === "IFR") { bump("minor"); reasons.push("Low visibility operations"); }
+    if ((w.gustKt ?? 0) >= 30 || (w.windKt ?? 0) >= 25) { bump("minor"); reasons.push(`Strong winds${w.gustKt ? ` (gusts ${w.gustKt} kt)` : ""}`); }
+  }
+
+  const headline =
+    severity === "normal" ? "Operating normally"
+    : severity === "minor" ? "Minor disruptions possible"
+    : "Significant disruptions";
+  return { severity, headline, reasons };
+}
 
 // ── Live Activity cron internals ──
 
