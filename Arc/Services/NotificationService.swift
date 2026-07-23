@@ -84,6 +84,15 @@ enum ArcNotifications {
         )
     }
 
+    /// Connection risk got worse (delays ate the layover buffer).
+    static func notifyConnectionRisk(_ plan: ConnectionPlanner.Plan) {
+        send(
+            title: "Connection now \(plan.risk.rawValue.lowercased())",
+            body: "\(plan.layoverMinutes) min layover in \(plan.inbound.arrivalCity) — you need about \(plan.neededMinutes) min. \(plan.outbound.flightNumberSpaced) departs \(plan.outbound.effectiveDepTimeLocal).",
+            id: "connection-\(plan.outbound.flightNumber)-\(plan.risk.rawValue)"
+        )
+    }
+
     static func notifyCancelled(flight: Flight) {
         send(
             title: "\(flight.flightNumber) cancelled",
