@@ -232,6 +232,11 @@ final class FlightTracker: ObservableObject {
                 Task { await FlightAPIClient.shared.observeGates(json) }
             }
         }
+
+        // Mirror the fresh state to shared_flights — this is what friends'
+        // devices and live share links actually read, so it must ride every
+        // poll, not just explicit share taps. No-ops when signed out.
+        Task { try? await ArcSupabase.shared.shareFlight(flight) }
     }
 
     // MARK: - Burst Update (connectivity returns)
