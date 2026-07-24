@@ -1,23 +1,31 @@
 import SwiftUI
 
-/// The Friends sheet content: title + share/avatar row, then either sign-in
-/// or the friends list, matching the other tabs' bottom-sheet layout (no
-/// standalone NavigationStack at the top level — that's reserved for the
-/// signed-in content, which needs to push to FriendDetailView).
+/// The Friends sheet content: intro takeover on first visit, then title +
+/// share/avatar row and either sign-in or the live friends list, matching
+/// the other tabs' bottom-sheet layout (no standalone NavigationStack at the
+/// top level — that's reserved for the signed-in content, which needs to
+/// push to FriendDetailView).
 struct FriendsScreen: View {
     @ObservedObject private var supabase = ArcSupabase.shared
+    @AppStorage("hasSeenFriendsIntro") private var hasSeenIntro = false
     @State private var showSettings = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header.padding(.horizontal, 20).padding(.top, 4)
-
-            if !supabase.isConfigured {
-                setupPrompt
-            } else if !supabase.isSignedIn {
-                SignInContent()
+        Group {
+            if !hasSeenIntro {
+                FriendsIntroView { hasSeenIntro = true }
             } else {
-                FriendsListView()
+                VStack(alignment: .leading, spacing: 0) {
+                    header.padding(.horizontal, 20).padding(.top, 4)
+
+                    if !supabase.isConfigured {
+                        setupPrompt
+                    } else if !supabase.isSignedIn {
+                        SignInContent()
+                    } else {
+                        FriendsListView()
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -28,7 +36,9 @@ struct FriendsScreen: View {
         HStack(spacing: 12) {
             Text("Friends").font(ArcTheme.screenTitle)
             Spacer()
-            ShareLink(item: URL(string: "https://arc.flight")!) { circleIcon("square.and.arrow.up") }
+            ShareLink(item: "Join me on Arc — our own flight tracker. Every flight, live, on one map. ✈️") {
+                circleIcon("square.and.arrow.up")
+            }
             Button { showSettings = true } label: {
                 Image(systemName: "person.crop.circle.fill")
                     .font(.system(size: 34))
@@ -54,6 +64,112 @@ struct FriendsScreen: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Intro (first visit)
+
+/// Flighty-style feature intro: hero illustration built from our own design
+/// language (globe + avatar bubbles with live status pills), what the
+/// feature does, fine print, Continue.
+struct FriendsIntroView: View {
+    var onContinue: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                hero
+                    .frame(height: 250)
+                    .padding(.top, 18)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Arc Friends")
+                        .font(.system(size: 34, weight: .heavy))
+                    Text("Add your family to automatically share upcoming flights, watch each other fly on the map, and get live updates the moment a flight takes off, lands, or changes.")
+                        .font(.system(size: 17))
+                        .foregroundStyle(.primary.opacity(0.9))
+                    Text("It saves you from ever hearing \"send me your flight info!\" again.")
+                        .font(.system(size: 17))
+                        .foregroundStyle(.primary.opacity(0.9))
+                    Text("Invites expire after 48 hours. You can remove friends at any time.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
+
+                Button(action: onContinue) {
+                    Text("Continue")
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 15)
+                        .background(ArcTheme.action, in: RoundedRectangle(cornerRadius: 16))
+                        .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 24)
+                .padding(.top, 26)
+                .padding(.bottom, 120)
+            }
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    /// Globe disc + three sample friends with live status pills, connected
+    /// by faint arcs — the feature, drawn in the app's own visual language.
+    private var hero: some View {
+        ZStack {
+            Circle()
+                .fill(LinearGradient(colors: [Color(red: 0.10, green: 0.32, blue: 0.65),
+                                              Color(red: 0.03, green: 0.10, blue: 0.28)],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+                .frame(width: 230, height: 230)
+                .overlay(Circle().stroke(ArcTheme.routeLine.opacity(0.35), lineWidth: 1))
+                .shadow(color: Color(red: 0.1, green: 0.3, blue: 0.7).opacity(0.45), radius: 30, y: 10)
+
+            IntroArc(from: CGPoint(x: -70, y: 40), to: CGPoint(x: 15, y: -55))
+            IntroArc(from: CGPoint(x: 15, y: -55), to: CGPoint(x: 95, y: 55))
+
+            heroBubble(name: "Mom", chip: "DELAYED", color: ArcTheme.late)
+                .offset(x: -95, y: -20)
+            heroBubble(name: "Jenny", chip: "LANDED", color: ArcTheme.gate)
+                .offset(x: 92, y: -62)
+            heroBubble(name: "Mike", chip: "IN 8H 55M", color: Color(.systemGray))
+                .offset(x: 8, y: 62)
+        }
+    }
+
+    private func heroBubble(name: String, chip: String, color: Color) -> some View {
+        VStack(spacing: 5) {
+            FriendAvatar(name: name, size: 52)
+                .overlay(Circle().stroke(.background, lineWidth: 3))
+                .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
+            HStack(spacing: 3) {
+                Image(systemName: "airplane").font(.system(size: 8, weight: .bold))
+                Text(chip).font(.system(size: 10, weight: .heavy))
+            }
+            .foregroundStyle(color == ArcTheme.gate ? .black : .white)
+            .padding(.horizontal, 7).padding(.vertical, 4)
+            .background(color, in: Capsule())
+            .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+        }
+    }
+}
+
+private struct IntroArc: View {
+    let from: CGPoint
+    let to: CGPoint
+    var body: some View {
+        Path { p in
+            p.move(to: .zero)
+            p.addQuadCurve(to: CGPoint(x: to.x - from.x, y: to.y - from.y),
+                           control: CGPoint(x: (to.x - from.x) / 2 - 20, y: (to.y - from.y) / 2 - 30))
+        }
+        .stroke(ArcTheme.routeLine.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [1, 5]))
+        .frame(width: 1, height: 1)
+        .offset(x: from.x, y: from.y)
     }
 }
 
@@ -242,15 +358,13 @@ struct AppleSignInButton: View {
 // MARK: - Friends List
 
 /// Owns its own NavigationStack (unlike the sign-in/setup states) so it can
-/// push to FriendDetailView the same way it did before this screen was
-/// reconnected into the bottom-sheet layout.
+/// push to FriendDetailView. Data comes from FriendsStore — the same object
+/// the shared map reads, so this list and the friend bubbles on the globe
+/// are always in sync.
 struct FriendsListView: View {
     @ObservedObject private var supabase = ArcSupabase.shared
-    @State private var friends: [(ArcSupabase.Friendship, ArcSupabase.ArcUser)] = []
-    @State private var pendingRequests: [(ArcSupabase.Friendship, ArcSupabase.ArcUser)] = []
+    @State private var store = FriendsStore.shared
     @State private var showingAddFriend = false
-    @State private var isLoading = true
-    @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -258,84 +372,68 @@ struct FriendsListView: View {
                 VStack(spacing: 14) {
                     if let user = supabase.currentUser { profileCard(user) }
 
-                    if let errorMessage {
-                        Text(errorMessage).font(.system(size: 13)).foregroundStyle(.secondary)
+                    if let error = store.lastError {
+                        Text(error).font(.system(size: 13)).foregroundStyle(.secondary)
                     }
 
-                    if !pendingRequests.isEmpty {
+                    if !store.pending.isEmpty {
                         sectionHeader("Friend Requests")
-                        ForEach(pendingRequests, id: \.0.id) { friendship, user in
-                            requestCard(friendship: friendship, user: user)
+                        ForEach(store.pending, id: \.friendship.id) { item in
+                            requestCard(friendship: item.friendship, user: item.user)
                         }
                     }
 
-                    if !friends.isEmpty {
-                        sectionHeader("Friends")
-                        ForEach(friends, id: \.0.id) { friendship, user in
-                            NavigationLink { FriendDetailView(friend: user) } label: { friendCard(user) }
+                    if !store.friends.isEmpty {
+                        HStack {
+                            sectionHeader("Friends")
+                            Button { showingAddFriend = true } label: {
+                                Image(systemName: "person.badge.plus")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(ArcTheme.action)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        ForEach(store.friends) { entry in
+                            NavigationLink { FriendDetailView(entry: entry) } label: {
+                                FriendRow(entry: entry)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
 
-                    if friends.isEmpty && pendingRequests.isEmpty && !isLoading {
+                    if store.friends.isEmpty && store.pending.isEmpty && !store.isLoading {
                         VStack(spacing: 12) {
                             Spacer().frame(height: 20)
                             Image(systemName: "person.badge.plus").font(.system(size: 44)).foregroundStyle(.tertiary)
                             Text("No friends yet").font(.system(size: 16, weight: .semibold)).foregroundStyle(.secondary)
-                            Text("Tap + to find and add friends").font(.system(size: 13)).foregroundStyle(.tertiary)
+                            Button { showingAddFriend = true } label: {
+                                Text("Add Friend")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 22).padding(.vertical, 10)
+                                    .background(ArcTheme.action, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
                 .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 140)
             }
             .scrollIndicators(.hidden)
-            .refreshable { await loadFriends() }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showingAddFriend = true } label: {
-                        Image(systemName: "person.badge.plus").foregroundStyle(ArcTheme.action)
-                    }
-                }
-            }
+            .refreshable { await store.refresh() }
             .toolbarVisibility(.hidden, for: .navigationBar)
             .sheet(isPresented: $showingAddFriend) {
                 AddFriendSheet().presentationDetents([.medium, .large])
             }
-            .task { await loadFriends() }
+            .task { await store.refresh() }
         }
-    }
-
-    private func loadFriends() async {
-        isLoading = true; errorMessage = nil
-        do {
-            let friendships = try await supabase.getFriends()
-            var loaded: [(ArcSupabase.Friendship, ArcSupabase.ArcUser)] = []
-            for f in friendships {
-                let friendId = f.requester_id == supabase.currentUser?.id ? f.addressee_id : f.requester_id
-                if let profile = try? await supabase.getProfile(userId: friendId) {
-                    loaded.append((f, profile))
-                }
-            }
-            friends = loaded
-
-            let pending = try await supabase.getPendingRequests()
-            var loadedPending: [(ArcSupabase.Friendship, ArcSupabase.ArcUser)] = []
-            for p in pending {
-                if let profile = try? await supabase.getProfile(userId: p.requester_id) {
-                    loadedPending.append((p, profile))
-                }
-            }
-            pendingRequests = loadedPending
-        } catch {
-            errorMessage = "Couldn't load friends: \(error.localizedDescription)"
-        }
-        isLoading = false
     }
 
     // MARK: - Components
 
     private func profileCard(_ user: ArcSupabase.ArcUser) -> some View {
         HStack(spacing: 14) {
-            Image(systemName: "person.circle.fill").font(.system(size: 40)).foregroundStyle(ArcTheme.action)
+            FriendAvatar(name: user.display_name.isEmpty ? "You" : user.display_name, size: 40)
             VStack(alignment: .leading, spacing: 2) {
                 Text(user.display_name.isEmpty ? "You" : user.display_name).font(.system(size: 15, weight: .semibold))
                 if let handle = user.handle {
@@ -350,24 +448,9 @@ struct FriendsListView: View {
         .padding(14).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
     }
 
-    private func friendCard(_ user: ArcSupabase.ArcUser) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: "person.circle.fill").font(.system(size: 32)).foregroundStyle(ArcTheme.action.opacity(0.6))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(user.display_name).font(.system(size: 15, weight: .semibold))
-                if let handle = user.handle {
-                    Text("@\(handle)").font(.system(size: 13)).foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(.tertiary)
-        }
-        .padding(14).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
-    }
-
     private func requestCard(friendship: ArcSupabase.Friendship, user: ArcSupabase.ArcUser) -> some View {
         HStack(spacing: 14) {
-            Image(systemName: "person.circle.fill").font(.system(size: 32)).foregroundStyle(.orange)
+            FriendAvatar(name: user.display_name, size: 32)
             VStack(alignment: .leading, spacing: 2) {
                 Text(user.display_name).font(.system(size: 15, weight: .semibold))
                 Text("Wants to be friends").font(.system(size: 13)).foregroundStyle(.secondary)
@@ -376,7 +459,7 @@ struct FriendsListView: View {
             Button("Accept") {
                 Task {
                     try? await supabase.acceptFriendRequest(friendshipId: friendship.id)
-                    await loadFriends()
+                    await store.refresh()
                 }
             }
             .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
@@ -390,6 +473,64 @@ struct FriendsListView: View {
         Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .textCase(.uppercase).tracking(0.8)
+    }
+}
+
+/// One friend, alive: avatar, name, and what their spotlight flight is doing
+/// RIGHT NOW — with a live progress bar while they're in the air.
+struct FriendRow: View {
+    let entry: FriendsStore.FriendEntry
+
+    var body: some View {
+        let flight = entry.spotlight
+        HStack(spacing: 14) {
+            FriendAvatar(name: entry.user.display_name, size: 40)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entry.user.display_name).font(.system(size: 15, weight: .semibold))
+                if let f = flight {
+                    Text("\(f.departure_iata) → \(f.arrival_iata) · \(f.flight_number)")
+                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                    if FriendFlightMath.isAirborne(f) {
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(Color(.separator)).frame(height: 3)
+                                Capsule().fill(ArcTheme.onTime)
+                                    .frame(width: geo.size.width * FriendFlightMath.progress(f), height: 3)
+                            }
+                        }
+                        .frame(height: 3)
+                        .padding(.top, 2)
+                    }
+                } else {
+                    Text("No flights right now").font(.system(size: 13)).foregroundStyle(.tertiary)
+                }
+            }
+            Spacer()
+            if let f = flight {
+                chipView(FriendFlightMath.chip(for: f))
+            } else {
+                Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(.tertiary)
+            }
+        }
+        .padding(14).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func chipView(_ chip: (text: String, kind: FriendFlightMath.ChipKind)) -> some View {
+        let (bg, fg): (Color, Color) = switch chip.kind {
+        case .landed: (ArcTheme.gate, .black)
+        case .delayed: (ArcTheme.late, .white)
+        case .inFlight: (ArcTheme.onTime, .white)
+        case .boarding: (ArcTheme.action, .white)
+        case .countdown: (Color(.systemGray5), .primary)
+        }
+        return HStack(spacing: 3) {
+            Image(systemName: chip.kind == .landed ? "airplane.arrival" : "airplane")
+                .font(.system(size: 9, weight: .bold))
+            Text(chip.text).font(.system(size: 11, weight: .heavy))
+        }
+        .foregroundStyle(fg)
+        .padding(.horizontal, 8).padding(.vertical, 5)
+        .background(bg, in: Capsule())
     }
 }
 
@@ -419,7 +560,7 @@ struct AddFriendSheet: View {
 
                 ForEach(results, id: \.id) { user in
                     HStack {
-                        Image(systemName: "person.circle.fill").font(.system(size: 32)).foregroundStyle(ArcTheme.action.opacity(0.6))
+                        FriendAvatar(name: user.display_name, size: 32)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(user.display_name).font(.system(size: 15, weight: .semibold))
                             if let handle = user.handle {
@@ -461,51 +602,62 @@ struct AddFriendSheet: View {
 // MARK: - Friend Detail
 
 struct FriendDetailView: View {
-    let friend: ArcSupabase.ArcUser
-    @State private var flights: [ArcSupabase.SharedFlight] = []
+    let entry: FriendsStore.FriendEntry
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
                 VStack(spacing: 8) {
-                    Image(systemName: "person.circle.fill").font(.system(size: 60)).foregroundStyle(ArcTheme.action)
-                    Text(friend.display_name).font(.system(size: 22, weight: .bold))
-                    if let handle = friend.handle {
+                    FriendAvatar(name: entry.user.display_name, size: 64)
+                    Text(entry.user.display_name).font(.system(size: 22, weight: .bold))
+                    if let handle = entry.user.handle {
                         Text("@\(handle)").font(.system(size: 13)).foregroundStyle(.secondary)
                     }
                 }
                 .padding(.top, 24)
 
-                if flights.isEmpty {
+                if entry.flights.isEmpty {
                     Text("No shared flights").font(.system(size: 15)).foregroundStyle(.tertiary).padding(.top, 24)
                 } else {
-                    ForEach(flights) { flight in friendFlightCard(flight) }
+                    ForEach(entry.flights) { flight in friendFlightCard(flight) }
                 }
             }
             .padding(.horizontal, 20).padding(.bottom, 24)
         }
-        .navigationTitle(friend.display_name)
+        .navigationTitle(entry.user.display_name)
         .navigationBarTitleDisplayMode(.inline)
-        .task { flights = (try? await ArcSupabase.shared.getFriendFlights(userId: friend.id)) ?? [] }
     }
 
     private func friendFlightCard(_ flight: ArcSupabase.SharedFlight) -> some View {
         VStack(spacing: 12) {
             HStack {
-                Text(flight.departure_iata).font(.system(size: 16, weight: .semibold, design: .monospaced))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(flight.departure_iata).font(.system(size: 16, weight: .semibold, design: .monospaced))
+                    Text(flight.departure_city).font(.system(size: 11)).foregroundStyle(.secondary)
+                }
                 Spacer()
-                Text(flight.flight_number).font(.system(size: 13)).foregroundStyle(.secondary)
+                VStack(spacing: 1) {
+                    Text(flight.flight_number).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                    if let dep = DateHelpers.parseAPIDate(flight.scheduled_departure) {
+                        Text(dep.formatted(.dateTime.day().month())).font(.system(size: 11)).foregroundStyle(.tertiary)
+                    }
+                }
                 Spacer()
-                Text(flight.arrival_iata).font(.system(size: 16, weight: .semibold, design: .monospaced))
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(flight.arrival_iata).font(.system(size: 16, weight: .semibold, design: .monospaced))
+                    Text(flight.arrival_city).font(.system(size: 11)).foregroundStyle(.secondary)
+                }
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color(.separator)).frame(height: 3)
-                    Capsule().fill(ArcTheme.action).frame(width: geo.size.width * flight.progress, height: 3)
+                    Capsule().fill(ArcTheme.action)
+                        .frame(width: geo.size.width * FriendFlightMath.progress(flight), height: 3)
                 }
             }.frame(height: 3)
             HStack {
-                Text(flight.status.capitalized).font(.system(size: 13, weight: .semibold))
+                Text(FriendFlightMath.chip(for: flight).text)
+                    .font(.system(size: 12, weight: .heavy))
                     .foregroundStyle(flight.delay_minutes > 0 ? ArcTheme.late : ArcTheme.onTime)
                 Spacer()
                 if flight.delay_minutes > 0 {

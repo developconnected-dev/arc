@@ -7,6 +7,7 @@ struct ArcRootView: View {
     @ObservedObject private var supabase = ArcSupabase.shared
 
     @State private var controller = MapController()
+    @State private var friendsStore = FriendsStore.shared
     @State private var tab: ArcTab = ProcessInfo.processInfo.arguments.contains("-tabPassport") ? .passport
         : ProcessInfo.processInfo.arguments.contains("-tabFriends") ? .friends : .myFlights
     @State private var detent: SheetDetent = ProcessInfo.processInfo.arguments.contains("-sheetLarge") ? .large : .medium
@@ -26,7 +27,8 @@ struct ArcRootView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            ArcMapView(flights: mapFlights, controller: controller)
+            ArcMapView(flights: mapFlights, controller: controller,
+                       friendOverlays: tab == .friends ? friendsStore.mapOverlays : [])
                 .ignoresSafeArea()
 
             if let active = activeFlight, active.liveSpeed != nil || active.liveAltitude != nil {
@@ -52,7 +54,9 @@ struct ArcRootView: View {
                 .presentationDetents([.large])
         }
         .sheet(item: $detailFlight) { flight in
-            FlightDetailView(flight: flight, onShowAtGate: { f in showPlaneAtGate(f) })
+            FlightDetailView(flight: flight,
+                             onShowAtGate: { f in showPlaneAtGate(f) },
+                             onShowAirport: { f in showAirportView(f) })
                 .presentationDetents([.medium, .large], selection: $detailDetent)
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
@@ -61,7 +65,12 @@ struct ArcRootView: View {
             openDetailIfPending()
             bootstrapTrackingAndWidgets()
         }
-        .onChange(of: tab) { _, newTab in updateCameraForTab(newTab) }
+        .onChange(of: tab) { _, newTab in
+            updateCameraForTab(newTab)
+            if newTab == .friends {
+                Task { await FriendsStore.shared.refresh() }
+            }
+        }
         .onChange(of: detailFlight?.id) { _, _ in
             if let f = detailFlight { controller.focus(on: f) }
         }
@@ -164,6 +173,30 @@ struct ArcRootView: View {
             controller.showGate(lat: target.lat, lon: target.lon, label: target.label)
             detailDetent = .medium
             if watching { startPlaneWatch(flight) }
+        }
+    }
+
+    /// "Terminal Map": the in-app airport view. Dives the shared map onto the
+    /// contextually relevant airport (departure before the trip, arrival
+    /// after) in satellite imagery, renders every OSM gate, highlights the
+    /// user's own, and shrinks the detail sheet so the map is the star.
+    private func showAirportView(_ flight: Flight) {
+        let upcoming = flight.isUpcoming
+        let iata = upcoming ? flight.departureIATA : flight.arrivalIATA
+        let lat = upcoming ? flight.departureLat : flight.arrivalLat
+        let lon = upcoming ? flight.departureLon : flight.arrivalLon
+        let myGate = upcoming ? flight.departureGate : flight.arrivalGate
+        let name = ReferenceData.shared.airport(iata)?.name ?? iata
+        Task {
+            let osm = await FlightAPIClient.shared.gates(iata: iata, lat: lat, lon: lon)
+            let matched = myGate.flatMap { FlightAPIClient.matchGate(osm, to: $0) }
+            let gates = osm.map {
+                MapController.AirportGate(
+                    ref: $0.ref, lat: $0.lat, lon: $0.lon,
+                    highlighted: $0.ref == matched?.ref)
+            }
+            controller.showAirport(iata: iata, name: name, lat: lat, lon: lon, gates: gates)
+            detailDetent = .medium
         }
     }
 
