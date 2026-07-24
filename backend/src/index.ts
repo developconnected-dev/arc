@@ -251,6 +251,7 @@ export default {
     }
 
     if (url.pathname === "/health") {
+      const budget = env.SUPABASE_SERVICE_KEY ? await budgetRow(env) : null;
       return Response.json({
         ok: true,
         providers: {
@@ -258,7 +259,13 @@ export default {
           airlabs: !!env.AIRLABS_KEY,
           opensky: true,
           waitport: true,
-        }
+        },
+        budget: budget ? {
+          month: budget.month,
+          adb_cron: `${budget.adb_cron}/${ADB_CRON_BUDGET}`,
+          adb_interactive: `${budget.adb_interactive}/${ADB_INTERACTIVE_BUDGET}`,
+          airlabs: `${budget.airlabs_calls}/${AIRLABS_BUDGET}`,
+        } : null,
       }, { headers: cors });
     }
 
@@ -268,21 +275,12 @@ export default {
       const date = url.searchParams.get("date");
       if (!number) return new Response("missing number", { status: 400 });
 
-      // 1. Try AeroDataBox first (if key available and not exhausted)
-      if (env.RAPIDAPI_KEY) {
-        try {
-          const path = `/flights/number/${encodeURIComponent(number)}${date ? `/${date}` : ""}` +
-            `?withAircraftImage=false&withLocation=true`;
-          const res = await adbFetch(path, env);
-          if (res.ok) {
-            const raw = (await res.json()) as unknown;
-            const legs = Array.isArray(raw) ? raw : [];
-            if (legs.length > 0) {
-              return Response.json(legs.map((l) => mapLeg(l as Record<string, any>)), { headers: cors });
-            }
-          }
-          // If 429 (rate limited) or other error, fall through to AirLabs
-        } catch { /* fall through */ }
+      // 1. Shared cache → AeroDataBox (budget-guarded). One answer serves
+      // every family device, the cron, and share pages for its TTL.
+      const day = date ?? new Date().toISOString().slice(0, 10);
+      const { legs: cachedLegs, cache } = await fetchLegsCached(env, "flight", number, day, "interactive");
+      if (cachedLegs && cachedLegs.length > 0) {
+        return Response.json(cachedLegs, { headers: { ...cors, "x-arc-cache": cache } });
       }
 
       // 2. Fallback: AirLabs. Its /flight endpoint is REAL-TIME ONLY — it
@@ -301,7 +299,10 @@ export default {
             results = (await airlabsScheduleSearch(number, env)).filter(matchesDate);
           }
           if (results.length > 0) {
-            return Response.json(results, { headers: cors });
+            await cacheAirlabsResult(env, number, day, results as Record<string, unknown>[]);
+            const b = await budgetRow(env);
+            await budgetBump(env, "airlabs_calls", (b["airlabs_calls"] as number) ?? 0);
+            return Response.json(results, { headers: { ...cors, "x-arc-cache": "airlabs" } });
           }
         } catch { /* fall through */ }
       }
@@ -313,18 +314,11 @@ export default {
     if (url.pathname === "/inbound") {
       const reg = url.searchParams.get("reg");
       const date = url.searchParams.get("date");
-      if (!reg || !env.RAPIDAPI_KEY) return Response.json(null, { headers: cors });
-      try {
-        const path = `/flights/reg/${encodeURIComponent(reg)}${date ? `/${date}` : ""}?withLocation=true`;
-        const res = await adbFetch(path, env);
-        if (!res.ok) return Response.json(null, { headers: cors });
-        const raw = (await res.json()) as unknown;
-        const legs = (Array.isArray(raw) ? raw : []).map((l) => mapLeg(l as Record<string, any>));
-        // the leg immediately before the queried flight is the inbound
-        return Response.json(legs, { headers: cors });
-      } catch {
-        return Response.json(null, { status: 502, headers: cors });
-      }
+      if (!reg) return Response.json(null, { headers: cors });
+      const regDay = date ?? new Date().toISOString().slice(0, 10);
+      const { legs, cache } = await fetchLegsCached(env, "reg", reg, regDay, "interactive");
+      // the leg immediately before the queried flight is the inbound
+      return Response.json(legs ?? [], { headers: { ...cors, "x-arc-cache": cache } });
     }
 
     // ── /position?icao24=4b1815 ── live position (OpenSky, free)
@@ -734,6 +728,117 @@ function synthesizeAirportStatus(w: AirportWeather | null, faa: FaaDelay | null)
   return { severity, headline, reasons };
 }
 
+// ── API economy: shared response cache + monthly provider budget ──
+//
+// One provider answer serves every consumer (each device, the LA cron,
+// share pages) for a phase-aware TTL; a monthly budget with an interactive
+// reserve caps total burn. Stale cache beats no data; the caller's own
+// fallbacks (AirLabs, clock healing) cover the rest.
+
+const ADB_CRON_BUDGET = 250;          // per month
+const ADB_INTERACTIVE_BUDGET = 150;   // per month — reconnects/searches reserve
+const AIRLABS_BUDGET = 800;           // per month (plan is 1k)
+
+function monthKey(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
+async function budgetRow(env: Env): Promise<Record<string, any>> {
+  const m = monthKey();
+  const rows = await sbSelect(env, `/api_budget?month=eq.${m}&select=*`);
+  if (rows.length) return rows[0];
+  await sbService(env, "POST", "/api_budget?on_conflict=month", { month: m });
+  return { month: m, adb_cron: 0, adb_interactive: 0, airlabs_calls: 0 };
+}
+
+async function budgetBump(env: Env, field: string, current: number): Promise<void> {
+  await sbService(env, "PATCH", `/api_budget?month=eq.${monthKey()}`, { [field]: current + 1 });
+}
+
+/// Phase-aware freshness: how long a cached answer stays good, judged from
+/// the flight's own times. Tight only in the windows where data actually
+/// moves (boarding/departure, arrival); loose in cruise and the far future.
+function cacheTTLms(legs: Record<string, any>[]): number {
+  const leg = legs[0];
+  if (!leg) return 10 * 60_000;
+  const delayMs = ((leg["delay"] as number) ?? 0) * 60_000;
+  const dep = leg["dep_actual"] ? Date.parse(String(leg["dep_actual"]))
+    : Date.parse(String(leg["dep_scheduled"] ?? "")) + delayMs;
+  const arr = leg["arr_actual"] ? Date.parse(String(leg["arr_actual"]))
+    : Date.parse(String(leg["arr_scheduled"] ?? "")) + delayMs;
+  const now = Date.now();
+  if (isNaN(dep) || isNaN(arr)) return 10 * 60_000;
+  if (now < dep - 24 * 3600_000) return 6 * 3600_000;       // far future
+  if (now < dep - 3 * 3600_000) return 30 * 60_000;         // day-of
+  if (now < dep + 20 * 60_000) return 5 * 60_000;           // boarding/departure
+  if (now < arr - 45 * 60_000) return 15 * 60_000;          // cruise
+  if (now < arr + 45 * 60_000) return 2 * 60_000;           // arrival window
+  return 24 * 3600_000;                                     // flight is history
+}
+
+interface CachedFetch {
+  legs: Record<string, unknown>[] | null;
+  cache: "hit" | "stale" | "miss" | "none";
+}
+
+/// Cache-first, budget-guarded provider fetch. `kind` picks the ADB endpoint
+/// (flight number vs tail registration); results are stored ALREADY MAPPED
+/// so every consumer sees one provider-agnostic shape.
+async function fetchLegsCached(
+  env: Env, kind: "flight" | "reg", ident: string, date: string,
+  source: "cron" | "interactive"
+): Promise<CachedFetch> {
+  const key = `${kind}|${ident.toUpperCase()}|${date}`;
+  const rows = await sbSelect(env, `/flight_cache?key=eq.${encodeURIComponent(key)}&select=*`);
+  const cached = rows[0];
+  const cachedLegs = cached ? (cached.payload as Record<string, unknown>[]) : null;
+  if (cached && cachedLegs) {
+    const age = Date.now() - Date.parse(String(cached.fetched_at));
+    if (age < cacheTTLms(cachedLegs as Record<string, any>[])) {
+      return { legs: cachedLegs, cache: "hit" };
+    }
+  }
+
+  // Needs a refresh — is there budget for this caller class?
+  if (!env.RAPIDAPI_KEY) return { legs: cachedLegs, cache: cachedLegs ? "stale" : "none" };
+  const budget = await budgetRow(env);
+  const field = source === "cron" ? "adb_cron" : "adb_interactive";
+  const limit = source === "cron" ? ADB_CRON_BUDGET : ADB_INTERACTIVE_BUDGET;
+  const used = (budget[field] as number) ?? 0;
+  if (used >= limit) {
+    return { legs: cachedLegs, cache: cachedLegs ? "stale" : "none" };
+  }
+
+  try {
+    const path = kind === "flight"
+      ? `/flights/number/${encodeURIComponent(ident)}/${date}?withAircraftImage=false&withLocation=true`
+      : `/flights/reg/${encodeURIComponent(ident)}/${date}?withLocation=true`;
+    const res = await adbFetch(path, env);
+    await budgetBump(env, field, used);   // count attempts, not just successes — 429s burn real quota state
+    if (res.ok) {
+      const raw = (await res.json()) as unknown;
+      const legs = (Array.isArray(raw) ? raw : []).map((l) => mapLeg(l as Record<string, any>));
+      if (legs.length > 0) {
+        await sbService(env, "POST", "/flight_cache?on_conflict=key", {
+          key, payload: legs, provider: "adb", fetched_at: new Date().toISOString(),
+        });
+        return { legs, cache: "miss" };
+      }
+    }
+  } catch { /* fall through to stale/none */ }
+  return { legs: cachedLegs, cache: cachedLegs ? "stale" : "none" };
+}
+
+/// Store an AirLabs-served answer in the same cache (dedupes its 1k/month
+/// quota too) — call after a successful AirLabs fallback.
+async function cacheAirlabsResult(env: Env, ident: string, date: string,
+                                  legs: Record<string, unknown>[]): Promise<void> {
+  const key = `flight|${ident.toUpperCase()}|${date}`;
+  await sbService(env, "POST", "/flight_cache?on_conflict=key", {
+    key, payload: legs, provider: "airlabs", fetched_at: new Date().toISOString(),
+  });
+}
+
 // ── Live Activity cron internals ──
 
 async function sbService(env: Env, method: string, path: string, body?: unknown): Promise<Response> {
@@ -810,42 +915,55 @@ async function runLiveActivityCron(env: Env): Promise<void> {
   }
 }
 
+/// How often the cron re-consults the provider, by flight phase. Progress
+/// ticks between refreshes cost nothing — they're computed from stored
+/// times. Only the windows where data really moves get tight cadence.
+function cronRefreshIntervalMs(depMs: number, arrMs: number, now: number): number {
+  if (now < depMs + 20 * 60_000) return 10 * 60_000;        // pre-dep + departure
+  if (now < arrMs - 45 * 60_000) return 30 * 60_000;        // cruise
+  return 10 * 60_000;                                        // arrival window
+}
+
 async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   const now = Date.now();
   const prior = row.last_state ?? {};
   let flight: Record<string, any> | null = prior.flight ?? null;
   const fetchedAt: number = prior.fetched_at ?? 0;
+  const pushedAt: number = prior.pushed_at ?? 0;
+  let lastFetch = fetchedAt;
   let dataChanged = false;
 
-  // Refresh provider data at most every 5 minutes per flight.
-  if (env.RAPIDAPI_KEY && now - fetchedAt > 5 * 60 * 1000) {
-    try {
-      const day = row.scheduled_departure!.slice(0, 10);
-      const res = await adbFetch(
-        `/flights/number/${encodeURIComponent(row.flight_number!)}/${day}?withAircraftImage=false&withLocation=true`,
-        env
+  // Nothing to do far ahead of departure — and no reason to burn quota.
+  const schedDepGuess = new Date(row.scheduled_departure!).getTime();
+  if (now < schedDepGuess - 4 * 60 * 60 * 1000) return;
+
+  // Phase-aware provider refresh through the SHARED cache (source "cron",
+  // capped by its own monthly budget — it can never eat the interactive
+  // reserve that reconnecting devices depend on).
+  const priorDelayMs = ((flight?.["delay"] as number) ?? 0) * 60_000;
+  const knownDep = flight?.["dep_actual"] ? new Date(flight["dep_actual"]).getTime() : schedDepGuess + priorDelayMs;
+  const knownArr = flight?.["arr_actual"] ? new Date(flight["arr_actual"]).getTime()
+    : new Date(row.scheduled_arrival ?? row.scheduled_departure!).getTime() + priorDelayMs;
+  if (now - fetchedAt > cronRefreshIntervalMs(knownDep, knownArr, now)) {
+    const day = row.scheduled_departure!.slice(0, 10);
+    const { legs } = await fetchLegsCached(env, "flight", row.flight_number!, day, "cron");
+    // A flight number can have multiple legs that day — match ours by route.
+    const leg = (legs ?? []).find(l =>
+      l["dep_iata"] === row.departure_iata && l["arr_iata"] === row.arrival_iata
+    ) ?? (legs && legs.length > 0 ? legs[0] : null);
+    if (leg) {
+      dataChanged = !!flight && (
+        leg["status"] !== flight["status"] ||
+        leg["delay"] !== flight["delay"] ||
+        leg["dep_gate"] !== flight["dep_gate"] ||
+        leg["arr_gate"] !== flight["arr_gate"] ||
+        leg["arr_baggage"] !== flight["arr_baggage"]
       );
-      if (res.ok) {
-        const raw = await res.json();
-        const legs = Array.isArray(raw) ? raw : [];
-        // A flight number can have multiple legs that day — match ours by route.
-        const leg = legs.map(l => mapLeg(l as Record<string, any>)).find(l =>
-          l["dep_iata"] === row.departure_iata && l["arr_iata"] === row.arrival_iata
-        ) ?? (legs.length > 0 ? mapLeg(legs[0] as Record<string, any>) : null);
-        if (leg) {
-          dataChanged = !!flight && (
-            leg["status"] !== flight["status"] ||
-            leg["delay"] !== flight["delay"] ||
-            leg["dep_gate"] !== flight["dep_gate"] ||
-            leg["arr_gate"] !== flight["arr_gate"] ||
-            leg["arr_baggage"] !== flight["arr_baggage"]
-          );
-          flight = leg;
-        }
-      }
-    } catch { /* fly on cached data */ }
+      flight = leg as Record<string, any>;
+    }
+    lastFetch = now;
     await sbService(env, "PATCH", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`, {
-      last_state: { flight, fetched_at: now },
+      last_state: { ...prior, flight, fetched_at: now },
       updated_at: new Date().toISOString(),
     });
   }
@@ -900,9 +1018,14 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
       } : {}),
     },
   };
-  // Priority 10 (immediate) only when something real changed — routine
-  // progress ticks go at 5 to respect the system's update budget.
+  // Routine progress ticks every 5 minutes (they cost no provider calls —
+  // progress comes from stored times); real changes push immediately at
+  // priority 10. Every-minute pushes just drained the system's LA budget.
+  if (!dataChanged && now - pushedAt < 5 * 60 * 1000) return;
   const st = await sendLiveActivityPush(env, row.token, row.apns_env, APP_BUNDLE_ID, payload, dataChanged ? 10 : 5);
+  await sbService(env, "PATCH", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`, {
+    last_state: { ...prior, flight, fetched_at: lastFetch, pushed_at: now },
+  });
   if (st === 410 || st === 400) {
     await sbService(env, "DELETE", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`);
   }

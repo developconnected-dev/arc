@@ -38,10 +38,19 @@ final class FlightTracker: ObservableObject {
 
                     let hoursUntilDep = flight.scheduledDeparture.timeIntervalSince(now) / 3600
 
-                    // Smart polling: determine if this flight needs an update now
+                    // Smart polling. Status/ETA barely move mid-cruise — the
+                    // things that visibly change (position, progress) come
+                    // from OpenSky and clock math, both free. Tight cadence
+                    // only where data actually moves: departure window,
+                    // final approach, and just-landed. (The old flat 60s
+                    // in-flight tier was ~480 API calls per long-haul and
+                    // helped kill July's monthly quota.)
                     let pollInterval: TimeInterval
                     if flight.isActive {
-                        pollInterval = 60           // In-flight: every 60s
+                        let minutesToArrival = flight.scheduledArrival
+                            .addingTimeInterval(Double(flight.delayMinutes) * 60)
+                            .timeIntervalSince(now) / 60
+                        pollInterval = minutesToArrival <= 45 ? 2 * 60 : 5 * 60
                     } else if flight.isRecentlyLanded {
                         pollInterval = 120          // Just landed: every 2 min (baggage/gate updates)
                     } else if hoursUntilDep <= 3 {
