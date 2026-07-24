@@ -14,16 +14,15 @@ struct FriendsScreen: View {
         Group {
             if !hasSeenIntro {
                 FriendsIntroView { hasSeenIntro = true }
-            } else {
+            } else if !supabase.isSignedIn {
                 VStack(alignment: .leading, spacing: 0) {
                     header.padding(.horizontal, 20).padding(.top, 4)
-
-                    if !supabase.isSignedIn {
-                        ProfileSetupView()
-                    } else {
-                        FriendsListView()
-                    }
+                    ProfileSetupView()
                 }
+            } else {
+                // Signed in → the Friends' Flights feed, which owns its own
+                // header (title ⇄ expanding search, add-friends, settings).
+                FriendsListView()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -313,76 +312,43 @@ struct NationalityPicker: View {
     }
 }
 
-// MARK: - Friends List
+// MARK: - Friends' Flights feed
 
-/// Owns its own NavigationStack (unlike the setup state) so it can push to
-/// FriendDetailView. Data comes from FriendsStore — the same object the
-/// shared map reads, so this list and the friend bubbles on the globe are
-/// always in sync.
+/// Flighty's Friends' Flights page: one flight-centric feed across all
+/// friends. Header swaps between the title and an expanding search field;
+/// the always-visible Add chip and the avatar filter row sit above the
+/// feed. Owns its own NavigationStack so rows can push FriendDetailView.
 struct FriendsListView: View {
     @ObservedObject private var supabase = ArcSupabase.shared
     @State private var store = FriendsStore.shared
     @State private var showingAddFriend = false
+    @State private var showSettings = false
+    @State private var isSearching = false
+    @State private var searchText = ""
+    @State private var selectedFriendId: String?
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 14) {
-                    if let user = supabase.currentUser { profileCard(user) }
+            VStack(spacing: 0) {
+                headerRow
+                    .padding(.horizontal, 20).padding(.top, 8)
 
-                    if let error = store.lastError {
-                        Text(error).font(.system(size: 13)).foregroundStyle(.secondary)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        filterRow
+                        content
                     }
-
-                    if !store.pending.isEmpty {
-                        sectionHeader("Friend Requests")
-                        ForEach(store.pending, id: \.friendship.id) { item in
-                            requestCard(friendship: item.friendship, user: item.user)
-                        }
-                    }
-
-                    if !store.friends.isEmpty {
-                        HStack {
-                            sectionHeader("Friends")
-                            Button { showingAddFriend = true } label: {
-                                Image(systemName: "person.badge.plus")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(ArcTheme.action)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        ForEach(store.friends) { entry in
-                            NavigationLink { FriendDetailView(entry: entry) } label: {
-                                FriendRow(entry: entry)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-
-                    if store.friends.isEmpty && store.pending.isEmpty && !store.isLoading {
-                        VStack(spacing: 12) {
-                            Spacer().frame(height: 20)
-                            Image(systemName: "person.badge.plus").font(.system(size: 44)).foregroundStyle(.tertiary)
-                            Text("No friends yet").font(.system(size: 16, weight: .semibold)).foregroundStyle(.secondary)
-                            Button { showingAddFriend = true } label: {
-                                Text("Add Friend")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 22).padding(.vertical, 10)
-                                    .background(ArcTheme.action, in: Capsule())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+                    .padding(.top, 12).padding(.bottom, 140)
                 }
-                .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 140)
+                .scrollIndicators(.hidden)
+                .refreshable { await store.refresh() }
             }
-            .scrollIndicators(.hidden)
-            .refreshable { await store.refresh() }
             .toolbarVisibility(.hidden, for: .navigationBar)
             .sheet(isPresented: $showingAddFriend) {
                 AddFriendSheet().presentationDetents([.medium, .large])
             }
+            .sheet(isPresented: $showSettings) { SettingsView() }
             .task { await store.refresh() }
             .alert("You're connected ✈️",
                    isPresented: Binding(get: { store.justRedeemedFriend != nil },
@@ -395,27 +361,180 @@ struct FriendsListView: View {
         }
     }
 
-    // MARK: - Components
+    // MARK: Header (title ⇄ search)
 
-    private func profileCard(_ user: ArcSupabase.ArcUser) -> some View {
-        HStack(spacing: 14) {
-            FriendAvatar(name: user.display_name.isEmpty ? "You" : user.display_name, size: 40)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(user.display_name.isEmpty ? "You" : user.display_name)
-                        .font(.system(size: 15, weight: .semibold))
-                    if let nation = user.nationality {
-                        Text(String.flag(forRegion: nation)).font(.system(size: 14))
+    private var headerRow: some View {
+        HStack(spacing: 10) {
+            if isSearching {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 15, weight: .semibold)).foregroundStyle(.secondary)
+                    TextField("Search flights or friends", text: $searchText)
+                        .font(.system(size: 16))
+                        .focused($searchFocused)
+                        .autocorrectionDisabled()
+                    if !searchText.isEmpty {
+                        Button { searchText = "" } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                        }.buttonStyle(.plain)
                     }
                 }
-                Text("That's you").font(.system(size: 13)).foregroundStyle(.secondary)
-            }
-            Spacer()
-            if let airport = user.home_airport {
-                Text(airport).font(.system(size: 13, weight: .medium, design: .monospaced)).foregroundStyle(ArcTheme.action)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(Color(.secondarySystemFill), in: Capsule())
+                Button("Cancel") {
+                    withAnimation(.spring(duration: 0.3)) { isSearching = false; searchText = "" }
+                }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(ArcTheme.action)
+            } else {
+                Text("Friends' Flights")
+                    .font(.system(size: 28, weight: .heavy))
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                Spacer()
+                Button {
+                    // Searching means "find it anywhere" — drop any friend
+                    // filter so results span the whole feed.
+                    withAnimation(.spring(duration: 0.3)) {
+                        isSearching = true
+                        selectedFriendId = nil
+                    }
+                    searchFocused = true
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.primary).frame(width: 36, height: 36)
+                        .background(Color(.secondarySystemFill), in: Circle())
+                }.buttonStyle(.plain)
+                Button { showSettings = true } label: {
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundStyle(Color(.systemGray3), Color(.systemGray5))
+                }.buttonStyle(.plain)
             }
         }
-        .padding(14).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+        .animation(.spring(duration: 0.3), value: isSearching)
+    }
+
+    // MARK: Filter chips (Add · All · one per friend)
+
+    private var filterRow: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                Button { showingAddFriend = true } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "person.badge.plus").font(.system(size: 13, weight: .bold))
+                        Text("Add Friends").font(.system(size: 14, weight: .semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 13).padding(.vertical, 9)
+                    .background(ArcTheme.action, in: Capsule())
+                }.buttonStyle(.plain)
+
+                if !store.friends.isEmpty {
+                    filterChip("All", id: nil)
+                    ForEach(store.friends) { entry in friendChip(entry) }
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private func filterChip(_ label: String, id: String?) -> some View {
+        let selected = selectedFriendId == id
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) { selectedFriendId = id }
+        } label: {
+            Text(label).font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(selected ? Color(.systemBackground) : .primary)
+                .padding(.horizontal, 14).padding(.vertical, 9)
+                .background(selected ? Color.primary : Color(.secondarySystemFill), in: Capsule())
+        }.buttonStyle(.plain)
+    }
+
+    private func friendChip(_ entry: FriendsStore.FriendEntry) -> some View {
+        let selected = selectedFriendId == entry.id
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                selectedFriendId = selected ? nil : entry.id
+            }
+        } label: {
+            HStack(spacing: 6) {
+                FriendAvatar(name: entry.user.display_name, size: 26)
+                Text(entry.user.display_name).font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(selected ? Color(.systemBackground) : .primary)
+            }
+            .padding(.leading, 4).padding(.trailing, 13).padding(.vertical, 4)
+            .background(selected ? Color.primary : Color(.secondarySystemFill), in: Capsule())
+        }.buttonStyle(.plain)
+    }
+
+    // MARK: Feed
+
+    private var filteredFeed: [FriendsStore.FeedItem] {
+        var items = store.feed
+        if let id = selectedFriendId { items = items.filter { $0.user.id == id } }
+        let q = searchText.trimmingCharacters(in: .whitespaces)
+        if !q.isEmpty {
+            items = items.filter { item in
+                [item.user.display_name, item.flight.flight_number,
+                 item.flight.departure_city, item.flight.arrival_city,
+                 item.flight.departure_iata, item.flight.arrival_iata]
+                    .contains { $0.localizedCaseInsensitiveContains(q) }
+            }
+        }
+        return items
+    }
+
+    @ViewBuilder private var content: some View {
+        if let error = store.lastError {
+            Text(error).font(.system(size: 13)).foregroundStyle(.secondary)
+                .padding(.horizontal, 20)
+        }
+
+        if !store.pending.isEmpty {
+            VStack(spacing: 10) {
+                ForEach(store.pending, id: \.friendship.id) { item in
+                    requestCard(friendship: item.friendship, user: item.user)
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+
+        let items = filteredFeed
+        if !items.isEmpty {
+            LazyVStack(spacing: 0) {
+                ForEach(items) { item in
+                    NavigationLink { FriendDetailView(entry: entry(for: item)) } label: {
+                        FriendFlightRow(item: item)
+                    }
+                    .buttonStyle(.plain)
+                    Divider().padding(.leading, 84)
+                }
+            }
+        } else if store.friends.isEmpty && store.pending.isEmpty && !store.isLoading {
+            VStack(spacing: 12) {
+                Spacer().frame(height: 30)
+                Image(systemName: "person.2.wave.2").font(.system(size: 44)).foregroundStyle(.tertiary)
+                Text("No friends yet").font(.system(size: 16, weight: .semibold)).foregroundStyle(.secondary)
+                Text("Share an invite link — connecting takes one tap.")
+                    .font(.system(size: 13)).foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity)
+        } else if !store.isLoading {
+            VStack(spacing: 10) {
+                Spacer().frame(height: 30)
+                Image(systemName: "airplane.circle").font(.system(size: 40)).foregroundStyle(.tertiary)
+                Text(searchText.isEmpty ? "No flights right now" : "No flights match \"\(searchText)\"")
+                    .font(.system(size: 15, weight: .semibold)).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func entry(for item: FriendsStore.FeedItem) -> FriendsStore.FriendEntry {
+        store.friends.first { $0.id == item.user.id }
+            ?? FriendsStore.FriendEntry(friendshipId: "", user: item.user, flights: [item.flight])
     }
 
     private func requestCard(friendship: ArcSupabase.Friendship, user: ArcSupabase.ArcUser) -> some View {
@@ -438,74 +557,94 @@ struct FriendsListView: View {
         }
         .padding(14).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
     }
-
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .textCase(.uppercase).tracking(0.8)
-    }
 }
 
-/// One friend, alive: avatar, name, and what their spotlight flight is doing
-/// RIGHT NOW — with a live progress bar while they're in the air.
-struct FriendRow: View {
-    let entry: FriendsStore.FriendEntry
+/// One friend-flight in the feed, styled like a My Flights row with the
+/// friend's identity on the left: avatar + a tiny live-status caption.
+struct FriendFlightRow: View {
+    let item: FriendsStore.FeedItem
+
+    private var flight: ArcSupabase.SharedFlight { item.flight }
+    private var airborne: Bool { FriendFlightMath.isAirborne(flight) }
+    private var tint: Color { flight.delay_minutes > 0 ? ArcTheme.late : ArcTheme.onTime }
 
     var body: some View {
-        let flight = entry.spotlight
-        HStack(spacing: 14) {
-            FriendAvatar(name: entry.user.display_name, size: 40)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(entry.user.display_name).font(.system(size: 15, weight: .semibold))
-                    if let nation = entry.user.nationality {
-                        Text(String.flag(forRegion: nation)).font(.system(size: 13))
-                    }
-                }
-                if let f = flight {
-                    Text("\(f.departure_iata) → \(f.arrival_iata) · \(f.flight_number)")
-                        .font(.system(size: 13)).foregroundStyle(.secondary)
-                    if FriendFlightMath.isAirborne(f) {
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(Color(.separator)).frame(height: 3)
-                                Capsule().fill(ArcTheme.onTime)
-                                    .frame(width: geo.size.width * FriendFlightMath.progress(f), height: 3)
-                            }
-                        }
-                        .frame(height: 3)
-                        .padding(.top, 2)
-                    }
-                } else {
-                    Text("No flights right now").font(.system(size: 13)).foregroundStyle(.tertiary)
-                }
+        HStack(alignment: .center, spacing: 14) {
+            VStack(spacing: 4) {
+                FriendAvatar(name: item.user.display_name, size: 46)
+                Text(statusMini)
+                    .font(.system(size: 9, weight: .heavy)).tracking(0.5)
+                    .foregroundStyle(airborne ? ArcTheme.action : .secondary)
+                    .lineLimit(1)
             }
-            Spacer()
-            if let f = flight {
-                chipView(FriendFlightMath.chip(for: f))
-            } else {
-                Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(.tertiary)
+            .frame(width: 56)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    AirlineLogoView(iata: String(flight.flight_number.prefix(2)), size: 18)
+                    Text(flight.flight_number)
+                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Text(contextLine)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(contextColor)
+                        .lineLimit(1)
+                }
+                (Text(flight.departure_city).font(.system(size: 17, weight: .bold)).foregroundColor(.primary)
+                 + Text(" to ").font(.system(size: 17)).foregroundColor(.secondary)
+                 + Text(flight.arrival_city).font(.system(size: 17, weight: .bold)).foregroundColor(.primary))
+                    .lineLimit(1)
+                HStack(spacing: 16) {
+                    endpointChip(arrow: "arrow.up.right", iata: flight.departure_iata,
+                                 time: FriendFlightMath.localHHmm(FriendFlightMath.departure(flight), at: flight.departure_iata))
+                    endpointChip(arrow: "arrow.down.right", iata: flight.arrival_iata,
+                                 time: FriendFlightMath.localHHmm(FriendFlightMath.arrival(flight), at: flight.arrival_iata))
+                    Spacer(minLength: 0)
+                }
             }
         }
-        .padding(14).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal, 20).padding(.vertical, 12)
+        .contentShape(Rectangle())
     }
 
-    private func chipView(_ chip: (text: String, kind: FriendFlightMath.ChipKind)) -> some View {
-        let (bg, fg): (Color, Color) = switch chip.kind {
-        case .landed: (ArcTheme.gate, .black)
-        case .delayed: (ArcTheme.late, .white)
-        case .inFlight: (ArcTheme.onTime, .white)
-        case .boarding: (ArcTheme.action, .white)
-        case .countdown: (Color(.systemGray5), .primary)
+    private var statusMini: String {
+        if airborne { return "IN AIR" }
+        if flight.status == "landed" { return "LANDED" }
+        if let dep = FriendFlightMath.departure(flight), dep > .now {
+            let mins = Int(dep.timeIntervalSinceNow / 60)
+            return mins >= 60 ? "IN \(mins / 60)H" : "IN \(mins)M"
         }
-        return HStack(spacing: 3) {
-            Image(systemName: chip.kind == .landed ? "airplane.arrival" : "airplane")
+        return "LANDED"
+    }
+
+    private var contextLine: String {
+        if airborne, let arr = FriendFlightMath.arrival(flight) {
+            return "Landing in \(FriendFlightMath.hmLower(Int(arr.timeIntervalSinceNow / 60)))"
+        }
+        if flight.status == "landed" { return "Landed" }
+        if flight.delay_minutes > 0 { return "Departs \(flight.delay_minutes)m late" }
+        if let dep = FriendFlightMath.departure(flight), dep <= .now { return "Landed" }
+        return "On Time"
+    }
+
+    private var contextColor: Color {
+        if flight.delay_minutes > 0 && !airborne && flight.status != "landed" { return ArcTheme.late }
+        if airborne || flight.status != "landed" { return ArcTheme.onTime }
+        return Color(.secondaryLabel)
+    }
+
+    private func endpointChip(arrow: String, iata: String, time: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: arrow)
                 .font(.system(size: 9, weight: .bold))
-            Text(chip.text).font(.system(size: 11, weight: .heavy))
+                .foregroundStyle(.white)
+                .frame(width: 18, height: 18)
+                .background(tint, in: Circle())
+            Text(iata).font(.system(size: 14, weight: .bold)).foregroundStyle(.primary)
+            Text(time)
+                .font(.system(size: 14, weight: .semibold).monospacedDigit())
+                .foregroundStyle(tint)
         }
-        .foregroundStyle(fg)
-        .padding(.horizontal, 8).padding(.vertical, 5)
-        .background(bg, in: Capsule())
     }
 }
 
