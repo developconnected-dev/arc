@@ -6,7 +6,9 @@ struct FlightRowCard: View {
     let flight: Flight
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+        // Countdown block rides the vertical CENTER of the row (Flighty),
+        // not the top edge.
+        HStack(alignment: .center, spacing: 14) {
             countdownBlock
                 .frame(width: 56)
 
@@ -76,14 +78,19 @@ struct FlightRowCard: View {
 
     private var routeRow: some View {
         HStack(spacing: 18) {
-            endpoint(arrow: "arrow.up.right", iata: flight.departureIATA, time: flight.depTimeLocal)
-            endpoint(arrow: "arrow.down.right", iata: flight.arrivalIATA, time: flight.arrTimeLocal)
+            // Effective times: a 43m-late 12:00 shows 12:43 (in red), like
+            // Flighty — not the stale schedule.
+            endpoint(arrow: "arrow.up.right", iata: flight.departureIATA, time: flight.effectiveDepTimeLocal)
+            endpoint(arrow: "arrow.down.right", iata: flight.arrivalIATA, time: flight.effectiveArrTimeLocal)
             Spacer(minLength: 0)
         }
     }
 
     private func endpoint(arrow: String, iata: String, time: String) -> some View {
-        let tint = flight.accentColor
+        // Flighty's chips: green when things are fine, red when late — for
+        // every flight, not just imminent ones. IATA stays neutral; the
+        // circle and the (effective) time carry the color.
+        let tint = flight.isDelayed ? ArcTheme.late : ArcTheme.onTime
         return HStack(spacing: 6) {
             Image(systemName: arrow)
                 .font(.system(size: 9, weight: .bold))
@@ -94,8 +101,8 @@ struct FlightRowCard: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(.primary)
             Text(time)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle((flight.isSoon || flight.isActive || flight.isDelayed) ? tint : .secondary)
+                .font(.system(size: 14, weight: .semibold).monospacedDigit())
+                .foregroundStyle(tint)
         }
     }
 }
