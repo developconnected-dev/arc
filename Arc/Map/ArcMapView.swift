@@ -50,6 +50,7 @@ struct ArcMapView: View {
                             : friend.dep
                     Annotation(friend.name, coordinate: position) {
                         FriendMapBubble(name: friend.name,
+                                        avatarURL: friend.avatarURL,
                                         chipText: friend.chipText,
                                         chipKind: friend.chipKind)
                     }
@@ -190,6 +191,7 @@ struct ArcMapView: View {
     /// Avatar + status pill, the Flighty friends-map bubble.
     private struct FriendMapBubble: View {
         let name: String
+        let avatarURL: String?
         let chipText: String
         let chipKind: FriendFlightMath.ChipKind
 
@@ -202,7 +204,7 @@ struct ArcMapView: View {
             case .countdown: (Color(.systemGray6), .primary)
             }
             VStack(spacing: 3) {
-                FriendAvatar(name: name, size: 34)
+                FriendAvatar(name: name, size: 34, avatarURL: avatarURL)
                     .overlay(Circle().stroke(.white, lineWidth: 2))
                     .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
                 HStack(spacing: 3) {

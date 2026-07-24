@@ -184,6 +184,15 @@ final class ArcSupabase: ObservableObject {
         await loadProfile()
     }
 
+    /// Sets or clears the avatar (a compact data: URL — Memoji sticker or
+    /// photo). Separate from updateProfile so "clear" is expressible.
+    func updateAvatar(dataURL: String?) async throws {
+        guard let uid = currentUser?.id else { return }
+        _ = try await patch(path: "/rest/v1/profiles?id=eq.\(uid)",
+                            body: ["avatar_url": dataURL ?? NSNull()])
+        await loadProfile()
+    }
+
     // MARK: - Friend invites (capability links, Flighty-style)
 
     /// Mints a 48-hour invite link code. Anyone who opens the link and has

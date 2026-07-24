@@ -469,7 +469,7 @@ struct FriendsListView: View {
             }
         } label: {
             HStack(spacing: 6) {
-                FriendAvatar(name: entry.user.display_name, size: 26)
+                FriendAvatar(name: entry.user.display_name, size: 26, avatarURL: entry.user.avatar_url)
                 Text(entry.user.display_name).font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(selected ? Color(.systemBackground) : .primary)
             }
@@ -554,7 +554,7 @@ struct FriendsListView: View {
 
     private func requestCard(friendship: ArcSupabase.Friendship, user: ArcSupabase.ArcUser) -> some View {
         HStack(spacing: 14) {
-            FriendAvatar(name: user.display_name, size: 32)
+            FriendAvatar(name: user.display_name, size: 32, avatarURL: user.avatar_url)
             VStack(alignment: .leading, spacing: 2) {
                 Text(user.display_name).font(.system(size: 15, weight: .semibold))
                 Text("Wants to be friends").font(.system(size: 13)).foregroundStyle(.secondary)
@@ -586,7 +586,7 @@ struct FriendFlightRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
             VStack(spacing: 4) {
-                FriendAvatar(name: item.user.display_name, size: 46)
+                FriendAvatar(name: item.user.display_name, size: 46, avatarURL: item.user.avatar_url)
                 Text(statusMini)
                     .font(.system(size: 9, weight: .heavy)).tracking(0.5)
                     .foregroundStyle(airborne ? ArcTheme.action : .secondary)
@@ -771,7 +771,8 @@ struct AddFriendSheet: View {
         let myName = supabase.currentUser?.display_name ?? "You"
         return HStack(spacing: 0) {
             VStack(spacing: 6) {
-                FriendAvatar(name: myName.isEmpty ? "You" : myName, size: 62)
+                FriendAvatar(name: myName.isEmpty ? "You" : myName, size: 62,
+                             avatarURL: supabase.currentUser?.avatar_url)
                     .overlay(Circle().stroke(.background, lineWidth: 3))
                     .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
                 Text("You").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
@@ -866,7 +867,7 @@ struct FriendDetailView: View {
         ScrollView {
             VStack(spacing: 16) {
                 VStack(spacing: 8) {
-                    FriendAvatar(name: entry.user.display_name, size: 64)
+                    FriendAvatar(name: entry.user.display_name, size: 64, avatarURL: entry.user.avatar_url)
                     HStack(spacing: 8) {
                         Text(entry.user.display_name).font(.system(size: 22, weight: .bold))
                         if let nation = entry.user.nationality {
