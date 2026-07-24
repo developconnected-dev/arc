@@ -165,6 +165,10 @@ struct FlightDetailView: View {
     /// arrival gate.
     private var mapActionsRow: some View {
         HStack(spacing: 10) {
+            // Only rendered when a host wired the closure — a friend's
+            // flight opens this detail without map actions, and a dead
+            // button would be worse than none.
+            if onShowAirport != nil {
             Button {
                 onShowAirport?(flight)
             } label: {
@@ -175,6 +179,7 @@ struct FlightDetailView: View {
                     .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
             }
             .buttonStyle(.plain)
+            }
 
             if flight.isUpcoming, onShowAtGate != nil {
                 Button { onShowAtGate?(flight) } label: {

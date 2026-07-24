@@ -73,6 +73,11 @@ final class FriendsStore {
     var mapOverlays: [FriendMapOverlay] {
         var items = feed
         if let id = mapFilterFriendId { items = items.filter { $0.user.id == id } }
+        // ONE bubble per friend. The feed is priority-sorted (airborne →
+        // upcoming → landed), so the first item per friend is exactly their
+        // ongoing-or-next flight — Anna with two bookings still appears once.
+        var seen = Set<String>()
+        items = items.filter { seen.insert($0.user.id).inserted }
         return items.compactMap { item in
             let f = item.flight
             guard let dlat = f.departure_lat, let dlon = f.departure_lon,
@@ -127,6 +132,39 @@ final class FriendsStore {
         return ranked
             .sorted { ($0.bucket, $0.order) < ($1.bucket, $1.order) }
             .map(\.item)
+    }
+
+    /// A display-only Flight model — NOT inserted into SwiftData — so a
+    /// friend's flight opens the exact same detail screen as the user's own
+    /// flights. Edits made there (seat, notes) simply don't persist, which
+    /// is correct: it isn't your flight.
+    func transientFlight(for item: FeedItem) -> Flight {
+        let f = item.flight
+        let scheduledDep = DateHelpers.parseAPIDate(f.scheduled_departure) ?? .now
+        let scheduledArr = DateHelpers.parseAPIDate(f.scheduled_arrival)
+            ?? scheduledDep.addingTimeInterval(2 * 3600)
+        let flight = Flight(flightNumber: f.flight_number, date: scheduledDep)
+        flight.airline = f.airline
+        flight.airlineICAO = String(f.flight_number.prefix(2))
+        flight.departureIATA = f.departure_iata
+        flight.arrivalIATA = f.arrival_iata
+        flight.departureCity = f.departure_city
+        flight.arrivalCity = f.arrival_city
+        flight.departureLat = f.departure_lat ?? 0
+        flight.departureLon = f.departure_lon ?? 0
+        flight.arrivalLat = f.arrival_lat ?? 0
+        flight.arrivalLon = f.arrival_lon ?? 0
+        flight.scheduledDeparture = scheduledDep
+        flight.scheduledArrival = scheduledArr
+        flight.estimatedArrival = DateHelpers.parseAPIDate(f.estimated_arrival)
+        flight.statusRaw = FlightStatus.heal(rawValue: f.status, scheduledArrival: scheduledArr).rawValue
+        flight.delayMinutes = f.delay_minutes
+        flight.departureGate = f.departure_gate
+        flight.arrivalGate = f.arrival_gate
+        flight.baggageClaim = f.baggage_claim
+        flight.liveLat = f.live_lat
+        flight.liveLon = f.live_lon
+        return flight
     }
 
     /// Both the list (.task) and the map (tab switch) call this — the

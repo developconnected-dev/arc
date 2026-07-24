@@ -45,6 +45,28 @@ final class FriendsFeedTests: XCTestCase {
         XCTAssertEqual(numbers, ["AIR1", "AIR2", "UP1", "UP2", "LANDED"])
     }
 
+    /// Anna with an ongoing AND an upcoming flight gets ONE map bubble —
+    /// for the ongoing one (feed priority) — while the list still shows both.
+    func testMapOverlaysShowOneBubblePerFriend() {
+        let store = FriendsStore()
+        store.friends = [
+            entry("Anna", id: "a", [
+                flight("UP", dep: "2026-07-25T09:00:00.000Z", arr: "2026-07-25T12:00:00.000Z"),
+                flight("AIR", dep: "2026-07-24T09:00:00.000Z", arr: "2026-07-24T15:00:00.000Z", status: "active"),
+            ]),
+            entry("Mike", id: "m", [
+                flight("MUP", dep: "2026-07-24T14:00:00.000Z", arr: "2026-07-24T16:00:00.000Z"),
+            ]),
+        ]
+        // NOTE: overlays use the wall clock; both of Anna's flights bracket
+        // a "now" between them only in real time — assert on structure that
+        // is time-independent: at most one overlay per friend.
+        let overlays = store.mapOverlays
+        let names = overlays.map(\.name)
+        XCTAssertEqual(names.count, Set(names).count, "one bubble per friend")
+        XCTAssertEqual(store.feed(at: now).count, 3, "the feed itself keeps every flight")
+    }
+
     func testFeedExcludesOldCancelledAndFarFuture() {
         let store = FriendsStore()
         store.friends = [
