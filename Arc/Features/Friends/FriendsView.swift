@@ -142,7 +142,7 @@ private struct IntroArc: View {
             p.addQuadCurve(to: CGPoint(x: to.x - from.x, y: to.y - from.y),
                            control: CGPoint(x: (to.x - from.x) / 2 - 20, y: (to.y - from.y) / 2 - 30))
         }
-        .stroke(ArcTheme.routeLine.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [1, 5]))
+        .stroke(ArcTheme.routeLine.opacity(0.75), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [1, 4]))
         .frame(width: 1, height: 1)
         .offset(x: from.x, y: from.y)
     }
@@ -787,7 +787,7 @@ struct AddFriendSheet: View {
                     .overlay(
                         Line()
                             .stroke(ArcTheme.routeLine.opacity(0.7),
-                                    style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [1, 6]))
+                                    style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [1, 4]))
                     )
             }
             .padding(.horizontal, 10)

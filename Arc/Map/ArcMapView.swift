@@ -17,11 +17,21 @@ struct ArcMapView: View {
             // ones sit at the arrival airport (no arc — the trip is done).
             ForEach(friendOverlays) { friend in
                 let gc = GeoMath.greatCircle(from: friend.dep, to: friend.arr)
-                if !friend.landed {
+                // Same grammar as the user's own flights: upcoming = solid
+                // planned line; flying = solid flown part + dotted remainder;
+                // landed = no arc (just the bubble at the arrival airport).
+                if friend.airborne {
+                    let split = min(gc.count - 1, max(0, Int(friend.progress * Double(gc.count - 1))))
+                    MapPolyline(coordinates: Array(gc[0...split]))
+                        .stroke(ArcTheme.routeLine.opacity(0.6),
+                                style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                    MapPolyline(coordinates: Array(gc[split...]))
+                        .stroke(ArcTheme.routeLine.opacity(0.5),
+                                style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [1, 4]))
+                } else if !friend.landed {
                     MapPolyline(coordinates: gc)
-                        .stroke(ArcTheme.routeLine.opacity(friend.airborne ? 0.55 : 0.3),
-                                style: StrokeStyle(lineWidth: 1.5, lineCap: .round,
-                                                   dash: friend.airborne ? [] : [1, 6]))
+                        .stroke(ArcTheme.routeLine.opacity(0.45),
+                                style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                 }
                 if friend.showsBubble {
                     let position: CLLocationCoordinate2D = friend.landed
@@ -118,8 +128,8 @@ struct ArcMapView: View {
                         MapPolyline(coordinates: flown)
                             .stroke(ArcTheme.routeLine, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                         MapPolyline(coordinates: GeoMath.greatCircle(from: current, to: arr))
-                            .stroke(ArcTheme.routeLine.opacity(0.55),
-                                    style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [1, 6]))
+                            .stroke(ArcTheme.routeLine.opacity(0.75),
+                                    style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [1, 4]))
                     } else if flight.isCompleted {
                         // Past, no recorded track: muted great circle.
                         MapPolyline(coordinates: GeoMath.greatCircle(from: dep, to: arr))

@@ -86,6 +86,10 @@ struct ArcRootView: View {
         .onChange(of: friendsStore.focusedRoute) { _, route in
             guard tab == .friends else { return }
             if let route {
+                // Make sure the zoom is actually visible: the tab sheet may
+                // be at full height under the newly presented detail (which
+                // itself opens at the system medium ≈ half screen).
+                detent = .small
                 controller.focusRoute(dep: route.dep, arr: route.arr)
             } else {
                 applyCameraForCurrentTab()
