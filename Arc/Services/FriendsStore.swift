@@ -30,6 +30,25 @@ final class FriendsStore {
     var lastError: String?
     private var lastRefreshAt: Date?
 
+    /// Invite code from an arc://friend/<code> link, waiting for a session.
+    /// (Opening a link can precede profile setup — the code parks here until
+    /// there's a signed-in user to redeem it with.)
+    var pendingInviteCode: String?
+    /// Set after a successful redeem — drives the "You and X are now sharing
+    /// flights" confirmation.
+    var justRedeemedFriend: ArcSupabase.ArcUser?
+
+    func redeemPendingIfPossible() async {
+        guard let code = pendingInviteCode,
+              ArcSupabase.shared.currentUser != nil else { return }
+        pendingInviteCode = nil
+        if let friend = try? await ArcSupabase.shared.redeemInvite(code: code) {
+            justRedeemedFriend = friend
+            lastRefreshAt = nil   // force the next refresh through the throttle
+            await refresh()
+        }
+    }
+
     /// Each friend's spotlight flight as a map overlay — the bubble on the
     /// globe. Airborne friends sit along their route by clock progress (or at
     /// their live ADS-B fix); upcoming/landed friends sit at the airport.

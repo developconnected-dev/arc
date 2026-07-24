@@ -378,6 +378,27 @@ export default {
       return Response.redirect(`${url.origin}/s/${journeyMatch[1]}`, 301);
     }
 
+    // ── /f/:code ── friend-invite landing page. Phone with Arc installed:
+    // "Open in Arc" jumps into the app via arc://friend/<code>. Anyone else
+    // gets the what-is-this pitch (Flighty-style).
+    const inviteMatch = url.pathname.match(/^\/f\/([a-z0-9]+)$/);
+    if (inviteMatch) {
+      const code = inviteMatch[1];
+      const invites = await sbSelect(env,
+        `/friend_invites?code=eq.${encodeURIComponent(code)}&select=inviter,expires_at`);
+      let inviterName: string | null = null;
+      let expired = false;
+      if (invites.length) {
+        expired = !!invites[0].expires_at && Date.parse(invites[0].expires_at) < Date.now();
+        const profs = await sbSelect(env, `/profiles?id=eq.${invites[0].inviter}&select=display_name`);
+        inviterName = profs[0]?.display_name || null;
+      }
+      return new Response(invitePageHTML(code, inviterName, expired), {
+        status: invites.length ? 200 : 404,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
     // ── /security/:iata — airport security wait time ──
     const securityMatch = url.pathname.match(/^\/security\/([A-Z]{3})$/i);
     if (securityMatch) {
@@ -1298,4 +1319,95 @@ if(!D.expired){
   },45000);
 }
 </script></body></html>`;
+}
+
+// ── Friend-invite landing page (/f/:code) ──
+//
+// What a recipient WITHOUT the app sees. Mirrors the in-app intro artwork
+// (globe + avatar bubbles with live pills) in pure CSS, then hands off to
+// the app via the arc:// scheme.
+
+function invitePageHTML(code: string, inviterName: string | null, expired: boolean): string {
+  const name = inviterName ? escHTML(inviterName) : null;
+  const title = !name ? "Invite not found — Arc"
+    : expired ? `${name}'s invite expired — Arc`
+    : `${name} wants to share flights with you — Arc`;
+
+  const heading = !name ? "This invite doesn't exist."
+    : expired ? "This invite has expired."
+    : `${name} wants to share flights with you`;
+
+  const sub = !name
+    ? "The link may have been mistyped — ask your friend to send it again."
+    : expired
+    ? `Invite links live for 48 hours. Ask ${name} for a fresh one — it takes two taps.`
+    : "Automatically see each other's upcoming flights, watch each other fly on the map, and get live updates when flights take off, land, or change. Free and private — no account, no email.";
+
+  const initials = name ? name.split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase() : "?";
+
+  const actions = (!name || expired) ? "" : `
+  <div class="steps">
+    <div class="step"><span class="n">1</span>Get Arc on your iPhone <span class="dim">(ask ${name} — family TestFlight)</span></div>
+    <div class="step"><span class="n">2</span>Open this invite again</div>
+  </div>
+  <a class="cta" href="arc://friend/${code}">Open in Arc</a>
+  <div class="hint">Nothing happening? Arc isn't installed yet — do step 1 first.</div>`;
+
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>${title}</title>
+<meta property="og:title" content="${heading}">
+<meta property="og:description" content="Share flights live on Arc — no account needed.">
+<meta name="theme-color" content="#06080f">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#06080f;color:#e8eefc;font-family:-apple-system,system-ui,sans-serif;min-height:100vh;
+  display:flex;flex-direction:column;align-items:center;padding:28px 22px 40px;overflow-x:hidden}
+.brand{display:flex;align-items:center;gap:9px;align-self:flex-start;margin-bottom:10px}
+.mark{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#0a84ff,#35d0ff);
+  display:flex;align-items:center;justify-content:center;font-size:17px}
+.brand b{font-size:16px;letter-spacing:.24em}
+.hero{position:relative;width:290px;height:250px;margin:18px 0 6px;flex-shrink:0}
+.globe{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:210px;height:210px;border-radius:50%;
+  background:radial-gradient(circle at 32% 28%,#1a52a6,#071a3d 72%);
+  border:1px solid rgba(77,176,255,.35);box-shadow:0 24px 80px rgba(20,80,180,.45)}
+.arc1,.arc2{position:absolute;border:1.5px dashed rgba(77,176,255,.55);border-radius:50%;
+  width:200px;height:200px;left:50%;top:50%;clip-path:inset(0 0 62% 0)}
+.arc1{transform:translate(-50%,-50%) rotate(-24deg)}
+.arc2{transform:translate(-50%,-50%) rotate(38deg)}
+.bub{position:absolute;display:flex;flex-direction:column;align-items:center;gap:5px}
+.av{width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:20px;color:#fff;border:3px solid #06080f;box-shadow:0 8px 22px rgba(0,0,0,.5)}
+.pill{font-size:10px;font-weight:800;letter-spacing:.06em;padding:4px 8px;border-radius:999px;white-space:nowrap}
+.b1{left:8px;top:52px}.b1 .av{background:linear-gradient(135deg,#e05555,#9c2f4e)}
+.b1 .pill{background:#ff453a;color:#fff}
+.b2{right:6px;top:16px}.b2 .av{background:linear-gradient(135deg,#8e6ae0,#5b3fae)}
+.b2 .pill{background:#ffd60a;color:#000}
+.b3{left:50%;transform:translateX(-50%);bottom:0}.b3 .av{background:linear-gradient(135deg,#5f83d8,#38549e)}
+.b3 .pill{background:rgba(255,255,255,.16);color:#dfe9fb}
+h1{font-size:28px;font-weight:800;letter-spacing:-.02em;text-align:center;max-width:340px;margin-top:14px}
+.sub{font-size:15px;line-height:1.55;color:#9aa8c2;text-align:center;max-width:340px;margin-top:12px}
+.steps{margin-top:26px;display:flex;flex-direction:column;gap:12px;width:100%;max-width:340px}
+.step{display:flex;align-items:center;gap:12px;font-size:15px;font-weight:600}
+.step .dim{color:#6c7a94;font-weight:500}
+.n{width:26px;height:26px;border-radius:50%;background:#e8eefc;color:#06080f;font-weight:800;font-size:13px;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.cta{margin-top:24px;width:100%;max-width:340px;text-align:center;background:linear-gradient(135deg,#0a84ff,#35d0ff);
+  color:#fff;text-decoration:none;font-weight:700;font-size:17px;padding:16px;border-radius:999px;
+  box-shadow:0 10px 30px rgba(10,132,255,.35)}
+.hint{margin-top:14px;font-size:12px;color:#6c7a94;text-align:center}
+.foot{margin-top:auto;padding-top:30px;font-size:10px;letter-spacing:.18em;color:#4c5a74;text-transform:uppercase}
+</style></head><body>
+<div class="brand"><div class="mark">✈️</div><b>ARC</b></div>
+<div class="hero">
+  <div class="globe"></div><div class="arc1"></div><div class="arc2"></div>
+  <div class="bub b1"><div class="av">M</div><div class="pill">⚠ DELAYED</div></div>
+  <div class="bub b2"><div class="av">J</div><div class="pill">✈ LANDED</div></div>
+  <div class="bub b3"><div class="av">${initials}</div><div class="pill">✈ IN 8H 55M</div></div>
+</div>
+<h1>${heading}</h1>
+<p class="sub">${sub}</p>
+${actions}
+<div class="foot">Arc · Flights, live, together</div>
+</body></html>`;
 }
