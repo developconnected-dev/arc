@@ -34,9 +34,7 @@ struct FriendsScreen: View {
             Text("Friends").font(ArcTheme.screenTitle)
             Spacer()
             Button { showSettings = true } label: {
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.system(size: 34))
-                    .foregroundStyle(Color(.systemGray3), Color(.systemGray5))
+                ProfileButtonIcon(size: 34)
             }.buttonStyle(.plain)
         }
     }
@@ -415,9 +413,7 @@ struct FriendsListView: View {
                         .background(Color(.secondarySystemFill), in: Circle())
                 }.buttonStyle(.plain)
                 Button { showSettings = true } label: {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 34))
-                        .foregroundStyle(Color(.systemGray3), Color(.systemGray5))
+                    ProfileButtonIcon(size: 34)
                 }.buttonStyle(.plain)
             }
         }

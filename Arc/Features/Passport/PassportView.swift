@@ -142,8 +142,7 @@ struct PassportView: View {
                     .background(Color(.secondarySystemFill), in: Circle())
             }
             Button { showSettings = true } label: {
-                Image(systemName: "person.crop.circle.fill").font(.system(size: 34))
-                    .foregroundStyle(Color(.systemGray3), Color(.systemGray5))
+                ProfileButtonIcon(size: 34)
             }.buttonStyle(.plain)
         }
     }
