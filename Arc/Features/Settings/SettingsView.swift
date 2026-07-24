@@ -1,9 +1,31 @@
 import SwiftUI
 import SwiftData
+import PhotosUI
 
 struct SettingsView: View {
     @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
+    @ObservedObject private var supabase = ArcSupabase.shared
     @State private var exportURL: URL?
+    @State private var profileName = ""
+    @State private var profileRegion = Locale.current.region?.identifier ?? "CH"
+    @State private var showRegionPicker = false
+    @State private var pendingAvatar: String??   // .some(url)=new, .some(nil)=remove, nil=untouched
+    @State private var photoPick: PhotosPickerItem?
+    @State private var profileSaving = false
+    @State private var profileSaved = false
+    @State private var designEmoji = ""
+    @State private var designColor = "#4DABF7"
+
+    static let avatarEmojis = ["😎", "🥳", "🤠", "😺", "🦊", "🐻", "🐼", "🦁",
+                               "🐨", "🐸", "🦄", "🐙", "🌞", "🌸", "🍀", "⚡️",
+                               "✈️", "🌍", "🧳", "🏔️", "🌊", "🍉", "🎧", "🚀"]
+    static let avatarColors = ["#FF6B6B", "#FFA94D", "#FFD43B", "#69DB7C",
+                               "#38D9A9", "#4DABF7", "#9775FA", "#F783AC"]
+
+    private func applyDesign() {
+        guard !designEmoji.isEmpty else { return }
+        pendingAvatar = .some(FriendAvatar.emojiAvatarString(emoji: designEmoji, colorHex: designColor))
+    }
     @AppStorage("apiEndpoint") private var apiEndpoint = "https://arc-backend.owncalai.workers.dev"
     // The anon key is safe to ship in the client — Supabase's security model is
     // Postgres row-level security (see supabase/migrations/001_initial.sql),
@@ -19,6 +41,113 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                // Profile — what friends see
+                if supabase.isSignedIn {
+                    Section {
+                        HStack(spacing: 16) {
+                            FriendAvatar(name: displayedName.isEmpty ? "You" : displayedName,
+                                         size: 64, avatarURL: displayedAvatar)
+                            VStack(alignment: .leading, spacing: 6) {
+                                TextField("Your name", text: $profileName)
+                                    .font(.system(size: 17, weight: .semibold))
+                                Button {
+                                    showRegionPicker = true
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Text(String.flag(forRegion: profileRegion))
+                                        Text(Locale.current.localizedString(forRegionCode: profileRegion) ?? profileRegion)
+                                            .font(.system(size: 14, weight: .semibold))
+                                            .foregroundStyle(ArcTheme.action)
+                                        Image(systemName: "chevron.up.chevron.down")
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.vertical, 4)
+
+                        // The avatar designer: an emoji face on a colored
+                        // disc. Small feature, but it renders natively —
+                        // crisp on every surface including map bubbles.
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("AVATAR").font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.secondary).tracking(0.6)
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 30)), count: 6),
+                                      spacing: 6) {
+                                ForEach(Self.avatarEmojis, id: \.self) { emoji in
+                                    Button {
+                                        designEmoji = emoji
+                                        applyDesign()
+                                    } label: {
+                                        Text(emoji).font(.system(size: 22))
+                                            .frame(maxWidth: .infinity, minHeight: 34)
+                                            .background(designEmoji == emoji ? ArcTheme.action.opacity(0.25) : .clear,
+                                                        in: Circle())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            HStack(spacing: 8) {
+                                ForEach(Self.avatarColors, id: \.self) { hex in
+                                    Button {
+                                        designColor = hex
+                                        applyDesign()
+                                    } label: {
+                                        Circle().fill(Color(hex: hex) ?? .gray)
+                                            .frame(width: 24, height: 24)
+                                            .overlay(Circle().stroke(.primary.opacity(designColor == hex ? 0.9 : 0),
+                                                                     lineWidth: 2))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            TextField("Or type any emoji", text: $designEmoji)
+                                .font(.system(size: 18))
+                                .multilineTextAlignment(.center)
+                                .padding(.vertical, 6)
+                                .background(Color(.secondarySystemFill), in: Capsule())
+                                .onChange(of: designEmoji) { _, new in
+                                    // Keep exactly the LAST character typed
+                                    // (emoji are multi-scalar; suffix keeps
+                                    // them whole).
+                                    if new.count > 1 { designEmoji = String(new.suffix(1)) }
+                                    if !designEmoji.isEmpty { applyDesign() }
+                                }
+                        }
+                        .padding(.vertical, 4)
+
+                        PhotosPicker(selection: $photoPick, matching: .images) {
+                            Label("Use a Photo Instead", systemImage: "photo")
+                                .font(.system(size: 15))
+                        }
+
+                        if displayedAvatar != nil {
+                            Button("Remove Avatar", role: .destructive) {
+                                pendingAvatar = .some(nil)
+                            }
+                            .font(.system(size: 15))
+                        }
+
+                        Button {
+                            Task { await saveProfile() }
+                        } label: {
+                            HStack {
+                                Text(profileSaving ? "Saving…" : profileSaved ? "Saved ✓" : "Save Profile")
+                                    .font(.system(size: 15, weight: .semibold))
+                                Spacer()
+                            }
+                        }
+                        .disabled(profileSaving || !profileDirty)
+                    } header: {
+                        Text("Profile")
+                    } footer: {
+                        Text("Your name, passport, and avatar are what friends see in their app and on the map.")
+                    }
+                }
+
                 // Notifications
                 Section {
                     Toggle("Gate changes", isOn: $notifyGateChanges)
@@ -145,6 +274,60 @@ struct SettingsView: View {
             .scrollContentBackground(.hidden)
             .background(ArcColor.bg)
             .navigationTitle("Settings")
+            .sheet(isPresented: $showRegionPicker) {
+                NationalityPicker(selection: $profileRegion)
+            }
+            .onChange(of: photoPick) { _, item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data),
+                       let url = FriendAvatar.makeDataURL(from: image) {
+                        pendingAvatar = .some(url)
+                    }
+                    photoPick = nil
+                }
+            }
+            .onAppear {
+                if let user = supabase.currentUser {
+                    profileName = user.display_name
+                    if let nation = user.nationality { profileRegion = nation }
+                }
+            }
         }
+    }
+
+    // MARK: - Profile editing
+
+    private var displayedName: String {
+        profileName.isEmpty ? (supabase.currentUser?.display_name ?? "") : profileName
+    }
+
+    /// Pending edit wins; otherwise whatever the profile currently has.
+    private var displayedAvatar: String? {
+        if let pending = pendingAvatar { return pending }
+        return supabase.currentUser?.avatar_url
+    }
+
+    private var profileDirty: Bool {
+        guard let user = supabase.currentUser else { return false }
+        return pendingAvatar != nil
+            || profileName.trimmingCharacters(in: .whitespaces) != user.display_name
+            || profileRegion != (user.nationality ?? "")
+    }
+
+    private func saveProfile() async {
+        profileSaving = true
+        profileSaved = false
+        let name = profileName.trimmingCharacters(in: .whitespaces)
+        try? await ArcSupabase.shared.updateProfile(
+            displayName: name.isEmpty ? nil : name,
+            nationality: profileRegion)
+        if let pending = pendingAvatar {
+            try? await ArcSupabase.shared.updateAvatar(dataURL: pending)
+            pendingAvatar = nil
+        }
+        profileSaving = false
+        profileSaved = true
     }
 }

@@ -76,6 +76,7 @@ final class FriendsStore {
         let live: CLLocationCoordinate2D?
         let airborne: Bool
         let landed: Bool
+        let avatarURL: String?
         /// Every flight draws its arc; only the friend's ongoing-or-next
         /// flight carries the avatar bubble — so a friend with three
         /// bookings shows three arcs but one face.
@@ -119,6 +120,7 @@ final class FriendsStore {
                     ? .init(latitude: f.live_lat!, longitude: f.live_lon!) : nil,
                 airborne: FriendFlightMath.isAirborne(f),
                 landed: chip.kind == .landed,
+                avatarURL: item.user.avatar_url,
                 showsBubble: bubbleOwners.insert(item.user.id).inserted,
                 chipText: chip.text,
                 chipKind: chip.kind)
