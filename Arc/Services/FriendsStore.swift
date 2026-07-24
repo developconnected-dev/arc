@@ -81,6 +81,40 @@ final class FriendsStore {
         }
     }
 
+    /// One friend-flight in the Friends' Flights feed.
+    struct FeedItem: Identifiable {
+        let user: ArcSupabase.ArcUser
+        let flight: ArcSupabase.SharedFlight
+        var id: String { flight.id }
+    }
+
+    /// The flight-centric feed (Flighty's Friends' Flights): every friend's
+    /// relevant flights in one list — airborne first (soonest landing on
+    /// top), then upcoming within 30 days (soonest departure first), then
+    /// flights landed in the last 24h.
+    var feed: [FeedItem] { feed(at: .now) }
+
+    func feed(at now: Date) -> [FeedItem] {
+        var ranked: [(item: FeedItem, bucket: Int, order: TimeInterval)] = []
+        for entry in friends {
+            for f in entry.flights where f.status != "cancelled" {
+                let item = FeedItem(user: entry.user, flight: f)
+                if FriendFlightMath.isAirborne(f, at: now), let arr = FriendFlightMath.arrival(f) {
+                    ranked.append((item, 0, arr.timeIntervalSince1970))
+                } else if let dep = FriendFlightMath.departure(f), dep > now,
+                          dep < now.addingTimeInterval(30 * 86400) {
+                    ranked.append((item, 1, dep.timeIntervalSince1970))
+                } else if let arr = FriendFlightMath.arrival(f), arr <= now,
+                          arr > now.addingTimeInterval(-24 * 3600) {
+                    ranked.append((item, 2, -arr.timeIntervalSince1970))
+                }
+            }
+        }
+        return ranked
+            .sorted { ($0.bucket, $0.order) < ($1.bucket, $1.order) }
+            .map(\.item)
+    }
+
     /// Both the list (.task) and the map (tab switch) call this — the
     /// throttle collapses those into one fetch.
     func refresh() async {
@@ -209,7 +243,23 @@ enum FriendFlightMath {
         return ("ON TIME", .countdown)
     }
 
-    private static func hm(_ minutes: Int) -> String {
+    static func hm(_ minutes: Int) -> String {
         minutes >= 60 ? "\(minutes / 60)H \(minutes % 60)M" : "\(minutes)M"
+    }
+
+    /// "2h 10m" / "45m" — lowercase variant for prose lines ("Landing in …").
+    static func hmLower(_ minutes: Int) -> String {
+        let m = max(0, minutes)
+        return m >= 60 ? "\(m / 60)h \(m % 60)m" : "\(m)m"
+    }
+
+    /// A shared flight's time rendered local to its airport ("09:15" at ZRH),
+    /// matching how every other screen shows flight times.
+    static func localHHmm(_ date: Date?, at iata: String) -> String {
+        guard let date else { return "—" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        formatter.timeZone = ReferenceData.shared.timezone(iata) ?? .current
+        return formatter.string(from: date)
     }
 }
