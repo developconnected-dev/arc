@@ -10,20 +10,28 @@ struct ArcMapView: View {
 
     var body: some View {
         Map(position: $controller.position) {
-            // Friends flying (Friends tab): their route + avatar bubble at
-            // their clock-derived position (live fix when their device sent one).
+            // Friends' flights (Friends tab): route arcs + avatar bubbles
+            // with live status pills, Flighty-style. Airborne friends ride
+            // the route at clock progress (or their live ADS-B fix);
+            // upcoming ones wait at the departure airport; freshly landed
+            // ones sit at the arrival airport (no arc — the trip is done).
             ForEach(friendOverlays) { friend in
                 let gc = GeoMath.greatCircle(from: friend.dep, to: friend.arr)
-                MapPolyline(coordinates: gc)
-                    .stroke(ArcTheme.routeLine.opacity(friend.airborne ? 0.55 : 0.3),
-                            style: StrokeStyle(lineWidth: 1.5, lineCap: .round,
-                                               dash: friend.airborne ? [] : [1, 6]))
-                let position = friend.live
-                    ?? gc[min(gc.count - 1, max(0, Int(friend.progress * Double(gc.count - 1))))]
+                if !friend.landed {
+                    MapPolyline(coordinates: gc)
+                        .stroke(ArcTheme.routeLine.opacity(friend.airborne ? 0.55 : 0.3),
+                                style: StrokeStyle(lineWidth: 1.5, lineCap: .round,
+                                                   dash: friend.airborne ? [] : [1, 6]))
+                }
+                let position: CLLocationCoordinate2D = friend.landed
+                    ? friend.arr
+                    : friend.airborne
+                        ? (friend.live ?? gc[min(gc.count - 1, max(0, Int(friend.progress * Double(gc.count - 1))))])
+                        : friend.dep
                 Annotation(friend.name, coordinate: position) {
-                    FriendAvatar(name: friend.name, size: 30)
-                        .overlay(Circle().stroke(.white, lineWidth: 2))
-                        .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+                    FriendMapBubble(name: friend.name,
+                                    chipText: friend.chipText,
+                                    chipKind: friend.chipKind)
                 }
             }
             if let plane = controller.livePlane {
@@ -154,6 +162,36 @@ struct ArcMapView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.leading, 12).padding(.top, 8)
+            }
+        }
+    }
+
+    /// Avatar + status pill, the Flighty friends-map bubble.
+    private struct FriendMapBubble: View {
+        let name: String
+        let chipText: String
+        let chipKind: FriendFlightMath.ChipKind
+
+        var body: some View {
+            let (bg, fg): (Color, Color) = switch chipKind {
+            case .landed: (ArcTheme.gate, .black)
+            case .delayed: (ArcTheme.late, .white)
+            case .inFlight: (ArcTheme.onTime, .white)
+            case .boarding: (ArcTheme.action, .white)
+            case .countdown: (Color(.systemGray6), .primary)
+            }
+            VStack(spacing: 3) {
+                FriendAvatar(name: name, size: 34)
+                    .overlay(Circle().stroke(.white, lineWidth: 2))
+                    .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+                HStack(spacing: 3) {
+                    Image(systemName: "airplane").font(.system(size: 7, weight: .bold))
+                    Text(chipText).font(.system(size: 9, weight: .heavy))
+                }
+                .foregroundStyle(fg)
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(bg, in: Capsule())
+                .shadow(color: .black.opacity(0.3), radius: 3, y: 1)
             }
         }
     }
