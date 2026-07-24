@@ -15,7 +15,7 @@ struct ArcRootView: View {
     @State private var detailFlight: Flight?
     @State private var detailDetent: PresentationDetent = .large
     @State private var pendingOpenDetail = ProcessInfo.processInfo.arguments.contains("-openDetail")
-    @State private var lastMapMode: Bool?   // true = Passport/hybrid, false = standard
+    @State private var lastCameraTab: ArcTab?
     @State private var planeWatchTask: Task<Void, Never>?
 
     /// Test hooks for headless screenshots.
@@ -31,7 +31,8 @@ struct ArcRootView: View {
                        friendOverlays: tab == .friends ? friendsStore.mapOverlays : [])
                 .ignoresSafeArea()
 
-            if let active = activeFlight, active.liveSpeed != nil || active.liveAltitude != nil {
+            if tab != .friends, let active = activeFlight,
+               active.liveSpeed != nil || active.liveAltitude != nil {
                 speedAltPill(active).frame(maxHeight: .infinity, alignment: .top).padding(.top, 6)
             }
 
@@ -68,8 +69,17 @@ struct ArcRootView: View {
         .onChange(of: tab) { _, newTab in
             updateCameraForTab(newTab)
             if newTab == .friends {
-                Task { await FriendsStore.shared.refresh() }
+                Task {
+                    await FriendsStore.shared.refresh()
+                    // Overlays may have just loaded — frame them.
+                    if tab == .friends { applyCameraForCurrentTab() }
+                }
             }
+        }
+        // Cold launch straight into the Friends tab: the store fills AFTER
+        // the first camera pass — refit when the friend list materializes.
+        .onChange(of: friendsStore.friends.count) { _, _ in
+            if tab == .friends { applyCameraForCurrentTab() }
         }
         // arc://friend/<code> — invite links from the /f/ landing page. The
         // code parks in the store: redeemed immediately when a session
@@ -108,6 +118,9 @@ struct ArcRootView: View {
     private var mapFlights: [Flight] {
         switch tab {
         case .passport: return allFlights.filter { $0.departureLat != 0 && $0.arrivalLat != 0 }
+        // Friends tab: the globe belongs to friends' flights — the user's
+        // own routes would just be noise behind the avatar bubbles.
+        case .friends: return []
         default: return allFlights.filter { $0.isUpcoming || $0.isActive }
         }
     }
@@ -120,22 +133,32 @@ struct ArcRootView: View {
     /// photoreal/hybrid look remains available via the map-style button in
     /// MapControls, where the reload is something the user asked for.
     private func updateCameraForTab(_ t: ArcTab) {
-        let wantsPassport = (t == .passport)
-        guard lastMapMode != wantsPassport else { return }
-        lastMapMode = wantsPassport
-        applyCameraForCurrentMode(wantsPassport)
+        guard lastCameraTab != t else { return }
+        lastCameraTab = t
+        applyCameraForCurrentTab()
     }
 
     /// Called when the underlying flight data changes, or on first appear —
     /// always refits (the route set may genuinely differ).
     private func refitMapForCurrentData() {
-        let wantsPassport = (tab == .passport)
-        lastMapMode = wantsPassport
-        applyCameraForCurrentMode(wantsPassport)
+        lastCameraTab = tab
+        applyCameraForCurrentTab()
     }
 
-    private func applyCameraForCurrentMode(_ passport: Bool) {
-        controller.fitAll(mapFlights, padding: passport ? 2.2 : 1.4)
+    private func applyCameraForCurrentTab() {
+        if tab == .friends {
+            // Frame the friends' routes (own flights are hidden here). The
+            // bottom sheet covers the lower half of the screen, so double
+            // the fitted span and shift the center south — the content lands
+            // in the VISIBLE upper half (same trick as the gate camera).
+            let coords = friendsStore.mapOverlays.flatMap { [$0.dep, $0.arr] }
+            if var region = GeoMath.region(fitting: coords, paddingFactor: 2.6) {
+                region.center.latitude -= region.span.latitudeDelta * 0.25
+                withAnimation(.easeInOut(duration: 0.6)) { controller.position = .region(region) }
+            }
+            return
+        }
+        controller.fitAll(mapFlights, padding: tab == .passport ? 2.2 : 1.4)
     }
 
     private func bootstrapTrackingAndWidgets() {

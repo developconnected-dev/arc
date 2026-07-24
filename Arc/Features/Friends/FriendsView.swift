@@ -326,7 +326,7 @@ struct FriendsListView: View {
     @State private var isSearching = false
     @State private var searchText = ""
     @State private var selectedFriendId: String?
-    @State private var presentedFriend: FriendsStore.FriendEntry?
+    @State private var presentedFlight: Flight?
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -351,9 +351,9 @@ struct FriendsListView: View {
                 AddFriendSheet().presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showSettings) { SettingsView() }
-            .sheet(item: $presentedFriend) { entry in
-                NavigationStack { FriendDetailView(entry: entry) }
-                    .presentationDetents([.medium, .large])
+            .sheet(item: $presentedFlight) { flight in
+                FlightDetailView(flight: flight)
+                    .presentationDetents([.large])
             }
             // The globe mirrors the list's friend filter.
             .onChange(of: selectedFriendId) { _, id in store.mapFilterFriendId = id }
@@ -396,8 +396,8 @@ struct FriendsListView: View {
                 .foregroundStyle(ArcTheme.action)
             } else {
                 Text("Friends' Flights")
-                    .font(.system(size: 28, weight: .heavy))
-                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .font(ArcTheme.screenTitle)
+                    .lineLimit(1).minimumScaleFactor(0.7)
                 Spacer()
                 Button {
                     // Searching means "find it anywhere" — drop any friend
@@ -415,7 +415,7 @@ struct FriendsListView: View {
                 }.buttonStyle(.plain)
                 Button { showSettings = true } label: {
                     Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 32))
+                        .font(.system(size: 34))
                         .foregroundStyle(Color(.systemGray3), Color(.systemGray5))
                 }.buttonStyle(.plain)
             }
@@ -513,7 +513,7 @@ struct FriendsListView: View {
         if !items.isEmpty {
             LazyVStack(spacing: 0) {
                 ForEach(items) { item in
-                    Button { presentedFriend = entry(for: item) } label: {
+                    Button { presentedFlight = store.transientFlight(for: item) } label: {
                         FriendFlightRow(item: item)
                     }
                     .buttonStyle(.plain)
@@ -538,11 +538,6 @@ struct FriendsListView: View {
             }
             .frame(maxWidth: .infinity)
         }
-    }
-
-    private func entry(for item: FriendsStore.FeedItem) -> FriendsStore.FriendEntry {
-        store.friends.first { $0.id == item.user.id }
-            ?? FriendsStore.FriendEntry(friendshipId: "", user: item.user, flights: [item.flight])
     }
 
     private func requestCard(friendship: ArcSupabase.Friendship, user: ArcSupabase.ArcUser) -> some View {
