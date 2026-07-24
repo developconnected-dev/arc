@@ -331,25 +331,26 @@ struct AddFlightView: View {
 
             Divider().padding(.horizontal, 20).padding(.top, 4)
 
-            Button { enterManual(prefillingFrom: date, returningTo: .date) } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "square.and.pencil").font(.system(size: 15, weight: .semibold))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Adding a past flight?").font(.system(size: 15, weight: .semibold))
-                        Text("Live search only covers current schedules — enter it manually instead.")
-                            .font(.system(size: 12)).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .foregroundStyle(ArcTheme.action)
+            dateOptionRow(icon: "clock.arrow.circlepath", title: "Past flight",
+                          sub: "Log a flight you already took — any past date in the calendar works too") {
+                enterManual(prefillingFrom: .now.addingTimeInterval(-86400), returningTo: .date)
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 20).padding(.top, 4)
         }
         .padding(.top, 4)
     }
 
-    private func pick(_ d: Date) { date = d; step = .results; Task { await runSearch() } }
+    /// Live search covers today onward only (the flight-data plan carries no
+    /// history) — a past date routes straight into the manual form, prefilled,
+    /// instead of running a search guaranteed to come back empty.
+    private func pick(_ d: Date) {
+        date = d
+        if Calendar.current.startOfDay(for: d) < Calendar.current.startOfDay(for: .now) {
+            enterManual(prefillingFrom: d, returningTo: .date)
+        } else {
+            step = .results
+            Task { await runSearch() }
+        }
+    }
 
     // MARK: Step 4 — results
 
@@ -453,43 +454,109 @@ struct AddFlightView: View {
         step = .manual
     }
 
+    private var isPastEntry: Bool {
+        Calendar.current.startOfDay(for: manualDepartureDate) < Calendar.current.startOfDay(for: .now)
+    }
+
+    private var manualDurationText: String? {
+        let seconds = Int(manualArrivalDate.timeIntervalSince(manualDepartureDate))
+        guard seconds > 0, seconds < 24 * 3600 else { return nil }
+        return "\(seconds / 3600)h \(seconds % 3600 / 60)m"
+    }
+
+    private func swapAirports() {
+        let from = manualDep
+        manualDep = manualArr
+        manualArr = from
+    }
+
+    private func sectionLabel(_ text: String, icon: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).font(.system(size: 11, weight: .bold))
+            Text(text).font(.system(size: 12, weight: .semibold)).tracking(0.6)
+        }
+        .foregroundStyle(.secondary)
+    }
+
     private var manualStep: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("FLIGHT NUMBER").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-                TextField("e.g. LX1413", text: $manualNumber)
-                    .font(.system(size: 17, weight: .semibold))
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .padding(14)
-                    .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 12))
-            }
-
-            HStack(spacing: 12) {
-                AirportField(
-                    title: "FROM", airport: manualDep, isActive: activeAirportField == .from,
-                    query: $airportQuery,
-                    onActivate: { activate(.from) },
-                    onSelect: { a in manualDep = a; activeAirportField = nil; airportQuery = "" }
-                )
-                AirportField(
-                    title: "TO", airport: manualArr, isActive: activeAirportField == .to,
-                    query: $airportQuery,
-                    onActivate: { activate(.to) },
-                    onSelect: { a in manualArr = a; activeAirportField = nil; airportQuery = "" }
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                dateTimeRow(label: "DEPARTS", date: $manualDepartureDate) { new in
-                    if manualArrivalDate < new { manualArrivalDate = new.addingTimeInterval(2 * 3600) }
-                    if !manualStatusTouched { manualStatus = new < .now ? .landed : .scheduled }
+        VStack(alignment: .leading, spacing: 20) {
+            if isPastEntry {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.arrow.circlepath").font(.system(size: 11, weight: .bold))
+                    Text("LOGGING A PAST FLIGHT").font(.system(size: 11, weight: .heavy)).tracking(0.8)
                 }
-                dateTimeRow(label: "ARRIVES", date: $manualArrivalDate, onChange: nil)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 11).padding(.vertical, 6)
+                .background(Color(.secondarySystemFill), in: Capsule())
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("STATUS").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                sectionLabel("FLIGHT NUMBER", icon: "number")
+                HStack(spacing: 10) {
+                    AirlineLogoView(iata: String(manualNumber.uppercased().prefix(2)), size: 30)
+                    TextField("e.g. LX1413", text: $manualNumber)
+                        .font(.system(size: 22, weight: .heavy))
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                }
+                .padding(14)
+                .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 14))
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                sectionLabel("ROUTE", icon: "airplane")
+                HStack(alignment: .top, spacing: 8) {
+                    AirportField(
+                        title: "FROM", airport: manualDep, isActive: activeAirportField == .from,
+                        query: $airportQuery,
+                        onActivate: { activate(.from) },
+                        onSelect: { a in manualDep = a; activeAirportField = nil; airportQuery = "" }
+                    )
+                    Button { swapAirports() } label: {
+                        Image(systemName: "arrow.left.arrow.right")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(ArcTheme.action)
+                            .frame(width: 30, height: 30)
+                            .background(Color(.secondarySystemFill), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 20)
+                    .disabled(manualDep == nil && manualArr == nil)
+                    AirportField(
+                        title: "TO", airport: manualArr, isActive: activeAirportField == .to,
+                        query: $airportQuery,
+                        onActivate: { activate(.to) },
+                        onSelect: { a in manualArr = a; activeAirportField = nil; airportQuery = "" }
+                    )
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                sectionLabel("TIMES · LOCAL TO EACH AIRPORT", icon: "clock")
+                VStack(spacing: 0) {
+                    manualTimeRow(label: "Departs", date: $manualDepartureDate) { new in
+                        if manualArrivalDate < new { manualArrivalDate = new.addingTimeInterval(2 * 3600) }
+                        if !manualStatusTouched { manualStatus = new < .now ? .landed : .scheduled }
+                    }
+                    Divider().padding(.leading, 14)
+                    manualTimeRow(label: "Arrives", date: $manualArrivalDate, onChange: nil)
+                    if let duration = manualDurationText {
+                        Divider().padding(.leading, 14)
+                        HStack {
+                            Text("Duration").font(.system(size: 13)).foregroundStyle(.secondary)
+                            Spacer()
+                            Text(duration)
+                                .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                    }
+                }
+                .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 14))
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                sectionLabel("STATUS", icon: "checkmark.circle")
                 Picker("Status", selection: Binding(
                     get: { manualStatus },
                     set: { manualStatus = $0; manualStatusTouched = true }
@@ -501,13 +568,17 @@ struct AddFlightView: View {
                 .pickerStyle(.segmented)
             }
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("AIRCRAFT (OPTIONAL)").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-                TextField("e.g. Airbus A320neo", text: $manualAircraft)
-                    .padding(12).background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 10))
-                TextField("Registration, e.g. HB-JCA", text: $manualRegistration)
-                    .textInputAutocapitalization(.characters).autocorrectionDisabled()
-                    .padding(12).background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 8) {
+                sectionLabel("AIRCRAFT · OPTIONAL", icon: "airplane.circle")
+                VStack(spacing: 0) {
+                    TextField("Type, e.g. Airbus A320neo", text: $manualAircraft)
+                        .padding(.horizontal, 14).padding(.vertical, 12)
+                    Divider().padding(.leading, 14)
+                    TextField("Registration, e.g. HB-JCA", text: $manualRegistration)
+                        .textInputAutocapitalization(.characters).autocorrectionDisabled()
+                        .padding(.horizontal, 14).padding(.vertical, 12)
+                }
+                .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 14))
             }
 
             if let addError {
@@ -523,7 +594,8 @@ struct AddFlightView: View {
             Button(action: addManual) {
                 HStack {
                     Spacer()
-                    Text("Add Flight").font(.system(size: 17, weight: .semibold))
+                    Text(isPastEntry ? "Log Past Flight" : "Add Flight")
+                        .font(.system(size: 17, weight: .semibold))
                     Spacer()
                 }
                 .foregroundStyle(.white)
@@ -536,21 +608,20 @@ struct AddFlightView: View {
         .padding(.horizontal, 20).padding(.top, 4)
     }
 
-    private func activate(_ field: AirportFieldKind) {
-        activeAirportField = (activeAirportField == field) ? nil : field
-        airportQuery = ""
-    }
-
-    private func dateTimeRow(label: String, date: Binding<Date>, onChange: ((Date) -> Void)?) -> some View {
+    private func manualTimeRow(label: String, date: Binding<Date>, onChange: ((Date) -> Void)?) -> some View {
         HStack {
-            Text(label).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            Text(label).font(.system(size: 15, weight: .semibold))
             Spacer()
             DatePicker("", selection: date, displayedComponents: [.date, .hourAndMinute])
                 .labelsHidden()
                 .onChange(of: date.wrappedValue) { _, new in onChange?(new) }
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 14).padding(.vertical, 8)
+    }
+
+    private func activate(_ field: AirportFieldKind) {
+        activeAirportField = (activeAirportField == field) ? nil : field
+        airportQuery = ""
     }
 
     private var canAddManual: Bool {

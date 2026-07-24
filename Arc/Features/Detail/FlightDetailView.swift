@@ -133,6 +133,12 @@ struct FlightDetailView: View {
         if flight.isActive { return "Live tracking active" }
         guard flight.isUpcoming, flight.aircraftRegistration != nil else { return nil }
         if !flight.inboundChecked { return "Checking inbound aircraft" }
+        // The best possible pre-departure news (Flighty parity): the tail
+        // that flies YOUR leg is already on the ground at your airport.
+        if let leg = flight.rotationLegs.last,
+           leg.status == "landed" || (leg.effectiveArrival.map { $0 <= .now } ?? false) {
+            return "Inbound aircraft has arrived"
+        }
         if flight.inboundDelayMinutes > 0 { return "Inbound aircraft is \(flight.inboundDelayMinutes)m late" }
         if flight.inboundFlightNumber != nil { return "Inbound aircraft on schedule" }
         return nil
@@ -230,7 +236,9 @@ struct FlightDetailView: View {
                                 .strikethrough().foregroundStyle(.secondary)
                         }
                     }
-                    Text("\(statusText) • \(relText)")
+                    // Completed flights drop the relative clock ("39d 8h ago"
+                    // says nothing useful about a flight already flown).
+                    Text(flight.isCompleted ? statusText : "\(statusText) • \(relText)")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(flight.bannerColor)
                 }
