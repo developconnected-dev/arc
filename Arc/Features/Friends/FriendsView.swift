@@ -326,11 +326,13 @@ struct FriendsListView: View {
     @State private var isSearching = false
     @State private var searchText = ""
     @State private var selectedFriendId: String?
+    @State private var presentedFriend: FriendsStore.FriendEntry?
     @FocusState private var searchFocused: Bool
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
+        // No NavigationStack here: it paints an opaque system background
+        // over the bottom-sheet material. Friend detail presents as a sheet.
+        VStack(spacing: 0) {
                 headerRow
                     .padding(.horizontal, 20).padding(.top, 8)
 
@@ -349,15 +351,21 @@ struct FriendsListView: View {
                 AddFriendSheet().presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showSettings) { SettingsView() }
+            .sheet(item: $presentedFriend) { entry in
+                NavigationStack { FriendDetailView(entry: entry) }
+                    .presentationDetents([.medium, .large])
+            }
+            // The globe mirrors the list's friend filter.
+            .onChange(of: selectedFriendId) { _, id in store.mapFilterFriendId = id }
+            .onDisappear { store.mapFilterFriendId = nil }
             .task { await store.refresh() }
             .alert("You're connected ✈️",
                    isPresented: Binding(get: { store.justRedeemedFriend != nil },
                                         set: { if !$0 { store.justRedeemedFriend = nil } }),
                    presenting: store.justRedeemedFriend) { _ in
                 Button("Nice") { store.justRedeemedFriend = nil }
-            } message: { friend in
-                Text("You and \(friend.display_name) now share flights automatically.")
-            }
+        } message: { friend in
+            Text("You and \(friend.display_name) now share flights automatically.")
         }
     }
 
@@ -505,7 +513,7 @@ struct FriendsListView: View {
         if !items.isEmpty {
             LazyVStack(spacing: 0) {
                 ForEach(items) { item in
-                    NavigationLink { FriendDetailView(entry: entry(for: item)) } label: {
+                    Button { presentedFriend = entry(for: item) } label: {
                         FriendFlightRow(item: item)
                     }
                     .buttonStyle(.plain)

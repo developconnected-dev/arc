@@ -49,9 +49,14 @@ final class FriendsStore {
         }
     }
 
-    /// Each friend's spotlight flight as a map overlay — the bubble on the
-    /// globe. Airborne friends sit along their route by clock progress (or at
-    /// their live ADS-B fix); upcoming/landed friends sit at the airport.
+    /// Selected friend filter from the Friends' Flights list — the map
+    /// mirrors it, so filtering to Anna also filters the globe to Anna.
+    var mapFilterFriendId: String?
+
+    /// A friend-flight as a map bubble (Flighty): airborne rides the route
+    /// at clock progress (or the live ADS-B fix), upcoming sits at the
+    /// departure airport, freshly landed sits at the arrival airport — each
+    /// with the avatar and a live status pill.
     struct FriendMapOverlay: Identifiable {
         let id: String
         let name: String
@@ -60,24 +65,33 @@ final class FriendsStore {
         let progress: Double
         let live: CLLocationCoordinate2D?
         let airborne: Bool
+        let landed: Bool
+        let chipText: String
+        let chipKind: FriendFlightMath.ChipKind
     }
 
     var mapOverlays: [FriendMapOverlay] {
-        friends.compactMap { entry in
-            guard let f = entry.spotlight,
-                  let dlat = f.departure_lat, let dlon = f.departure_lon,
+        var items = feed
+        if let id = mapFilterFriendId { items = items.filter { $0.user.id == id } }
+        return items.compactMap { item in
+            let f = item.flight
+            guard let dlat = f.departure_lat, let dlon = f.departure_lon,
                   let alat = f.arrival_lat, let alon = f.arrival_lon,
                   dlat != 0 || dlon != 0
             else { return nil }
+            let chip = FriendFlightMath.chip(for: f)
             return FriendMapOverlay(
                 id: f.id,
-                name: entry.user.display_name,
+                name: item.user.display_name,
                 dep: .init(latitude: dlat, longitude: dlon),
                 arr: .init(latitude: alat, longitude: alon),
                 progress: FriendFlightMath.progress(f),
                 live: (f.live_lat != nil && f.live_lon != nil)
                     ? .init(latitude: f.live_lat!, longitude: f.live_lon!) : nil,
-                airborne: FriendFlightMath.isAirborne(f))
+                airborne: FriendFlightMath.isAirborne(f),
+                landed: chip.kind == .landed,
+                chipText: chip.text,
+                chipKind: chip.kind)
         }
     }
 
