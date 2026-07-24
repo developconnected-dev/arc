@@ -734,7 +734,10 @@ struct AddFlightView: View {
     /// Best-effort background mirror to Supabase — never blocks or fails the
     /// local add, which must keep working fully offline / signed-out.
     private func syncToCloud(_ flight: Flight) {
-        Task { try? await ArcSupabase.shared.upsertUserFlight(flight) }
+        Task {
+            try? await ArcSupabase.shared.upsertUserFlight(flight)
+            try? await ArcSupabase.shared.shareFlight(flight)
+        }
     }
 }
 

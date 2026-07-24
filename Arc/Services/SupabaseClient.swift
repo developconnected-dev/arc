@@ -41,6 +41,37 @@ final class ArcSupabase: ObservableObject {
         self.accessToken = UserDefaults.standard.string(forKey: "arc_access_token")
         self.refreshToken = UserDefaults.standard.string(forKey: "arc_refresh_token")
         self.isSignedIn = accessToken != nil
+        // Cold-launch session restore. Without this, a relaunched app was
+        // "signed in" (token present) but currentUser stayed nil forever —
+        // so every friends/sync call silently no-opped until the next
+        // manual sign-in.
+        if accessToken != nil {
+            Task { await self.bootstrapSession() }
+        }
+    }
+
+    /// Refresh the (≈1h) access token, load the profile, then wake the
+    /// friends store — the order matters, everything downstream needs
+    /// `currentUser`.
+    private func bootstrapSession() async {
+        await refreshSession()
+        await loadProfile()
+        if currentUser != nil {
+            await FriendsStore.shared.refresh()
+        }
+    }
+
+    /// Supabase access tokens expire after ~an hour; the refresh grant swaps
+    /// the stored refresh token for a fresh pair. Failure is tolerable here
+    /// (offline launch) — the old access token may still be valid.
+    private func refreshSession() async {
+        guard let token = refreshToken else { return }
+        guard let data = try? await post(path: "/auth/v1/token?grant_type=refresh_token",
+                                         body: ["refresh_token": token], auth: false),
+              let result = try? JSONDecoder().decode(AuthResponse.self, from: data)
+        else { return }
+        accessToken = result.access_token
+        refreshToken = result.refresh_token
     }
 
     var isConfigured: Bool { !baseURL.isEmpty && !anonKey.isEmpty }
@@ -188,18 +219,35 @@ final class ArcSupabase: ObservableObject {
         let arrival_iata: String
         let departure_city: String
         let arrival_city: String
+        let departure_lat: Double?
+        let departure_lon: Double?
+        let arrival_lat: Double?
+        let arrival_lon: Double?
         let scheduled_departure: String
         let scheduled_arrival: String
+        let estimated_arrival: String?
         let status: String
         let delay_minutes: Int
         let departure_gate: String?
         let arrival_gate: String?
+        let baggage_claim: String?
+        let live_lat: Double?
+        let live_lon: Double?
         let progress: Double
+        let updated_at: String?
     }
 
-    func syncFlight(_ flight: Flight) async throws -> String {
-        guard let uid = currentUser?.id else { throw ArcError.notSignedIn }
-
+    /// Upserts this flight's CURRENT state into `shared_flights` — the row
+    /// friends (RLS-gated) and live share links (via the Worker) read.
+    /// Conflict target is the natural key (user, flight number, scheduled
+    /// departure), so every tracking poll can fire this idempotently instead
+    /// of anyone having to remember row ids. Returns the row id, which a
+    /// share link mints against.
+    @discardableResult
+    func shareFlight(_ flight: Flight) async throws -> String? {
+        guard let uid = currentUser?.id else { return nil }
+        let iso = ISO8601DateFormatter()
+        func str(_ d: Date?) -> Any { d.map { iso.string(from: $0) } ?? NSNull() }
         let body: [String: Any] = [
             "user_id": uid,
             "flight_number": flight.flightNumber,
@@ -208,45 +256,55 @@ final class ArcSupabase: ObservableObject {
             "arrival_iata": flight.arrivalIATA,
             "departure_city": flight.departureCity,
             "arrival_city": flight.arrivalCity,
-            "scheduled_departure": ISO8601DateFormatter().string(from: flight.scheduledDeparture),
-            "scheduled_arrival": ISO8601DateFormatter().string(from: flight.scheduledArrival),
+            "departure_lat": flight.departureLat,
+            "departure_lon": flight.departureLon,
+            "arrival_lat": flight.arrivalLat,
+            "arrival_lon": flight.arrivalLon,
+            "scheduled_departure": iso.string(from: flight.scheduledDeparture),
+            "scheduled_arrival": iso.string(from: flight.scheduledArrival),
+            "estimated_arrival": str(flight.estimatedArrival),
+            "actual_departure": str(flight.actualDeparture),
+            "actual_arrival": str(flight.actualArrival),
             "status": flight.statusRaw,
             "delay_minutes": flight.delayMinutes,
             "departure_gate": flight.departureGate as Any,
+            "departure_terminal": flight.departureTerminal as Any,
             "arrival_gate": flight.arrivalGate as Any,
+            "arrival_terminal": flight.arrivalTerminal as Any,
             "baggage_claim": flight.baggageClaim as Any,
             "aircraft_type": flight.aircraftType as Any,
             "live_lat": flight.liveLat as Any,
             "live_lon": flight.liveLon as Any,
             "live_altitude": flight.liveAltitude as Any,
             "live_speed": flight.liveSpeed as Any,
-            "progress": flight.progress
+            "progress": flight.progress,
+            "updated_at": iso.string(from: .now),
         ]
-
-        let data = try await post(path: "/rest/v1/shared_flights", body: body, returnData: true)
-        let results = try JSONDecoder().decode([SharedFlightID].self, from: data)
-        return results.first?.id ?? ""
+        let data = try await upsert(
+            path: "/rest/v1/shared_flights?on_conflict=user_id,flight_number,scheduled_departure",
+            body: body, returnRepresentation: true)
+        return (try? JSONDecoder().decode([SharedFlightID].self, from: data))?.first?.id
     }
 
-    func updateSharedFlight(id: String, flight: Flight) async throws {
-        let body: [String: Any] = [
-            "status": flight.statusRaw,
-            "delay_minutes": flight.delayMinutes,
-            "departure_gate": flight.departureGate as Any,
-            "arrival_gate": flight.arrivalGate as Any,
-            "baggage_claim": flight.baggageClaim as Any,
-            "live_lat": flight.liveLat as Any,
-            "live_lon": flight.liveLon as Any,
-            "live_altitude": flight.liveAltitude as Any,
-            "live_speed": flight.liveSpeed as Any,
-            "progress": flight.progress,
-            "updated_at": ISO8601DateFormatter().string(from: .now)
-        ]
-        _ = try await patch(path: "/rest/v1/shared_flights?id=eq.\(id)", body: body)
+    /// Removes the shared copy when the user deletes a flight locally.
+    func unshareFlight(flightNumber: String, scheduledDeparture: Date) async throws {
+        guard let uid = currentUser?.id else { return }
+        let iso = ISO8601DateFormatter().string(from: scheduledDeparture)
+        let number = flightNumber.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? flightNumber
+        _ = try await delete(path: "/rest/v1/shared_flights?user_id=eq.\(uid)&flight_number=eq.\(number)&scheduled_departure=eq.\(iso)")
     }
 
     func getFriendFlights(userId: String) async throws -> [SharedFlight] {
         let data = try await get(path: "/rest/v1/shared_flights?user_id=eq.\(userId)&select=*&order=scheduled_departure.desc&limit=20")
+        return try JSONDecoder().decode([SharedFlight].self, from: data)
+    }
+
+    /// One query for ALL friends' flights — the list and the map both consume
+    /// this, so opening the Friends tab costs a single round-trip, not N.
+    func friendsFlights(userIds: [String]) async throws -> [SharedFlight] {
+        guard !userIds.isEmpty else { return [] }
+        let list = userIds.joined(separator: ",")
+        let data = try await get(path: "/rest/v1/shared_flights?user_id=in.(\(list))&select=*&order=scheduled_departure.desc&limit=60")
         return try JSONDecoder().decode([SharedFlight].self, from: data)
     }
 
@@ -351,17 +409,30 @@ final class ArcSupabase: ObservableObject {
 
     // MARK: - Shared Journeys
 
-    func createSharedJourney(flightId: String) async throws -> String {
+    /// Returns an active share code for this shared-flight row, minting one
+    /// if none exists — and bumps the 48-hour expiry either way, so re-sharing
+    /// the same flight keeps one stable link alive instead of scattering codes.
+    func journeyCode(forFlightId flightId: String) async throws -> String {
         guard let uid = currentUser?.id else { throw ArcError.notSignedIn }
+        let iso = ISO8601DateFormatter()
+        let newExpiry = iso.string(from: Date.now.addingTimeInterval(48 * 3600))
+        let data = try await get(path: "/rest/v1/shared_journeys?flight_id=eq.\(flightId)&user_id=eq.\(uid)&is_active=eq.true&select=share_code")
+        if let code = (try? JSONDecoder().decode([SharedJourneyCode].self, from: data))?.first?.share_code {
+            _ = try? await patch(path: "/rest/v1/shared_journeys?share_code=eq.\(code)", body: ["expires_at": newExpiry])
+            return code
+        }
         let code = generateShareCode()
         let body: [String: Any] = [
             "flight_id": flightId,
             "user_id": uid,
-            "share_code": code
+            "share_code": code,
+            "expires_at": newExpiry,
         ]
         _ = try await post(path: "/rest/v1/shared_journeys", body: body)
         return code
     }
+
+    private struct SharedJourneyCode: Codable { let share_code: String }
 
     func deactivateJourney(code: String) async throws {
         _ = try await patch(path: "/rest/v1/shared_journeys?share_code=eq.\(code)", body: ["is_active": false])
@@ -425,11 +496,14 @@ final class ArcSupabase: ObservableObject {
     /// INSERT ... ON CONFLICT (primary key) DO UPDATE, via PostgREST's
     /// merge-duplicates resolution — lets add and update both call the same
     /// method without needing to know in advance whether the row exists yet.
-    private func upsert(path: String, body: [String: Any]) async throws -> Data {
+    private func upsert(path: String, body: [String: Any], returnRepresentation: Bool = false) async throws -> Data {
         var request = URLRequest(url: URL(string: baseURL + path)!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
+        let prefer = returnRepresentation
+            ? "resolution=merge-duplicates,return=representation"
+            : "resolution=merge-duplicates"
+        request.setValue(prefer, forHTTPHeaderField: "Prefer")
         request.setValue("Bearer \(accessToken ?? anonKey)", forHTTPHeaderField: "Authorization")
         request.setValue(anonKey, forHTTPHeaderField: "apikey")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
