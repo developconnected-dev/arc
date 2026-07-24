@@ -26,12 +26,6 @@ struct SettingsView: View {
         guard !designEmoji.isEmpty else { return }
         pendingAvatar = .some(FriendAvatar.emojiAvatarString(emoji: designEmoji, colorHex: designColor))
     }
-    @AppStorage("apiEndpoint") private var apiEndpoint = "https://your-worker.workers.dev"
-    // The anon key is safe to ship in the client — Supabase's security model is
-    // Postgres row-level security (see supabase/migrations/001_initial.sql),
-    // not secrecy of this key. It's the same key every device/browser uses.
-    @AppStorage("supabase_url") private var supabaseURL = "https://your-project-ref.supabase.co"
-    @AppStorage("supabase_anon_key") private var supabaseAnonKey = "REDACTED_SUPABASE_ANON_KEY"
     @AppStorage("notifyGateChanges") private var notifyGateChanges = true
     @AppStorage("notifyDelays") private var notifyDelays = true
     @AppStorage("notifyLanding") private var notifyLanding = true
@@ -119,28 +113,46 @@ struct SettingsView: View {
                         }
                         .padding(.vertical, 4)
 
-                        PhotosPicker(selection: $photoPick, matching: .images) {
-                            Label("Use a Photo Instead", systemImage: "photo")
-                                .font(.system(size: 15))
-                        }
-
-                        if displayedAvatar != nil {
-                            Button("Remove Avatar", role: .destructive) {
-                                pendingAvatar = .some(nil)
+                        HStack(spacing: 10) {
+                            PhotosPicker(selection: $photoPick, matching: .images) {
+                                Label("Use a Photo", systemImage: "photo")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 11)
+                                    .background(ArcTheme.action.opacity(0.14), in: Capsule())
+                                    .foregroundStyle(ArcTheme.action)
                             }
-                            .font(.system(size: 15))
+                            .buttonStyle(.plain)
+                            if displayedAvatar != nil {
+                                Button {
+                                    pendingAvatar = .some(nil)
+                                } label: {
+                                    Label("Remove", systemImage: "trash")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 11)
+                                        .background(ArcTheme.late.opacity(0.14), in: Capsule())
+                                        .foregroundStyle(ArcTheme.late)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
+                        .listRowSeparator(.hidden)
 
                         Button {
                             Task { await saveProfile() }
                         } label: {
-                            HStack {
-                                Text(profileSaving ? "Saving…" : profileSaved ? "Saved ✓" : "Save Profile")
-                                    .font(.system(size: 15, weight: .semibold))
-                                Spacer()
-                            }
+                            Text(profileSaving ? "Saving…" : profileSaved ? "Saved ✓" : "Save Profile")
+                                .font(.system(size: 16, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 13)
+                                .background((profileSaving || !profileDirty) ? Color(.systemGray4) : ArcTheme.action,
+                                            in: Capsule())
+                                .foregroundStyle(.white)
                         }
+                        .buttonStyle(.plain)
                         .disabled(profileSaving || !profileDirty)
+                        .listRowSeparator(.hidden)
                     } header: {
                         Text("Profile")
                     } footer: {
@@ -174,56 +186,21 @@ struct SettingsView: View {
                     Text("How often Arc checks for flight updates. Shorter intervals use more battery and API calls.")
                 }
 
-                // API
-                Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Backend URL")
-                            .font(ArcType.captionEmph)
-                            .foregroundStyle(ArcColor.textMuted)
-                        TextField("https://...", text: $apiEndpoint)
-                            .font(ArcType.monoSmall)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                    }
-                } header: {
-                    Text("API")
-                } footer: {
-                    Text("This is the URL of your deployed Cloudflare Worker (backend/ folder). The AeroDataBox key itself is never entered here — it lives server-side as a Worker secret. See backend/wrangler.toml for the full deploy steps.")
-                }
-
-                // Supabase (Social)
-                Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Supabase URL")
-                            .font(ArcType.captionEmph)
-                            .foregroundStyle(ArcColor.textMuted)
-                        TextField("https://xyz.supabase.co", text: $supabaseURL)
-                            .font(ArcType.monoSmall)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Anon Key")
-                            .font(ArcType.captionEmph)
-                            .foregroundStyle(ArcColor.textMuted)
-                        SecureField("eyJ...", text: $supabaseAnonKey)
-                            .font(ArcType.monoSmall)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                    }
-                } header: {
-                    Text("Social (Supabase)")
-                } footer: {
-                    Text("Connect your Supabase project to enable Friends, Shared Journeys, and Watchers.")
-                }
-
                 // Account
                 if ArcSupabase.shared.isSignedIn {
                     Section {
-                        Button("Sign Out") {
+                        Button {
                             ArcSupabase.shared.signOut()
+                        } label: {
+                            Text("Sign Out")
+                                .font(.system(size: 15, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 11)
+                                .background(ArcTheme.late.opacity(0.14), in: Capsule())
+                                .foregroundStyle(ArcTheme.late)
                         }
-                        .foregroundStyle(.red)
+                        .buttonStyle(.plain)
+                        .listRowSeparator(.hidden)
                     } header: {
                         Text("Account")
                     }
@@ -255,15 +232,27 @@ struct SettingsView: View {
                     } else if let exportURL {
                         ShareLink(item: exportURL) {
                             Label("Share Export (\(allFlights.count) flights)", systemImage: "square.and.arrow.up")
+                                .font(.system(size: 15, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 11)
+                                .background(ArcTheme.action.opacity(0.14), in: Capsule())
+                                .foregroundStyle(ArcTheme.action)
                         }
-                        .foregroundStyle(ArcColor.accent)
+                        .buttonStyle(.plain)
+                        .listRowSeparator(.hidden)
                     } else {
                         Button {
                             exportURL = FlightExporter.writeJSONFile(allFlights)
                         } label: {
                             Text("Export Flight Data (\(allFlights.count) flights)")
+                                .font(.system(size: 15, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 11)
+                                .background(ArcTheme.action.opacity(0.14), in: Capsule())
+                                .foregroundStyle(ArcTheme.action)
                         }
-                        .foregroundStyle(ArcColor.accent)
+                        .buttonStyle(.plain)
+                        .listRowSeparator(.hidden)
                     }
                 } header: {
                     Text("Data")
@@ -288,16 +277,21 @@ struct SettingsView: View {
                     photoPick = nil
                 }
             }
-            .onAppear {
-                if let user = supabase.currentUser {
-                    profileName = user.display_name
-                    if let nation = user.nationality { profileRegion = nation }
-                }
-            }
+            .onAppear { seedProfileFields() }
+            // The session bootstrap may still be loading the profile when
+            // Settings opens — seed again when it lands (only untouched
+            // fields, so an edit in progress is never clobbered).
+            .onChange(of: supabase.currentUser?.id) { _, _ in seedProfileFields() }
         }
     }
 
     // MARK: - Profile editing
+
+    private func seedProfileFields() {
+        guard let user = supabase.currentUser else { return }
+        if profileName.isEmpty { profileName = user.display_name }
+        if let nation = user.nationality { profileRegion = nation }
+    }
 
     private var displayedName: String {
         profileName.isEmpty ? (supabase.currentUser?.display_name ?? "") : profileName
