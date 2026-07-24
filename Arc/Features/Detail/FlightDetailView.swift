@@ -4,6 +4,10 @@ import SwiftData
 /// Flighty-parity flight detail, presented as a bottom sheet over the shared map.
 struct FlightDetailView: View {
     @Bindable var flight: Flight
+    /// False when showing a FRIEND's flight: personal sections (booking,
+    /// seat, notes, my-plane tracking, my route history) are yours, not
+    /// theirs — they disappear.
+    var isOwnFlight: Bool = true
     var onShowAtGate: ((Flight) -> Void)? = nil
     var onShowAirport: ((Flight) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
@@ -35,17 +39,19 @@ struct FlightDetailView: View {
                     statusBanner
                     endpointsCard
                     mapActionsRow
-                    bookingSeatRow
+                    if isOwnFlight { bookingSeatRow }
                     GoodToKnowSection(flight: flight)
                     if let plan = connection {
                         ConnectionCard(plan: plan, currentFlightID: flight.id)
                     }
-                    WheresMyPlaneSection(flight: flight).id("plane")
+                    if isOwnFlight { WheresMyPlaneSection(flight: flight).id("plane") }
                     DetailedTimetableSection(flight: flight)
                     AirlineInfoSection(flight: flight)
-                    RouteHistorySection(flight: flight)
-                    NotesSection(flight: flight) { editField(.notes) }
-                    actionBar
+                    if isOwnFlight {
+                        RouteHistorySection(flight: flight)
+                        NotesSection(flight: flight) { editField(.notes) }
+                        actionBar
+                    }
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(.horizontal, 16)

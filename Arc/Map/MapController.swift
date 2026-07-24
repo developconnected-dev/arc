@@ -96,28 +96,51 @@ final class MapController {
 
     enum MapStyleKind { case standard, hybrid }
 
-    /// Frame the camera to fit all given flights' routes.
-    func fitAll(_ flights: [Flight], padding: Double = 1.4) {
+    /// Frame the camera to fit all given flights' routes — in the visible
+    /// upper half, since a sheet always owns the bottom of every page.
+    func fitAll(_ flights: [Flight], padding: Double = 1.25) {
         var coords: [CLLocationCoordinate2D] = []
         for f in flights where f.departureLat != 0 && f.arrivalLat != 0 {
             coords.append(.init(latitude: f.departureLat, longitude: f.departureLon))
             coords.append(.init(latitude: f.arrivalLat, longitude: f.arrivalLon))
         }
-        if let region = GeoMath.region(fitting: coords, paddingFactor: padding) {
-            withAnimation(.easeInOut(duration: 0.6)) { position = .region(region) }
-        } else {
+        if coords.isEmpty {
             position = .automatic
+        } else {
+            frameInUpperHalf(coords, padding: padding)
         }
     }
 
-    /// Frame the camera on a single flight's route.
+    /// Frame the camera on a single flight's route (detail sheet at medium
+    /// covers the lower half — the arc goes above it).
     func focus(on flight: Flight) {
-        let coords = GeoMath.greatCircle(
+        frameInUpperHalf(GeoMath.greatCircle(
             from: .init(latitude: flight.departureLat, longitude: flight.departureLon),
-            to: .init(latitude: flight.arrivalLat, longitude: flight.arrivalLon))
-        if let region = GeoMath.region(fitting: coords, paddingFactor: 1.8) {
-            withAnimation(.easeInOut(duration: 0.6)) { position = .region(region) }
-        }
+            to: .init(latitude: flight.arrivalLat, longitude: flight.arrivalLon)), padding: 1.3)
+    }
+
+    /// Frame `coords` in the UPPER half of the screen — for content shown
+    /// above a half-screen sheet. In portrait the LONGITUDE span usually
+    /// decides the zoom MapKit actually shows, so the vertical shift must be
+    /// computed from the EFFECTIVE displayed latitude span, not the fitted
+    /// one — a plain latitude offset gets swallowed whole.
+    func frameInUpperHalf(_ coords: [CLLocationCoordinate2D], padding: Double = 1.25) {
+        guard var region = GeoMath.region(fitting: coords, paddingFactor: padding) else { return }
+        let portraitAspect = 2.16   // full-screen map height / width
+        let latScale = max(0.2, cos(region.center.latitude * .pi / 180))
+        // Capped: a transatlantic longitude span would otherwise demand an
+        // impossible >180° vertical region and clamp into garbage — wide
+        // routes get best-effort placement instead.
+        let effectiveLat = min(70, max(region.span.latitudeDelta,
+                                       region.span.longitudeDelta * portraitAspect * latScale))
+        region.span.latitudeDelta = min(160, effectiveLat * 2.0)
+        region.center.latitude = max(-75, min(75, region.center.latitude - effectiveLat / 2))
+        withAnimation(.easeInOut(duration: 0.8)) { position = .region(region) }
+    }
+
+    /// Frame one route in the upper half (friend-flight detail).
+    func focusRoute(dep: CLLocationCoordinate2D, arr: CLLocationCoordinate2D) {
+        frameInUpperHalf(GeoMath.greatCircle(from: dep, to: arr))
     }
 
     /// Follow a live plane position (used in-flight).

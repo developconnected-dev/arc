@@ -351,9 +351,10 @@ struct FriendsListView: View {
                 AddFriendSheet().presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showSettings) { SettingsView() }
-            .sheet(item: $presentedFlight) { flight in
-                FlightDetailView(flight: flight)
-                    .presentationDetents([.large])
+            .sheet(item: $presentedFlight, onDismiss: { store.focusedRoute = nil }) { flight in
+                FlightDetailView(flight: flight, isOwnFlight: false)
+                    .presentationDetents([.medium, .large])
+                    .presentationBackgroundInteraction(.enabled(upThrough: .medium))
             }
             // The globe mirrors the list's friend filter.
             .onChange(of: selectedFriendId) { _, id in store.mapFilterFriendId = id }
@@ -513,7 +514,18 @@ struct FriendsListView: View {
         if !items.isEmpty {
             LazyVStack(spacing: 0) {
                 ForEach(items) { item in
-                    Button { presentedFlight = store.transientFlight(for: item) } label: {
+                    Button {
+                        presentedFlight = store.transientFlight(for: item)
+                        // Zoom the globe onto this flight's arc behind the
+                        // half-height detail.
+                        if let dlat = item.flight.departure_lat, let dlon = item.flight.departure_lon,
+                           let alat = item.flight.arrival_lat, let alon = item.flight.arrival_lon {
+                            store.focusedRoute = .init(
+                                id: item.flight.id,
+                                dep: .init(latitude: dlat, longitude: dlon),
+                                arr: .init(latitude: alat, longitude: alon))
+                        }
+                    } label: {
                         FriendFlightRow(item: item)
                     }
                     .buttonStyle(.plain)
