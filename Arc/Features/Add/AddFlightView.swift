@@ -339,12 +339,14 @@ struct AddFlightView: View {
         .padding(.top, 4)
     }
 
-    /// Live search covers today onward only (the flight-data plan carries no
-    /// history) — a past date routes straight into the manual form, prefilled,
-    /// instead of running a search guaranteed to come back empty.
+    /// Past dates older than a week route straight into the manual form —
+    /// the flight-data plan carries at most a few days of history, so a
+    /// search there can only come back empty. The recent past still tries
+    /// live search first (the empty-result screen offers manual entry
+    /// prominently as the fallback).
     private func pick(_ d: Date) {
         date = d
-        if Calendar.current.startOfDay(for: d) < Calendar.current.startOfDay(for: .now) {
+        if Calendar.current.startOfDay(for: d) < Calendar.current.startOfDay(for: .now.addingTimeInterval(-7 * 86400)) {
             enterManual(prefillingFrom: d, returningTo: .date)
         } else {
             step = .results
