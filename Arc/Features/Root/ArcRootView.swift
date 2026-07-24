@@ -81,6 +81,16 @@ struct ArcRootView: View {
         .onChange(of: friendsStore.friends.count) { _, _ in
             if tab == .friends { applyCameraForCurrentTab() }
         }
+        // Friend-flight detail opened → zoom onto that arc; dismissed →
+        // re-frame all friends.
+        .onChange(of: friendsStore.focusedRoute) { _, route in
+            guard tab == .friends else { return }
+            if let route {
+                controller.focusRoute(dep: route.dep, arr: route.arr)
+            } else {
+                applyCameraForCurrentTab()
+            }
+        }
         // arc://friend/<code> — invite links from the /f/ landing page. The
         // code parks in the store: redeemed immediately when a session
         // exists, or right after first-time profile setup when it doesn't.
@@ -147,18 +157,13 @@ struct ArcRootView: View {
 
     private func applyCameraForCurrentTab() {
         if tab == .friends {
-            // Frame the friends' routes (own flights are hidden here). The
-            // bottom sheet covers the lower half of the screen, so double
-            // the fitted span and shift the center south — the content lands
-            // in the VISIBLE upper half (same trick as the gate camera).
+            // Frame the friends' routes (own flights are hidden here) in the
+            // upper half — the sheet covers the rest.
             let coords = friendsStore.mapOverlays.flatMap { [$0.dep, $0.arr] }
-            if var region = GeoMath.region(fitting: coords, paddingFactor: 2.6) {
-                region.center.latitude -= region.span.latitudeDelta * 0.25
-                withAnimation(.easeInOut(duration: 0.6)) { controller.position = .region(region) }
-            }
+            if !coords.isEmpty { controller.frameInUpperHalf(coords) }
             return
         }
-        controller.fitAll(mapFlights, padding: tab == .passport ? 2.2 : 1.4)
+        controller.fitAll(mapFlights, padding: tab == .passport ? 1.5 : 1.25)
     }
 
     private func bootstrapTrackingAndWidgets() {

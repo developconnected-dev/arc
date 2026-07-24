@@ -23,15 +23,17 @@ struct ArcMapView: View {
                                 style: StrokeStyle(lineWidth: 1.5, lineCap: .round,
                                                    dash: friend.airborne ? [] : [1, 6]))
                 }
-                let position: CLLocationCoordinate2D = friend.landed
-                    ? friend.arr
-                    : friend.airborne
-                        ? (friend.live ?? gc[min(gc.count - 1, max(0, Int(friend.progress * Double(gc.count - 1))))])
-                        : friend.dep
-                Annotation(friend.name, coordinate: position) {
-                    FriendMapBubble(name: friend.name,
-                                    chipText: friend.chipText,
-                                    chipKind: friend.chipKind)
+                if friend.showsBubble {
+                    let position: CLLocationCoordinate2D = friend.landed
+                        ? friend.arr
+                        : friend.airborne
+                            ? (friend.live ?? gc[min(gc.count - 1, max(0, Int(friend.progress * Double(gc.count - 1))))])
+                            : friend.dep
+                    Annotation(friend.name, coordinate: position) {
+                        FriendMapBubble(name: friend.name,
+                                        chipText: friend.chipText,
+                                        chipKind: friend.chipKind)
+                    }
                 }
             }
             if let plane = controller.livePlane {

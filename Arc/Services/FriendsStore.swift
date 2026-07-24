@@ -53,6 +53,16 @@ final class FriendsStore {
     /// mirrors it, so filtering to Anna also filters the globe to Anna.
     var mapFilterFriendId: String?
 
+    /// Set when a friend-flight detail opens: the globe zooms onto this
+    /// route; cleared on dismiss (the camera re-frames all friends).
+    struct FocusedRoute: Equatable {
+        let id: String
+        let dep: CLLocationCoordinate2D
+        let arr: CLLocationCoordinate2D
+        static func == (a: Self, b: Self) -> Bool { a.id == b.id }
+    }
+    var focusedRoute: FocusedRoute?
+
     /// A friend-flight as a map bubble (Flighty): airborne rides the route
     /// at clock progress (or the live ADS-B fix), upcoming sits at the
     /// departure airport, freshly landed sits at the arrival airport — each
@@ -66,6 +76,10 @@ final class FriendsStore {
         let live: CLLocationCoordinate2D?
         let airborne: Bool
         let landed: Bool
+        /// Every flight draws its arc; only the friend's ongoing-or-next
+        /// flight carries the avatar bubble — so a friend with three
+        /// bookings shows three arcs but one face.
+        let showsBubble: Bool
         let chipText: String
         let chipKind: FriendFlightMath.ChipKind
     }
@@ -73,11 +87,9 @@ final class FriendsStore {
     var mapOverlays: [FriendMapOverlay] {
         var items = feed
         if let id = mapFilterFriendId { items = items.filter { $0.user.id == id } }
-        // ONE bubble per friend. The feed is priority-sorted (airborne →
-        // upcoming → landed), so the first item per friend is exactly their
-        // ongoing-or-next flight — Anna with two bookings still appears once.
-        var seen = Set<String>()
-        items = items.filter { seen.insert($0.user.id).inserted }
+        // The feed is priority-sorted (airborne → upcoming → landed), so the
+        // first item per friend is exactly their ongoing-or-next flight.
+        var bubbleOwners = Set<String>()
         return items.compactMap { item in
             let f = item.flight
             guard let dlat = f.departure_lat, let dlon = f.departure_lon,
@@ -95,6 +107,7 @@ final class FriendsStore {
                     ? .init(latitude: f.live_lat!, longitude: f.live_lon!) : nil,
                 airborne: FriendFlightMath.isAirborne(f),
                 landed: chip.kind == .landed,
+                showsBubble: bubbleOwners.insert(item.user.id).inserted,
                 chipText: chip.text,
                 chipKind: chip.kind)
         }

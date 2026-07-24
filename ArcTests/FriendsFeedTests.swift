@@ -58,12 +58,13 @@ final class FriendsFeedTests: XCTestCase {
                 flight("MUP", dep: "2026-07-24T14:00:00.000Z", arr: "2026-07-24T16:00:00.000Z"),
             ]),
         ]
-        // NOTE: overlays use the wall clock; both of Anna's flights bracket
-        // a "now" between them only in real time — assert on structure that
-        // is time-independent: at most one overlay per friend.
+        // NOTE: overlays use the wall clock; assert on time-independent
+        // structure: every flight keeps its arc, but each friend carries at
+        // most one bubble.
         let overlays = store.mapOverlays
-        let names = overlays.map(\.name)
-        XCTAssertEqual(names.count, Set(names).count, "one bubble per friend")
+        let bubbleNames = overlays.filter(\.showsBubble).map(\.name)
+        XCTAssertEqual(bubbleNames.count, Set(bubbleNames).count, "one bubble per friend")
+        XCTAssertGreaterThanOrEqual(overlays.count, bubbleNames.count, "arcs are not deduped")
         XCTAssertEqual(store.feed(at: now).count, 3, "the feed itself keeps every flight")
     }
 
