@@ -663,6 +663,7 @@ struct FriendFlightRow: View {
 /// too. (No search, no requests, no approvals — links ARE the handshake.)
 struct AddFriendSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var supabase = ArcSupabase.shared
     @State private var store = FriendsStore.shared
     @State private var inviteURL: URL?
     @State private var pasted = ""
@@ -674,47 +675,44 @@ struct AddFriendSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Invite with a link", systemImage: "link")
-                            .font(.system(size: 15, weight: .bold))
-                        Text("Share this link with family or friends. Opening it connects you automatically — no request, no approval. It works for 48 hours.")
-                            .font(.system(size: 13)).foregroundStyle(.secondary)
+                VStack(spacing: 0) {
+                    hero
+                        .padding(.top, 28)
 
+                    VStack(spacing: 8) {
+                        Text("Invite with a link")
+                            .font(.system(size: 24, weight: .heavy))
+                        Text("Opening your link connects you automatically — no requests, no approvals. Links work for 48 hours.")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 30)
+                    }
+                    .padding(.top, 22)
+
+                    VStack(spacing: 10) {
                         if let inviteURL {
                             ShareLink(item: inviteURL,
                                       message: Text("Track my flights with me on Arc ✈️")) {
-                                HStack {
-                                    Spacer()
-                                    Label("Share Invite Link", systemImage: "square.and.arrow.up")
-                                        .font(.system(size: 16, weight: .semibold))
-                                    Spacer()
-                                }
-                                .foregroundStyle(.white).padding(14)
-                                .background(ArcTheme.action, in: RoundedRectangle(cornerRadius: 12))
+                                pillLabel("Continue", loading: false)
                             }
-                            Text(inviteURL.absoluteString)
+                            Text(inviteURL.absoluteString.replacingOccurrences(of: "https://", with: ""))
                                 .font(.system(size: 12, design: .monospaced))
                                 .foregroundStyle(.tertiary)
-                                .frame(maxWidth: .infinity, alignment: .center)
                         } else {
-                            HStack {
-                                Spacer()
-                                Label("Creating link…", systemImage: "clock")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                            }
-                            .padding(14)
-                            .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 12))
+                            pillLabel("Creating link…", loading: true)
                         }
                     }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 24)
 
-                    HStack {
-                        Rectangle().fill(Color(.separator)).frame(height: 0.5)
+                    HStack(spacing: 10) {
+                        line
                         Text("or").font(.system(size: 12)).foregroundStyle(.tertiary)
-                        Rectangle().fill(Color(.separator)).frame(height: 0.5)
+                        line
                     }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 22)
 
                     VStack(alignment: .leading, spacing: 8) {
                         Label("Got an invite?", systemImage: "envelope.open")
@@ -726,26 +724,25 @@ struct AddFriendSheet: View {
                             TextField("Paste link or code", text: $pasted)
                                 .font(.system(size: 15))
                                 .textInputAutocapitalization(.never).autocorrectionDisabled()
-                                .padding(12)
-                                .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 12))
+                                .padding(.horizontal, 16).padding(.vertical, 12)
+                                .background(Color(.secondarySystemFill), in: Capsule())
                             Button {
                                 Task { await redeem() }
                             } label: {
                                 Text(redeeming ? "…" : "Connect")
                                     .font(.system(size: 14, weight: .semibold))
                                     .foregroundStyle(.white)
-                                    .padding(.horizontal, 16).padding(.vertical, 12)
+                                    .padding(.horizontal, 18).padding(.vertical, 12)
                                     .background(pasted.isEmpty ? Color(.systemGray4) : ArcTheme.action,
-                                                in: RoundedRectangle(cornerRadius: 12))
+                                                in: Capsule())
                             }
                             .buttonStyle(.plain)
                             .disabled(pasted.isEmpty || redeeming)
                         }
                     }
-
-                    Spacer()
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 30)
                 }
-                .padding(.horizontal, 20).padding(.top, 16)
             }
             .navigationTitle("Add Friend")
             .navigationBarTitleDisplayMode(.inline)
@@ -760,6 +757,68 @@ struct AddFriendSheet: View {
                 }
             }
         }
+    }
+
+    /// You ···✈··· them: your avatar linked to the friend-to-be.
+    private var hero: some View {
+        let myName = supabase.currentUser?.display_name ?? "You"
+        return HStack(spacing: 0) {
+            VStack(spacing: 6) {
+                FriendAvatar(name: myName.isEmpty ? "You" : myName, size: 62)
+                    .overlay(Circle().stroke(.background, lineWidth: 3))
+                    .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
+                Text("You").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 3) {
+                Image(systemName: "airplane")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(ArcTheme.action)
+                Rectangle()
+                    .fill(.clear)
+                    .frame(width: 74, height: 1)
+                    .overlay(
+                        Line()
+                            .stroke(ArcTheme.routeLine.opacity(0.7),
+                                    style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [1, 6]))
+                    )
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 16)
+
+            VStack(spacing: 6) {
+                ZStack {
+                    Circle()
+                        .fill(Color(.secondarySystemFill))
+                        .frame(width: 62, height: 62)
+                    Circle()
+                        .stroke(ArcTheme.action.opacity(0.6),
+                                style: StrokeStyle(lineWidth: 2, dash: [4, 5]))
+                        .frame(width: 62, height: 62)
+                    Image(systemName: "person.fill.questionmark")
+                        .font(.system(size: 24))
+                        .foregroundStyle(ArcTheme.action)
+                }
+                .shadow(color: .black.opacity(0.2), radius: 6, y: 3)
+                Text("Your friend").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var line: some View {
+        Rectangle().fill(Color(.separator)).frame(height: 0.5)
+    }
+
+    private func pillLabel(_ text: String, loading: Bool) -> some View {
+        HStack(spacing: 8) {
+            Spacer()
+            if loading { ProgressView().tint(.white) }
+            Text(text).font(.system(size: 17, weight: .semibold))
+            Spacer()
+        }
+        .foregroundStyle(.white)
+        .padding(.vertical, 16)
+        .background(loading ? Color(.systemGray4) : ArcTheme.action, in: Capsule())
     }
 
     /// Accepts a full link ("…/f/abc123"), an arc:// link, or a bare code.
@@ -778,6 +837,16 @@ struct AddFriendSheet: View {
             redeemError = "That invite isn't valid anymore — ask for a fresh link."
         }
         redeeming = false
+    }
+}
+
+/// Straight dashed connector for the invite hero.
+private struct Line: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: rect.minX, y: rect.midY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        return p
     }
 }
 
