@@ -84,7 +84,13 @@ final class FriendsStore {
         let chipKind: FriendFlightMath.ChipKind
     }
 
+    /// Bumped once a minute while the Friends tab is visible — SwiftUI only
+    /// re-derives overlay positions on render, so without this an airborne
+    /// bubble would sit still while the user just watches the map.
+    var clockTick = 0
+
     var mapOverlays: [FriendMapOverlay] {
+        _ = clockTick   // observation hook: the minute tick re-derives positions
         var items = feed
         if let id = mapFilterFriendId { items = items.filter { $0.user.id == id } }
         // The feed is priority-sorted (airborne → upcoming → landed), so the
@@ -97,13 +103,19 @@ final class FriendsStore {
                   dlat != 0 || dlon != 0
             else { return nil }
             let chip = FriendFlightMath.chip(for: f)
+            // A live ADS-B fix beats clock interpolation only while FRESH:
+            // friends are offline in the air, so their last fix is usually
+            // from right after takeoff — trusting it forever would pin the
+            // bubble near the departure airport for the whole flight.
+            let liveFresh = DateHelpers.parseAPIDate(f.updated_at)
+                .map { Date.now.timeIntervalSince($0) < 15 * 60 } ?? false
             return FriendMapOverlay(
                 id: f.id,
                 name: item.user.display_name,
                 dep: .init(latitude: dlat, longitude: dlon),
                 arr: .init(latitude: alat, longitude: alon),
                 progress: FriendFlightMath.progress(f),
-                live: (f.live_lat != nil && f.live_lon != nil)
+                live: (liveFresh && f.live_lat != nil && f.live_lon != nil)
                     ? .init(latitude: f.live_lat!, longitude: f.live_lon!) : nil,
                 airborne: FriendFlightMath.isAirborne(f),
                 landed: chip.kind == .landed,

@@ -98,6 +98,16 @@ struct ArcRootView: View {
         // arc://friend/<code> — invite links from the /f/ landing page. The
         // code parks in the store: redeemed immediately when a session
         // exists, or right after first-time profile setup when it doesn't.
+        // Minute heartbeat while the Friends tab is up: airborne bubbles
+        // creep along their arcs between data refreshes (clock math is free —
+        // this triggers zero network calls). Cancelled on tab change.
+        .task(id: tab) {
+            guard tab == .friends else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                FriendsStore.shared.clockTick += 1
+            }
+        }
         .onOpenURL { url in
             guard url.scheme == "arc", url.host() == "friend" else { return }
             let code = url.lastPathComponent
