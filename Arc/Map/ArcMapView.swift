@@ -20,18 +20,27 @@ struct ArcMapView: View {
                 // Same grammar as the user's own flights: upcoming = solid
                 // planned line; flying = solid flown part + dotted remainder;
                 // landed = no arc (just the bubble at the arrival airport).
+                // Identical stroke language to the user's own flights: glow
+                // halo under a crisp 2pt line, endpoint dots at both airports.
                 if friend.airborne {
                     let split = min(gc.count - 1, max(0, Int(friend.progress * Double(gc.count - 1))))
-                    MapPolyline(coordinates: Array(gc[0...split]))
-                        .stroke(ArcTheme.routeLine.opacity(0.6),
-                                style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                    let flown = Array(gc[0...split])
+                    MapPolyline(coordinates: flown)
+                        .stroke(ArcTheme.routeLine.opacity(0.30), style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                    MapPolyline(coordinates: flown)
+                        .stroke(ArcTheme.routeLine, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     MapPolyline(coordinates: Array(gc[split...]))
-                        .stroke(ArcTheme.routeLine.opacity(0.5),
-                                style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [1, 4]))
+                        .stroke(ArcTheme.routeLine.opacity(0.75),
+                                style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [1, 4]))
                 } else if !friend.landed {
                     MapPolyline(coordinates: gc)
-                        .stroke(ArcTheme.routeLine.opacity(0.45),
-                                style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                        .stroke(ArcTheme.routeLine.opacity(0.28), style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                    MapPolyline(coordinates: gc)
+                        .stroke(ArcTheme.routeLine, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                }
+                if !friend.landed {
+                    Annotation("", coordinate: friend.dep) { endpointDot(past: false) }
+                    Annotation("", coordinate: friend.arr) { endpointDot(past: false) }
                 }
                 if friend.showsBubble {
                     let position: CLLocationCoordinate2D = friend.landed
