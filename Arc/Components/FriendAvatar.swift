@@ -109,6 +109,25 @@ struct FriendAvatar: View {
     }
 }
 
+/// The settings-button icon used in every page header: the user's own
+/// avatar once they've set one up, the generic person symbol before that.
+struct ProfileButtonIcon: View {
+    @ObservedObject private var supabase = ArcSupabase.shared
+    var size: CGFloat = 34
+
+    var body: some View {
+        if let user = supabase.currentUser,
+           user.avatar_url != nil || !user.display_name.isEmpty {
+            FriendAvatar(name: user.display_name.isEmpty ? "You" : user.display_name,
+                         size: size, avatarURL: user.avatar_url)
+        } else {
+            Image(systemName: "person.crop.circle.fill")
+                .font(.system(size: size))
+                .foregroundStyle(Color(.systemGray3), Color(.systemGray5))
+        }
+    }
+}
+
 extension Color {
     /// "#4DABF7" → Color. Nil on anything malformed.
     init?(hex: String) {
