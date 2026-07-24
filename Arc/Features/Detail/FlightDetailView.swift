@@ -5,13 +5,14 @@ import SwiftData
 struct FlightDetailView: View {
     @Bindable var flight: Flight
     var onShowAtGate: ((Flight) -> Void)? = nil
+    var onShowAirport: ((Flight) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.openURL) private var openURL
 
     @State private var editing: EditField?
     @State private var editText = ""
     @State private var airportSheet: AirportSheetTarget?
+    @State private var showShare = false
     @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
 
     private struct AirportSheetTarget: Identifiable { let id: String }
@@ -65,6 +66,9 @@ struct FlightDetailView: View {
         .sheet(item: $airportSheet) { target in
             AirportStatusView(iata: target.id)
                 .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showShare) {
+            ShareFlightSheet(flight: flight)
         }
         .alert(editTitle, isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
             TextField(editTitle, text: $editText)
@@ -150,21 +154,13 @@ struct FlightDetailView: View {
         }
     }
 
-    /// Terminal map (Apple Maps has real indoor maps for most major airports)
-    /// and, after landing, the plane parked at its actual arrival gate on our
-    /// own map (OSM gate coordinates).
+    /// In-app terminal map (cinematic dive onto satellite imagery with every
+    /// OSM gate labeled) and, after landing, the plane parked at its actual
+    /// arrival gate.
     private var mapActionsRow: some View {
-        // Which airport matters right now: before the trip it's where you
-        // depart; once flying/landed it's where you arrive.
-        let iata = flight.isUpcoming ? flight.departureIATA : flight.arrivalIATA
-        let airport = ReferenceData.shared.airport(iata)
-        return HStack(spacing: 10) {
+        HStack(spacing: 10) {
             Button {
-                let name = (airport?.name ?? iata).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? iata
-                if let a = airport,
-                   let url = URL(string: "https://maps.apple.com/?ll=\(a.lat),\(a.lon)&q=\(name)&z=17") {
-                    openURL(url)
-                }
+                onShowAirport?(flight)
             } label: {
                 Label("Terminal Map", systemImage: "map")
                     .font(.system(size: 14, weight: .semibold))
@@ -277,7 +273,8 @@ struct FlightDetailView: View {
 
     private var actionBar: some View {
         HStack(spacing: 14) {
-            ShareLink(item: URL(string: "https://arc.flight")!) { actionIcon("square.and.arrow.up") }
+            Button { showShare = true } label: { actionIcon("square.and.arrow.up") }
+                .buttonStyle(.plain)
             actionIcon("bell")
             actionIcon("ellipsis")
             Spacer()

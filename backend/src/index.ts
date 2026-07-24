@@ -353,13 +353,29 @@ export default {
       }
     }
 
-    // ── /journey/:code ── shared journey live viewer (unchanged)
-    const journeyMatch = url.pathname.match(/^\/journey\/([a-z0-9]+)$/);
-    if (journeyMatch) {
-      const code = journeyMatch[1];
-      return new Response(sharedJourneyHTML(code, env.SUPABASE_URL, env.SUPABASE_ANON_KEY), {
+    // ── /s/:code ── live share page. Server-rendered (route + times + OG
+    // tags baked in, so iMessage unfurls and there's no loading flash), then
+    // the page polls /s/:code/data. All Supabase reads happen HERE with the
+    // service key — shared_flights RLS blocks anon, which is why the old
+    // /journey page could never load.
+    const shareDataMatch = url.pathname.match(/^\/s\/([a-z0-9]+)\/data$/);
+    if (shareDataMatch) {
+      const payload = await loadSharePayload(env, shareDataMatch[1]);
+      if (!payload) return Response.json({ error: "not_found" }, { status: 404, headers: cors });
+      return Response.json(payload, { headers: cors });
+    }
+    const shareMatch = url.pathname.match(/^\/s\/([a-z0-9]+)$/);
+    if (shareMatch) {
+      const payload = await loadSharePayload(env, shareMatch[1]);
+      return new Response(sharePageHTML(shareMatch[1], payload), {
+        status: payload ? 200 : 404,
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
+    }
+    // Legacy share URLs from earlier builds.
+    const journeyMatch = url.pathname.match(/^\/journey\/([a-z0-9]+)$/);
+    if (journeyMatch) {
+      return Response.redirect(`${url.origin}/s/${journeyMatch[1]}`, 301);
     }
 
     // ── /security/:iata — airport security wait time ──
@@ -968,75 +984,318 @@ async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[
   }
 }
 
-function sharedJourneyHTML(code: string, supabaseUrl: string, anonKey: string): string {
-  return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Arc — Live Flight</title>
-<style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:#f2f2f7; color:#000; font-family:-apple-system,system-ui,sans-serif; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; }
-  @media (prefers-color-scheme: dark){ body{ background:#000; color:#fff; } .card{ background:#1c1c1e !important; } }
-  .card { background:#fff; border-radius:20px; padding:32px; max-width:420px; width:100%; box-shadow:0 8px 40px rgba(0,0,0,0.12); }
-  .route { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; }
-  .iata { font-size:36px; font-weight:800; letter-spacing:-1px; }
-  .city { font-size:12px; opacity:0.5; margin-top:4px; }
-  .center { text-align:center; flex:1; }
-  .flight-num { font-size:11px; opacity:0.4; font-weight:600; }
-  .progress-bar { background:rgba(128,128,128,0.2); height:4px; border-radius:2px; margin:12px 8px; position:relative; }
-  .progress-fill { background:#34c759; height:100%; border-radius:2px; transition:width 1s ease; }
-  .plane-dot { position:absolute; top:-4px; width:12px; height:12px; background:#34c759; border-radius:50%; transition:left 1s ease; }
-  .status { display:inline-block; padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700; margin-bottom:20px; }
-  .status.on-time,.status.landed { background:rgba(52,199,89,0.15); color:#34c759; }
-  .status.delayed { background:rgba(255,59,48,0.15); color:#ff3b30; }
-  .status.active { background:rgba(52,199,89,0.15); color:#34c759; }
-  .info-row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid rgba(128,128,128,0.15); }
-  .info-label { opacity:0.5; font-size:13px; }
-  .info-value { font-size:13px; font-weight:600; }
-  .time { font-size:14px; font-family:ui-monospace,monospace; opacity:0.6; }
-  .logo { text-align:center; margin-top:24px; font-size:11px; opacity:0.3; }
-  .loading { opacity:0.4; text-align:center; padding:40px; }
-  #error { color:#ff3b30; text-align:center; display:none; }
-</style></head>
-<body><div class="card" id="card">
-  <div class="loading" id="loading">Loading flight…</div>
-  <div id="error">Journey not found or expired.</div>
-  <div id="content" style="display:none">
-    <div class="route">
-      <div><div class="iata" id="dep-iata">---</div><div class="city" id="dep-city"></div></div>
-      <div class="center"><div class="flight-num" id="flight-num"></div>
-        <div class="progress-bar"><div class="progress-fill" id="progress"></div><div class="plane-dot" id="plane-dot"></div></div></div>
-      <div style="text-align:right"><div class="iata" id="arr-iata">---</div><div class="city" id="arr-city"></div></div>
-    </div>
-    <div id="status-pill"></div>
-    <div class="time" style="display:flex;justify-content:space-between;margin-bottom:16px"><span id="dep-time"></span><span id="arr-time"></span></div>
-    <div id="info-rows"></div>
-  </div>
-</div><div class="logo">Tracked by Arc</div>
-<script>
-const SUPA_URL='${supabaseUrl}',SUPA_KEY='${anonKey}',CODE='${code}';
-async function load(){try{
-  const jRes=await fetch(SUPA_URL+'/rest/v1/shared_journeys?share_code=eq.'+CODE+'&is_active=eq.true&select=*',{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
-  const journeys=await jRes.json(); if(!journeys.length){showError();return;} const journey=journeys[0];
-  const fRes=await fetch(SUPA_URL+'/rest/v1/shared_flights?id=eq.'+journey.flight_id+'&select=*',{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
-  const flights=await fRes.json(); if(!flights.length){showError();return;}
-  render(flights[0]); document.getElementById('loading').style.display='none'; document.getElementById('content').style.display='block';
-  setInterval(async()=>{const r=await fetch(SUPA_URL+'/rest/v1/shared_flights?id=eq.'+journey.flight_id+'&select=*',{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});const f=await r.json();if(f.length)render(f[0]);},30000);
-}catch(e){showError();}}
-function render(f){
-  document.getElementById('dep-iata').textContent=f.departure_iata;document.getElementById('arr-iata').textContent=f.arrival_iata;
-  document.getElementById('dep-city').textContent=f.departure_city;document.getElementById('arr-city').textContent=f.arrival_city;
-  document.getElementById('flight-num').textContent=f.flight_number+' · '+f.airline;
-  document.getElementById('dep-time').textContent=new Date(f.scheduled_departure).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-  document.getElementById('arr-time').textContent=new Date(f.scheduled_arrival).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-  const pct=Math.min(100,Math.max(0,f.progress*100));document.getElementById('progress').style.width=pct+'%';document.getElementById('plane-dot').style.left='calc('+pct+'% - 6px)';
-  let sc='on-time',st='On Time';if(f.status==='active'){sc='active';st='In Flight';}if(f.status==='landed'){sc='landed';st='Landed';}if(f.delay_minutes>0){sc='delayed';st='Delayed '+f.delay_minutes+'m';}if(f.status==='cancelled'){sc='delayed';st='Cancelled';}
-  document.getElementById('status-pill').innerHTML='<span class="status '+sc+'">'+st+'</span>';
-  let rows='';if(f.departure_gate)rows+=infoRow('Gate',f.departure_gate);if(f.arrival_gate)rows+=infoRow('Arrival Gate',f.arrival_gate);if(f.baggage_claim)rows+=infoRow('Baggage',f.baggage_claim);if(f.aircraft_type)rows+=infoRow('Aircraft',f.aircraft_type);if(f.live_altitude)rows+=infoRow('Altitude',Math.round(f.live_altitude*3.281).toLocaleString()+' ft');if(f.live_speed)rows+=infoRow('Speed',Math.round(f.live_speed*1.944)+' kts');
-  document.getElementById('info-rows').innerHTML=rows;
+
+// ── Live share page (/s/:code) ──
+//
+// The share artifact for people WITHOUT the app: a full-screen cinematic
+// live tracker — dark world map, glowing great-circle arc that fills in as
+// the flight progresses, the plane easing along it, a ticking countdown.
+// Server-rendered so iMessage unfurls it and the first paint needs no
+// round-trip; afterwards the page polls /s/:code/data.
+
+interface SharePayload {
+  expired: boolean;
+  sharer: string;
+  flight: Record<string, any>;
 }
-function infoRow(l,v){return '<div class="info-row"><span class="info-label">'+l+'</span><span class="info-value">'+v+'</span></div>';}
-function showError(){document.getElementById('loading').style.display='none';document.getElementById('error').style.display='block';}
-load();
+
+async function loadSharePayload(env: Env, code: string): Promise<SharePayload | null> {
+  const journeys = await sbSelect(env,
+    `/shared_journeys?share_code=eq.${encodeURIComponent(code)}&select=flight_id,is_active,expires_at`);
+  if (!journeys.length) return null;
+  const j = journeys[0];
+  const flights = await sbSelect(env, `/shared_flights?id=eq.${j.flight_id}&select=*`);
+  if (!flights.length) return null;
+  const f = flights[0];
+  const profs = await sbSelect(env, `/profiles?id=eq.${f.user_id}&select=display_name`);
+  const expired = !j.is_active || (j.expires_at ? Date.parse(j.expires_at) < Date.now() : false);
+  // Hand the page exactly what it renders — never the raw row (user_id etc.).
+  return {
+    expired,
+    sharer: profs[0]?.display_name || "",
+    flight: {
+      number: f.flight_number, airline: f.airline, status: f.status,
+      delay: f.delay_minutes || 0, aircraft: f.aircraft_type,
+      progress: f.progress || 0, updated: f.updated_at,
+      live: (f.live_lat != null && f.live_lon != null) ? { lat: f.live_lat, lon: f.live_lon } : null,
+      dep: {
+        iata: f.departure_iata, city: f.departure_city,
+        lat: f.departure_lat, lon: f.departure_lon,
+        gate: f.departure_gate, terminal: f.departure_terminal,
+        scheduled: f.scheduled_departure, actual: f.actual_departure,
+      },
+      arr: {
+        iata: f.arrival_iata, city: f.arrival_city,
+        lat: f.arrival_lat, lon: f.arrival_lon,
+        gate: f.arrival_gate, terminal: f.arrival_terminal, belt: f.baggage_claim,
+        scheduled: f.scheduled_arrival, estimated: f.estimated_arrival, actual: f.actual_arrival,
+      },
+    },
+  };
+}
+
+function escHTML(s: unknown): string {
+  return String(s ?? "").replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+}
+
+function sharePageHTML(code: string, payload: SharePayload | null): string {
+  if (!payload) {
+    return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Arc — Journey not found</title>
+<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#06080f;color:#e8eefc;font-family:-apple-system,system-ui,sans-serif;text-align:center;padding:24px}
+.c{max-width:340px}.p{font-size:44px;margin-bottom:14px}h1{font-size:20px;font-weight:800;margin:0 0 8px}p{font-size:14px;opacity:.55;line-height:1.5;margin:0}</style></head>
+<body><div class="c"><div class="p">🌙</div><h1>This journey isn't in the sky anymore.</h1>
+<p>Links shared from Arc expire 48 hours after they were last shared.</p></div></body></html>`;
+  }
+
+  const f = payload.flight;
+  const sharer = payload.sharer || "Someone";
+  const title = `${escHTML(sharer)} is flying ${escHTML(f.dep.iata)} → ${escHTML(f.arr.iata)}`;
+  const desc = `${escHTML(f.airline)} ${escHTML(f.number)} · ${escHTML(f.dep.city)} to ${escHTML(f.arr.city)} · live on Arc`;
+
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>${title}</title>
+<meta property="og:title" content="${title}">
+<meta property="og:description" content="${desc}">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#06080f">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{background:#06080f;color:#e8eefc;font-family:-apple-system,system-ui,sans-serif;overflow:hidden}
+#map{position:fixed;inset:0;background:#06080f}
+.leaflet-container{background:#06080f;font:inherit}
+.vignette{position:fixed;inset:0;pointer-events:none;z-index:500;
+  background:radial-gradient(120% 90% at 50% 40%,transparent 55%,rgba(3,5,10,.72) 100%),
+             linear-gradient(180deg,rgba(3,5,10,.78),transparent 22%),
+             linear-gradient(0deg,rgba(3,5,10,.9) 0%,transparent 42%)}
+.hud{position:fixed;left:0;right:0;z-index:600;display:flex;flex-direction:column;align-items:center;
+  padding-left:max(18px,env(safe-area-inset-left));padding-right:max(18px,env(safe-area-inset-right))}
+.hud.top{top:0;padding-top:max(22px,env(safe-area-inset-top))}
+.eyebrow{font-size:11px;font-weight:800;letter-spacing:.22em;color:#8fb8dd;text-transform:uppercase}
+.title{font-size:clamp(22px,6vw,30px);font-weight:800;letter-spacing:-.02em;margin-top:6px;text-align:center;
+  text-shadow:0 2px 24px rgba(0,0,0,.8)}
+.chip-row{display:flex;gap:8px;margin-top:10px}
+.chip{font-size:11px;font-weight:800;letter-spacing:.08em;padding:5px 11px;border-radius:999px;
+  background:rgba(53,208,255,.14);color:#6fe0ff;border:1px solid rgba(111,224,255,.25)}
+.chip.late{background:rgba(255,69,58,.16);color:#ff8078;border-color:rgba(255,99,89,.3)}
+.chip.ok{background:rgba(48,209,88,.14);color:#5be08a;border-color:rgba(91,224,138,.25)}
+.chip.ghost{background:rgba(255,255,255,.07);color:#c7d5ea;border-color:rgba(255,255,255,.12)}
+.hud.bottom{bottom:0;padding-bottom:max(18px,env(safe-area-inset-bottom))}
+.card{width:min(430px,100%);border-radius:22px;padding:18px 20px 14px;
+  background:rgba(9,13,22,.62);border:1px solid rgba(140,180,230,.14);
+  backdrop-filter:blur(22px) saturate(1.4);-webkit-backdrop-filter:blur(22px) saturate(1.4);
+  box-shadow:0 18px 60px rgba(0,0,0,.55)}
+.count-label{font-size:11px;font-weight:800;letter-spacing:.22em;color:#8fb8dd;text-align:center;text-transform:uppercase}
+.count{font-size:clamp(40px,12vw,58px);font-weight:800;letter-spacing:-.01em;text-align:center;line-height:1.15;
+  font-variant-numeric:tabular-nums;
+  background:linear-gradient(180deg,#fff,#8fd8ff);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.route-row{display:flex;align-items:center;gap:12px;margin-top:10px}
+.ep{flex:1}.ep.right{text-align:right}
+.iata{font-size:20px;font-weight:800}
+.t{font-size:14px;font-weight:700;color:#6fe0ff;font-variant-numeric:tabular-nums}
+.t.late{color:#ff8078}
+.sub{font-size:11px;color:#7e8ba3;margin-top:1px}
+.mid{flex:1.3;position:relative;height:22px}
+.bar{position:absolute;left:0;right:0;top:10px;height:3px;border-radius:2px;background:rgba(140,180,230,.18)}
+.bar i{display:block;height:100%;width:0;border-radius:2px;background:linear-gradient(90deg,#35d0ff,#6fe0ff);
+  box-shadow:0 0 12px rgba(53,208,255,.8);transition:width 1s linear}
+.mid svg{position:absolute;top:-1px;left:0;transform:translateX(-50%);transition:left 1s linear;
+  filter:drop-shadow(0 0 6px rgba(111,224,255,.9))}
+.facts{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:12px}
+.fact{font-size:11px;font-weight:700;color:#c7d5ea;background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.09);padding:4px 10px;border-radius:999px}
+.fact b{color:#ffd60a}
+.brand{margin-top:12px;text-align:center;font-size:10px;letter-spacing:.18em;color:#5a6880;text-transform:uppercase}
+.brand b{color:#8fb8dd}
+.ribbon{position:fixed;top:0;left:0;right:0;z-index:700;text-align:center;font-size:11px;font-weight:800;
+  letter-spacing:.12em;padding:6px;background:rgba(255,159,10,.92);color:#1a1204;text-transform:uppercase}
+.plane-halo{position:relative}
+.plane-halo::before{content:"";position:absolute;inset:-9px;border-radius:50%;
+  background:radial-gradient(circle,rgba(111,224,255,.35),transparent 70%);animation:pulse 2.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{transform:scale(.8);opacity:.5}50%{transform:scale(1.25);opacity:1}}
+.ap-label{background:none;border:none;box-shadow:none;color:#c7d5ea;font-size:11px;font-weight:800;letter-spacing:.06em;
+  text-shadow:0 1px 8px rgba(0,0,0,.9)}
+.leaflet-control-attribution{background:rgba(6,8,15,.55)!important;color:#5a6880!important;font-size:9px!important}
+.leaflet-control-attribution a{color:#7e8ba3!important}
+</style></head><body>
+<div id="map"></div><div class="vignette"></div>
+<div class="ribbon" id="ribbon" hidden>Link expired — last known state</div>
+<header class="hud top">
+  <div class="eyebrow" id="eyebrow"></div>
+  <div class="title" id="title"></div>
+  <div class="chip-row"><span class="chip" id="status-chip"></span><span class="chip ghost" id="flight-chip"></span></div>
+</header>
+<footer class="hud bottom"><div class="card">
+  <div class="count-label" id="count-label"></div>
+  <div class="count" id="count">—</div>
+  <div class="route-row">
+    <div class="ep"><div class="iata" id="dep-iata"></div><div class="t" id="dep-time"></div><div class="sub" id="dep-sub"></div></div>
+    <div class="mid">
+      <svg id="bar-plane" width="20" height="20" viewBox="0 0 24 24" fill="#6fe0ff"><path d="M21.5 15.5v-2l-8-5v-5c0-.83-.67-1.5-1.5-1.5S10.5 2.67 10.5 3.5v5l-8 5v2l8-2.5v5.5l-2 1.5v1.5l3.5-1 3.5 1V20l-2-1.5V13l8 2.5z"/></svg>
+      <div class="bar"><i id="bar-fill"></i></div>
+    </div>
+    <div class="ep right"><div class="iata" id="arr-iata"></div><div class="t" id="arr-time"></div><div class="sub" id="arr-sub"></div></div>
+  </div>
+  <div class="facts" id="facts"></div>
+  <div class="brand">Live from <b>Arc</b> · <span id="updated"></span></div>
+</div></footer>
+<script>
+var D=${JSON.stringify(payload)};
+var CODE=${JSON.stringify(code)};
+var N=160;
+
+function P(s){return s?Date.parse(s):null}
+function depT(){var f=D.flight;return P(f.dep.actual)||((P(f.dep.scheduled)||0)+(f.delay||0)*60000)}
+function arrT(){var f=D.flight;return P(f.arr.actual)||P(f.arr.estimated)||((P(f.arr.scheduled)||0)+(f.delay||0)*60000)}
+function phase(){
+  var f=D.flight,now=Date.now();
+  if(f.status==='cancelled')return 'cancelled';
+  if(f.status==='landed')return 'landed';
+  if(f.status==='active')return now>=arrT()?'landing':'air';
+  return now>=depT()?'air':'pre';   // clock heals a stale status
+}
+function prog(){
+  var ph=phase();
+  if(ph==='pre')return 0;
+  if(ph==='landed')return 1;
+  var d=depT(),a=arrT();
+  if(!d||!a||a<=d)return D.flight.progress||0;
+  return Math.min(1,Math.max(0,(Date.now()-d)/(a-d)));
+}
+
+// Great circle with antimeridian unwrap.
+function gc(a,b,n){
+  var R=Math.PI/180,G=180/Math.PI;
+  var p1=a[0]*R,l1=a[1]*R,p2=b[0]*R,l2=b[1]*R;
+  var d=2*Math.asin(Math.sqrt(Math.pow(Math.sin((p2-p1)/2),2)+Math.cos(p1)*Math.cos(p2)*Math.pow(Math.sin((l2-l1)/2),2)));
+  var pts=[];
+  for(var i=0;i<=n;i++){
+    var t=i/n;
+    if(d<1e-8){pts.push([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]);continue}
+    var A=Math.sin((1-t)*d)/Math.sin(d),B=Math.sin(t*d)/Math.sin(d);
+    var x=A*Math.cos(p1)*Math.cos(l1)+B*Math.cos(p2)*Math.cos(l2);
+    var y=A*Math.cos(p1)*Math.sin(l1)+B*Math.cos(p2)*Math.sin(l2);
+    var z=A*Math.sin(p1)+B*Math.sin(p2);
+    pts.push([Math.atan2(z,Math.sqrt(x*x+y*y))*G,Math.atan2(y,x)*G]);
+  }
+  for(var i=1;i<pts.length;i++){
+    while(pts[i][1]-pts[i-1][1]>180)pts[i][1]-=360;
+    while(pts[i][1]-pts[i-1][1]<-180)pts[i][1]+=360;
+  }
+  return pts;
+}
+function bearing(a,b){
+  var R=Math.PI/180;
+  var y=Math.sin((b[1]-a[1])*R)*Math.cos(b[0]*R);
+  var x=Math.cos(a[0]*R)*Math.sin(b[0]*R)-Math.sin(a[0]*R)*Math.cos(b[0]*R)*Math.cos((b[1]-a[1])*R);
+  return Math.atan2(y,x)*180/Math.PI;
+}
+
+var f=D.flight;
+var A=[f.dep.lat,f.dep.lon],B=[f.arr.lat,f.arr.lon];
+var PTS=gc(A,B,N);
+
+var map=L.map('map',{zoomControl:false,attributionControl:true});
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+  {attribution:'&copy; OpenStreetMap &copy; CARTO',maxZoom:12}).addTo(map);
+map.fitBounds(L.latLngBounds(PTS),{paddingTopLeft:[40,120],paddingBottomRight:[40,290]});
+
+// Route layers: dim dashed full path, then the flown part as glow + crisp.
+L.polyline(PTS,{color:'#2c4d6e',weight:2,opacity:.9,dashArray:'1 7',lineCap:'round'}).addTo(map);
+var glow=L.polyline([],{color:'#35d0ff',weight:9,opacity:.2,lineCap:'round'}).addTo(map);
+var crisp=L.polyline([],{color:'#6fe0ff',weight:2.5,opacity:.95,lineCap:'round'}).addTo(map);
+
+function apDot(ll,label,side){
+  L.circleMarker(ll,{radius:4,color:'#9fd4ff',weight:2,fillColor:'#06080f',fillOpacity:1}).addTo(map);
+  L.marker(ll,{icon:L.divIcon({className:'ap-label',html:label,iconAnchor:side==='r'?[-8,7]:[38,7]}),interactive:false}).addTo(map);
+}
+apDot(A,f.dep.iata,'l');apDot(B,f.arr.iata,'r');
+
+var planeIcon=L.divIcon({className:'',iconSize:[26,26],iconAnchor:[13,13],
+  html:'<div class="plane-halo"><svg id="plane-svg" width="26" height="26" viewBox="0 0 24 24" fill="#eaf7ff" style="filter:drop-shadow(0 0 5px rgba(111,224,255,.95))"><path d="M21.5 15.5v-2l-8-5v-5c0-.83-.67-1.5-1.5-1.5S10.5 2.67 10.5 3.5v5l-8 5v2l8-2.5v5.5l-2 1.5v1.5l3.5-1 3.5 1V20l-2-1.5V13l8 2.5z"/></svg></div>'});
+var plane=L.marker(PTS[0],{icon:planeIcon,interactive:false}).addTo(map);
+
+function fmtT(ms){
+  if(!ms)return '—';
+  return new Intl.DateTimeFormat(undefined,{hour:'2-digit',minute:'2-digit'}).format(new Date(ms));
+}
+function fmtDur(ms){
+  var s=Math.max(0,Math.round(ms/1000));
+  var h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;
+  if(h>0)return h+':'+String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0');
+  return m+':'+String(ss).padStart(2,'0');
+}
+
+function renderStatic(){
+  var f=D.flight;
+  document.getElementById('eyebrow').textContent=(D.sharer||'Someone')+' is flying';
+  document.getElementById('title').textContent=(f.dep.city||f.dep.iata)+' to '+(f.arr.city||f.arr.iata);
+  document.getElementById('flight-chip').textContent=f.airline+' '+f.number;
+  document.getElementById('dep-iata').textContent=f.dep.iata;
+  document.getElementById('arr-iata').textContent=f.arr.iata;
+  document.getElementById('dep-sub').textContent='Departure · your time';
+  document.getElementById('arr-sub').textContent='Arrival · your time';
+  var dt=document.getElementById('dep-time'),at=document.getElementById('arr-time');
+  dt.textContent=fmtT(depT());at.textContent=fmtT(arrT());
+  dt.className='t'+(f.delay>0?' late':'');at.className='t'+(f.delay>0?' late':'');
+  var facts=[];
+  if(f.dep.gate)facts.push('Gate <b>'+f.dep.gate+'</b>');
+  if(f.dep.terminal)facts.push('Terminal <b>'+f.dep.terminal+'</b>');
+  if(f.arr.belt)facts.push('Belt <b>'+f.arr.belt+'</b>');
+  if(f.aircraft)facts.push(f.aircraft);
+  if(f.delay>0)facts.push('<b>+'+f.delay+' min</b>');
+  document.getElementById('facts').innerHTML=facts.map(function(x){return '<div class="fact">'+x+'</div>'}).join('');
+  if(D.expired)document.getElementById('ribbon').hidden=false;
+}
+
+function tick(){
+  var f=D.flight,ph=phase(),p=prog();
+  var chip=document.getElementById('status-chip'),cl=document.getElementById('count-label'),c=document.getElementById('count');
+  if(ph==='pre'){chip.textContent=f.delay>0?'Delayed':'On time';chip.className='chip '+(f.delay>0?'late':'ok');
+    cl.textContent='Departs in';c.textContent=fmtDur(depT()-Date.now());}
+  else if(ph==='air'){chip.textContent='In flight';chip.className='chip';
+    cl.textContent='Landing in';c.textContent=fmtDur(arrT()-Date.now());}
+  else if(ph==='landing'){chip.textContent='Landing soon';chip.className='chip';
+    cl.textContent='Arrival';c.textContent='Any moment';}
+  else if(ph==='landed'){chip.textContent='Landed';chip.className='chip ok';
+    cl.textContent='Landed';
+    var ago=Date.now()-arrT();
+    c.textContent=ago>0&&ago<6*3600000?Math.max(1,Math.round(ago/60000))+' min ago':fmtT(arrT());}
+  else{chip.textContent='Cancelled';chip.className='chip late';cl.textContent='Status';c.textContent='Cancelled';}
+
+  // Plane + flown path. Live ADS-B position wins when it's fresh (<15 min).
+  var idx=Math.max(0,Math.min(N,Math.round(p*N)));
+  var tip=PTS[idx];
+  var liveFresh=f.live&&f.updated&&(Date.now()-Date.parse(f.updated))<15*60000;
+  if(liveFresh)tip=[f.live.lat,f.live.lon];
+  var flown=PTS.slice(0,idx+1);if(liveFresh)flown.push(tip);
+  glow.setLatLngs(flown);crisp.setLatLngs(flown);
+  plane.setLatLng(tip);
+  var b=bearing(PTS[Math.max(0,idx-1)],PTS[Math.min(N,idx+1)]);
+  var svg=document.getElementById('plane-svg');
+  if(svg)svg.style.transform='rotate('+b+'deg)';
+  plane.setOpacity(ph==='pre'?0:1);
+  document.getElementById('bar-fill').style.width=(p*100)+'%';
+  document.getElementById('bar-plane').style.left=(p*100)+'%';
+  document.getElementById('bar-plane').style.opacity=ph==='pre'?0:1;
+  var upd=document.getElementById('updated');
+  upd.textContent=f.updated?('updated '+fmtT(Date.parse(f.updated))):'';
+}
+
+renderStatic();tick();
+setInterval(tick,1000);
+if(!D.expired){
+  setInterval(function(){
+    fetch('/s/'+CODE+'/data').then(function(r){return r.ok?r.json():null}).then(function(d){
+      if(d&&d.flight){D=d;f=D.flight;renderStatic();}
+    }).catch(function(){});
+  },45000);
+}
 </script></body></html>`;
 }
