@@ -26,6 +26,7 @@ final class ArcSupabase: ObservableObject {
         var handle: String?
         var avatar_url: String?
         var home_airport: String?
+        var nationality: String?   // ISO region code ("CH") — passport flag
     }
 
     init() {
@@ -57,6 +58,9 @@ final class ArcSupabase: ObservableObject {
         await refreshSession()
         await loadProfile()
         if currentUser != nil {
+            // A cold launch FROM an invite link races this bootstrap — the
+            // parked code redeems here once the session is ready.
+            await FriendsStore.shared.redeemPendingIfPossible()
             await FriendsStore.shared.refresh()
         }
     }
@@ -77,6 +81,25 @@ final class ArcSupabase: ObservableObject {
     var isConfigured: Bool { !baseURL.isEmpty && !anonKey.isEmpty }
 
     // MARK: - Auth
+
+    /// The identity path: no email, no password, no verification step. GoTrue
+    /// signup without credentials mints an anonymous user (enabled in the
+    /// project's auth config); the profiles trigger picks the display name up
+    /// from the signup metadata. The refresh token in UserDefaults IS the
+    /// identity — reinstalling the app starts a fresh one (fine for a family
+    /// app; friends just re-link).
+    func signInAnonymously(displayName: String, nationality: String?) async throws {
+        let body: [String: Any] = ["data": ["full_name": displayName]]
+        let data = try await post(path: "/auth/v1/signup", body: body, auth: false)
+        let result = try decodeAuth(data)
+        accessToken = result.access_token
+        refreshToken = result.refresh_token
+        isSignedIn = true
+        await loadProfile()
+        if let nationality {
+            try? await updateProfile(nationality: nationality)
+        }
+    }
 
     func signInWithApple(idToken: String, nonce: String) async throws {
         let body: [String: Any] = [
@@ -148,15 +171,47 @@ final class ArcSupabase: ObservableObject {
         } catch {}
     }
 
-    func updateProfile(displayName: String? = nil, handle: String? = nil, homeAirport: String? = nil) async throws {
+    func updateProfile(displayName: String? = nil, handle: String? = nil,
+                       homeAirport: String? = nil, nationality: String? = nil) async throws {
         guard let uid = currentUser?.id else { return }
         var body: [String: Any] = [:]
         if let name = displayName { body["display_name"] = name }
         if let h = handle { body["handle"] = h }
         if let airport = homeAirport { body["home_airport"] = airport }
+        if let nationality { body["nationality"] = nationality }
 
         _ = try await patch(path: "/rest/v1/profiles?id=eq.\(uid)", body: body)
         await loadProfile()
+    }
+
+    // MARK: - Friend invites (capability links, Flighty-style)
+
+    /// Mints a 48-hour invite link code. Anyone who opens the link and has
+    /// (or sets up) the app becomes a friend — no requests, no approval step.
+    func createFriendInvite() async throws -> String {
+        guard let uid = currentUser?.id else { throw ArcError.notSignedIn }
+        let code = generateShareCode()
+        _ = try await post(path: "/rest/v1/friend_invites", body: ["code": code, "inviter": uid])
+        return code
+    }
+
+    /// Redeems an invite code: validates it, then inserts an already-accepted
+    /// friendship (invite links skip the request/approve dance on purpose).
+    /// Returns the new friend's profile, or nil if the code is unknown,
+    /// expired, or the user's own.
+    func redeemInvite(code: String) async throws -> ArcUser? {
+        guard let uid = currentUser?.id else { return nil }
+        struct Row: Codable { let inviter: String; let expires_at: String? }
+        let cleaned = code.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? code
+        let data = try await get(path: "/rest/v1/friend_invites?code=eq.\(cleaned)&select=inviter,expires_at")
+        guard let row = (try? JSONDecoder().decode([Row].self, from: data))?.first else { return nil }
+        if let exp = DateHelpers.parseAPIDate(row.expires_at), exp < .now { return nil }
+        guard row.inviter != uid else { return nil }
+        // 409 (already friends) is success for our purposes — ignore it.
+        _ = try? await post(path: "/rest/v1/friendships", body: [
+            "requester_id": uid, "addressee_id": row.inviter, "status": "accepted",
+        ])
+        return try await getProfile(userId: row.inviter)
     }
 
     // MARK: - Friends

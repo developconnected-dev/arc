@@ -31,3 +31,15 @@ struct FriendAvatar: View {
         return Color(hue: hue, saturation: 0.55, brightness: 0.72)
     }
 }
+
+extension String {
+    /// "CH" → 🇨🇭 (regional-indicator pair). Unknown/malformed codes fall
+    /// back to a neutral flag rather than garbage.
+    static func flag(forRegion code: String) -> String {
+        let scalars = code.uppercased().unicodeScalars.compactMap { scalar in
+            UnicodeScalar(127397 + scalar.value)
+        }
+        guard scalars.count == 2 else { return "🏳️" }
+        return String(String.UnicodeScalarView(scalars))
+    }
+}

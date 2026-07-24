@@ -71,6 +71,17 @@ struct ArcRootView: View {
                 Task { await FriendsStore.shared.refresh() }
             }
         }
+        // arc://friend/<code> — invite links from the /f/ landing page. The
+        // code parks in the store: redeemed immediately when a session
+        // exists, or right after first-time profile setup when it doesn't.
+        .onOpenURL { url in
+            guard url.scheme == "arc", url.host() == "friend" else { return }
+            let code = url.lastPathComponent
+            guard !code.isEmpty, code != "friend" else { return }
+            FriendsStore.shared.pendingInviteCode = code
+            tab = .friends
+            Task { await FriendsStore.shared.redeemPendingIfPossible() }
+        }
         .onChange(of: detailFlight?.id) { _, _ in
             if let f = detailFlight { controller.focus(on: f) }
         }

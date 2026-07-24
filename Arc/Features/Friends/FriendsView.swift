@@ -1,10 +1,10 @@
 import SwiftUI
 
 /// The Friends sheet content: intro takeover on first visit, then title +
-/// share/avatar row and either sign-in or the live friends list, matching
-/// the other tabs' bottom-sheet layout (no standalone NavigationStack at the
-/// top level — that's reserved for the signed-in content, which needs to
-/// push to FriendDetailView).
+/// share/avatar row and either the one-time profile setup or the live
+/// friends list, matching the other tabs' bottom-sheet layout (no standalone
+/// NavigationStack at the top level — that's reserved for the signed-in
+/// content, which needs to push to FriendDetailView).
 struct FriendsScreen: View {
     @ObservedObject private var supabase = ArcSupabase.shared
     @AppStorage("hasSeenFriendsIntro") private var hasSeenIntro = false
@@ -18,10 +18,8 @@ struct FriendsScreen: View {
                 VStack(alignment: .leading, spacing: 0) {
                     header.padding(.horizontal, 20).padding(.top, 4)
 
-                    if !supabase.isConfigured {
-                        setupPrompt
-                    } else if !supabase.isSignedIn {
-                        SignInContent()
+                    if !supabase.isSignedIn {
+                        ProfileSetupView()
                     } else {
                         FriendsListView()
                     }
@@ -36,34 +34,12 @@ struct FriendsScreen: View {
         HStack(spacing: 12) {
             Text("Friends").font(ArcTheme.screenTitle)
             Spacer()
-            ShareLink(item: "Join me on Arc — our own flight tracker. Every flight, live, on one map. ✈️") {
-                circleIcon("square.and.arrow.up")
-            }
             Button { showSettings = true } label: {
                 Image(systemName: "person.crop.circle.fill")
                     .font(.system(size: 34))
                     .foregroundStyle(Color(.systemGray3), Color(.systemGray5))
             }.buttonStyle(.plain)
         }
-    }
-
-    private func circleIcon(_ name: String) -> some View {
-        Image(systemName: name).font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(.primary).frame(width: 36, height: 36)
-            .background(Color(.secondarySystemFill), in: Circle())
-    }
-
-    private var setupPrompt: some View {
-        VStack(spacing: 14) {
-            Spacer()
-            Image(systemName: "person.2.fill").font(.system(size: 52)).foregroundStyle(.tertiary)
-            Text("Set Up Social").font(.system(size: 20, weight: .bold))
-            Text("Connect Supabase in Settings to use Friends and Shared Journeys.")
-                .font(.system(size: 14)).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center).padding(.horizontal, 40)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity)
     }
 }
 
@@ -88,10 +64,10 @@ struct FriendsIntroView: View {
                     Text("Add your family to automatically share upcoming flights, watch each other fly on the map, and get live updates the moment a flight takes off, lands, or changes.")
                         .font(.system(size: 17))
                         .foregroundStyle(.primary.opacity(0.9))
-                    Text("It saves you from ever hearing \"send me your flight info!\" again.")
+                    Text("No account, no email — just your name. Friends connect through a link.")
                         .font(.system(size: 17))
                         .foregroundStyle(.primary.opacity(0.9))
-                    Text("Invites expire after 48 hours. You can remove friends at any time.")
+                    Text("Invite links expire after 48 hours. You can remove friends at any time.")
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                         .padding(.top, 4)
@@ -173,30 +149,40 @@ private struct IntroArc: View {
     }
 }
 
-// MARK: - Sign In
+// MARK: - Profile setup (one-time, replaces sign-in)
 
-/// Email code is the primary path — it works with zero extra setup. Sign in
-/// with Apple is offered too, but only actually works once Apple's side
-/// (Services ID + key) is configured in the Supabase dashboard, so its
-/// caption says so rather than pretending it's ready.
-struct SignInContent: View {
-    @ObservedObject private var supabase = ArcSupabase.shared
-    @State private var email = ""
-    @State private var code = ""
-    @State private var codeSent = false
+/// The whole "account": a name and a passport nationality. Continuing mints
+/// an anonymous Supabase user behind the scenes — no email, no code, no
+/// approval steps.
+struct ProfileSetupView: View {
+    @State private var name = ""
+    @State private var region: String = Locale.current.region?.identifier ?? "CH"
+    @State private var showRegionPicker = false
     @State private var isBusy = false
     @State private var errorMessage: String?
+    @State private var store = FriendsStore.shared
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 18) {
-                Spacer().frame(height: 8)
-                Image(systemName: "person.crop.circle").font(.system(size: 52)).foregroundStyle(ArcTheme.action)
+            VStack(spacing: 22) {
+                Spacer().frame(height: 6)
+                FriendAvatar(name: name.isEmpty ? "?" : name, size: 76)
+                    .animation(.easeInOut(duration: 0.2), value: FriendAvatar.initials(of: name))
+
                 VStack(spacing: 6) {
-                    Text("Sign In").font(.system(size: 22, weight: .bold))
-                    Text("Sign in to share flights, track friends, and create live journey links.")
+                    Text("Who's flying?").font(.system(size: 26, weight: .heavy))
+                    Text("Just a name and your passport — that's the whole setup. Friends see this on the map.")
                         .font(.system(size: 14)).foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center).padding(.horizontal, 24)
+                        .multilineTextAlignment(.center).padding(.horizontal, 30)
+                }
+
+                if store.pendingInviteCode != nil {
+                    Label("You'll be connected with your friend right after.",
+                          systemImage: "person.2.wave.2.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(ArcTheme.action)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(ArcTheme.action.opacity(0.12), in: Capsule())
                 }
 
                 if let errorMessage {
@@ -204,163 +190,135 @@ struct SignInContent: View {
                         .multilineTextAlignment(.center).padding(.horizontal, 24)
                 }
 
-                VStack(spacing: 10) {
-                    if !codeSent {
-                        TextField("you@example.com", text: $email)
-                            .font(.system(size: 16))
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .keyboardType(.emailAddress)
-                            .padding(14).background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 12))
-                        actionButton(title: isBusy ? "Sending…" : "Send Code", disabled: !isValidEmail || isBusy) {
-                            await sendCode()
+                VStack(spacing: 12) {
+                    TextField("Your name", text: $name)
+                        .font(.system(size: 18, weight: .semibold))
+                        .multilineTextAlignment(.center)
+                        .textInputAutocapitalization(.words)
+                        .padding(15)
+                        .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 14))
+
+                    Button { showRegionPicker = true } label: {
+                        HStack {
+                            Text("Passport").font(.system(size: 15, weight: .semibold))
+                            Spacer()
+                            Text("\(String.flag(forRegion: region)) \(regionName(region))")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(ArcTheme.action)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
                         }
-                    } else {
-                        Text("Code sent to \(email)").font(.system(size: 13)).foregroundStyle(.secondary)
-                        TextField("6-digit code", text: $code)
-                            .font(.system(size: 20, weight: .semibold, design: .monospaced))
-                            .multilineTextAlignment(.center)
-                            .keyboardType(.numberPad)
-                            .padding(14).background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 12))
-                        actionButton(title: isBusy ? "Verifying…" : "Verify & Sign In", disabled: code.count < 6 || isBusy) {
-                            await verifyCode()
-                        }
-                        Button("Use a different email") {
-                            codeSent = false; code = ""; errorMessage = nil
-                        }
-                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(ArcTheme.action)
+                        .padding(15)
+                        .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 14))
                     }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        Task { await submit() }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text(isBusy ? "Setting up…" : "Continue")
+                                .font(.system(size: 17, weight: .semibold))
+                            Spacer()
+                        }
+                        .foregroundStyle(.white).padding(15)
+                        .background(canContinue ? ArcTheme.action : Color(.systemGray4),
+                                    in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canContinue)
                 }
                 .padding(.horizontal, 24)
 
-                HStack { line; Text("or").font(.system(size: 12)).foregroundStyle(.tertiary); line }
-                    .padding(.horizontal, 24)
+                Text("No account or email. Your flights stay yours — only friends you link with can see them.")
+                    .font(.system(size: 12)).foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center).padding(.horizontal, 40)
 
-                VStack(spacing: 6) {
-                    AppleSignInButton(errorMessage: $errorMessage)
-                        .frame(height: 50).frame(maxWidth: 280).cornerRadius(12)
-                    Text("Requires Sign in with Apple to be configured in Supabase Auth settings.")
-                        .font(.system(size: 11)).foregroundStyle(.tertiary)
-                        .multilineTextAlignment(.center).padding(.horizontal, 40)
-                }
-
-                Spacer().frame(height: 20)
+                Spacer().frame(height: 120)
             }
             .frame(maxWidth: .infinity)
-            .padding(.bottom, 140)
         }
         .scrollIndicators(.hidden)
-    }
-
-    private var line: some View { Rectangle().fill(Color(.separator)).frame(height: 0.5) }
-
-    private var isValidEmail: Bool { email.contains("@") && email.contains(".") && !email.isEmpty }
-
-    private func actionButton(title: String, disabled: Bool, action: @escaping () async -> Void) -> some View {
-        Button { Task { await action() } } label: {
-            HStack { Spacer(); Text(title).font(.system(size: 16, weight: .semibold)); Spacer() }
-                .foregroundStyle(.white).padding(14)
-                .background(disabled ? Color(.systemGray4) : ArcTheme.action, in: RoundedRectangle(cornerRadius: 12))
+        .sheet(isPresented: $showRegionPicker) {
+            NationalityPicker(selection: $region)
         }
-        .buttonStyle(.plain)
-        .disabled(disabled)
     }
 
-    private func sendCode() async {
+    private var canContinue: Bool {
+        !name.trimmingCharacters(in: .whitespaces).isEmpty && !isBusy
+    }
+
+    private func regionName(_ code: String) -> String {
+        Locale.current.localizedString(forRegionCode: code) ?? code
+    }
+
+    private func submit() async {
         isBusy = true; errorMessage = nil
         do {
-            try await supabase.requestEmailCode(email: email.trimmingCharacters(in: .whitespaces))
-            codeSent = true
+            try await ArcSupabase.shared.signInAnonymously(
+                displayName: name.trimmingCharacters(in: .whitespaces),
+                nationality: region)
+            await store.redeemPendingIfPossible()
+            await store.refresh()
         } catch {
-            errorMessage = error.localizedDescription
-        }
-        isBusy = false
-    }
-
-    private func verifyCode() async {
-        isBusy = true; errorMessage = nil
-        do {
-            try await supabase.verifyEmailCode(email: email.trimmingCharacters(in: .whitespaces), code: code)
-        } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = "Couldn't set up your profile: \(error.localizedDescription)"
         }
         isBusy = false
     }
 }
 
-// MARK: - Sign In With Apple
+/// Searchable country list with flags — the "nation of your passport" pick.
+struct NationalityPicker: View {
+    @Binding var selection: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var search = ""
 
-import AuthenticationServices
-import CryptoKit
+    private static let regions: [(code: String, name: String)] = {
+        Locale.Region.isoRegions
+            .map(\.identifier)
+            .filter { $0.count == 2 && $0 != "ZZ" }
+            .compactMap { code in
+                Locale.current.localizedString(forRegionCode: code).map { (code, $0) }
+            }
+            .sorted { $0.1 < $1.1 }
+    }()
 
-struct AppleSignInButton: View {
-    @ObservedObject private var supabase = ArcSupabase.shared
-    @Binding var errorMessage: String?
+    private var filtered: [(code: String, name: String)] {
+        search.isEmpty ? Self.regions
+            : Self.regions.filter { $0.name.localizedCaseInsensitiveContains(search) }
+    }
 
     var body: some View {
-        SignInWithAppleButton(.signIn, onRequest: { request in
-            let nonce = randomNonceString()
-            currentNonce = nonce
-            request.requestedScopes = [.fullName, .email]
-            request.nonce = sha256(nonce)
-        }, onCompletion: { result in
-            switch result {
-            case .success(let authorization):
-                if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential,
-                   let identityToken = appleIDCredential.identityToken,
-                   let tokenString = String(data: identityToken, encoding: .utf8),
-                   let nonce = currentNonce {
-                    Task {
-                        do {
-                            try await supabase.signInWithApple(idToken: tokenString, nonce: nonce)
-                        } catch {
-                            errorMessage = error.localizedDescription
+        NavigationStack {
+            List(filtered, id: \.code) { region in
+                Button {
+                    selection = region.code
+                    dismiss()
+                } label: {
+                    HStack {
+                        Text(String.flag(forRegion: region.code))
+                        Text(region.name).foregroundStyle(.primary)
+                        Spacer()
+                        if region.code == selection {
+                            Image(systemName: "checkmark").foregroundStyle(ArcTheme.action)
                         }
                     }
                 }
-            case .failure(let error):
-                errorMessage = error.localizedDescription
             }
-        })
-        .signInWithAppleButtonStyle(.white)
-    }
-
-    @State private var currentNonce: String?
-
-    private func randomNonceString(length: Int = 32) -> String {
-        let charset = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
-        var result = ""
-        var remainingLength = length
-        while remainingLength > 0 {
-            let randoms: [UInt8] = (0..<16).map { _ in
-                var random: UInt8 = 0
-                let errorCode = SecRandomCopyBytes(kSecRandomDefault, 1, &random)
-                if errorCode != errSecSuccess { fatalError("SecRandomCopyBytes failed") }
-                return random
-            }
-            randoms.forEach { random in
-                if remainingLength == 0 { return }
-                if random < charset.count {
-                    result.append(charset[Int(random)])
-                    remainingLength -= 1
-                }
-            }
+            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always))
+            .navigationTitle("Passport")
+            .navigationBarTitleDisplayMode(.inline)
         }
-        return result
-    }
-
-    private func sha256(_ input: String) -> String {
-        let inputData = Data(input.utf8)
-        let hashed = SHA256.hash(data: inputData)
-        return hashed.compactMap { String(format: "%02x", $0) }.joined()
     }
 }
 
 // MARK: - Friends List
 
-/// Owns its own NavigationStack (unlike the sign-in/setup states) so it can
-/// push to FriendDetailView. Data comes from FriendsStore — the same object
-/// the shared map reads, so this list and the friend bubbles on the globe
-/// are always in sync.
+/// Owns its own NavigationStack (unlike the setup state) so it can push to
+/// FriendDetailView. Data comes from FriendsStore — the same object the
+/// shared map reads, so this list and the friend bubbles on the globe are
+/// always in sync.
 struct FriendsListView: View {
     @ObservedObject private var supabase = ArcSupabase.shared
     @State private var store = FriendsStore.shared
@@ -426,6 +384,14 @@ struct FriendsListView: View {
                 AddFriendSheet().presentationDetents([.medium, .large])
             }
             .task { await store.refresh() }
+            .alert("You're connected ✈️",
+                   isPresented: Binding(get: { store.justRedeemedFriend != nil },
+                                        set: { if !$0 { store.justRedeemedFriend = nil } }),
+                   presenting: store.justRedeemedFriend) { _ in
+                Button("Nice") { store.justRedeemedFriend = nil }
+            } message: { friend in
+                Text("You and \(friend.display_name) now share flights automatically.")
+            }
         }
     }
 
@@ -435,10 +401,14 @@ struct FriendsListView: View {
         HStack(spacing: 14) {
             FriendAvatar(name: user.display_name.isEmpty ? "You" : user.display_name, size: 40)
             VStack(alignment: .leading, spacing: 2) {
-                Text(user.display_name.isEmpty ? "You" : user.display_name).font(.system(size: 15, weight: .semibold))
-                if let handle = user.handle {
-                    Text("@\(handle)").font(.system(size: 13)).foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(user.display_name.isEmpty ? "You" : user.display_name)
+                        .font(.system(size: 15, weight: .semibold))
+                    if let nation = user.nationality {
+                        Text(String.flag(forRegion: nation)).font(.system(size: 14))
+                    }
                 }
+                Text("That's you").font(.system(size: 13)).foregroundStyle(.secondary)
             }
             Spacer()
             if let airport = user.home_airport {
@@ -486,7 +456,12 @@ struct FriendRow: View {
         HStack(spacing: 14) {
             FriendAvatar(name: entry.user.display_name, size: 40)
             VStack(alignment: .leading, spacing: 3) {
-                Text(entry.user.display_name).font(.system(size: 15, weight: .semibold))
+                HStack(spacing: 6) {
+                    Text(entry.user.display_name).font(.system(size: 15, weight: .semibold))
+                    if let nation = entry.user.nationality {
+                        Text(String.flag(forRegion: nation)).font(.system(size: 13))
+                    }
+                }
                 if let f = flight {
                     Text("\(f.departure_iata) → \(f.arrival_iata) · \(f.flight_number)")
                         .font(.system(size: 13)).foregroundStyle(.secondary)
@@ -536,58 +511,95 @@ struct FriendRow: View {
 
 // MARK: - Add Friend Sheet
 
+/// Invite-link-first, exactly like Flighty: share a link, the other person
+/// opens it and you're connected. Pasting a received link/code lives here
+/// too. (No search, no requests, no approvals — links ARE the handshake.)
 struct AddFriendSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var supabase = ArcSupabase.shared
-    @State private var searchText = ""
-    @State private var results: [ArcSupabase.ArcUser] = []
-    @State private var sentTo: Set<String> = []
+    @State private var store = FriendsStore.shared
+    @State private var inviteURL: URL?
+    @State private var pasted = ""
+    @State private var redeeming = false
+    @State private var redeemError: String?
+
+    private static let inviteBase = "https://your-worker.workers.dev/f/"
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                TextField("Search by name or @handle", text: $searchText)
-                    .font(.system(size: 16))
-                    .padding(12)
-                    .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 12))
-                    .onChange(of: searchText) {
-                        Task {
-                            guard searchText.count >= 2 else { results = []; return }
-                            results = (try? await supabase.searchUsers(query: searchText)) ?? []
-                            results = results.filter { $0.id != supabase.currentUser?.id }
-                        }
-                    }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Invite with a link", systemImage: "link")
+                            .font(.system(size: 15, weight: .bold))
+                        Text("Share this link with family or friends. Opening it connects you automatically — no request, no approval. It works for 48 hours.")
+                            .font(.system(size: 13)).foregroundStyle(.secondary)
 
-                ForEach(results, id: \.id) { user in
-                    HStack {
-                        FriendAvatar(name: user.display_name, size: 32)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(user.display_name).font(.system(size: 15, weight: .semibold))
-                            if let handle = user.handle {
-                                Text("@\(handle)").font(.system(size: 13)).foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer()
-                        if sentTo.contains(user.id) {
-                            Text("Sent").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
-                        } else {
-                            Button("Add") {
-                                Task {
-                                    try? await supabase.sendFriendRequest(to: user.id)
-                                    sentTo.insert(user.id)
+                        if let inviteURL {
+                            ShareLink(item: inviteURL,
+                                      message: Text("Track my flights with me on Arc ✈️")) {
+                                HStack {
+                                    Spacer()
+                                    Label("Share Invite Link", systemImage: "square.and.arrow.up")
+                                        .font(.system(size: 16, weight: .semibold))
+                                    Spacer()
                                 }
+                                .foregroundStyle(.white).padding(14)
+                                .background(ArcTheme.action, in: RoundedRectangle(cornerRadius: 12))
                             }
-                            .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                            .padding(.horizontal, 14).padding(.vertical, 6)
-                            .background(ArcTheme.action, in: Capsule())
+                            Text(inviteURL.absoluteString)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                        } else {
+                            HStack {
+                                Spacer()
+                                Label("Creating link…", systemImage: "clock")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                            }
+                            .padding(14)
+                            .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 12))
                         }
                     }
-                    .padding(12)
-                }
 
-                Spacer()
+                    HStack {
+                        Rectangle().fill(Color(.separator)).frame(height: 0.5)
+                        Text("or").font(.system(size: 12)).foregroundStyle(.tertiary)
+                        Rectangle().fill(Color(.separator)).frame(height: 0.5)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Got an invite?", systemImage: "envelope.open")
+                            .font(.system(size: 15, weight: .bold))
+                        if let redeemError {
+                            Text(redeemError).font(.system(size: 13)).foregroundStyle(ArcTheme.late)
+                        }
+                        HStack(spacing: 10) {
+                            TextField("Paste link or code", text: $pasted)
+                                .font(.system(size: 15))
+                                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                                .padding(12)
+                                .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 12))
+                            Button {
+                                Task { await redeem() }
+                            } label: {
+                                Text(redeeming ? "…" : "Connect")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 16).padding(.vertical, 12)
+                                    .background(pasted.isEmpty ? Color(.systemGray4) : ArcTheme.action,
+                                                in: RoundedRectangle(cornerRadius: 12))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(pasted.isEmpty || redeeming)
+                        }
+                    }
+
+                    Spacer()
+                }
+                .padding(.horizontal, 20).padding(.top, 16)
             }
-            .padding(.horizontal, 20).padding(.top, 16)
             .navigationTitle("Add Friend")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -595,7 +607,30 @@ struct AddFriendSheet: View {
                     Button("Done") { dismiss() }.foregroundStyle(ArcTheme.action)
                 }
             }
+            .task {
+                if inviteURL == nil, let code = try? await ArcSupabase.shared.createFriendInvite() {
+                    inviteURL = URL(string: Self.inviteBase + code)
+                }
+            }
         }
+    }
+
+    /// Accepts a full link ("…/f/abc123"), an arc:// link, or a bare code.
+    private func redeem() async {
+        redeeming = true; redeemError = nil
+        var code = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let range = code.range(of: "/f/") { code = String(code[range.upperBound...]) }
+        if let range = code.range(of: "friend/") { code = String(code[range.upperBound...]) }
+        code = code.components(separatedBy: CharacterSet.alphanumerics.inverted).joined()
+
+        if let friend = try? await ArcSupabase.shared.redeemInvite(code: code.lowercased()) {
+            store.justRedeemedFriend = friend
+            await store.refresh()
+            dismiss()
+        } else {
+            redeemError = "That invite isn't valid anymore — ask for a fresh link."
+        }
+        redeeming = false
     }
 }
 
@@ -609,9 +644,11 @@ struct FriendDetailView: View {
             VStack(spacing: 16) {
                 VStack(spacing: 8) {
                     FriendAvatar(name: entry.user.display_name, size: 64)
-                    Text(entry.user.display_name).font(.system(size: 22, weight: .bold))
-                    if let handle = entry.user.handle {
-                        Text("@\(handle)").font(.system(size: 13)).foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        Text(entry.user.display_name).font(.system(size: 22, weight: .bold))
+                        if let nation = entry.user.nationality {
+                            Text(String.flag(forRegion: nation)).font(.system(size: 20))
+                        }
                     }
                 }
                 .padding(.top, 24)
