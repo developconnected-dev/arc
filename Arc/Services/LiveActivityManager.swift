@@ -50,7 +50,7 @@ final class LiveActivityManager {
         )
     }
 
-    func startActivity(for flight: Flight) async {
+    func startActivity(for flight: Flight, friendName: String? = nil) async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
         // Don't start a duplicate
@@ -72,7 +72,8 @@ final class LiveActivityManager {
             arrivalCity: flight.arrivalCity,
             airline: flight.airline,
             aircraftType: flight.aircraftType,
-            seat: flight.seat
+            seat: flight.seat,
+            friendName: friendName
         )
 
         let state = await makeState(for: flight)
@@ -128,6 +129,20 @@ final class LiveActivityManager {
         let content = ActivityContent(state: state, staleDate: Self.staleDate(for: state))
         nonisolated(unsafe) let act = activity
         await act.update(content)
+    }
+
+    /// Ends any FRIEND activity for this flight. Friend LAs have no stable
+    /// local id (they're built from transient models), so matching is by
+    /// flight identity — restricted to friendName-tagged activities so a
+    /// family member on YOUR OWN flight can never end your own activity.
+    func endFriendActivity(flightNumber: String, departureIATA: String) async {
+        for activity in Activity<FlightActivityAttributes>.activities
+        where activity.attributes.flightNumber == flightNumber &&
+              activity.attributes.departureIATA == departureIATA &&
+              activity.attributes.friendName != nil {
+            nonisolated(unsafe) let act = activity
+            await act.end(nil, dismissalPolicy: .default)
+        }
     }
 
     func endActivity(for flight: Flight) async {

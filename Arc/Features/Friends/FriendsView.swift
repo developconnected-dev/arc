@@ -472,6 +472,18 @@ struct FriendsListView: View {
             .padding(.leading, 4).padding(.trailing, 13).padding(.vertical, 4)
             .background(selected ? Color.primary : Color(.secondarySystemFill), in: Capsule())
         }.buttonStyle(.plain)
+        // Long-press: how much this friend's flying may interrupt you.
+        .contextMenu {
+            let current = FriendAlerts.level(for: entry.id)
+            ForEach(FriendNotificationLevel.allCases) { level in
+                Button {
+                    FriendAlerts.setLevel(level, for: entry.id)
+                    Task { await FriendAlerts.process(entries: store.friends) }
+                } label: {
+                    Label(level.title, systemImage: current == level ? "checkmark" : level.icon)
+                }
+            }
+        }
     }
 
     // MARK: Feed
