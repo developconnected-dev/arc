@@ -15,6 +15,8 @@ struct SettingsView: View {
     @State private var profileSaved = false
     @State private var designEmoji = ""
     @State private var designColor = "#4DABF7"
+    @State private var friendsStore = FriendsStore.shared
+    @State private var friendLevels: [String: FriendNotificationLevel] = [:]
 
     static let avatarEmojis = ["😎", "🥳", "🤠", "😺", "🦊", "🐻", "🐼", "🦁",
                                "🐨", "🐸", "🦄", "🐙", "🌞", "🌸", "🍀", "⚡️",
@@ -157,6 +159,49 @@ struct SettingsView: View {
                         Text("Profile")
                     } footer: {
                         Text("Your name, passport, and avatar are what friends see in their app and on the map.")
+                    }
+                }
+
+                // Per-friend notification levels
+                if supabase.isSignedIn && !friendsStore.friends.isEmpty {
+                    Section {
+                        ForEach(friendsStore.friends) { entry in
+                            HStack(spacing: 12) {
+                                FriendAvatar(name: entry.user.display_name, size: 32,
+                                             avatarURL: entry.user.avatar_url)
+                                Text(entry.user.display_name)
+                                    .font(.system(size: 15, weight: .semibold))
+                                Spacer()
+                                Menu {
+                                    ForEach(FriendNotificationLevel.allCases) { level in
+                                        Button {
+                                            FriendAlerts.setLevel(level, for: entry.id)
+                                            friendLevels[entry.id] = level
+                                            Task { await FriendAlerts.process(entries: friendsStore.friends) }
+                                        } label: {
+                                            Label(level.title,
+                                                  systemImage: (friendLevels[entry.id] ?? FriendAlerts.level(for: entry.id)) == level
+                                                    ? "checkmark" : level.icon)
+                                        }
+                                    }
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        let current = friendLevels[entry.id] ?? FriendAlerts.level(for: entry.id)
+                                        Image(systemName: current.icon).font(.system(size: 12, weight: .semibold))
+                                        Text(current.shortTitle).font(.system(size: 14, weight: .semibold))
+                                        Image(systemName: "chevron.up.chevron.down")
+                                            .font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
+                                    }
+                                    .foregroundStyle(ArcTheme.action)
+                                    .padding(.horizontal, 12).padding(.vertical, 7)
+                                    .background(ArcTheme.action.opacity(0.12), in: Capsule())
+                                }
+                            }
+                        }
+                    } header: {
+                        Text("Friend Notifications")
+                    } footer: {
+                        Text("Live Activity: their flight appears in your Dynamic Island and lock screen while they fly. Alerts: takeoff, landing, and delay notifications only.")
                     }
                 }
 

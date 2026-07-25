@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import BackgroundTasks
+import UserNotifications
 
 @main
 struct ArcApp: App {
@@ -20,6 +21,7 @@ struct ArcApp: App {
         WindowGroup {
             ArcRootView()
                 .onAppear {
+                    UNUserNotificationCenter.current().delegate = ForegroundNotificationDelegate.shared
                     if !DemoSeed.suppressPrompts {
                         ArcNotifications.requestPermission()
                     }
@@ -56,11 +58,27 @@ struct ArcApp: App {
         let descriptor = FetchDescriptor<Flight>()
         guard let flights = try? context.fetch(descriptor) else { return }
         await FlightTracker.shared.burstUpdate(flights: flights, modelContext: context)
+        // Friend alerts + friend Live Activities ride the same background
+        // window (refresh internally diffs against the persisted baseline).
+        await FriendsStore.shared.refresh()
     }
 
     private static func scheduleBackgroundRefresh() {
         let request = BGAppRefreshTaskRequest(identifier: "com.arc.flighttracker.refresh")
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
         try? BGTaskScheduler.shared.submit(request)
+    }
+}
+
+/// Shows notification banners while the app is FOREGROUND too — friend
+/// takeoffs/landings would otherwise vanish silently whenever the app
+/// happens to be open when its refresh discovers them.
+final class ForegroundNotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Sendable {
+    static let shared = ForegroundNotificationDelegate()
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .list, .sound]
     }
 }

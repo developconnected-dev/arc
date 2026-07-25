@@ -240,6 +240,10 @@ final class FriendsStore {
                 }
             }
             pending = loadedPending.map { (friendship: $0.0, user: $0.1) }
+
+            // Diff against the persisted baseline: friend notifications +
+            // friend Live Activities ride every refresh, foreground or BGTask.
+            await FriendAlerts.process(entries: friends)
         } catch {
             lastError = "Couldn't load friends: \(error.localizedDescription)"
         }
@@ -278,6 +282,19 @@ enum FriendFlightMath {
         if f.status == "landed" { return 1 }
         guard let dep = departure(f), let arr = arrival(f), arr > dep else { return f.progress }
         return min(1, max(0, now.timeIntervalSince(dep) / arr.timeIntervalSince(dep)))
+    }
+
+    /// Coarse lifecycle bucket — the unit friend alerts diff on.
+    enum Phase: String { case upcoming, airborne, landed }
+    static func phase(_ f: ArcSupabase.SharedFlight, at now: Date = .now) -> Phase {
+        if f.status == "cancelled" { return .upcoming }
+        if f.status == "landed" { return .landed }
+        guard let dep = departure(f), let arr = arrival(f) else {
+            return f.status == "active" ? .airborne : .upcoming
+        }
+        if now < dep { return .upcoming }
+        if now <= arr { return .airborne }
+        return .landed
     }
 
     /// The flight a friend's row/bubble should show. Priority: airborne now →

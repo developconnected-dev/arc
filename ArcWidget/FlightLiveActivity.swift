@@ -41,7 +41,19 @@ struct FlightLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     if phase == .inFlight {
-                        if let seat = context.attributes.seat, !seat.isEmpty {
+                        if let friend = context.attributes.friendName, !friend.isEmpty {
+                            HStack(spacing: 3) {
+                                Image(systemName: "person.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                                Text(friend)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            .padding(.top, 6)
+                            .padding(.trailing, 4)
+                        } else if let seat = context.attributes.seat, !seat.isEmpty {
                             HStack(spacing: 3) {
                                 Image(systemName: "carseat.right.fill")
                                     .font(.system(size: 10))
@@ -536,7 +548,16 @@ struct FlightLiveActivity: Widget {
                     .font(.system(size: 14, weight: .semibold))
             }
             Spacer()
-            if let seat = attrs.seat, !seat.isEmpty {
+            if let friend = attrs.friendName, !friend.isEmpty {
+                HStack(spacing: 3) {
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                    Text(friend)
+                        .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(1)
+                }
+            } else if let seat = attrs.seat, !seat.isEmpty {
                 HStack(spacing: 3) {
                     Image(systemName: "carseat.right.fill")
                         .font(.system(size: 10))
