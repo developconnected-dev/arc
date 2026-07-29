@@ -45,6 +45,22 @@ final class FriendsFeedTests: XCTestCase {
         XCTAssertEqual(numbers, ["AIR1", "AIR2", "UP1", "UP2", "LANDED"])
     }
 
+    /// A holiday booked months out still shows. The feed used to cut upcoming
+    /// off at 30 days, so adding a friend who already had a September trip
+    /// showed them with nothing at all — the exact case that made the feature
+    /// look broken.
+    func testUpcomingHasNoFarHorizon() {
+        let store = FriendsStore()
+        store.friends = [
+            entry("Carl", id: "c", [
+                flight("GQ873", dep: "2026-09-06T17:50:00.000Z", arr: "2026-09-06T22:10:00.000Z"),
+                flight("SOON", dep: "2026-07-26T09:00:00.000Z", arr: "2026-07-26T12:00:00.000Z"),
+            ]),
+        ]
+        // Both listed, soonest departure first.
+        XCTAssertEqual(store.feed(at: now).map(\.flight.flight_number), ["SOON", "GQ873"])
+    }
+
     /// Anna with an ongoing AND an upcoming flight gets ONE map bubble —
     /// for the ongoing one (feed priority) — while the list still shows both.
     func testMapOverlaysShowOneBubblePerFriend() {
@@ -68,7 +84,10 @@ final class FriendsFeedTests: XCTestCase {
         XCTAssertEqual(store.feed(at: now).count, 3, "the feed itself keeps every flight")
     }
 
-    func testFeedExcludesOldCancelledAndFarFuture() {
+    /// Landed-long-ago and cancelled stay out. A far-future flight deliberately
+    /// does NOT — see `testUpcomingHasNoFarHorizon`; it used to be dropped here
+    /// too, which hid a friend's whole trip the moment you added them.
+    func testFeedExcludesOldAndCancelled() {
         let store = FriendsStore()
         store.friends = [
             entry("Anna", id: "a", [
@@ -77,6 +96,6 @@ final class FriendsFeedTests: XCTestCase {
                 flight("NEXTYEAR", dep: "2026-12-24T14:00:00.000Z", arr: "2026-12-24T16:00:00.000Z"),
             ]),
         ]
-        XCTAssertTrue(store.feed(at: now).isEmpty)
+        XCTAssertEqual(store.feed(at: now).map(\.flight.flight_number), ["NEXTYEAR"])
     }
 }
