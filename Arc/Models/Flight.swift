@@ -74,6 +74,16 @@ final class Flight {
     var bookingCode: String?
     var seat: String?
 
+    /// Who this flight is shared with, as friend profile ids.
+    ///
+    /// `nil` means everyone you're friends with — the behaviour before this
+    /// existed, and the default for a new flight, so adding one never shares
+    /// less than it used to. An empty array means nobody: the row is pulled
+    /// from `shared_flights` entirely rather than uploaded with no audience.
+    /// Groups aren't stored here; they're a way to pick people, and picking
+    /// resolves to the members at that moment.
+    var sharedWithIds: [String]?
+
     // Meta
     var isFriend: Bool = false           // Is this a friend's flight?
     var friendName: String?

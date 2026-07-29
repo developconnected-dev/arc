@@ -314,6 +314,14 @@ final class ArcSupabase: ObservableObject {
     @discardableResult
     func shareFlight(_ flight: Flight) async throws -> String? {
         guard let uid = currentUser?.id else { return nil }
+        // Shared with nobody isn't a row with an empty audience — it's no row
+        // at all, so a flight set to private stops being uploaded rather than
+        // sitting on the server relying on a policy to stay hidden.
+        if let audience = flight.sharedWithIds, audience.isEmpty {
+            try? await unshareFlight(flightNumber: flight.flightNumber,
+                                     scheduledDeparture: flight.scheduledDeparture)
+            return nil
+        }
         let iso = ISO8601DateFormatter()
         func str(_ d: Date?) -> Any { d.map { iso.string(from: $0) } ?? NSNull() }
         let body: [String: Any] = [
@@ -347,6 +355,8 @@ final class ArcSupabase: ObservableObject {
             "live_speed": flight.liveSpeed as Any,
             "progress": flight.progress,
             "updated_at": iso.string(from: .now),
+            // nil audience = everyone; the column is nullable for exactly this.
+            "audience": flight.sharedWithIds as Any,
         ]
         let data = try await upsert(
             path: "/rest/v1/shared_flights?on_conflict=user_id,flight_number,scheduled_departure",
