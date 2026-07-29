@@ -368,7 +368,7 @@ struct AddFlightView: View {
             } else if let errorText {
                 VStack(alignment: .leading, spacing: 14) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Couldn't find that flight").font(.system(size: 16, weight: .semibold))
+                        Text("No live schedule yet").font(.system(size: 16, weight: .semibold))
                         Text(errorText).font(.system(size: 13)).foregroundStyle(.secondary)
                     }
                     Button { enterManual(prefillingFrom: date, returningTo: .results) } label: {
@@ -768,7 +768,18 @@ struct AddFlightView: View {
         let dateStr = date.formatted(.iso8601.year().month().day())
         do {
             results = try await FlightAPIClient.shared.searchFlight(number: code, date: dateStr)
-            if results.isEmpty { errorText = "No live schedule found for \(code) on \(dateChipText)." }
+            // Almost never a typo. Airlines file schedules at different times,
+            // so a real booking months out often isn't in the data yet even
+            // though other flights on the same day are — saying "not found"
+            // and nothing else makes a correct booking look wrong.
+            if results.isEmpty {
+                errorText = """
+                    No schedule published yet for \(code) on \(dateChipText).
+                    That's normal for a booking further out — airlines release \
+                    schedules at different times. Add it manually now and Arc \
+                    will pick up live times as soon as they appear.
+                    """
+            }
         } catch {
             errorText = "Live search isn't set up yet (no AeroDataBox key configured in the backend). You can still add this flight yourself below."
         }
