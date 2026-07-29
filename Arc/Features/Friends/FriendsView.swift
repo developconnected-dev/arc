@@ -333,12 +333,9 @@ struct FriendsListView: View {
     @State private var showingAddFriend = false
     @State private var showingManage = false
     @State private var showSettings = false
-    @State private var isSearching = false
-    @State private var searchText = ""
     @State private var filter: FeedFilter = .all
     @State private var groups: [FriendGroup] = []
     @State private var presentedFlight: Flight?
-    @FocusState private var searchFocused: Bool
 
     /// The people the current filter admits — nil means everyone.
     private var filterIds: Set<String>? {
@@ -396,56 +393,33 @@ struct FriendsListView: View {
         }
     }
 
-    // MARK: Header (title ⇄ search)
+    // MARK: Header
+    //
+    // Search used to live here and has been dropped: with a family-sized
+    // friends list the feed is short and the chips below already narrow it,
+    // so a search field was a second way to do the same thing. Manage takes
+    // the slot — it's the action you actually reach for.
 
     private var headerRow: some View {
         HStack(spacing: 10) {
-            if isSearching {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 15, weight: .semibold)).foregroundStyle(.secondary)
-                    TextField("Search flights or friends", text: $searchText)
-                        .font(.system(size: 16))
-                        .focused($searchFocused)
-                        .autocorrectionDisabled()
-                    if !searchText.isEmpty {
-                        Button { searchText = "" } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
-                        }.buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .background(Color(.secondarySystemFill), in: Capsule())
-                Button("Cancel") {
-                    withAnimation(.spring(duration: 0.3)) { isSearching = false; searchText = "" }
-                }
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(ArcTheme.action)
-            } else {
-                Text("Friends' Flights")
-                    .font(ArcTheme.screenTitle)
-                    .lineLimit(1).minimumScaleFactor(0.7)
-                Spacer()
-                Button {
-                    // Searching means "find it anywhere" — drop any friend
-                    // filter so results span the whole feed.
-                    withAnimation(.spring(duration: 0.3)) {
-                        isSearching = true
-                        filter = .all
-                    }
-                    searchFocused = true
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 16, weight: .semibold))
+            Text("Friends' Flights")
+                .font(ArcTheme.screenTitle)
+                .lineLimit(1).minimumScaleFactor(0.7)
+            Spacer()
+            if !store.friends.isEmpty {
+                Button { showingManage = true } label: {
+                    Image(systemName: "person.2.fill")
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.primary).frame(width: 36, height: 36)
                         .background(Color(.secondarySystemFill), in: Circle())
-                }.buttonStyle(.plain)
-                Button { showSettings = true } label: {
-                    ProfileButtonIcon(size: 34)
-                }.buttonStyle(.plain)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Manage friends and groups")
             }
+            Button { showSettings = true } label: {
+                ProfileButtonIcon(size: 34)
+            }.buttonStyle(.plain)
         }
-        .animation(.spring(duration: 0.3), value: isSearching)
     }
 
     // MARK: Filter chips (Add · All · one per friend)
@@ -463,19 +437,7 @@ struct FriendsListView: View {
                     .background(ArcTheme.action, in: Capsule())
                 }.buttonStyle(.plain)
 
-                // Manage sits beside Add: one button adds people, the other
-                // organises the people you already have.
                 if !store.friends.isEmpty {
-                    Button { showingManage = true } label: {
-                        Image(systemName: "person.2.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.primary)
-                            .padding(.horizontal, 13).padding(.vertical, 10)
-                            .background(Color(.secondarySystemFill), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Manage friends and groups")
-
                     filterChip("All", filter: .all)
                     ForEach(groups) { group in groupChip(group) }
                     ForEach(store.friends) { entry in friendChip(entry) }
@@ -557,18 +519,8 @@ struct FriendsListView: View {
     // MARK: Feed
 
     private var filteredFeed: [FriendsStore.FeedItem] {
-        var items = store.feed
-        if let ids = filterIds { items = items.filter { ids.contains($0.user.id) } }
-        let q = searchText.trimmingCharacters(in: .whitespaces)
-        if !q.isEmpty {
-            items = items.filter { item in
-                [item.user.display_name, item.flight.flight_number,
-                 item.flight.departure_city, item.flight.arrival_city,
-                 item.flight.departure_iata, item.flight.arrival_iata]
-                    .contains { $0.localizedCaseInsensitiveContains(q) }
-            }
-        }
-        return items
+        guard let ids = filterIds else { return store.feed }
+        return store.feed.filter { ids.contains($0.user.id) }
     }
 
     @ViewBuilder private var content: some View {
@@ -621,7 +573,7 @@ struct FriendsListView: View {
             VStack(spacing: 10) {
                 Spacer().frame(height: 30)
                 Image(systemName: "airplane.circle").font(.system(size: 40)).foregroundStyle(.tertiary)
-                Text(searchText.isEmpty ? "No flights right now" : "No flights match \"\(searchText)\"")
+                Text(filter == .all ? "No flights right now" : "No flights in this filter")
                     .font(.system(size: 15, weight: .semibold)).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity)
