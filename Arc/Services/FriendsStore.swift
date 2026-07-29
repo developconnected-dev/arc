@@ -136,8 +136,13 @@ final class FriendsStore {
 
     /// The flight-centric feed (Flighty's Friends' Flights): every friend's
     /// relevant flights in one list — airborne first (soonest landing on
-    /// top), then upcoming within 30 days (soonest departure first), then
+    /// top), then everything still to come (soonest departure first), then
     /// flights landed in the last 24h.
+    ///
+    /// Upcoming has no far horizon on purpose: families book holidays months
+    /// ahead, and the whole point of adding someone is seeing the trip they
+    /// already have. Sorting by departure keeps distant flights at the bottom
+    /// without hiding them.
     var feed: [FeedItem] { feed(at: .now) }
 
     func feed(at now: Date) -> [FeedItem] {
@@ -147,8 +152,7 @@ final class FriendsStore {
                 let item = FeedItem(user: entry.user, flight: f)
                 if FriendFlightMath.isAirborne(f, at: now), let arr = FriendFlightMath.arrival(f) {
                     ranked.append((item, 0, arr.timeIntervalSince1970))
-                } else if let dep = FriendFlightMath.departure(f), dep > now,
-                          dep < now.addingTimeInterval(30 * 86400) {
+                } else if let dep = FriendFlightMath.departure(f), dep > now {
                     ranked.append((item, 1, dep.timeIntervalSince1970))
                 } else if let arr = FriendFlightMath.arrival(f), arr <= now,
                           arr > now.addingTimeInterval(-24 * 3600) {
