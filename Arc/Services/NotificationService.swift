@@ -101,6 +101,16 @@ enum ArcNotifications {
         )
     }
 
+    /// The payoff for a flight added by hand before its schedule existed: the
+    /// airline has now filed it and Arc has replaced the typed times.
+    static func scheduleFound(_ flight: Flight) {
+        send(
+            title: "\(flight.flightNumber) schedule confirmed",
+            body: "\(flight.departureIATA) → \(flight.arrivalIATA) now has real times from the airline.",
+            id: "schedule-found-\(flight.flightNumber)-\(Int(flight.scheduledDeparture.timeIntervalSince1970))"
+        )
+    }
+
     // MARK: - Cleanup
 
     static func removeAll(for flight: Flight) {

@@ -97,6 +97,22 @@ struct AddFlightView: View {
             manualAircraft = "Airbus A330-300"
             manualRegistration = "HB-JHQ"
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { addManual() }
+        case "backfillPending":
+            // Proof for the "no schedule yet" path: enter a real future flight
+            // by hand with deliberately wrong times, exactly as someone would
+            // after a failed search, and let the daily check correct it.
+            number = "1653"
+            airline = ReferenceData.shared.airline("A3")
+            enterManual(prefillingFrom: Date.now.addingTimeInterval(86400))
+            manualNumber = "A31653"
+            manualDep = ReferenceData.shared.airport("ATH")
+            manualArr = ReferenceData.shared.airport("MUC")
+            let cal = Calendar.current
+            var wrong = cal.dateComponents([.year, .month, .day], from: .now.addingTimeInterval(86400))
+            wrong.hour = 23; wrong.minute = 45
+            manualDepartureDate = cal.date(from: wrong) ?? manualDepartureDate
+            manualArrivalDate = manualDepartureDate.addingTimeInterval(2 * 3600)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { addManual() }
         case "liveSearchAndAdd":
             // Real end-to-end proof of the reported bug: real search against the
             // live backend, then add() through the exact path a tap would take —
@@ -651,6 +667,9 @@ struct AddFlightView: View {
 
         let f = Flight(flightNumber: manualNumber.uppercased(), date: departure)
         f.sharedWithIds = sharedWithIds
+        // Only worth watching for a schedule that hasn't happened yet — a past
+        // flight logged by hand is already as complete as it will ever be.
+        f.awaitingSchedule = departure > .now
         let iata = String(manualNumber.uppercased().prefix(2))
         f.airline = airline?.name ?? ReferenceData.shared.airline(iata)?.name ?? iata
         f.airlineICAO = airline?.icao ?? ReferenceData.shared.airline(iata)?.icao ?? ""

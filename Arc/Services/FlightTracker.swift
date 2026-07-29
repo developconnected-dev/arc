@@ -36,6 +36,13 @@ final class FlightTracker: ObservableObject {
                 for flight in flights {
                     guard !flight.isCompleted || flight.isRecentlyLanded else { continue }
 
+                    // Runs before the polling tiers on purpose: they skip
+                    // anything over 24h out, which is exactly the window a
+                    // hand-entered flight is waiting in.
+                    if ScheduleBackfill.isDue(flight, at: now) {
+                        await ScheduleBackfill.check(flight, at: now)
+                    }
+
                     let hoursUntilDep = flight.scheduledDeparture.timeIntervalSince(now) / 3600
 
                     // Smart polling. Status/ETA barely move mid-cruise — the
