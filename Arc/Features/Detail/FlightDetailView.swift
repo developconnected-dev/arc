@@ -126,6 +126,18 @@ struct FlightDetailView: View {
                     Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
                 }
             }
+            // Say out loud that these are the times you typed and that Arc is
+            // still looking, so nobody wonders whether it quietly gave up.
+            if flight.awaitingSchedule {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Your times — checking daily for the airline's schedule")
+                        .font(.system(size: 13))
+                }
+                .foregroundStyle(.secondary)
+                .padding(.top, 2)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)

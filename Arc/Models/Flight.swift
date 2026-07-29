@@ -74,6 +74,12 @@ final class Flight {
     var bookingCode: String?
     var seat: String?
 
+    /// Entered by hand because no schedule was published yet. Arc keeps
+    /// checking once a day, however far out the flight is, and fills in the
+    /// real times the moment the airline files them.
+    var awaitingSchedule: Bool = false
+    var lastScheduleCheckAt: Date?
+
     /// Who this flight is shared with, as friend profile ids.
     ///
     /// `nil` means everyone you're friends with — the behaviour before this
