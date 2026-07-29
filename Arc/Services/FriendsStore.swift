@@ -49,9 +49,11 @@ final class FriendsStore {
         }
     }
 
-    /// Selected friend filter from the Friends' Flights list — the map
-    /// mirrors it, so filtering to Anna also filters the globe to Anna.
-    var mapFilterFriendId: String?
+    /// Selected filter from the Friends' Flights list — the map mirrors it, so
+    /// filtering to Anna also filters the globe to Anna. A set rather than one
+    /// id because a group filter selects several people at once; nil means no
+    /// filter at all.
+    var mapFilterIds: Set<String>?
 
     /// Set when a friend-flight detail opens: the globe zooms onto this
     /// route; cleared on dismiss (the camera re-frames all friends).
@@ -93,7 +95,7 @@ final class FriendsStore {
     var mapOverlays: [FriendMapOverlay] {
         _ = clockTick   // observation hook: the minute tick re-derives positions
         var items = feed
-        if let id = mapFilterFriendId { items = items.filter { $0.user.id == id } }
+        if let ids = mapFilterIds { items = items.filter { ids.contains($0.user.id) } }
         // The feed is priority-sorted (airborne → upcoming → landed), so the
         // first item per friend is exactly their ongoing-or-next flight.
         var bubbleOwners = Set<String>()
