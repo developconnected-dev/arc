@@ -39,7 +39,7 @@ struct FlightDetailView: View {
                     statusBanner
                     endpointsCard
                     mapActionsRow
-                    if isOwnFlight { bookingSeatRow }
+                    if isOwnFlight { bookingSeatRow; audienceCard }
                     GoodToKnowSection(flight: flight)
                     if let plan = connection {
                         ConnectionCard(plan: plan, currentFlightID: flight.id)
@@ -269,6 +269,23 @@ struct FlightDetailView: View {
         HStack(spacing: 12) {
             editCard(title: "Booking Code", value: flight.bookingCode, icon: "ticket") { editField(.bookingCode) }
             editCard(title: "Seat", value: flight.seat, icon: "chair") { editField(.seat) }
+        }
+    }
+
+    /// Change who sees this flight after the fact. Writing to the model isn't
+    /// enough on its own — the shared row has to be re-pushed (or pulled) right
+    /// away, otherwise the change only lands on the next tracking poll, and a
+    /// flight you just made private stays visible until then.
+    @ViewBuilder private var audienceCard: some View {
+        if ArcSupabase.shared.isSignedIn && !FriendsStore.shared.friends.isEmpty {
+            FlightAudienceRow(sharedWithIds: Binding(
+                get: { flight.sharedWithIds },
+                set: { newValue in
+                    flight.sharedWithIds = newValue
+                    Task { try? await ArcSupabase.shared.shareFlight(flight) }
+                }))
+                .padding(14)
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
         }
     }
 

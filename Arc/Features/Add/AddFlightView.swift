@@ -22,6 +22,10 @@ struct AddFlightView: View {
     @State private var errorText: String?
     @State private var isAdding = false
     @State private var addError: String?
+    /// Who the flight about to be added is shared with. nil = everyone, which
+    /// is what every flight did before this existed — so the default keeps
+    /// adding a flight behaving exactly as it used to.
+    @State private var sharedWithIds: [String]?
 
     // Manual entry state
     @State private var manualNumber = ""
@@ -390,6 +394,9 @@ struct AddFlightView: View {
                     .background(ArcTheme.late.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
                     .padding(.horizontal, 20)
                 }
+                // Chosen before tapping a result, so it applies to whichever
+                // flight is picked without adding a confirm step to the flow.
+                audiencePicker
                 LazyVStack(spacing: 0) {
                     ForEach(results, id: \.flight_number) { r in
                         Button { add(r) } label: { resultCard(r) }
@@ -593,6 +600,8 @@ struct AddFlightView: View {
                 .background(ArcTheme.late.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
             }
 
+            audiencePicker.padding(.horizontal, -20)
+
             Button(action: addManual) {
                 HStack {
                     Spacer()
@@ -641,6 +650,7 @@ struct AddFlightView: View {
         let arrival = DateHelpers.reinterpretWallClock(manualArrivalDate, asLocalTo: ReferenceData.shared.timezone(arr.iata))
 
         let f = Flight(flightNumber: manualNumber.uppercased(), date: departure)
+        f.sharedWithIds = sharedWithIds
         let iata = String(manualNumber.uppercased().prefix(2))
         f.airline = airline?.name ?? ReferenceData.shared.airline(iata)?.name ?? iata
         f.airlineICAO = airline?.icao ?? ReferenceData.shared.airline(iata)?.icao ?? ""
@@ -774,6 +784,7 @@ struct AddFlightView: View {
         let arrival = DateHelpers.parseAPIDate(r.arr_scheduled) ?? departure.addingTimeInterval(2 * 3600)
 
         let f = Flight(flightNumber: r.flight_number, date: departure)
+        f.sharedWithIds = sharedWithIds
         f.airline = r.airline_name
         f.airlineICAO = r.airline_iata
         f.departureIATA = r.dep_iata; f.arrivalIATA = r.arr_iata
@@ -801,6 +812,17 @@ struct AddFlightView: View {
             modelContext.delete(f)
             isAdding = false
             addError = "Couldn't save this flight: \(error.localizedDescription)"
+        }
+    }
+
+    /// Only worth showing once there's somebody to share with — and never when
+    /// signed out, where sharing doesn't exist at all.
+    @ViewBuilder private var audiencePicker: some View {
+        if ArcSupabase.shared.isSignedIn && !FriendsStore.shared.friends.isEmpty {
+            FlightAudienceRow(sharedWithIds: $sharedWithIds)
+                .padding(.horizontal, 14).padding(.vertical, 12)
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 20).padding(.bottom, 4)
         }
     }
 
