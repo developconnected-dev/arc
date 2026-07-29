@@ -335,28 +335,91 @@ struct AddFlightView: View {
     // MARK: Step 3 — date
 
     private var dateStep: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            chips().padding(.horizontal, 20)
-            dateOptionRow(icon: "checkmark.square", title: "Today", sub: dateString(.now)) { pick(.now) }
-            dateOptionRow(icon: "plus.square", title: "Tomorrow", sub: dateString(.now.addingTimeInterval(86400))) { pick(.now.addingTimeInterval(86400)) }
-            HStack(spacing: 14) {
-                Image(systemName: "calendar").font(.system(size: 20)).frame(width: 40)
-                DatePicker("Pick from Calendar", selection: $date, displayedComponents: .date)
-                    .labelsHidden()
-                Text("Pick from Calendar").font(.system(size: 16, weight: .semibold))
-                Spacer()
-                Button("Go") { pick(date) }.font(.system(size: 15, weight: .semibold))
+        VStack(alignment: .leading, spacing: 14) {
+            // The search sits with the chips rather than at the end of the
+            // calendar row: it's the one thing this screen exists to do, and it
+            // used to be the smallest target on it.
+            HStack(spacing: 8) {
+                chips()
+                Spacer(minLength: 8)
+                searchFlightButton
             }
             .padding(.horizontal, 20)
 
-            Divider().padding(.horizontal, 20).padding(.top, 4)
-
-            dateOptionRow(icon: "clock.arrow.circlepath", title: "Past flight",
-                          sub: "Log a flight you already took — any past date in the calendar works too") {
-                enterManual(prefillingFrom: .now.addingTimeInterval(-86400), returningTo: .date)
+            HStack(spacing: 10) {
+                quickDateCard(title: "Today", target: .now)
+                quickDateCard(title: "Tomorrow", target: .now.addingTimeInterval(86400))
             }
+            .padding(.horizontal, 20)
+
+            calendarCard
+
+            Divider().padding(.horizontal, 20).padding(.vertical, 2)
+
+            pastFlightCard
         }
         .padding(.top, 4)
+    }
+
+    private var searchFlightButton: some View {
+        Button { pick(date) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").font(.system(size: 13, weight: .bold))
+                Text("Search flight").font(.system(size: 15, weight: .semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .background(ArcTheme.action, in: Capsule())
+        }.buttonStyle(.plain)
+    }
+
+    /// Shortcuts for the two dates people actually pick — they search straight
+    /// away, so the common case is one tap and never touches the calendar.
+    private func quickDateCard(title: String, target: Date) -> some View {
+        Button { pick(target) } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
+                Text(dateString(target)).font(.system(size: 13)).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 14))
+        }.buttonStyle(.plain)
+    }
+
+    private var calendarCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "calendar").font(.system(size: 17, weight: .medium))
+                .foregroundStyle(.secondary).frame(width: 24)
+            Text("Other date").font(.system(size: 16, weight: .semibold))
+            Spacer()
+            DatePicker("", selection: $date, displayedComponents: .date).labelsHidden()
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal, 20)
+    }
+
+    private var pastFlightCard: some View {
+        Button {
+            enterManual(prefillingFrom: .now.addingTimeInterval(-86400), returningTo: .date)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "clock.arrow.circlepath").font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.secondary).frame(width: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Past flight").font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
+                    Text("Log one you've already taken").font(.system(size: 13)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 20)
     }
 
     /// Past dates older than a week route straight into the manual form —
@@ -443,7 +506,8 @@ struct AddFlightView: View {
                     AirlineLogoView(iata: String(r.flight_number.prefix(2)), size: 20)
                     Text(r.flight_number).font(.system(size: 14, weight: .semibold)).foregroundStyle(.secondary)
                     Spacer()
-                    Text("Departs \(r.status.capitalized)").font(.system(size: 14, weight: .semibold)).foregroundStyle(ArcTheme.onTime)
+                    Text(statusLabel(r)).font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(statusColor(r))
                 }
                 (Text(depCity).font(.system(size: 18, weight: .bold)).foregroundColor(.primary)
                  + Text(" to ").font(.system(size: 18)).foregroundColor(.secondary)
@@ -743,19 +807,24 @@ struct AddFlightView: View {
         }.padding(.horizontal, 20)
     }
 
-    private func dateOptionRow(icon: String, title: String, sub: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: icon).font(.system(size: 22)).foregroundStyle(.primary).frame(width: 40)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
-                    Text(sub).font(.system(size: 13)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                arrowButton
-            }
-            .padding(.horizontal, 20)
-        }.buttonStyle(.plain)
+    /// The raw provider status read straight out as "Departs \(status)", which
+    /// produced "Departs Landed" — and painted a cancellation on-time green.
+    private func statusLabel(_ r: FlightAPIClient.FlightSearchResult) -> String {
+        switch r.status.lowercased() {
+        case "landed": "Landed"
+        case "active": "In the air"
+        case "cancelled": "Cancelled"
+        case "diverted": "Diverted"
+        default: (r.delay ?? 0) > 0 ? "Delayed \(r.delay ?? 0)m" : "On time"
+        }
+    }
+
+    private func statusColor(_ r: FlightAPIClient.FlightSearchResult) -> Color {
+        switch r.status.lowercased() {
+        case "cancelled", "diverted": ArcTheme.late
+        case "landed": .secondary
+        default: (r.delay ?? 0) > 0 ? ArcTheme.late : ArcTheme.onTime
+        }
     }
 
     private var dateChipText: String { dateString(date) }
