@@ -1,5 +1,6 @@
 import Foundation
 import AuthenticationServices
+import Security
 
 /// Lightweight Supabase client using REST API directly — no SDK dependency.
 /// Handles auth (Sign in with Apple), profiles, flights, friendships, shared journeys, and watchers.
@@ -11,10 +12,10 @@ final class ArcSupabase: ObservableObject {
     @Published var currentUser: ArcUser?
 
     private var accessToken: String? {
-        didSet { UserDefaults.standard.set(accessToken, forKey: "arc_access_token") }
+        didSet { TokenStore.write(accessToken, forKey: "arc_access_token") }
     }
     private var refreshToken: String? {
-        didSet { UserDefaults.standard.set(refreshToken, forKey: "arc_refresh_token") }
+        didSet { TokenStore.write(refreshToken, forKey: "arc_refresh_token") }
     }
 
     private let baseURL: String
@@ -39,8 +40,8 @@ final class ArcSupabase: ObservableObject {
             ?? "https://qazngxdjwkenasxgdsif.supabase.co"
         self.anonKey = UserDefaults.standard.string(forKey: "supabase_anon_key")
             ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFhem5neGRqd2tlbmFzeGdkc2lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1MzI3NzksImV4cCI6MjEwMDEwODc3OX0.pS3TCQM4v3cBnetUbazJtryj6BNHvbZ0bV_D5Fs4Wl8"
-        self.accessToken = UserDefaults.standard.string(forKey: "arc_access_token")
-        self.refreshToken = UserDefaults.standard.string(forKey: "arc_refresh_token")
+        self.accessToken = TokenStore.read(forKey: "arc_access_token")
+        self.refreshToken = TokenStore.read(forKey: "arc_refresh_token")
         self.isSignedIn = accessToken != nil
         // Cold-launch session restore. Without this, a relaunched app was
         // "signed in" (token present) but currentUser stayed nil forever —
@@ -66,16 +67,19 @@ final class ArcSupabase: ObservableObject {
     }
 
     /// Supabase access tokens expire after ~an hour; the refresh grant swaps
-    /// the stored refresh token for a fresh pair. Failure is tolerable here
-    /// (offline launch) — the old access token may still be valid.
-    private func refreshSession() async {
-        guard let token = refreshToken else { return }
+    /// the stored refresh token for a fresh pair. Reports whether it worked so
+    /// a 401 can tell "just stale" apart from "genuinely signed out".
+    @discardableResult
+    private func refreshSession() async -> Bool {
+        guard let token = refreshToken else { return false }
         guard let data = try? await post(path: "/auth/v1/token?grant_type=refresh_token",
                                          body: ["refresh_token": token], auth: false),
               let result = try? JSONDecoder().decode(AuthResponse.self, from: data)
-        else { return }
+        else { return false }
         accessToken = result.access_token
         refreshToken = result.refresh_token
+        isSignedIn = true
+        return true
     }
 
     var isConfigured: Bool { !baseURL.isEmpty && !anonKey.isEmpty }
@@ -85,9 +89,9 @@ final class ArcSupabase: ObservableObject {
     /// The identity path: no email, no password, no verification step. GoTrue
     /// signup without credentials mints an anonymous user (enabled in the
     /// project's auth config); the profiles trigger picks the display name up
-    /// from the signup metadata. The refresh token in UserDefaults IS the
-    /// identity — reinstalling the app starts a fresh one (fine for a family
-    /// app; friends just re-link).
+    /// from the signup metadata. The refresh token IS the identity, so it lives
+    /// in the Keychain (see `TokenStore`) and survives a reinstall — otherwise
+    /// every reinstall silently becomes a different person.
     func signInAnonymously(displayName: String, nationality: String?) async throws {
         let body: [String: Any] = ["data": ["full_name": displayName]]
         let data = try await post(path: "/auth/v1/signup", body: body, auth: false)
@@ -533,66 +537,88 @@ final class ArcSupabase: ObservableObject {
 
     // MARK: - HTTP Helpers
 
-    private func get(path: String) async throws -> Data {
+    // Every call funnels through `send` — the one place that touches the
+    // network, and therefore the one place that has to check the status code.
+    // Ignoring it meant an expired token looked exactly like success: writes
+    // silently no-opped (invite links pointing at rows that were never
+    // created) and reads handed PostgREST's error object to a decoder, which
+    // surfaced as "the data couldn't be read" instead of "you're signed out".
+
+    private func request(_ method: String, _ path: String,
+                         body: [String: Any]? = nil, prefer: String? = nil) throws -> URLRequest {
         var request = URLRequest(url: URL(string: baseURL + path)!)
-        request.setValue("Bearer \(accessToken ?? anonKey)", forHTTPHeaderField: "Authorization")
+        request.httpMethod = method
         request.setValue(anonKey, forHTTPHeaderField: "apikey")
-        let (data, _) = try await URLSession.shared.data(for: request)
+        if let prefer { request.setValue(prefer, forHTTPHeaderField: "Prefer") }
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        }
+        return request
+    }
+
+    /// Authorises, validates, and — on a 401 — refreshes once and retries.
+    /// An hour-old token is the normal state of an app opened days apart, not
+    /// an error worth showing anyone. If the refresh itself fails the session
+    /// is genuinely dead, so drop it and let the app ask for a name again
+    /// rather than failing forever with no way back.
+    private func send(_ original: URLRequest, authorised: Bool = true,
+                      retrying: Bool = false) async throws -> Data {
+        var request = original
+        if authorised {
+            request.setValue("Bearer \(accessToken ?? anonKey)", forHTTPHeaderField: "Authorization")
+        }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+
+        if status == 401, authorised, !retrying {
+            if await refreshSession() {
+                return try await send(original, authorised: true, retrying: true)
+            }
+            signOut()
+        }
+        guard (200..<300).contains(status) else {
+            throw ArcError.server(Self.errorMessage(data) ?? "Request failed (\(status)).")
+        }
         return data
     }
 
+    /// PostgREST and GoTrue both report failures as a JSON object; lift the
+    /// human-readable part out so callers show "JWT expired", not a decode error.
+    static func errorMessage(_ data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        for key in ["message", "error_description", "msg", "error"] {
+            if let message = object[key] as? String, !message.isEmpty { return message }
+        }
+        return nil
+    }
+
+    private func get(path: String) async throws -> Data {
+        try await send(request("GET", path))
+    }
+
     private func post(path: String, body: [String: Any], auth: Bool = true, returnData: Bool = false) async throws -> Data {
-        var request = URLRequest(url: URL(string: baseURL + path)!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if returnData {
-            request.setValue("return=representation", forHTTPHeaderField: "Prefer")
-        }
-        if auth {
-            request.setValue("Bearer \(accessToken ?? anonKey)", forHTTPHeaderField: "Authorization")
-        }
-        request.setValue(anonKey, forHTTPHeaderField: "apikey")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: request)
-        return data
+        try await send(request("POST", path, body: body,
+                               prefer: returnData ? "return=representation" : nil),
+                       authorised: auth)
     }
 
     /// INSERT ... ON CONFLICT (primary key) DO UPDATE, via PostgREST's
     /// merge-duplicates resolution — lets add and update both call the same
     /// method without needing to know in advance whether the row exists yet.
     private func upsert(path: String, body: [String: Any], returnRepresentation: Bool = false) async throws -> Data {
-        var request = URLRequest(url: URL(string: baseURL + path)!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let prefer = returnRepresentation
-            ? "resolution=merge-duplicates,return=representation"
-            : "resolution=merge-duplicates"
-        request.setValue(prefer, forHTTPHeaderField: "Prefer")
-        request.setValue("Bearer \(accessToken ?? anonKey)", forHTTPHeaderField: "Authorization")
-        request.setValue(anonKey, forHTTPHeaderField: "apikey")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: request)
-        return data
+        try await send(request("POST", path, body: body,
+                               prefer: returnRepresentation
+                                   ? "resolution=merge-duplicates,return=representation"
+                                   : "resolution=merge-duplicates"))
     }
 
     private func patch(path: String, body: [String: Any]) async throws -> Data {
-        var request = URLRequest(url: URL(string: baseURL + path)!)
-        request.httpMethod = "PATCH"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(accessToken ?? anonKey)", forHTTPHeaderField: "Authorization")
-        request.setValue(anonKey, forHTTPHeaderField: "apikey")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: request)
-        return data
+        try await send(request("PATCH", path, body: body))
     }
 
     private func delete(path: String) async throws -> Data {
-        var request = URLRequest(url: URL(string: baseURL + path)!)
-        request.httpMethod = "DELETE"
-        request.setValue("Bearer \(accessToken ?? anonKey)", forHTTPHeaderField: "Authorization")
-        request.setValue(anonKey, forHTTPHeaderField: "apikey")
-        let (data, _) = try await URLSession.shared.data(for: request)
-        return data
+        try await send(request("DELETE", path))
     }
 
     // MARK: - Utilities
@@ -634,5 +660,53 @@ final class ArcSupabase: ObservableObject {
             case .server(let message): message
             }
         }
+    }
+}
+
+/// Where the session lives.
+///
+/// The anonymous refresh token IS the identity in this app — there's no email
+/// to recover an account with. UserDefaults is erased by delete-and-reinstall,
+/// so storing it there quietly minted a brand-new person on every reinstall and
+/// orphaned their friendships. The Keychain survives reinstalls; this doesn't.
+enum TokenStore {
+    static func read(forKey key: String) -> String? {
+        if let value = keychainValue(forKey: key) { return value }
+        // One-time migration off UserDefaults so an existing session carries
+        // over the upgrade instead of starting yet another identity.
+        guard let legacy = UserDefaults.standard.string(forKey: key) else { return nil }
+        write(legacy, forKey: key)
+        UserDefaults.standard.removeObject(forKey: key)
+        return legacy
+    }
+
+    static func write(_ value: String?, forKey key: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "ch.arc.session",
+            kSecAttrAccount as String: key,
+        ]
+        SecItemDelete(query as CFDictionary)
+        guard let data = value?.data(using: .utf8) else { return }   // nil clears
+        var insert = query
+        insert[kSecValueData as String] = data
+        // Background refreshes run while the phone is locked; this is the
+        // loosest accessibility that still never leaves the device.
+        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(insert as CFDictionary, nil)
+    }
+
+    private static func keychainValue(forKey key: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "ch.arc.session",
+            kSecAttrAccount as String: key,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }
