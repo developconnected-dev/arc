@@ -12,7 +12,10 @@ struct FriendsScreen: View {
 
     var body: some View {
         Group {
-            if !hasSeenIntro {
+            // The intro pitches a feature you haven't set up yet, so an already
+            // signed-in user skips it — `hasSeenIntro` lives in UserDefaults,
+            // which a reinstall wipes even though the session (Keychain) survives.
+            if !hasSeenIntro && !supabase.isSignedIn {
                 FriendsIntroView { hasSeenIntro = true }
             } else if !supabase.isSignedIn {
                 VStack(alignment: .leading, spacing: 0) {
