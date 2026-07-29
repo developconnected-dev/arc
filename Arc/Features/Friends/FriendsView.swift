@@ -319,16 +319,35 @@ struct NationalityPicker: View {
 /// friends. Header swaps between the title and an expanding search field;
 /// the always-visible Add chip and the avatar filter row sit above the
 /// feed. Owns its own NavigationStack so rows can push FriendDetailView.
+/// What the feed (and the globe) is narrowed to. One value rather than two
+/// optionals so "a friend" and "a group" can't both be selected at once.
+enum FeedFilter: Equatable {
+    case all
+    case friend(String)
+    case group(String)
+}
+
 struct FriendsListView: View {
     @ObservedObject private var supabase = ArcSupabase.shared
     @State private var store = FriendsStore.shared
     @State private var showingAddFriend = false
+    @State private var showingManage = false
     @State private var showSettings = false
     @State private var isSearching = false
     @State private var searchText = ""
-    @State private var selectedFriendId: String?
+    @State private var filter: FeedFilter = .all
+    @State private var groups: [FriendGroup] = []
     @State private var presentedFlight: Flight?
     @FocusState private var searchFocused: Bool
+
+    /// The people the current filter admits — nil means everyone.
+    private var filterIds: Set<String>? {
+        switch filter {
+        case .all: nil
+        case .friend(let id): [id]
+        case .group(let id): groups.first { $0.id == id }?.memberIds ?? []
+        }
+    }
 
     var body: some View {
         // No NavigationStack here: it paints an opaque system background
@@ -351,16 +370,22 @@ struct FriendsListView: View {
             .sheet(isPresented: $showingAddFriend) {
                 AddFriendSheet().presentationDetents([.medium, .large])
             }
+            .sheet(isPresented: $showingManage, onDismiss: { groups = FriendGroups.all() }) {
+                ManageFriendsSheet()
+            }
             .sheet(isPresented: $showSettings) { SettingsView() }
             .sheet(item: $presentedFlight, onDismiss: { store.focusedRoute = nil }) { flight in
                 FlightDetailView(flight: flight, isOwnFlight: false)
                     .presentationDetents([.medium, .large])
                     .presentationBackgroundInteraction(.enabled(upThrough: .medium))
             }
-            // The globe mirrors the list's friend filter.
-            .onChange(of: selectedFriendId) { _, id in store.mapFilterFriendId = id }
-            .onDisappear { store.mapFilterFriendId = nil }
-            .task { await store.refresh() }
+            // The globe mirrors the list's filter, friend or group.
+            .onChange(of: filter) { _, _ in store.mapFilterIds = filterIds }
+            .onDisappear { store.mapFilterIds = nil }
+            .task {
+                groups = FriendGroups.all()
+                await store.refresh()
+            }
             .alert("You're connected ✈️",
                    isPresented: Binding(get: { store.justRedeemedFriend != nil },
                                         set: { if !$0 { store.justRedeemedFriend = nil } }),
@@ -406,7 +431,7 @@ struct FriendsListView: View {
                     // filter so results span the whole feed.
                     withAnimation(.spring(duration: 0.3)) {
                         isSearching = true
-                        selectedFriendId = nil
+                        filter = .all
                     }
                     searchFocused = true
                 } label: {
@@ -438,8 +463,21 @@ struct FriendsListView: View {
                     .background(ArcTheme.action, in: Capsule())
                 }.buttonStyle(.plain)
 
+                // Manage sits beside Add: one button adds people, the other
+                // organises the people you already have.
                 if !store.friends.isEmpty {
-                    filterChip("All", id: nil)
+                    Button { showingManage = true } label: {
+                        Image(systemName: "person.2.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 13).padding(.vertical, 10)
+                            .background(Color(.secondarySystemFill), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Manage friends and groups")
+
+                    filterChip("All", filter: .all)
+                    ForEach(groups) { group in groupChip(group) }
                     ForEach(store.friends) { entry in friendChip(entry) }
                 }
             }
@@ -448,10 +486,10 @@ struct FriendsListView: View {
         .scrollIndicators(.hidden)
     }
 
-    private func filterChip(_ label: String, id: String?) -> some View {
-        let selected = selectedFriendId == id
+    private func filterChip(_ label: String, filter target: FeedFilter) -> some View {
+        let selected = filter == target
         return Button {
-            withAnimation(.easeInOut(duration: 0.15)) { selectedFriendId = id }
+            withAnimation(.easeInOut(duration: 0.15)) { filter = target }
         } label: {
             Text(label).font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(selected ? Color(.systemBackground) : .primary)
@@ -460,11 +498,38 @@ struct FriendsListView: View {
         }.buttonStyle(.plain)
     }
 
-    private func friendChip(_ entry: FriendsStore.FriendEntry) -> some View {
-        let selected = selectedFriendId == entry.id
+    /// A group reads as one chip with a small stack of its members' faces, so
+    /// "Family" is recognisable at a glance next to the individual chips.
+    private func groupChip(_ group: FriendGroup) -> some View {
+        let selected = filter == .group(group.id)
+        let faces = store.friends.filter { group.memberIds.contains($0.id) }.prefix(3)
         return Button {
             withAnimation(.easeInOut(duration: 0.15)) {
-                selectedFriendId = selected ? nil : entry.id
+                filter = selected ? .all : .group(group.id)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                HStack(spacing: -8) {
+                    ForEach(Array(faces)) { entry in
+                        FriendAvatar(name: entry.user.display_name, size: 24,
+                                     avatarURL: entry.user.avatar_url)
+                            .overlay(Circle().stroke(selected ? Color.primary : Color(.secondarySystemFill),
+                                                     lineWidth: 1.5))
+                    }
+                }
+                Text(group.name).font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(selected ? Color(.systemBackground) : .primary)
+            }
+            .padding(.leading, faces.isEmpty ? 13 : 5).padding(.trailing, 13).padding(.vertical, 5)
+            .background(selected ? Color.primary : Color(.secondarySystemFill), in: Capsule())
+        }.buttonStyle(.plain)
+    }
+
+    private func friendChip(_ entry: FriendsStore.FriendEntry) -> some View {
+        let selected = filter == .friend(entry.id)
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                filter = selected ? .all : .friend(entry.id)
             }
         } label: {
             HStack(spacing: 6) {
@@ -493,7 +558,7 @@ struct FriendsListView: View {
 
     private var filteredFeed: [FriendsStore.FeedItem] {
         var items = store.feed
-        if let id = selectedFriendId { items = items.filter { $0.user.id == id } }
+        if let ids = filterIds { items = items.filter { ids.contains($0.user.id) } }
         let q = searchText.trimmingCharacters(in: .whitespaces)
         if !q.isEmpty {
             items = items.filter { item in
