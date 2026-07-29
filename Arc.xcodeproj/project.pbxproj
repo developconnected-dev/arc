@@ -163,7 +163,7 @@
 		56B017439A4B961EDCDB7E05 /* FriendsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsStore.swift; sourceTree = "<group>"; };
 		5CCB5157053AA1F3BD9AF495 /* GeoMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeoMath.swift; sourceTree = "<group>"; };
 		5CD183275F16AE2660B43277 /* AircraftSilhouette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AircraftSilhouette.swift; sourceTree = "<group>"; };
-		5DFE5890F673E6E56FF7EAEF /* Arc.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Arc.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5DFE5890F673E6E56FF7EAEF /* Arc.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Arc.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5EB4B844E836C4A35AC54D33 /* ShareFlightSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareFlightSheet.swift; sourceTree = "<group>"; };
 		6203F2E6D1096F29FA5083FC /* ArcApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcApp.swift; sourceTree = "<group>"; };
 		64047F33627992F4D8030E71 /* FlightDisplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightDisplayTests.swift; sourceTree = "<group>"; };
@@ -187,7 +187,7 @@
 		A136200E180C33472B503DE3 /* ReferenceDataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceDataTests.swift; sourceTree = "<group>"; };
 		A2D08589F3ED37C33758DAC5 /* TextHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextHelpers.swift; sourceTree = "<group>"; };
 		A60AED5E6E1620F00029D627 /* FriendGroupsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendGroupsTests.swift; sourceTree = "<group>"; };
-		A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ArcWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ArcWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A904E8731146A7FB8744B074 /* FlightExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightExporter.swift; sourceTree = "<group>"; };
 		A99FE65B13FFE0D0203987D5 /* MyFlightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyFlightsView.swift; sourceTree = "<group>"; };
 		B2ED974C878C66DFB8E89AFE /* DateHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateHelpers.swift; sourceTree = "<group>"; };
@@ -695,6 +695,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GQZHJ59F4R;
 				INFOPLIST_FILE = Arc/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -772,6 +773,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GQZHJ59F4R;
 				INFOPLIST_FILE = Arc/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -828,6 +830,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GQZHJ59F4R;
 				INFOPLIST_FILE = ArcWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -912,6 +915,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GQZHJ59F4R;
 				INFOPLIST_FILE = ArcWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
