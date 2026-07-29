@@ -314,14 +314,14 @@ final class ArcSupabase: ObservableObject {
     @discardableResult
     func shareFlight(_ flight: Flight) async throws -> String? {
         guard let uid = currentUser?.id else { return nil }
-        // Shared with nobody isn't a row with an empty audience — it's no row
-        // at all, so a flight set to private stops being uploaded rather than
-        // sitting on the server relying on a policy to stay hidden.
-        if let audience = flight.sharedWithIds, audience.isEmpty {
-            try? await unshareFlight(flightNumber: flight.flightNumber,
-                                     scheduledDeparture: flight.scheduledDeparture)
-            return nil
-        }
+        // An empty audience still writes the row, it just admits nobody:
+        // `auth.uid() = any('{}')` is false for every friend, so RLS hides it.
+        //
+        // Deleting instead would be wrong on two counts. It breaks the public
+        // share link, which is a different thing from the friends feed — "no
+        // friend sees this" and "I can't send my mum a live link" shouldn't be
+        // the same switch. And it buys no data minimisation, because the flight
+        // is mirrored to `user_flights` regardless.
         let iso = ISO8601DateFormatter()
         func str(_ d: Date?) -> Any { d.map { iso.string(from: $0) } ?? NSNull() }
         let body: [String: Any] = [
