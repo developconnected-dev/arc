@@ -262,8 +262,10 @@ export default {
         },
         budget: budget ? {
           month: budget.month,
-          adb_cron: `${budget.adb_cron}/${ADB_CRON_BUDGET}`,
-          adb_interactive: `${budget.adb_interactive}/${ADB_INTERACTIVE_BUDGET}`,
+          adb_used: `${(budget.adb_cron ?? 0) + (budget.adb_interactive ?? 0)}/${ADB_MONTHLY_CALLS}`,
+          adb_cron: `${budget.adb_cron}/${Math.floor(ADB_MONTHLY_CALLS * ADB_CRON_SHARE)}`,
+          // What RapidAPI itself last reported — the authority, unlike our count.
+          adb_remaining_per_rapidapi: budget.adb_remaining ?? null,
           airlabs: `${budget.airlabs_calls}/${AIRLABS_BUDGET}`,
         } : null,
       }, { headers: cors });
@@ -735,8 +737,21 @@ function synthesizeAirportStatus(w: AirportWeather | null, faa: FaaDelay | null)
 // reserve caps total burn. Stale cache beats no data; the caller's own
 // fallbacks (AirLabs, clock healing) cover the rest.
 
-const ADB_CRON_BUDGET = 250;          // per month
-const ADB_INTERACTIVE_BUDGET = 150;   // per month — reconnects/searches reserve
+// One pool rather than two fixed caps. The old split reserved 250 calls for
+// the cron — which cannot run at all until APNs is configured — while searches
+// hit a wall at 150 and the app reported "flight not found". Now the cron may
+// take at most a share of the pool, so an interactive search always has room,
+// and unused cron budget is available instead of stranded.
+//
+// Sized for the AeroDataBox PRO plan: 6,000 units/month, and the endpoints we
+// call cost several units each, so the ceiling is in calls and deliberately
+// conservative. `adb_remaining` records what RapidAPI itself reports so /health
+// shows the real number instead of only our guess at it.
+const ADB_MONTHLY_CALLS = 900;
+const ADB_CRON_SHARE = 0.6;
+// Once RapidAPI has told us what's left we use that instead of guessing, and
+// only stop the cron early so a search always has quota behind it.
+const ADB_CRON_RESERVE = 2000;
 const AIRLABS_BUDGET = 800;           // per month (plan is 1k)
 
 function monthKey(): string {
@@ -751,8 +766,15 @@ async function budgetRow(env: Env): Promise<Record<string, any>> {
   return { month: m, adb_cron: 0, adb_interactive: 0, airlabs_calls: 0 };
 }
 
-async function budgetBump(env: Env, field: string, current: number): Promise<void> {
-  await sbService(env, "PATCH", `/api_budget?month=eq.${monthKey()}`, { [field]: current + 1 });
+async function budgetBump(env: Env, field: string, current: number,
+                          remaining?: string | null): Promise<void> {
+  const patch: Record<string, unknown> = { [field]: current + 1 };
+  // RapidAPI reports what's actually left on every response. Recording it means
+  // /health shows the provider's own number, not just our count of attempts —
+  // the two disagreeing is exactly how a plan upgrade went unnoticed.
+  const left = remaining == null ? NaN : Number(remaining);
+  if (Number.isFinite(left)) patch["adb_remaining"] = left;
+  await sbService(env, "PATCH", `/api_budget?month=eq.${monthKey()}`, patch);
 }
 
 /// Phase-aware freshness: how long a cached answer stays good, judged from
@@ -799,13 +821,22 @@ async function fetchLegsCached(
     }
   }
 
-  // Needs a refresh — is there budget for this caller class?
+  // Needs a refresh — is there budget left?
   if (!env.RAPIDAPI_KEY) return { legs: cachedLegs, cache: cachedLegs ? "stale" : "none" };
   const budget = await budgetRow(env);
   const field = source === "cron" ? "adb_cron" : "adb_interactive";
-  const limit = source === "cron" ? ADB_CRON_BUDGET : ADB_INTERACTIVE_BUDGET;
-  const used = (budget[field] as number) ?? 0;
-  if (used >= limit) {
+  const cronUsed = (budget["adb_cron"] as number) ?? 0;
+  const totalUsed = cronUsed + ((budget["adb_interactive"] as number) ?? 0);
+  const remaining = budget["adb_remaining"] as number | null | undefined;
+  // Prefer what the provider reports; our own count can't know the plan, which
+  // is how an upgrade left searches blocked against a ceiling that no longer
+  // existed. The local cap is only the bootstrap, before the first response.
+  const blocked = typeof remaining === "number"
+    ? remaining <= (source === "cron" ? ADB_CRON_RESERVE : 0)
+    : source === "cron"
+      ? cronUsed >= ADB_MONTHLY_CALLS * ADB_CRON_SHARE
+      : totalUsed >= ADB_MONTHLY_CALLS;
+  if (blocked) {
     return { legs: cachedLegs, cache: cachedLegs ? "stale" : "none" };
   }
 
@@ -814,7 +845,9 @@ async function fetchLegsCached(
       ? `/flights/number/${encodeURIComponent(ident)}/${date}?withAircraftImage=false&withLocation=true`
       : `/flights/reg/${encodeURIComponent(ident)}/${date}?withLocation=true`;
     const res = await adbFetch(path, env);
-    await budgetBump(env, field, used);   // count attempts, not just successes — 429s burn real quota state
+    // Count attempts, not just successes — a 429 burns real quota state.
+    await budgetBump(env, field, (budget[field] as number) ?? 0,
+                     res.headers.get("x-ratelimit-requests-remaining"));
     if (res.ok) {
       const raw = (await res.json()) as unknown;
       const legs = (Array.isArray(raw) ? raw : []).map((l) => mapLeg(l as Record<string, any>));
