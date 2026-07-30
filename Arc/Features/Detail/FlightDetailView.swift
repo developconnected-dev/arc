@@ -44,10 +44,11 @@ struct FlightDetailView: View {
                         honestDelayCard
                     }
                     endpointsCard
-                    if let belt = flight.baggageClaim {
+                    // Only when the airline has actually assigned a belt. The
+                    // old fallback invented "7 (Belt Confirmed)" for any landed
+                    // flight — a made-up number presented as confirmed.
+                    if let belt = flight.baggageClaim, !belt.isEmpty {
                         BaggageCarouselSection(flight: flight, belt: belt)
-                    } else if flight.isCompleted || flight.isRecentlyLanded {
-                        BaggageCarouselSection(flight: flight, belt: "7 (Belt Confirmed)")
                     }
                     mapActionsRow
                     if !flight.isCompleted {
