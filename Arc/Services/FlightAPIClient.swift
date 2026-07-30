@@ -54,6 +54,43 @@ actor FlightAPIClient {
         return try JSONDecoder().decode([FlightSearchResult].self, from: data)
     }
 
+    // MARK: - Arrival stand
+
+    /// Gate, terminal and belt for an arriving flight.
+    ///
+    /// The flight-by-number endpoint never carries an arrival gate; the airport
+    /// FIDS feed does, but only where the airport publishes stands — Frankfurt
+    /// does, Zurich and Heathrow don't. So this legitimately returns nil a lot,
+    /// and callers must treat "no gate" as normal rather than as an error.
+    struct ArrivalStand: Codable, Sendable {
+        let flight: String
+        let gate: String?
+        let terminal: String?
+        let belt: String?
+    }
+
+    /// `from`/`to` must be LOCAL to the arrival airport — the backend has no
+    /// timezone database, the app does.
+    func arrivalStand(icao: String, flight: String,
+                      arrival: Date, timeZone: TimeZone) async -> ArrivalStand? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        formatter.timeZone = timeZone
+
+        // A window either side of the scheduled arrival, so an early or late
+        // aircraft is still inside it.
+        let url = baseURL.appending(path: "/arrival-gate").appending(queryItems: [
+            .init(name: "icao", value: icao.uppercased()),
+            .init(name: "flight", value: flight.replacingOccurrences(of: " ", with: "").uppercased()),
+            .init(name: "from", value: formatter.string(from: arrival.addingTimeInterval(-45 * 60))),
+            .init(name: "to", value: formatter.string(from: arrival.addingTimeInterval(45 * 60))),
+        ])
+        guard let (data, response) = try? await session.data(from: url),
+              let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+        return try? JSONDecoder().decode(ArrivalStand.self, from: data)
+    }
+
     // MARK: - Airport conditions (what actually delays a departure)
 
     struct AirportConditions: Codable, Sendable {

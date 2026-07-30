@@ -27,6 +27,7 @@ final class FlightTracker: ObservableObject {
         // Track last poll time per flight to implement smart polling tiers
         var lastPolled: [UUID: Date] = [:]
         var lastInboundCheck: [UUID: Date] = [:]
+        var lastStandCheck: [UUID: Date] = [:]
         var lastPositionPoll: [UUID: Date] = [:]
 
         trackingTask = Task {
@@ -97,6 +98,30 @@ final class FlightTracker: ObservableObject {
                         if now.timeIntervalSince(lastPos) >= 180 {
                             await updateLivePosition(flight, icao24: icao24)
                             lastPositionPoll[flight.id] = now
+                        }
+                    }
+
+                    // Arrival stand: only worth asking once the aircraft is
+                    // airborne (stands firm up near landing), only while we
+                    // still lack one, and at most every 10 minutes — it costs a
+                    // whole-airport FIDS call, though the backend caches that
+                    // per airport-hour so flights landing together share one.
+                    if flight.arrivalGate == nil,
+                       flight.isActive || flight.isRecentlyLanded,
+                       let icao = ReferenceData.shared.airport(flight.arrivalIATA)?.icao,
+                       !icao.isEmpty {
+                        let lastStand = lastStandCheck[flight.id] ?? .distantPast
+                        if now.timeIntervalSince(lastStand) >= 10 * 60 {
+                            lastStandCheck[flight.id] = now
+                            if let stand = await FlightAPIClient.shared.arrivalStand(
+                                icao: icao, flight: flight.flightNumber,
+                                arrival: flight.effectiveArrival, timeZone: flight.arrTimeZone) {
+                                if let gate = stand.gate, !gate.isEmpty { flight.arrivalGate = gate }
+                                if let terminal = stand.terminal, !terminal.isEmpty,
+                                   flight.arrivalTerminal == nil { flight.arrivalTerminal = terminal }
+                                if let belt = stand.belt, !belt.isEmpty,
+                                   flight.baggageClaim == nil { flight.baggageClaim = belt }
+                            }
                         }
                     }
 
