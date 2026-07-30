@@ -101,6 +101,18 @@ enum ArcNotifications {
         )
     }
 
+    /// "Anna is at ZRH too" — fired once per friend-and-airport, because the
+    /// useful moment is discovery: it's when you can still go and find them.
+    /// The identifier doubles as the dedupe key, so re-detecting the same
+    /// overlap on the next refresh doesn't buzz again.
+    static func notifyAirportOverlap(_ overlap: FriendsStore.AirportOverlap) {
+        send(
+            title: "\(overlap.friend.display_name) is at \(overlap.airportIATA) too",
+            body: "You're both there \(overlap.isToday ? "today" : "in the same window") · \(overlap.timeWindow).",
+            id: "overlap-\(overlap.friend.id)-\(overlap.airportIATA)"
+        )
+    }
+
     /// The payoff for a flight added by hand before its schedule existed: the
     /// airline has now filed it and Arc has replaced the typed times.
     static func scheduleFound(_ flight: Flight) {

@@ -54,6 +54,27 @@ actor FlightAPIClient {
         return try JSONDecoder().decode([FlightSearchResult].self, from: data)
     }
 
+    // MARK: - Airport conditions (what actually delays a departure)
+
+    struct AirportConditions: Codable, Sendable {
+        let icao: String
+        let now: DelayRisk.Conditions?
+        let atTime: DelayRisk.Conditions?
+    }
+
+    /// Current METAR plus the TAF period covering `at`. Global coverage, so
+    /// European stations work exactly like US ones.
+    func airportConditions(icao: String, at date: Date) async throws -> AirportConditions? {
+        let url = baseURL.appending(path: "/weather/airport")
+            .appending(queryItems: [
+                URLQueryItem(name: "icao", value: icao.uppercased()),
+                URLQueryItem(name: "at", value: ISO8601DateFormatter().string(from: date)),
+            ])
+        let (data, response) = try await session.data(from: url)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+        return try? JSONDecoder().decode(AirportConditions.self, from: data)
+    }
+
     // MARK: - En-route weather hazards (real SIGMETs)
 
     /// A published hazard area: a real polygon from a SIGMET/AIRMET, not a

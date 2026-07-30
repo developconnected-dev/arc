@@ -117,6 +117,13 @@ final class FriendsStore {
                 }
             }
         }
+        // Announce only what's newly discovered. The banner used to sit on the
+        // flight list permanently; a notification at the moment of discovery is
+        // both more useful and less wearing, and the id dedupes per pairing.
+        let previous = Set(activeOverlaps.map { "\($0.friend.id)|\($0.airportIATA)" })
+        for overlap in found where !previous.contains("\(overlap.friend.id)|\(overlap.airportIATA)") {
+            ArcNotifications.notifyAirportOverlap(overlap)
+        }
         self.activeOverlaps = found
     }
 

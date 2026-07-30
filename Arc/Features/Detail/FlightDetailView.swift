@@ -50,6 +50,10 @@ struct FlightDetailView: View {
                         BaggageCarouselSection(flight: flight, belt: "7 (Belt Confirmed)")
                     }
                     mapActionsRow
+                    if !flight.isCompleted {
+                        AirportOverlapRow(flight: flight)
+                        DelayRiskCard(flight: flight)
+                    }
                     if isOwnFlight { bookingSeatRow; audienceCard }
                     GoodToKnowSection(flight: flight)
                     if let plan = connection {
@@ -150,6 +154,17 @@ struct FlightDetailView: View {
                     Text(inbound).font(.system(size: 14)).foregroundStyle(.secondary)
                     Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
                 }
+            }
+            // Name the clock. The times are correct and match the booking, but
+            // nothing said they were airport-local, so they read as wrong
+            // whenever the phone was in a different zone.
+            if let note = flight.timezoneNote {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock").font(.system(size: 12, weight: .semibold))
+                    Text(note).font(.system(size: 13))
+                }
+                .foregroundStyle(.secondary)
+                .padding(.top, 2)
             }
             // Say out loud that these are the times you typed and that Arc is
             // still looking, so nobody wonders whether it quietly gave up.
