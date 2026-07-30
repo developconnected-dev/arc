@@ -82,6 +82,7 @@
 		BDA9D40E00E8F38131B3C8FD /* AirportStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9371C57F0DE1D1A4B88E3 /* AirportStatusView.swift */; };
 		C1A749BDDC82ED06F27F8715 /* DelayRiskTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F70B4249290027FDAFA9D021 /* DelayRiskTests.swift */; };
 		C3B05E522F64F7A73BDB3F5F /* ScheduleBackfill.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB709548B711E7098E93A102 /* ScheduleBackfill.swift */; };
+		C870B531E4885665A67DA68F /* PlanePositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B48F84455243D0E4149FB369 /* PlanePositionTests.swift */; };
 		C8FFD2D8D6BF9BD7326C11AF /* RotationChainTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38329F5149CBA92432A823C7 /* RotationChainTests.swift */; };
 		C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6203F2E6D1096F29FA5083FC /* ArcApp.swift */; };
 		C95804ADD76EDEB2671A5121 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */; };
@@ -206,6 +207,7 @@
 		A99FE65B13FFE0D0203987D5 /* MyFlightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyFlightsView.swift; sourceTree = "<group>"; };
 		B2ED974C878C66DFB8E89AFE /* DateHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateHelpers.swift; sourceTree = "<group>"; };
 		B38DA68A6519FA66B43996E0 /* PassportStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassportStats.swift; sourceTree = "<group>"; };
+		B48F84455243D0E4149FB369 /* PlanePositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanePositionTests.swift; sourceTree = "<group>"; };
 		B7F9371C57F0DE1D1A4B88E3 /* AirportStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirportStatusView.swift; sourceTree = "<group>"; };
 		BB93B4F2DC11B6653725A2C8 /* FriendFlightMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendFlightMathTests.swift; sourceTree = "<group>"; };
 		BFC83E4E29772AC89D75C9E8 /* LiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityManager.swift; sourceTree = "<group>"; };
@@ -478,6 +480,7 @@
 				5460A62472771819DEC2B78A /* FriendsFeedTests.swift */,
 				66A38232A6E768DF2669A448 /* GeoMathTests.swift */,
 				3982B16A2E83D23E09279400 /* InboundSelectionTests.swift */,
+				B48F84455243D0E4149FB369 /* PlanePositionTests.swift */,
 				A136200E180C33472B503DE3 /* ReferenceDataTests.swift */,
 				38329F5149CBA92432A823C7 /* RotationChainTests.swift */,
 				283EE3258EC82F97B3FD8892 /* ScheduleBackfillTests.swift */,
@@ -628,6 +631,7 @@
 				174541C286F7C1FAFD253F1A /* FriendsFeedTests.swift in Sources */,
 				147ED96EDE432F34CFA07B0F /* GeoMathTests.swift in Sources */,
 				132186CB080D804A397303E6 /* InboundSelectionTests.swift in Sources */,
+				C870B531E4885665A67DA68F /* PlanePositionTests.swift in Sources */,
 				3190C8FCAC6039B71113589D /* ReferenceDataTests.swift in Sources */,
 				C8FFD2D8D6BF9BD7326C11AF /* RotationChainTests.swift in Sources */,
 				A83E77612126873053655DD1 /* ScheduleBackfillTests.swift in Sources */,
