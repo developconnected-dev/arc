@@ -286,7 +286,10 @@ export default {
 
         let parsed;
         if (env.AI_API_KEY.startsWith("sk-ant-")) {
-          // Anthropic Messages API
+          // Anthropic Messages API. Structured outputs constrain the response
+          // to this schema, so there is no markdown fence to strip and no
+          // parse failure to swallow. Today's date is injected because
+          // booking emails routinely omit the year ("Thu, 18 Sep").
           const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
@@ -295,11 +298,44 @@ export default {
               "content-type": "application/json",
             },
             body: JSON.stringify({
-              model: "claude-3-5-sonnet-20241022",
-              max_tokens: 500,
-              temperature: 0.1,
-              system: "You are an expert flight booking information extraction assistant. Extract all flight legs from the provided confirmation text or email. Return ONLY valid JSON with an array 'flights', where each item has 'flightNumber' (standard IATA like LX1413, no extra spaces) and 'date' (YYYY-MM-DD in local departure time, defaulting to near future if year is missing). Do NOT wrap in markdown codeblocks or include conversational filler.",
-              messages: [{ role: "user", content: input }]
+              model: "claude-sonnet-5",
+              max_tokens: 1000,
+              // Extraction needs no reasoning pass; on this model thinking is
+              // on by default and would eat into max_tokens.
+              thinking: { type: "disabled" },
+              output_config: {
+                format: {
+                  type: "json_schema",
+                  schema: {
+                    type: "object",
+                    properties: {
+                      flights: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            flightNumber: {
+                              type: "string",
+                              description: "IATA airline designator + number with no spaces, e.g. LX1413",
+                            },
+                            date: {
+                              type: "string",
+                              format: "date",
+                              description: "Local departure date, YYYY-MM-DD",
+                            },
+                          },
+                          required: ["flightNumber", "date"],
+                          additionalProperties: false,
+                        },
+                      },
+                    },
+                    required: ["flights"],
+                    additionalProperties: false,
+                  },
+                },
+              },
+              system: `You extract flight legs from booking confirmations, e-tickets and airline emails. Today's date is ${new Date().toISOString().slice(0, 10)}. Extract every flight leg. When the year is missing, pick the next occurrence of that date from today. If the text contains no flights, return an empty flights array.`,
+              messages: [{ role: "user", content: input }],
             })
           });
 
@@ -309,12 +345,15 @@ export default {
           }
 
           const data = await aiRes.json<any>();
-          const rawContent = data?.content?.[0]?.text ?? "{\"flights\":[]}";
-          const cleaned = rawContent.replace(/^```(json)?|```$/gm, "").trim();
-          try {
-            parsed = JSON.parse(cleaned);
-          } catch {
+          if (data?.stop_reason === "refusal") {
             parsed = { flights: [] };
+          } else {
+            const text = (data?.content ?? []).find((b: any) => b.type === "text")?.text ?? '{"flights":[]}';
+            try {
+              parsed = JSON.parse(text);
+            } catch {
+              parsed = { flights: [] };
+            }
           }
         } else {
           // OpenAI Chat Completions API fallback
