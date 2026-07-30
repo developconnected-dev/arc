@@ -620,6 +620,76 @@ export default {
         }, { headers: { ...cors, "cache-control": "public, max-age=300" } });
     }
 
+    // ── /arrival-gate?icao=&flight=&from=&to= — the stand, where published ──
+    //
+    // The flight-by-number endpoint returns arrival.gate as null everywhere —
+    // checked across eight legs at ZRH, LHR and JFK, landed and airborne. The
+    // airport FIDS endpoint DOES carry it, but only for airports that publish
+    // stands: Frankfurt returned gates for 31 of 33 arrivals, Zurich and
+    // Heathrow for none of theirs. (The inverse holds for belts, which ZRH
+    // publishes and FRA doesn't — each airport shares what it shares.)
+    //
+    // One FIDS call covers a whole arrival window, so it's cached per airport
+    // and hour: several flights landing around the same time cost one request
+    // between them, not one each.
+    //
+    // `from`/`to` are LOCAL to the airport and supplied by the caller, which
+    // carries a timezone database; the Worker does not.
+    if (url.pathname === "/arrival-gate") {
+      const icao = (url.searchParams.get("icao") ?? "").toUpperCase();
+      const flight = (url.searchParams.get("flight") ?? "").toUpperCase().replace(/\s+/g, "");
+      const from = url.searchParams.get("from") ?? "";
+      const to = url.searchParams.get("to") ?? "";
+      if (!/^[A-Z]{4}$/.test(icao) || !flight || !from || !to) {
+        return Response.json({ error: "icao, flight, from and to are required" },
+                             { status: 400, headers: cors });
+      }
+
+      const key = `fids|${icao}|${from.slice(0, 13)}`;   // hour bucket
+      let arrivals = await cachedFids(env, key);
+
+      if (!arrivals) {
+        if (!env.RAPIDAPI_KEY) return Response.json(null, { status: 404, headers: cors });
+        const budget = await budgetRow(env);
+        const remaining = budget["adb_remaining"] as number | null | undefined;
+        // Same guard as every other provider call — a gate is a nicety, and
+        // must never be the thing that exhausts the plan.
+        if (typeof remaining === "number" && remaining <= 0) {
+          return Response.json(null, { status: 404, headers: cors });
+        }
+        const path = `/flights/airports/icao/${icao}/${encodeURIComponent(from)}/${encodeURIComponent(to)}`
+          + `?withLeg=false&direction=Arrival&withCancelled=false&withCodeshared=true`
+          + `&withCargo=false&withPrivate=false&withLocation=false`;
+        const res = await adbFetch(path, env);
+        await budgetBump(env, "adb_interactive", (budget["adb_interactive"] as number) ?? 0,
+                         res.headers.get("x-ratelimit-requests-remaining"));
+        if (!res.ok) {
+          return Response.json({ error: "fids", status: res.status,
+                                 detail: (await res.text()).slice(0, 200) },
+                               { status: 404, headers: cors });
+        }
+        const raw = await res.json() as Record<string, any>;
+        arrivals = (raw?.arrivals ?? []) as Record<string, any>[];
+        await storeFids(env, key, arrivals);
+      }
+
+      const match = arrivals.find(a =>
+        String(a.number ?? "").toUpperCase().replace(/\s+/g, "") === flight);
+      // Report what was actually seen: "no gate published" and "flight not in
+      // this window" are different problems and shouldn't look identical.
+      if (!match) {
+        return Response.json({ matched: false, arrivalsInWindow: arrivals.length },
+                             { status: 404, headers: cors });
+      }
+
+      return Response.json({
+        flight,
+        gate: match.movement?.gate ?? null,
+        terminal: match.movement?.terminal ?? null,
+        belt: match.movement?.baggageBelt ?? null,
+      }, { headers: { ...cors, "cache-control": "public, max-age=120" } });
+    }
+
     // ── /security/:iata — airport security wait time ──
     const securityMatch = url.pathname.match(/^\/security\/([A-Z]{3})$/i);
     if (securityMatch) {
@@ -851,6 +921,25 @@ interface AirportWeather {
   visibility: string | null;
   wx: string | null;          // raw weather phenomena, e.g. "TSRA", "-SN"
   raw: string | null;
+}
+
+/// FIDS arrivals cached in the same table as flight lookups. Five minutes: a
+/// stand can change late, but not every few seconds, and one call serves every
+/// flight arriving in that hour.
+async function cachedFids(env: Env, key: string): Promise<Record<string, any>[] | null> {
+  if (!env.SUPABASE_SERVICE_KEY) return null;
+  const rows = await sbSelect(env, `/flight_cache?key=eq.${encodeURIComponent(key)}&select=*`);
+  const row = rows[0];
+  if (!row) return null;
+  if (Date.now() - Date.parse(String(row.fetched_at)) > 5 * 60_000) return null;
+  return row.payload as Record<string, any>[];
+}
+
+async function storeFids(env: Env, key: string, arrivals: Record<string, any>[]): Promise<void> {
+  if (!env.SUPABASE_SERVICE_KEY) return;
+  await sbService(env, "POST", "/flight_cache?on_conflict=key", {
+    key, payload: arrivals, provider: "adb-fids", fetched_at: new Date().toISOString(),
+  });
 }
 
 function numberOrNull(v: unknown): number | null {
