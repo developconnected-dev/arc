@@ -33,6 +33,7 @@ final class Flight {
 
     // Gate & terminal
     var departureGate: String?
+    var previousDepartureGate: String?
     var departureTerminal: String?
     var arrivalGate: String?
     var arrivalTerminal: String?
@@ -94,11 +95,49 @@ final class Flight {
     var isFriend: Bool = false           // Is this a friend's flight?
     var friendName: String?
     var addedAt: Date = Date()
+    var lastStatusUpdate: Date?          // Last time API status was successfully refreshed
     var notes: String = ""
 
     init(flightNumber: String, date: Date) {
         self.flightNumber = flightNumber
         self.scheduledDeparture = date
+    }
+
+    /// Intelligent offline / data freshness indicator text
+    var dataFreshnessText: String {
+        guard let updateTime = lastStatusUpdate ?? liveUpdatedAt else {
+            return "Offline • Cached Schedule"
+        }
+        let interval = Date.now.timeIntervalSince(updateTime)
+        if interval < 60 {
+            return "Live • Just updated"
+        } else if interval < 600 { // under 10 minutes
+            let mins = max(1, Int(interval / 60))
+            return "Live • \(mins)m ago"
+        } else if interval < 3600 { // under 1 hour
+            let mins = Int(interval / 60)
+            return "Offline • Cached \(mins)m ago"
+        } else {
+            let hours = max(1, Int(interval / 3600))
+            return "Offline • Cached \(hours)h ago"
+        }
+    }
+
+    /// Row-sized freshness. The full sentence ("Offline • Cached 12m ago") is
+    /// fine on the detail screen, but in a list row it shared its line with
+    /// both endpoints and squeezed them until "ATH" broke to two lines and
+    /// "13:39" to three.
+    var dataFreshnessShort: String {
+        guard let updateTime = lastStatusUpdate ?? liveUpdatedAt else { return "—" }
+        let interval = Date.now.timeIntervalSince(updateTime)
+        if interval < 60 { return "Live" }
+        if interval < 3600 { return "\(max(1, Int(interval / 60)))m" }
+        return "\(max(1, Int(interval / 3600)))h"
+    }
+
+    var isDataFresh: Bool {
+        guard let updateTime = lastStatusUpdate ?? liveUpdatedAt else { return false }
+        return Date.now.timeIntervalSince(updateTime) < 600
     }
 
     var status: FlightStatus {

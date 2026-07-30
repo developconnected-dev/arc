@@ -23,6 +23,7 @@ enum DemoSeed {
             f.scheduledDeparture = Date.now.addingTimeInterval(depOffsetH * 3600)
             f.scheduledArrival = Date.now.addingTimeInterval(arrOffsetH * 3600)
             f.statusRaw = status
+            f.lastStatusUpdate = Date.now.addingTimeInterval(-120) // Simulated 2m ago update
             return f
         }
 
@@ -74,8 +75,8 @@ enum DemoSeed {
         // connection needing ~67 min ⇒ the Connection Assistant rates it Tight.
         let onward = make("LX8", "ZRH", "ORD", depOffsetH: 19 + 55.0 / 60, arrOffsetH: 19 + 55.0 / 60 + 9.5, status: "scheduled")
         onward.aircraftType = "Airbus A340-300"
-        onward.seat = "31K"
-        onward.departureGate = "A66"
+        onward.previousDepartureGate = "A52"
+        onward.departureGate = "E34" // Reassigned from terminal A to E!
         context.insert(onward)
 
         // Landed 10 minutes ago — proves the 30-minute grace period keeps it

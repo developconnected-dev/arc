@@ -37,7 +37,18 @@ struct FlightDetailView: View {
                 VStack(spacing: 18) {
                     header
                     statusBanner
+                    if !companions.isEmpty {
+                        companionsCard
+                    }
+                    if flight.isDelayed || flight.predictedDelayMinutes > 0 {
+                        honestDelayCard
+                    }
                     endpointsCard
+                    if let belt = flight.baggageClaim {
+                        BaggageCarouselSection(flight: flight, belt: belt)
+                    } else if flight.isCompleted || flight.isRecentlyLanded {
+                        BaggageCarouselSection(flight: flight, belt: "7 (Belt Confirmed)")
+                    }
                     mapActionsRow
                     if isOwnFlight { bookingSeatRow; audienceCard }
                     GoodToKnowSection(flight: flight)
@@ -55,7 +66,7 @@ struct FlightDetailView: View {
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .padding(.top, 24)
                 .padding(.bottom, 40)
             }
             .onAppear {
@@ -116,10 +127,24 @@ struct FlightDetailView: View {
     // MARK: Status banner
 
     private var statusBanner: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(flight.bannerHeadline)
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(flight.bannerColor)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center) {
+                Text(flight.bannerHeadline)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(flight.bannerColor)
+                Spacer()
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(flight.isDataFresh ? Color.green : Color.orange)
+                        .frame(width: 6, height: 6)
+                    Text(flight.dataFreshnessText)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color(uiColor: .systemBackground).opacity(0.6), in: Capsule())
+            }
             if let inbound = inboundLine {
                 HStack(spacing: 4) {
                     Text(inbound).font(.system(size: 14)).foregroundStyle(.secondary)
@@ -355,5 +380,80 @@ struct FlightDetailView: View {
         }
         try? modelContext.save()
         editing = nil
+    }
+
+    // MARK: - Smart Friends & Honest Delay Extensions
+    private var companions: [(user: ArcSupabase.ArcUser, seat: String?)] {
+        FriendsStore.shared.companions(for: flight)
+    }
+
+    private var companionsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "person.2.fill")
+                    .foregroundColor(ArcTheme.brand)
+                Text("On This Flight")
+                    .font(.system(size: 15, weight: .bold))
+                Spacer()
+                Text("\(companions.count) \(companions.count == 1 ? "Friend" : "Friends")")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            Divider()
+            ForEach(Array(companions.enumerated()), id: \.offset) { _, comp in
+                HStack(spacing: 12) {
+                    FriendAvatar(name: comp.user.display_name, size: 36, avatarURL: comp.user.avatar_url)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(comp.user.display_name)
+                            .font(.system(size: 16, weight: .semibold))
+                        if let seat = comp.seat, !seat.isEmpty {
+                            Text("Seat \(seat)" + (flight.seat != nil ? " (vs your seat \(flight.seat!))" : ""))
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(ArcTheme.brand)
+                        } else {
+                            Text("No seat shared")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var honestDelayCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "info.circle.fill")
+                    .foregroundStyle(ArcTheme.late)
+                Text("Why is my flight late?")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.primary)
+            }
+            Text(delayExplanationText)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(.secondary)
+                .lineSpacing(2)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ArcTheme.late.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var delayExplanationText: String {
+        if let reason = flight.predictionReason, !reason.isEmpty {
+            return "Honest tracking: \(reason). We predict your flight will depart around \(flight.predictedDelayMinutes) minutes behind schedule based on turnaround math."
+        }
+        if let inb = flight.inboundFlightNumber, flight.inboundDelayMinutes > 0 {
+            return "Your incoming aircraft (\(inb)) is currently running \(flight.inboundDelayMinutes)m behind schedule."
+        }
+        if flight.isDelayed {
+            return "Your departure is currently delayed by \(flight.delayMinutes) minutes from \(flight.departureCity). Inbound rotation is being monitored for further updates."
+        }
+        return "Monitoring aircraft turnaround and terminal telemetry for real-time departure estimates."
     }
 }

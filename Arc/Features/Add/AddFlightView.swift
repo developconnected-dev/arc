@@ -27,6 +27,11 @@ struct AddFlightView: View {
     /// adding a flight behaving exactly as it used to.
     @State private var sharedWithIds: [String]?
 
+    // Pillar 1.1: Smart AI Command Bar State
+    @State private var naturalInput = ""
+    @State private var isParsingNatural = false
+    @State private var parseStatusMessage: String?
+
     // Manual entry state
     @State private var manualNumber = ""
     @State private var manualDep: AirportRef?
@@ -205,7 +210,75 @@ struct AddFlightView: View {
 
     private var searchStep: some View {
         VStack(alignment: .leading, spacing: 0) {
-            searchField(placeholder: "EasyJet, HAM, or U2123", text: $query)
+            // MARK: - Pillar 1.1 Natural Language & AI Command Bar
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Image(systemName: "wand.and.stars")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(ArcTheme.brand)
+                        .symbolEffect(.pulse, options: .repeating, value: isParsingNatural)
+                    Text("SMART AI COMMAND BAR")
+                        .font(.system(size: 12, weight: .black))
+                        .tracking(1.0)
+                        .foregroundStyle(ArcTheme.brand)
+                    Spacer()
+                    if isParsingNatural {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(ArcTheme.brand)
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    TextField("Try 'Swiss 1413 tomorrow' or paste SMS...", text: $naturalInput)
+                        .font(.system(size: 15, weight: .medium))
+                        .textFieldStyle(.plain)
+                        .onSubmit { Task { await runNaturalParse() } }
+
+                    if !naturalInput.isEmpty {
+                        Button {
+                            Task { await runNaturalParse() }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Text("Parse")
+                                    .font(.system(size: 13, weight: .bold))
+                                Image(systemName: "arrow.right.circle.fill")
+                                    .font(.system(size: 15))
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(ArcTheme.brand, in: Capsule())
+                            .foregroundStyle(.white)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isParsingNatural)
+                    }
+                }
+
+                if let msg = parseStatusMessage {
+                    HStack(spacing: 6) {
+                        Image(systemName: msg.contains("Failed") || msg.contains("No flight") || msg.contains("Could not") ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                            .foregroundStyle(msg.contains("Failed") || msg.contains("No flight") || msg.contains("Could not") ? .orange : .green)
+                        Text(msg)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .transition(.opacity)
+                }
+            }
+            .padding(16)
+            .background {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color(.secondarySystemFill).opacity(0.8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(ArcTheme.brand.opacity(0.35), lineWidth: 1.5)
+                    )
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+
+            searchField(placeholder: "Or manual: EasyJet, HAM, or U2123", text: $query)
                 .padding(.horizontal, 20)
 
             LazyVStack(alignment: .leading, spacing: 0) {
@@ -513,8 +586,8 @@ struct AddFlightView: View {
                  + Text(" to ").font(.system(size: 18)).foregroundColor(.secondary)
                  + Text(arrCity).font(.system(size: 18, weight: .bold)).foregroundColor(.primary))
                 HStack(spacing: 18) {
-                    Text("\(r.dep_iata)  \(timeOnly(r.dep_scheduled))").font(.system(size: 14, weight: .semibold)).foregroundStyle(ArcTheme.onTime)
-                    Text("\(r.arr_iata)  \(timeOnly(r.arr_scheduled))").font(.system(size: 14, weight: .semibold)).foregroundStyle(ArcTheme.onTime)
+                    Text("\(r.dep_iata)  \(timeOnly(r.dep_scheduled, at: r.dep_iata))").font(.system(size: 14, weight: .semibold)).foregroundStyle(ArcTheme.onTime)
+                    Text("\(r.arr_iata)  \(timeOnly(r.arr_scheduled, at: r.arr_iata))").font(.system(size: 14, weight: .semibold)).foregroundStyle(ArcTheme.onTime)
                 }
             }
         }
@@ -832,9 +905,18 @@ struct AddFlightView: View {
         let f = DateFormatter(); f.locale = Locale(identifier: "en_GB"); f.dateFormat = "EEE, d MMM"
         return f.string(from: d)
     }
-    private func timeOnly(_ iso: String) -> String {
+    /// Times are stored as a UTC instant, so a formatter with no timezone set
+    /// renders them in the DEVICE's zone. On the search results — the one screen
+    /// people read side by side with their booking email — that showed an
+    /// Athens departure in Swiss time and looked like the wrong flight. Every
+    /// time here is the local time at ITS OWN airport, exactly as the airline
+    /// prints it.
+    private func timeOnly(_ iso: String, at iata: String) -> String {
         guard let d = DateHelpers.parseAPIDate(iso) else { return "" }
-        let f = DateFormatter(); f.locale = Locale(identifier: "en_GB"); f.dateFormat = "HH:mm"
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_GB")
+        f.dateFormat = "HH:mm"
+        f.timeZone = ReferenceData.shared.timezone(iata) ?? .current
         return f.string(from: d)
     }
     private func countdownValue(_ r: FlightAPIClient.FlightSearchResult) -> String {
@@ -848,6 +930,73 @@ struct AddFlightView: View {
     }
 
     // MARK: Actions
+
+    private func runNaturalParse() async {
+        guard !naturalInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        isParsingNatural = true
+        parseStatusMessage = "Extracting schedule & flight details..."
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+        var extractedFlightCode: String?
+        var targetDate = Date.now
+
+        // 1. Try cloud AI parse endpoint
+        if let items = try? await FlightAPIClient.shared.parseBooking(text: naturalInput), let first = items.first {
+            extractedFlightCode = first.flightNumber
+            if let parsedD = DateHelpers.parseAPIDate(first.date) {
+                targetDate = parsedD
+            }
+        }
+
+        // 2. Smart local heuristic / natural text fallback if AI couldn't reach or network offline
+        if extractedFlightCode == nil {
+            let upper = naturalInput.uppercased()
+            if upper.contains("TOMORROW") {
+                targetDate = Calendar.current.date(byAdding: .day, value: 1, to: .now) ?? .now
+            } else if upper.contains("DAY AFTER") || upper.contains("IN 2 DAYS") {
+                targetDate = Calendar.current.date(byAdding: .day, value: 2, to: .now) ?? .now
+            }
+
+            let pattern = "([A-Z]{2,3})\\s?(\\d{1,4})"
+            if let range = upper.range(of: pattern, options: .regularExpression) {
+                let code = String(upper[range]).replacingOccurrences(of: " ", with: "")
+                extractedFlightCode = code
+            } else {
+                for a in ReferenceData.shared.searchAirlines(naturalInput) {
+                    let digits = upper.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+                    if !digits.isEmpty {
+                        extractedFlightCode = "\(a.iata)\(digits)"
+                        break
+                    }
+                }
+            }
+        }
+
+        guard let rawCode = extractedFlightCode else {
+            isParsingNatural = false
+            parseStatusMessage = "Could not identify a flight number. Try e.g. 'LX1413 tomorrow' or 'Swiss 1413'"
+            return
+        }
+
+        let letters = String(rawCode.prefix(while: { !($0.isNumber) }))
+        let numbers = String(rawCode.drop(while: { !($0.isNumber) }))
+        
+        if let foundAirline = ReferenceData.shared.airline(letters) ?? ReferenceData.shared.searchAirlines(letters).first {
+            self.airline = foundAirline
+            self.number = numbers
+            self.date = targetDate
+            
+            parseStatusMessage = "✨ Resolved \(foundAirline.iata)\(numbers)! Searching live radar..."
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            
+            step = .results
+            await runSearch()
+            parseStatusMessage = nil
+        } else {
+            parseStatusMessage = "Could not resolve airline prefix '\(letters)'."
+        }
+        isParsingNatural = false
+    }
 
     private func runSearch() async {
         guard let airline else { return }
@@ -945,52 +1094,87 @@ private struct AirportField: View {
     var onActivate: () -> Void
     var onSelect: (AirportRef) -> Void
 
+    @FocusState private var isFocused: Bool
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button(action: onActivate) {
+        VStack(alignment: .leading, spacing: 6) {
+            if isActive {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                        Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(ArcTheme.action)
                         Spacer()
-                        Image(systemName: isActive ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                        Button(action: onActivate) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    if let airport {
-                        Text(airport.iata).font(.system(size: 20, weight: .bold)).foregroundStyle(.primary)
-                        Text(airport.city).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
-                    } else {
-                        Text("Select").font(.system(size: 20, weight: .bold)).foregroundStyle(.tertiary)
-                        Text(" ").font(.system(size: 12))
-                    }
+                    TextField(airport.map { "\($0.iata) - \($0.city)" } ?? "City or code", text: $query)
+                        .font(.system(size: 20, weight: .bold))
+                        .autocorrectionDisabled()
+                        .focused($isFocused)
+                        .onAppear { isFocused = true }
+                    Text(query.isEmpty ? (airport?.city ?? " ") : "Select below...")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 12))
-            }
-            .buttonStyle(.plain)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(ArcTheme.action, lineWidth: 2)
+                )
 
-            if isActive {
-                VStack(alignment: .leading, spacing: 0) {
-                    TextField("City or code", text: $query)
-                        .font(.system(size: 14))
-                        .autocorrectionDisabled()
-                        .padding(10)
-                        .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
-                        .padding(.bottom, 6)
-                    ForEach(ReferenceData.shared.searchAirports(query, limit: 5), id: \.iata) { a in
-                        Button { onSelect(a) } label: {
-                            HStack(spacing: 6) {
-                                Text(TextHelpers.flag(a.country)).font(.system(size: 16))
-                                VStack(alignment: .leading, spacing: 0) {
-                                    Text(a.iata).font(.system(size: 13, weight: .bold))
-                                    Text(a.city).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                let results = ReferenceData.shared.searchAirports(query, limit: 5)
+                if !results.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(results.enumerated()), id: \.element.iata) { index, a in
+                            Button { onSelect(a) } label: {
+                                HStack(spacing: 6) {
+                                    Text(TextHelpers.flag(a.country)).font(.system(size: 16))
+                                    VStack(alignment: .leading, spacing: 0) {
+                                        Text(a.iata).font(.system(size: 13, weight: .bold))
+                                        Text(a.city).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                    Spacer(minLength: 0)
                                 }
-                                Spacer()
+                                .padding(.vertical, 6)
+                                .padding(.horizontal, 8)
                             }
-                            .padding(.vertical, 4)
-                        }.buttonStyle(.plain)
+                            .buttonStyle(.plain)
+                            if index < results.count - 1 {
+                                Divider().padding(.leading, 8)
+                            }
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 10))
                 }
+            } else {
+                Button(action: onActivate) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                            Spacer()
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                        }
+                        if let airport {
+                            Text(airport.iata).font(.system(size: 20, weight: .bold)).foregroundStyle(.primary)
+                            Text(airport.city).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                        } else {
+                            Text("Select").font(.system(size: 20, weight: .bold)).foregroundStyle(.tertiary)
+                            Text(" ").font(.system(size: 12))
+                        }
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
             }
         }
     }

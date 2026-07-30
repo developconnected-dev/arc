@@ -30,6 +30,96 @@ final class FriendsStore {
     var lastError: String?
     private var lastRefreshAt: Date?
 
+    struct AirportOverlap: Identifiable, Equatable {
+        let id = UUID()
+        let friend: ArcSupabase.ArcUser
+        let airportIATA: String
+        let timeWindow: String
+        let isToday: Bool
+
+        static func == (a: Self, b: Self) -> Bool {
+            a.friend.id == b.friend.id && a.airportIATA == b.airportIATA
+        }
+    }
+    var activeOverlaps: [AirportOverlap] = []
+
+    /// Detect friends flying on the exact same flight number and date.
+    func companions(for flight: Flight) -> [(user: ArcSupabase.ArcUser, seat: String?)] {
+        let myNum = flight.flightNumber.replacingOccurrences(of: " ", with: "").uppercased()
+        guard !myNum.isEmpty else { return [] }
+        var matches: [(user: ArcSupabase.ArcUser, seat: String?)] = []
+        for entry in friends {
+            for f in entry.flights where f.status != "cancelled" {
+                let fNum = f.flight_number.replacingOccurrences(of: " ", with: "").uppercased()
+                if fNum == myNum {
+                    if let dep = FriendFlightMath.departure(f),
+                       abs(dep.timeIntervalSince(flight.scheduledDeparture)) < 18 * 3600 {
+                        matches.append((user: entry.user, seat: nil))
+                        break
+                    }
+                }
+            }
+        }
+        return matches
+    }
+
+    /// Match user's active/upcoming flights against friends' flights at the same airport within 3 hours.
+    func updateAirportOverlaps(with userFlights: [Flight]) {
+        let now = Date.now
+        var found: [AirportOverlap] = []
+        let myUpcoming = userFlights.filter { $0.isUpcoming || $0.isActive || $0.isRecentlyLanded }
+        
+        for myFlight in myUpcoming {
+            let myDepTime = myFlight.effectiveDeparture
+            let myArrTime = myFlight.effectiveArrival
+            
+            for entry in friends {
+                for friendFlight in entry.flights where friendFlight.status != "cancelled" {
+                    // check departure or arrival IATA match
+                    let friendDep = FriendFlightMath.departure(friendFlight) ?? now
+                    let friendArr = FriendFlightMath.arrival(friendFlight) ?? friendDep.addingTimeInterval(2 * 3600)
+                    
+                    var matchIATA: String? = nil
+                    var tStart: Date? = nil
+                    var tEnd: Date? = nil
+                    
+                    // Match departure airport
+                    if myFlight.departureIATA.uppercased() == friendFlight.departure_iata.uppercased(),
+                       abs(myDepTime.timeIntervalSince(friendDep)) <= 3 * 3600,
+                       myDepTime > now.addingTimeInterval(-6 * 3600) {
+                        matchIATA = myFlight.departureIATA.uppercased()
+                        tStart = min(myDepTime, friendDep).addingTimeInterval(-3600)
+                        tEnd = max(myDepTime, friendDep)
+                    }
+                    // Match arrival / connection airport
+                    else if myFlight.arrivalIATA.uppercased() == friendFlight.departure_iata.uppercased() ||
+                            myFlight.departureIATA.uppercased() == friendFlight.arrival_iata.uppercased() ||
+                            myFlight.arrivalIATA.uppercased() == friendFlight.arrival_iata.uppercased() {
+                        let myT = myFlight.arrivalIATA.uppercased() == friendFlight.arrival_iata.uppercased() ? myArrTime : myDepTime
+                        let fT = friendFlight.departure_iata.uppercased() == myFlight.arrivalIATA.uppercased() ? friendDep : friendArr
+                        if abs(myT.timeIntervalSince(fT)) <= 3 * 3600, myT > now.addingTimeInterval(-6 * 3600) {
+                            matchIATA = myFlight.arrivalIATA.uppercased() == friendFlight.departure_iata.uppercased() ? myFlight.arrivalIATA.uppercased() : friendFlight.arrival_iata.uppercased()
+                            tStart = min(myT, fT).addingTimeInterval(-3600)
+                            tEnd = max(myT, fT).addingTimeInterval(3600)
+                        }
+                    }
+                    
+                    if let airport = matchIATA, let s = tStart, let e = tEnd {
+                        let fmt = DateFormatter()
+                        fmt.dateFormat = "HH:mm"
+                        let win = "\(fmt.string(from: s)) - \(fmt.string(from: e))"
+                        let isToday = Calendar.current.isDateInToday(s)
+                        let overlap = AirportOverlap(friend: entry.user, airportIATA: airport, timeWindow: win, isToday: isToday)
+                        if !found.contains(where: { $0 == overlap }) {
+                            found.append(overlap)
+                        }
+                    }
+                }
+            }
+        }
+        self.activeOverlaps = found
+    }
+
     /// Invite code from an arc://friend/<code> link, waiting for a session.
     /// (Opening a link can precede profile setup — the code parks here until
     /// there's a signed-in user to redeem it with.)

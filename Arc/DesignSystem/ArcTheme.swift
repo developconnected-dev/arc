@@ -3,7 +3,8 @@ import SwiftUI
 /// Flighty-parity design tokens. Built on semantic system colors + materials so
 /// light/dark tracks the system automatically.
 enum ArcTheme {
-    // Status
+    // Brand & Status
+    static let brand  = Color(red: 0.38, green: 0.45, blue: 1.00)   // #6173FF Premium Indigo
     static let onTime = Color(red: 0.20, green: 0.78, blue: 0.35)   // #34C759
     static let late   = Color(red: 1.00, green: 0.23, blue: 0.19)   // #FF3B30
     static let action = Color(red: 0.04, green: 0.52, blue: 1.00)   // #0A84FF

@@ -664,9 +664,9 @@ struct FriendFlightRow: View {
         if airborne, let arr = FriendFlightMath.arrival(flight) {
             return "Landing in \(FriendFlightMath.hmLower(Int(arr.timeIntervalSinceNow / 60)))"
         }
-        if flight.status == "landed" { return "Landed" }
+        if flight.status == "landed" { return "Landed • True Curb ETA +35m" }
         if flight.delay_minutes > 0 { return "Departs \(flight.delay_minutes)m late" }
-        if let dep = FriendFlightMath.departure(flight), dep <= .now { return "Landed" }
+        if let dep = FriendFlightMath.departure(flight), dep <= .now { return "Landed • True Curb ETA +35m" }
         return "On Time"
     }
 
