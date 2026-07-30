@@ -55,4 +55,25 @@ final class TaxiCameraTests: XCTestCase {
         guard let r = region(plane: almostThere, gate: gate) else { return XCTFail("no region") }
         XCTAssertLessThan(r.center.latitude, min(almostThere.latitude, gate.latitude))
     }
+
+    /// The offset must come from the DISPLAYED height, not `latitudeDelta`.
+    ///
+    /// In portrait MapKit stretches the latitude span to match the longitude
+    /// one, so when a plane and its gate are far apart east-west the real
+    /// displayed height is many times `latitudeDelta`. Offsetting by a fraction
+    /// of `latitudeDelta` then shifts almost nothing, and the aircraft sat
+    /// behind the sheet — which is exactly what happened live, and what the
+    /// weaker assertion above sailed straight past.
+    func testOffsetScalesWithTheWiderSpan() {
+        // Same latitude, far apart in longitude: latitudeDelta collapses to the
+        // floor while longitude dominates what's actually shown.
+        let west = CLLocationCoordinate2D(latitude: 47.4500, longitude: 8.5000)
+        let east = CLLocationCoordinate2D(latitude: 47.4500, longitude: 8.6200)
+        guard let r = region(plane: west, gate: east) else { return XCTFail("no region") }
+
+        // Offsetting by 0.25 * latitudeDelta (the floor, 0.0045) would move the
+        // centre ~0.001° — indistinguishable from no shift at all.
+        XCTAssertLessThan(r.center.latitude, 47.4500 - 0.02,
+                          "offset ignored the longitude-driven displayed height")
+    }
 }
