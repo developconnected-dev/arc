@@ -194,9 +194,18 @@ final class MapController {
         let latDelta = max((maxLat - minLat) * 1.8, 0.0045)
         let lonDelta = max((maxLon - minLon) * 1.8, 0.0045)
 
+        // Same trap frameInUpperHalf exists for: in portrait the LONGITUDE span
+        // usually decides what MapKit actually displays, stretching the latitude
+        // span to fit. Shifting by a fraction of `latDelta` is then a fraction
+        // of nothing — the aircraft stayed behind the detail sheet. Offset from
+        // the EFFECTIVE displayed height instead.
+        let portraitAspect = 2.16
+        let latScale = max(0.2, cos(((minLat + maxLat) / 2) * .pi / 180))
+        let effectiveLat = max(latDelta, lonDelta * portraitAspect * latScale)
+
         let region = MKCoordinateRegion(
-            // Shifted south, since the detail sheet owns the bottom half.
-            center: .init(latitude: (minLat + maxLat) / 2 - latDelta * 0.25,
+            // Sheet owns the bottom half, so put the action in the top half.
+            center: .init(latitude: (minLat + maxLat) / 2 - effectiveLat * 0.25,
                           longitude: (minLon + maxLon) / 2),
             span: MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta))
 
