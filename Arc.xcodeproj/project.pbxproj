@@ -61,6 +61,7 @@
 		8D123A8F76E2E356082F43AF /* ShareFlightSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EB4B844E836C4A35AC54D33 /* ShareFlightSheet.swift */; };
 		8ED498F91B66740B412D0611 /* SupabaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B5B63F833E1CB9C679CD6C1 /* SupabaseClient.swift */; };
 		8F183C5AACBAEDC17407ABD8 /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED3BBC117AA0A74224DAF8AB /* WidgetData.swift */; };
+		8F71B31BFA1A05112FD005B3 /* TaxiCameraTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BF7D3153A1277104EAE2B7C /* TaxiCameraTests.swift */; };
 		91538C97272ECB2B1CE14434 /* BrandingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8296407C7B6624104AE2703D /* BrandingTests.swift */; };
 		9397CBE5A1FA96AF7846AEBB /* LiveActivityPushSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68633311E781A8154C5A2CA5 /* LiveActivityPushSync.swift */; };
 		95E9EB1D6085989A0AA988BF /* FriendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 343257F6CBC830BB8386C5BA /* FriendsView.swift */; };
@@ -163,6 +164,7 @@
 		38329F5149CBA92432A823C7 /* RotationChainTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationChainTests.swift; sourceTree = "<group>"; };
 		3982B16A2E83D23E09279400 /* InboundSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboundSelectionTests.swift; sourceTree = "<group>"; };
 		3B473AA396AFB87F8FA33DBD /* FriendAvatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendAvatar.swift; sourceTree = "<group>"; };
+		3BF7D3153A1277104EAE2B7C /* TaxiCameraTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaxiCameraTests.swift; sourceTree = "<group>"; };
 		45CDEF12D33E504034C15720 /* Airport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Airport.swift; sourceTree = "<group>"; };
 		4864581CF99C026C4AB5136F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		4B59DFF600FEDEB5C44BEED7 /* FlightActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightActivityAttributes.swift; sourceTree = "<group>"; };
@@ -487,6 +489,7 @@
 				8011F1F9596F27743C731E2F /* SmokeTests.swift */,
 				2AD3936B9A068A6D1B734331 /* SupabaseErrorTests.swift */,
 				E21CAF83A7006D3DEE031E7A /* SupabaseSyncTests.swift */,
+				3BF7D3153A1277104EAE2B7C /* TaxiCameraTests.swift */,
 			);
 			path = ArcTests;
 			sourceTree = "<group>";
@@ -638,6 +641,7 @@
 				055E0F22DAEA1DCEC41CEE5F /* SmokeTests.swift in Sources */,
 				1003697FBC6E177FB06D4DC0 /* SupabaseErrorTests.swift in Sources */,
 				AC72B4ED862C05DA412F6850 /* SupabaseSyncTests.swift in Sources */,
+				8F71B31BFA1A05112FD005B3 /* TaxiCameraTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

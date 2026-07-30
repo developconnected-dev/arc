@@ -161,14 +161,26 @@ actor FlightAPIClient {
         let velocity: Double   // m/s
         let heading: Double    // degrees
         let on_ground: Bool
+        let registration: String?
+        /// Seconds since the fix was received. A five-minute-old position looks
+        /// identical to a current one on a map, so callers get to know.
+        let age_seconds: Int?
+
+        var isStale: Bool { (age_seconds ?? 0) > 120 }
     }
 
-    func livePosition(icao24: String) async throws -> LivePosition? {
-        let url = baseURL.appending(path: "/position")
-            .appending(queryItems: [URLQueryItem(name: "icao24", value: icao24)])
+    /// A live fix by hex code or registration — either identifies the aircraft,
+    /// and a flight added before its aircraft was assigned has only the latter.
+    func livePosition(icao24: String? = nil, registration: String? = nil) async throws -> LivePosition? {
+        var items: [URLQueryItem] = []
+        if let icao24, !icao24.isEmpty { items.append(.init(name: "icao24", value: icao24)) }
+        if let registration, !registration.isEmpty { items.append(.init(name: "reg", value: registration)) }
+        guard !items.isEmpty else { return nil }
+
+        let url = baseURL.appending(path: "/position").appending(queryItems: items)
         let (data, response) = try await session.data(from: url)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-        return try JSONDecoder().decode(LivePosition.self, from: data)
+        return try? JSONDecoder().decode(LivePosition.self, from: data)
     }
 
     // MARK: - Security Wait Times

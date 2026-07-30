@@ -410,30 +410,57 @@ export default {
       return Response.json(legs ?? [], { headers: { ...cors, "x-arc-cache": cache } });
     }
 
-    // ── /position?icao24=4b1815 ── live position (OpenSky, free)
+    // ── /position?icao24=…&reg=…&flight=… ── live position (airplanes.live) ──
+    //
+    // Was OpenSky, which returned 502 through here: it rejects Cloudflare's
+    // egress IPs, so the plane simply never appeared. airplanes.live is free,
+    // needs no key, answers from Workers, and carries more — registration,
+    // type and callsign — plus how old the fix is.
+    //
+    // Three ways in, tried in order. A missing hex code used to abort the whole
+    // feature silently; registration and callsign are both enough on their own.
     if (url.pathname === "/position") {
-      const icao24 = url.searchParams.get("icao24");
-      if (!icao24) return new Response("missing icao24", { status: 400 });
-      try {
-        const res = await fetch(
-          `https://opensky-network.org/api/states/all?icao24=${icao24.toLowerCase()}`,
-          { headers: { Accept: "application/json" } }
-        );
-        const raw = (await res.json()) as { states?: Array<Array<unknown>> };
-        if (!raw.states || raw.states.length === 0) return Response.json(null, { status: 404, headers: cors });
-        const s = raw.states[0]!;
-        return Response.json({
-          icao24: s[0] as string,
-          lat: (s[6] as number) ?? 0,
-          lon: (s[5] as number) ?? 0,
-          altitude: (s[7] as number) ?? 0,
-          velocity: (s[9] as number) ?? 0,
-          heading: (s[10] as number) ?? 0,
-          on_ground: (s[8] as boolean) ?? false,
-        }, { headers: cors });
-      } catch {
-        return Response.json(null, { status: 502, headers: cors });
+      const attempts = [
+        ["icao", url.searchParams.get("icao24")],
+        ["reg", url.searchParams.get("reg")],
+        ["callsign", url.searchParams.get("flight")],
+      ].filter(([, v]) => !!v) as [string, string][];
+
+      if (attempts.length === 0) return new Response("missing icao24, reg or flight", { status: 400 });
+
+      for (const [kind, value] of attempts) {
+        try {
+          const key = value.trim().replace(/\s+/g, "").toLowerCase();
+          if (!key) continue;
+          const res = await fetch(`https://api.airplanes.live/v2/${kind}/${encodeURIComponent(key)}`,
+                                  { headers: { Accept: "application/json" } });
+          if (!res.ok) continue;
+          const raw = await res.json() as { ac?: Record<string, any>[] };
+          const ac = (raw.ac ?? []).find(a => typeof a?.lat === "number" && typeof a?.lon === "number");
+          if (!ac) continue;
+
+          // alt_baro is feet, or the string "ground" when it's on the deck;
+          // gs is knots. Our clients speak metres and m/s.
+          const onGround = ac.alt_baro === "ground";
+          const altFt = typeof ac.alt_baro === "number" ? ac.alt_baro : 0;
+          const speedKt = typeof ac.gs === "number" ? ac.gs : 0;
+
+          return Response.json({
+            icao24: String(ac.hex ?? "").toUpperCase(),
+            lat: ac.lat,
+            lon: ac.lon,
+            altitude: Math.round(altFt * 0.3048),
+            velocity: speedKt * 0.514444,
+            heading: typeof ac.track === "number" ? ac.track : 0,
+            on_ground: onGround,
+            registration: ac.r ?? null,
+            // Seconds since the fix. A five-minute-old position matters when
+            // you're watching an aircraft taxi, so don't hide it.
+            age_seconds: typeof ac.seen_pos === "number" ? Math.round(ac.seen_pos) : null,
+          }, { headers: cors });
+        } catch { /* try the next identifier */ }
       }
+      return Response.json(null, { status: 404, headers: cors });
     }
 
     // ── /s/:code ── live share page. Server-rendered (route + times + OG
