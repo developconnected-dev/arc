@@ -27,7 +27,7 @@ struct MapControls: View {
                     }
                 }
             }
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
+            .glassEffect(.regular, in: .rect(cornerRadius: 22))
             .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color(.separator).opacity(0.4), lineWidth: 0.5))
 
             Button(action: onRecenter) {
@@ -35,7 +35,7 @@ struct MapControls: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.primary)
                     .frame(width: 44, height: 44)
-                    .background(.regularMaterial, in: Circle())
+                    .glassEffect(.regular.interactive(), in: .circle)
                     .overlay(Circle().stroke(Color(.separator).opacity(0.4), lineWidth: 0.5))
             }.buttonStyle(.plain)
         }

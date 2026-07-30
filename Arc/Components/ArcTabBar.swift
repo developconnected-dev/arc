@@ -6,32 +6,38 @@ enum ArcTab: CaseIterable {
     var icon: String { switch self { case .myFlights: "airplane"; case .friends: "person.2.fill"; case .passport: "book.pages.fill" } }
 }
 
-/// Flighty-style floating pill: 3 tabs in a capsule + a separate circular search button.
+/// Floating pill: 3 tabs in a capsule + a separate circular search button.
+///
+/// Real Liquid Glass (`glassEffect`), not `.regularMaterial` — that's the
+/// pre-iOS-26 blur, which is why this never looked like the system's own
+/// chrome. A `GlassEffectContainer` groups the capsule and the search button so
+/// they refract as one piece of glass rather than two unrelated panes, and
+/// `.interactive()` gives them the press response system controls have.
 struct ArcTabBar: View {
     @Binding var selection: ArcTab
     var onSearch: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 4) {
-                ForEach(ArcTab.allCases, id: \.self) { tab in
-                    Button { selection = tab } label: { item(tab) }
-                        .buttonStyle(.plain)
+        GlassEffectContainer(spacing: 10) {
+            HStack(spacing: 10) {
+                HStack(spacing: 4) {
+                    ForEach(ArcTab.allCases, id: \.self) { tab in
+                        Button { selection = tab } label: { item(tab) }
+                            .buttonStyle(.plain)
+                    }
                 }
-            }
-            .padding(6)
-            .background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().stroke(Color(.separator).opacity(0.4), lineWidth: 0.5))
+                .padding(6)
+                .glassEffect(.regular.interactive(), in: .capsule)
 
-            Button(action: onSearch) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 54, height: 54)
-                    .background(.regularMaterial, in: Circle())
-                    .overlay(Circle().stroke(Color(.separator).opacity(0.4), lineWidth: 0.5))
+                Button(action: onSearch) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 54, height: 54)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
     }
@@ -45,6 +51,7 @@ struct ArcTabBar: View {
         .foregroundStyle(active ? ArcTheme.action : Color(.secondaryLabel))
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
+        // The selection marker stays a tint, not glass — glass on glass smears.
         .background(active ? ArcTheme.action.opacity(0.12) : .clear, in: Capsule())
     }
 }
