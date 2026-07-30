@@ -43,7 +43,9 @@ struct ArcRootView: View {
                 .presentationDetents([.large])
                 .onDisappear { clipboardQuery = nil }
         }
-        .sheet(item: $detailFlight) { flight in
+        // Dismissing the flight leaves its ground view too — otherwise the map
+        // stayed stuck in terminal mode with a Back button and no flight.
+        .sheet(item: $detailFlight, onDismiss: { controller.clearGateMarker() }) { flight in
             FlightDetailView(flight: flight,
                              onShowAtGate: { f in showPlaneAtGate(f) },
                              onShowAirport: { f in showAirportView(f) })
@@ -363,7 +365,11 @@ struct ArcRootView: View {
                        friendOverlays: tab == .friends ? friendsStore.mapOverlays : [])
                 .ignoresSafeArea()
 
-            if tab != .friends, let active = activeFlight,
+            // Hidden in the ground views: it collided with the Back button, and
+            // at the gate the interesting thing is where the aircraft is on the
+            // apron, not its cruise speed.
+            if tab != .friends, controller.airportView == nil, controller.gateMarker == nil,
+               let active = activeFlight,
                active.liveSpeed != nil || active.liveAltitude != nil {
                 speedAltPill(active).padding(.top, 6)
             }
@@ -371,6 +377,24 @@ struct ArcRootView: View {
             MapControls(controller: controller) { controller.fitAll(mapFlights) }
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.trailing, 12).padding(.top, 8)
+
+            // Lives here rather than as an overlay on the Map: the map ignores
+            // the safe area, so a top-aligned overlay on it landed under the
+            // notch, unreachable — which also meant it could never be tapped
+            // away. Here it sits inside the safe area, like the map controls.
+            if controller.gateMarker != nil || controller.airportView != nil {
+                Button { controller.clearGateMarker() } label: {
+                    Label(controller.airportView.map { "Back · \($0.iata)" } ?? "Back",
+                          systemImage: "chevron.left")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 14).padding(.vertical, 9)
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 12).padding(.top, 8)
+            }
         }
     }
 
