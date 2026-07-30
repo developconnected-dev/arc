@@ -17,6 +17,8 @@ struct ArcMapView: View {
         let showTerminator = controller.showDayNightTerminator
         let showHazards = controller.showWeatherHazards
         let hazards = controller.hazards
+        // Observation hook: the minute tick re-derives estimated plane positions.
+        _ = controller.clockTick
 
         return Map(position: $controller.position) {
             // Drawn FIRST so every route line sits on top of it. Rendered after
@@ -181,19 +183,38 @@ struct ArcMapView: View {
                     Annotation("", coordinate: arr) { endpointDot(past: flight.isCompleted) }
 
 
-                    if flight.isActive, let lat = flight.liveLat, let lon = flight.liveLon {
-                        Annotation("", coordinate: .init(latitude: lat, longitude: lon)) {
+                    // A live ADS-B fix when there is one, otherwise the clock's
+                    // position on the arc. It used to require a live fix, so an
+                    // airborne flight simply had no plane whenever OpenSky had
+                    // nothing for that aircraft — which is often, and always
+                    // when offline. Friend flights already worked this way.
+                    if flight.isActive, let plane = ownPlane(flight, dep: dep, arr: arr) {
+                        Annotation("", coordinate: plane.coordinate) {
                             Image(systemName: "airplane")
                                 .font(.system(size: 18, weight: .black))
                                 .foregroundStyle(.white)
-                                .rotationEffect(.degrees((flight.liveHeading ?? 0) - 90))
+                                .rotationEffect(.degrees(plane.heading - 90))
                                 .shadow(radius: 2)
+                                // Estimated positions read slightly softer than
+                                // a real fix, so the map never overstates what
+                                // it knows.
+                                .opacity(plane.isLive ? 1 : 0.85)
                         }
                     }
                 }
             }
         }
         .mapStyle(controller.style == .hybrid ? .hybrid(elevation: .realistic) : .standard(elevation: .realistic))
+        // Keep an airborne flight's plane creeping along its arc with no live
+        // fix and no network: the position is derived from the clock, so this
+        // only needs a nudge to re-render. Zero network calls.
+        .task(id: flights.contains(where: \.isActive)) {
+            guard flights.contains(where: \.isActive) else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                controller.clockTick += 1
+            }
+        }
         .mapControlVisibility(.hidden)
         .onMapCameraChange(frequency: .onEnd) { context in
             controller.cameraSpanDelta = context.region.span.latitudeDelta
@@ -249,6 +270,22 @@ struct ArcMapView: View {
             .overlay(Circle().stroke(past ? ArcTheme.routeLinePast : ArcTheme.action,
                                      lineWidth: past ? 2 : 3))
             .opacity(past ? 0.8 : 1)
+    }
+
+    /// Where to draw this flight's plane: the live fix if we have one, else the
+    /// clock's position along the great circle.
+    private func ownPlane(_ flight: Flight,
+                          dep: CLLocationCoordinate2D,
+                          arr: CLLocationCoordinate2D)
+    -> (coordinate: CLLocationCoordinate2D, heading: Double, isLive: Bool)? {
+        if let lat = flight.liveLat, let lon = flight.liveLon {
+            return (CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                    flight.liveHeading ?? GeoMath.bearing(from: dep, to: arr),
+                    true)
+        }
+        guard let estimated = GeoMath.position(along: GeoMath.greatCircle(from: dep, to: arr),
+                                               progress: flight.progress) else { return nil }
+        return (estimated.coordinate, estimated.heading, false)
     }
 
     /// Hazards touching any route currently drawn, de-duplicated — one advisory

@@ -112,6 +112,37 @@ enum GeoMath {
         }
     }
 
+    /// Where along a route something is at `progress` (0…1), plus the heading it
+    /// is travelling on.
+    ///
+    /// This is what lets an airborne flight show a plane without a live fix.
+    /// ADS-B is free but frequently silent — OpenSky returns `states: null` for
+    /// plenty of aircraft even when reachable — so a live-only plane vanishes
+    /// mid-flight for reasons the user can't see. Clock math always works, needs
+    /// no network, and is right to within a few miles on a great circle.
+    static func position(along route: [CLLocationCoordinate2D],
+                         progress: Double) -> (coordinate: CLLocationCoordinate2D, heading: Double)? {
+        guard route.count >= 2 else { return nil }
+        let clamped = min(1, max(0, progress))
+        let index = min(route.count - 1, max(0, Int(clamped * Double(route.count - 1))))
+        let here = route[index]
+        // Heading from the neighbouring sample, so the icon points along the arc.
+        let next = route[min(route.count - 1, index + 1)]
+        let prev = route[max(0, index - 1)]
+        return (here, bearing(from: index == route.count - 1 ? prev : here,
+                              to: index == route.count - 1 ? here : next))
+    }
+
+    /// Initial great-circle bearing in degrees, 0 = north.
+    static func bearing(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> Double {
+        let lat1 = a.latitude * .pi / 180, lat2 = b.latitude * .pi / 180
+        let dLon = (b.longitude - a.longitude) * .pi / 180
+        let y = sin(dLon) * cos(lat2)
+        let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
+        let deg = atan2(y, x) * 180 / .pi
+        return deg < 0 ? deg + 360 : deg
+    }
+
     /// Rough centre of a polygon — good enough to hang one label off, which is
     /// all this is used for.
     static func centroid(_ points: [CLLocationCoordinate2D]) -> CLLocationCoordinate2D? {

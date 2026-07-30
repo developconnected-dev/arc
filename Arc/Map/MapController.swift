@@ -18,6 +18,11 @@ final class MapController {
     var showWeatherHazards: Bool = false
     var showDayNightTerminator: Bool = true
 
+    /// Minute heartbeat so a clock-estimated plane creeps along its arc between
+    /// data refreshes. Costs nothing: it triggers no network call, just a
+    /// re-derivation of a position from the clock.
+    var clockTick = 0
+
     /// Published SIGMET/AIRMET areas, refreshed at most every 10 minutes —
     /// they're issued hourly and valid for hours, so anything keener is waste.
     var hazards: [FlightAPIClient.WeatherHazard] = []
