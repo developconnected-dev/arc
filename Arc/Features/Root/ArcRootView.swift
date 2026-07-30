@@ -372,25 +372,52 @@ struct ArcRootView: View {
         }
     }
 
-    /// One accessory slot: the paste offer when there's something to paste,
-    /// otherwise the add-a-flight action. The system supplies the glass, so the
-    /// content here stays plain.
-    @ViewBuilder private var bottomAccessory: some View {
-        if offeredPasteChange != nil, !showAdd, detailFlight == nil {
-            clipboardMagicPill
-        } else {
+    /// The accessory: adding a flight is always available, and a copied flight
+    /// number folds in BESIDE it rather than replacing it. Making the paste
+    /// offer take over the slot meant that whenever something was on the
+    /// clipboard there was no way to add a flight at all.
+    private var bottomAccessory: some View {
+        HStack(spacing: 12) {
             Button { showAdd = true } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").font(.system(size: 15, weight: .semibold))
                     Text("Add a flight").font(.system(size: 15, weight: .semibold))
                 }
                 .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+
+            if offeredPasteChange != nil, !showAdd, detailFlight == nil {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(ArcTheme.brand)
+                // Read on tap, where the tap itself is the consent — no
+                // paste-permission alert, which is what broke this before.
+                PasteButton(payloadType: String.self) { strings in
+                    handlePasted(strings.first ?? "")
+                }
+                .labelStyle(.iconOnly)
+                .buttonBorderShape(.capsule)
+                .tint(ArcTheme.brand)
+
+                Button {
+                    dismissedPasteChange = UIPasteboard.general.changeCount
+                    withAnimation(.easeOut) { offeredPasteChange = nil }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24, height: 24)
+                        .background(Color(.tertiarySystemFill), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
         }
+        .padding(.horizontal, 16).padding(.vertical, 10)
     }
+
 
 
     // MARK: - Liquid Glass Clipboard Pill
@@ -452,39 +479,6 @@ struct ArcRootView: View {
         showAdd = true
     }
 
-    /// The paste itself is a `PasteButton`: it hands over the clipboard on tap
-    /// with no consent alert, which is the only way this can work without the
-    /// system asking (and defaulting to "Don't Allow") every time.
-    private var clipboardMagicPill: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(ArcTheme.brand)
-            Text("Add a flight you copied")
-                .font(.system(size: 14.5, weight: .medium))
-                .foregroundStyle(.primary)
-
-            PasteButton(payloadType: String.self) { strings in
-                handlePasted(strings.first ?? "")
-            }
-            .labelStyle(.iconOnly)
-            .buttonBorderShape(.capsule)
-            .tint(ArcTheme.brand)
-
-            Button {
-                dismissedPasteChange = UIPasteboard.general.changeCount
-                withAnimation(.easeOut) { offeredPasteChange = nil }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, height: 24)
-                    .background(Color(.tertiarySystemFill), in: Circle())
-            }.buttonStyle(.plain)
-        }
-        .padding(.leading, 16).padding(.trailing, 8).padding(.vertical, 8)
-        .padding(.horizontal, 24)
-    }
 }
 
 
