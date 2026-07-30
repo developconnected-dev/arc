@@ -219,19 +219,6 @@ struct ArcMapView: View {
         .onMapCameraChange(frequency: .onEnd) { context in
             controller.cameraSpanDelta = context.region.span.latitudeDelta
         }
-        .overlay(alignment: .topLeading) {
-            if controller.gateMarker != nil || controller.airportView != nil {
-                Button { controller.clearGateMarker() } label: {
-                    Label(controller.airportView.map { "Back · \($0.iata)" } ?? "Back",
-                          systemImage: "chevron.left")
-                        .font(.system(size: 14, weight: .semibold))
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                        .background(.regularMaterial, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .padding(.leading, 12).padding(.top, 8)
-            }
-        }
     }
 
     /// Avatar + status pill, the Flighty friends-map bubble.
