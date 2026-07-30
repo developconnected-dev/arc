@@ -13,6 +13,21 @@ final class MapController {
     /// Latest camera span (updated on gesture end) — gate labels appear only
     /// when zoomed in enough that ~100 chips wouldn't collapse into noise.
     var cameraSpanDelta: Double = 180
+    /// Off by default: an en-route hazard layer is a deliberate thing to look
+    /// at, not something to leave painted over every flight.
+    var showWeatherHazards: Bool = false
+    var showDayNightTerminator: Bool = true
+
+    /// Published SIGMET/AIRMET areas, refreshed at most every 10 minutes —
+    /// they're issued hourly and valid for hours, so anything keener is waste.
+    var hazards: [FlightAPIClient.WeatherHazard] = []
+    private var hazardsFetchedAt: Date?
+
+    func refreshHazardsIfNeeded() async {
+        if let last = hazardsFetchedAt, Date.now.timeIntervalSince(last) < 600 { return }
+        hazardsFetchedAt = .now
+        hazards = (try? await FlightAPIClient.shared.weatherHazards()) ?? hazards
+    }
     private var styleBeforeAirport: MapStyleKind?
 
     struct GateMarker: Equatable {

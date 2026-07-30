@@ -54,6 +54,67 @@ actor FlightAPIClient {
         return try JSONDecoder().decode([FlightSearchResult].self, from: data)
     }
 
+    // MARK: - En-route weather hazards (real SIGMETs)
+
+    /// A published hazard area: a real polygon from a SIGMET/AIRMET, not a
+    /// shape derived from the flight number.
+    struct WeatherHazard: Codable, Sendable, Identifiable {
+        struct Coord: Codable, Sendable { let lat: Double; let lon: Double }
+        let kind: String        // "thunderstorms", "turbulence", "icing", …
+        let severe: Bool
+        let base: Int?          // feet
+        let top: Int?
+        let region: String?
+        let coords: [Coord]
+
+        /// Stable across refreshes so SwiftUI doesn't rebuild every polygon:
+        /// two advisories can't share a kind, altitude band and first vertex.
+        var id: String {
+            let first = coords.first.map { "\($0.lat),\($0.lon)" } ?? "?"
+            return "\(kind)|\(base ?? -1)|\(top ?? -1)|\(first)"
+        }
+
+        /// "Thunderstorms · FL180–450" — altitudes in flight levels, the unit
+        /// the advisory itself uses.
+        var label: String {
+            var text = kind.capitalized
+            if let top {
+                let lower = base.map { "FL\($0 / 100)–" } ?? "below FL"
+                text += " · \(lower)\(top / 100)"
+            }
+            return text
+        }
+    }
+
+    private struct WeatherHazardResponse: Codable, Sendable { let hazards: [WeatherHazard] }
+
+    func weatherHazards() async throws -> [WeatherHazard] {
+        let (data, response) = try await session.data(from: baseURL.appending(path: "/weather/hazards"))
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return [] }
+        return try JSONDecoder().decode(WeatherHazardResponse.self, from: data).hazards
+    }
+
+    // MARK: - Natural Language & AI Booking Parsing
+
+    struct ParsedFlightItem: Codable, Sendable {
+        let flightNumber: String
+        let date: String
+    }
+    struct ParseBookingResponse: Codable, Sendable {
+        let flights: [ParsedFlightItem]
+    }
+
+    func parseBooking(text: String) async throws -> [ParsedFlightItem] {
+        let url = baseURL.appending(path: "/parse-booking")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(["text": text])
+        let (data, _) = try await session.data(for: req)
+        let response = try JSONDecoder().decode(ParseBookingResponse.self, from: data)
+        return response.flights
+    }
+
     // MARK: - Inbound aircraft ("Where's My Plane")
 
     /// All legs flown by a given tail number on a given date, per the Worker's

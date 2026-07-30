@@ -8,3 +8,11 @@ node_modules/
 *.env
 .env
 Arc.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Wrangler local secrets — real API keys live here; never commit.
+backend/.dev.vars
+.dev.vars
+
+# Local build output
+build_dd/
+build_output.txt

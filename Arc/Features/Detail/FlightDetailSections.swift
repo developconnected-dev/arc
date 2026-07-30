@@ -410,3 +410,65 @@ struct NotesSection: View {
         }
     }
 }
+
+// MARK: - Pillar 3.2: Live Baggage Carousel & Handoff
+
+struct BaggageCarouselSection: View {
+    let flight: Flight
+    let belt: String
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Image(systemName: "suitcase.cart.fill")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Color.green)
+                    .symbolEffect(.bounce, options: .nonRepeating, value: belt)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("LIVE BAGGAGE CAROUSEL")
+                        .font(.system(size: 11, weight: .heavy))
+                        .foregroundStyle(.secondary)
+                        .tracking(0.6)
+                    Text("Terminal \(flight.arrivalTerminal ?? "Main") • Belt \(belt)")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(.primary)
+                }
+                Spacer()
+                Text("CONFIRMED")
+                    .font(.system(size: 10, weight: .black))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(Color.green, in: Capsule())
+                    .shadow(color: .green.opacity(0.4), radius: 3)
+            }
+
+            Divider()
+
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("BAGGAGE STATUS").font(.system(size: 10, weight: .heavy)).foregroundStyle(.tertiary)
+                    Text(flight.isRecentlyLanded || flight.isCompleted ? "Bags On Carousel (~12m)" : "Offloading from Cargo Hold")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.primary)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text("CURB PICKUP").font(.system(size: 10, weight: .heavy)).foregroundStyle(.tertiary)
+                    Text("Exit Door 4 (~3m wait)")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(ArcTheme.action)
+                }
+            }
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color(.secondarySystemGroupedBackground))
+                .shadow(color: Color.green.opacity(0.15), radius: 10, x: 0, y: 4)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(Color.green.opacity(0.3), lineWidth: 1.5)
+        )
+    }
+}

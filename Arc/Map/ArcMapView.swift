@@ -9,7 +9,30 @@ struct ArcMapView: View {
     var friendOverlays: [FriendsStore.FriendMapOverlay] = []
 
     var body: some View {
-        Map(position: $controller.position) {
+        // Read the layer toggles HERE, in the view's own body, not inside the
+        // Map content builder. MapKit caches that builder's result, so an
+        // @Observable change read only inside it didn't register as a
+        // dependency — the layer appeared or vanished on the next pan instead
+        // of on the tap. Hoisting the reads makes the toggle immediate.
+        let showTerminator = controller.showDayNightTerminator
+        let showHazards = controller.showWeatherHazards
+        let hazards = controller.hazards
+
+        return Map(position: $controller.position) {
+            // Drawn FIRST so every route line sits on top of it. Rendered after
+            // the arcs, the fills covered the very thing the map is for.
+            if showHazards {
+                ForEach(routeHazards(hazards)) { hazard in
+                    hazardArea(hazard)
+                }
+            }
+
+            if showTerminator {
+                MapPolygon(coordinates: GeoMath.solarTerminatorPolygon(date: .now))
+                    .foregroundStyle(Color.indigo.opacity(0.28))
+                    .stroke(Color.orange.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
+            }
+
             // Friends' flights (Friends tab): route arcs + avatar bubbles
             // with live status pills, Flighty-style. Airborne friends ride
             // the route at clock progress (or their live ADS-B fix);
@@ -41,6 +64,7 @@ struct ArcMapView: View {
                 if !friend.landed {
                     Annotation("", coordinate: friend.dep) { endpointDot(past: false) }
                     Annotation("", coordinate: friend.arr) { endpointDot(past: false) }
+
                 }
                 if friend.showsBubble {
                     let position: CLLocationCoordinate2D = friend.landed
@@ -156,6 +180,7 @@ struct ArcMapView: View {
                     Annotation("", coordinate: dep) { endpointDot(past: flight.isCompleted) }
                     Annotation("", coordinate: arr) { endpointDot(past: flight.isCompleted) }
 
+
                     if flight.isActive, let lat = flight.liveLat, let lon = flight.liveLon {
                         Annotation("", coordinate: .init(latitude: lat, longitude: lon)) {
                             Image(systemName: "airplane")
@@ -224,5 +249,53 @@ struct ArcMapView: View {
             .overlay(Circle().stroke(past ? ArcTheme.routeLinePast : ArcTheme.action,
                                      lineWidth: past ? 2 : 3))
             .opacity(past ? 0.8 : 1)
+    }
+
+    /// Hazards touching any route currently drawn, de-duplicated — one advisory
+    /// can sit near several of them.
+    private func routeHazards(_ all: [FlightAPIClient.WeatherHazard]) -> [FlightAPIClient.WeatherHazard] {
+        guard !all.isEmpty else { return [] }
+        var routes: [(CLLocationCoordinate2D, CLLocationCoordinate2D)] = []
+        for flight in flights where !flight.isCompleted
+            && flight.departureLat != 0 && flight.arrivalLat != 0 {
+            routes.append((CLLocationCoordinate2D(latitude: flight.departureLat, longitude: flight.departureLon),
+                           CLLocationCoordinate2D(latitude: flight.arrivalLat, longitude: flight.arrivalLon)))
+        }
+        for friend in friendOverlays where !friend.landed {
+            routes.append((friend.dep, friend.arr))
+        }
+        var seen = Set<String>()
+        var out: [FlightAPIClient.WeatherHazard] = []
+        for (dep, arr) in routes {
+            for hazard in GeoMath.hazards(all, near: dep, to: arr) where seen.insert(hazard.id).inserted {
+                out.append(hazard)
+            }
+        }
+        return out
+    }
+
+    /// A published advisory, drawn as the polygon it actually is.
+    ///
+    /// No text pill: labels on every area buried the routes, and a black capsule
+    /// read as chrome rather than weather. The shape and its tint carry the
+    /// meaning, and only a severe hazard gets a small glyph to draw the eye.
+    @MapContentBuilder
+    private func hazardArea(_ hazard: FlightAPIClient.WeatherHazard) -> some MapContent {
+        let points = hazard.coords.map {
+            CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
+        }
+        let tint = hazard.severe ? Color.orange : Color.cyan
+        MapPolygon(coordinates: points)
+            .foregroundStyle(tint.opacity(hazard.severe ? 0.16 : 0.10))
+            .stroke(tint.opacity(0.55), lineWidth: 1)
+        if hazard.severe, let centre = GeoMath.centroid(points) {
+            Annotation(hazard.label, coordinate: centre) {
+                Image(systemName: "cloud.bolt.rain.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.orange)
+                    .shadow(color: .black.opacity(0.35), radius: 2)
+            }
+            .annotationTitles(.hidden)
+        }
     }
 }

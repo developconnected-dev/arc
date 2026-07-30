@@ -136,7 +136,7 @@ enum FriendAlerts {
             content.body = "\(event.flightNumber) \(event.route)"
         case .landed:
             content.title = "\(event.friendName) landed in \(event.arrivalCity) 🛬"
-            content.body = "\(event.flightNumber) \(event.route)"
+            content.body = "\(event.flightNumber) \(event.route) • True Curb ETA: ~35m for taxi, deplane & baggage claim. Time your drive!"
         case .delayed(let minutes):
             content.title = "\(event.friendName)'s flight is \(minutes)m late"
             content.body = "\(event.flightNumber) \(event.route)"

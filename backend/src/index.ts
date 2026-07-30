@@ -11,6 +11,7 @@ interface Env {
   APNS_TEAM_ID?: string;         // Apple Developer Team ID
   APNS_KEY_ID?: string;          // APNs auth key ID
   APNS_P8?: string;              // full .p8 file contents
+  AI_API_KEY?: string;           // OpenAI / LLM API key for AI booking email parsing
 }
 
 const APP_BUNDLE_ID = "com.arc.flighttracker";
@@ -271,6 +272,92 @@ export default {
       }, { headers: cors });
     }
 
+    // ── /parse-booking ── Extract flight number and date from a forwarded booking email or confirmation text
+    if (url.pathname === "/parse-booking" && req.method === "POST") {
+      if (!env.AI_API_KEY) {
+        return Response.json({ error: "AI_API_KEY not configured on backend yet" }, { status: 503, headers: cors });
+      }
+      try {
+        const body = await req.json<{ text?: string; email?: string }>() ?? {};
+        const input = (body.text || body.email || "").trim();
+        if (!input) {
+          return Response.json({ error: "No booking text or email content provided" }, { status: 400, headers: cors });
+        }
+
+        let parsed;
+        if (env.AI_API_KEY.startsWith("sk-ant-")) {
+          // Anthropic Messages API
+          const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "x-api-key": env.AI_API_KEY,
+              "anthropic-version": "2023-06-01",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "claude-3-5-sonnet-20241022",
+              max_tokens: 500,
+              temperature: 0.1,
+              system: "You are an expert flight booking information extraction assistant. Extract all flight legs from the provided confirmation text or email. Return ONLY valid JSON with an array 'flights', where each item has 'flightNumber' (standard IATA like LX1413, no extra spaces) and 'date' (YYYY-MM-DD in local departure time, defaulting to near future if year is missing). Do NOT wrap in markdown codeblocks or include conversational filler.",
+              messages: [{ role: "user", content: input }]
+            })
+          });
+
+          if (!aiRes.ok) {
+            const errText = await aiRes.text();
+            return Response.json({ error: "Anthropic extraction service failed", details: errText }, { status: 502, headers: cors });
+          }
+
+          const data = await aiRes.json<any>();
+          const rawContent = data?.content?.[0]?.text ?? "{\"flights\":[]}";
+          const cleaned = rawContent.replace(/^```(json)?|```$/gm, "").trim();
+          try {
+            parsed = JSON.parse(cleaned);
+          } catch {
+            parsed = { flights: [] };
+          }
+        } else {
+          // OpenAI Chat Completions API fallback
+          const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${env.AI_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "gpt-4o-mini",
+              temperature: 0.1,
+              response_format: { type: "json_object" },
+              messages: [
+                {
+                  role: "system",
+                  content: "You are an expert flight booking information extraction assistant. Extract all flight legs from the provided confirmation text or email. Return a JSON object with an array 'flights', where each item has 'flightNumber' (standard IATA like LX1413, no extra spaces) and 'date' (YYYY-MM-DD in local departure time, defaulting to near future if year is missing). If no flights found, return { \"flights\": [] }."
+                },
+                { role: "user", content: input }
+              ]
+            })
+          });
+
+          if (!aiRes.ok) {
+            const errText = await aiRes.text();
+            return Response.json({ error: "OpenAI extraction service failed", details: errText }, { status: 502, headers: cors });
+          }
+
+          const data = await aiRes.json<any>();
+          const content = data?.choices?.[0]?.message?.content ?? "{\"flights\":[]}";
+          try {
+            parsed = JSON.parse(content);
+          } catch {
+            parsed = { flights: [] };
+          }
+        }
+
+        return Response.json({ ok: true, flights: parsed?.flights ?? [] }, { headers: cors });
+      } catch (err: any) {
+        return Response.json({ error: "Invalid request format or JSON", details: err?.message }, { status: 400, headers: cors });
+      }
+    }
+
     // ── /flight?number=LX1413&date=2026-07-20 ── status by flight number + date
     if (url.pathname === "/flight") {
       const number = url.searchParams.get("number");
@@ -393,6 +480,55 @@ export default {
         status: invites.length ? 200 : 404,
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
+    }
+
+    // ── /weather/hazards — real en-route weather, as published ──
+    //
+    // SIGMETs and AIRMETs from aviationweather.gov: actual hazard areas with
+    // real polygons, hazard type, altitude band and a validity window. Free,
+    // keyless, and global (the international feed covers every FIR).
+    //
+    // This replaces a client-side generator that derived a "storm cell" and a
+    // "jet stream" from the hash of the flight number — invented data drawn on
+    // the map as though observed, and not even stable, since Swift seeds
+    // hashValue per process so it changed on every launch.
+    if (url.pathname === "/weather/hazards") {
+      const sources = [
+        "https://aviationweather.gov/api/data/isigmet?format=json",
+        "https://aviationweather.gov/api/data/airsigmet?format=json",
+      ];
+      const hazards: Record<string, unknown>[] = [];
+
+      await Promise.all(sources.map(async (src) => {
+        try {
+          // Edge-cached: SIGMETs are issued hourly and valid for hours, so a
+          // 10-minute TTL serves every device from one upstream fetch.
+          const res = await fetch(src, { cf: { cacheTtl: 600, cacheEverything: true } });
+          if (!res.ok) return;
+          const rows = await res.json() as Record<string, any>[];
+          for (const r of Array.isArray(rows) ? rows : []) {
+            const coords = (r.coords ?? []).filter(
+              (c: any) => typeof c?.lat === "number" && typeof c?.lon === "number");
+            if (coords.length < 3) continue;   // need a polygon, not a point
+            hazards.push({
+              kind: hazardKind(String(r.hazard ?? "")),
+              severe: isSevereHazard(r),
+              base: r.base ?? r.altitudeLow1 ?? null,
+              top: r.top ?? r.altitudeHi1 ?? null,
+              region: r.firName ?? r.firId ?? r.icaoId ?? null,
+              validTo: r.validTimeTo ?? null,
+              coords: coords.map((c: any) => ({ lat: c.lat, lon: c.lon })),
+            });
+          }
+        } catch { /* one source failing shouldn't blank the other */ }
+      }));
+
+      // Never hand back an expired advisory — a stale storm is worse than none.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const live = hazards.filter((h) => !h.validTo || (h.validTo as number) >= nowSec);
+
+      return Response.json({ ok: true, updated: new Date().toISOString(), hazards: live },
+                           { headers: { ...cors, "cache-control": "public, max-age=300" } });
     }
 
     // ── /security/:iata — airport security wait time ──
@@ -626,6 +762,32 @@ interface AirportWeather {
   visibility: string | null;
   wx: string | null;          // raw weather phenomena, e.g. "TSRA", "-SN"
   raw: string | null;
+}
+
+/// SIGMET hazard codes to something a passenger can read. TS/CONVECTIVE are
+/// thunderstorms, MTW is mountain wave, VA volcanic ash, TC tropical cyclone.
+function hazardKind(raw: string): string {
+  switch (raw.toUpperCase()) {
+    case "TS": case "CONVECTIVE": return "thunderstorms";
+    case "TURB": return "turbulence";
+    case "ICE": case "ICING": return "icing";
+    case "VA": return "volcanic ash";
+    case "TC": return "tropical cyclone";
+    case "MTW": return "mountain wave";
+    case "IFR": case "MT_OBSC": return "low visibility";
+    default: return raw.toLowerCase() || "hazard";
+  }
+}
+
+/// Qualifiers come from the SIGMET text (SEV severe, FRQ frequent, EMBD
+/// embedded); the US feed uses a numeric severity instead. Ash and cyclones
+/// are always worth the stronger styling.
+function isSevereHazard(r: Record<string, any>): boolean {
+  const q = String(r.qualifier ?? "").toUpperCase();
+  if (q.includes("SEV") || q.includes("FRQ")) return true;
+  const kind = String(r.hazard ?? "").toUpperCase();
+  if (kind === "VA" || kind === "TC") return true;
+  return typeof r.severity === "number" && r.severity >= 4;
 }
 
 async function fetchMetar(icao: string): Promise<AirportWeather | null> {

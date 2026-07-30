@@ -509,27 +509,51 @@ struct FlightLiveActivity: Widget {
             }
             .padding(.bottom, 14)
 
-            // Arrival info: gate badge + baggage
-            HStack {
-                if let belt = state.baggageClaim {
-                    HStack(spacing: 5) {
-                        Image(systemName: "suitcase.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                        Text("Belt \(belt)")
-                            .font(.system(size: 14, weight: .semibold))
+            // Pillar 3.2: Arrival info + High-Impact Baggage Carousel Handoff
+            VStack(spacing: 12) {
+                HStack {
+                    if let belt = state.baggageClaim {
+                        HStack(spacing: 6) {
+                            Image(systemName: "suitcase.cart.fill")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(.white)
+                            Text("BAGGAGE BELT \(belt)")
+                                .font(.system(size: 13, weight: .heavy))
+                                .foregroundStyle(.white)
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(Color.green, in: Capsule())
+                        .shadow(color: .green.opacity(0.5), radius: 4)
+                    } else {
+                        HStack(spacing: 5) {
+                            Image(systemName: "suitcase.fill")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                            Text("Baggage Scanning...")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                }
-                if let terminal = state.arrivalTerminal {
-                    HStack(spacing: 3) {
-                        Text("·").foregroundStyle(.tertiary)
+                    Spacer()
+                    if let terminal = state.arrivalTerminal {
                         Text("T\(terminal)")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    if let gate = state.arrivalGate {
+                        gateBadge(gate)
                     }
                 }
-                Spacer()
-                if let gate = state.arrivalGate {
-                    gateBadge(gate)
+                
+                // True Curb Logistics
+                HStack {
+                    Image(systemName: "figure.walk")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.cyan)
+                    Text("Curb Handoff: ~20m total to Baggage Claim & Exit Door")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Spacer()
                 }
             }
         }
