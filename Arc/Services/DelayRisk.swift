@@ -17,12 +17,15 @@ enum DelayRisk {
         case none = 0, low = 1, moderate = 2, high = 3
         static func < (a: Level, b: Level) -> Bool { a.rawValue < b.rawValue }
 
+        // Cause-neutral on purpose: since the outlook merged in the inbound
+        // aircraft, "weather delay" would mislabel a knock-on-driven card.
+        // The reasons underneath say why.
         var title: String {
             switch self {
-            case .none: "Weather looks fine"
-            case .low: "Minor weather"
-            case .moderate: "Possible weather delay"
-            case .high: "Likely weather delay"
+            case .none: "Looks fine"
+            case .low: "Minor risk"
+            case .moderate: "Possible delay"
+            case .high: "Likely delay"
             }
         }
     }
@@ -88,5 +91,52 @@ enum DelayRisk {
             return Assessment(level: .none, reasons: [])
         }
         return worst
+    }
+
+    // MARK: - Departure outlook
+
+    /// Everything Arc knows about whether this departure slips, in one
+    /// assessment: weather at the field, the inbound aircraft's knock-on
+    /// (the single biggest cause of delays, and the one airlines admit
+    /// last), and weather at the airport where that aircraft is still
+    /// sitting. Each signal already exists elsewhere in the app — this is
+    /// where they finally meet.
+    ///
+    /// `knockOnMinutes` is `Flight.predictedDelayMinutes`: turnaround math
+    /// from `RotationChain`, which only stores a value when it beats the
+    /// airline's own number by ≥10 minutes — so any value here is signal,
+    /// not noise.
+    static func departureOutlook(
+        weather: Assessment?,
+        knockOnMinutes: Int,
+        inboundOrigin: Assessment?,
+        inboundOriginIATA: String?
+    ) -> Assessment {
+        var level = weather?.level ?? .none
+        var reasons = weather?.reasons ?? []
+
+        if knockOnMinutes >= 10 {
+            let knock: Level = knockOnMinutes >= 45 ? .high
+                             : knockOnMinutes >= 20 ? .moderate : .low
+            // Reasons read worst-first: the knock-on leads when it is the
+            // driver, otherwise the weather keeps top billing.
+            if knock >= level {
+                reasons.insert("Inbound aircraft — about \(knockOnMinutes) min knock-on", at: 0)
+            } else {
+                reasons.append("Inbound aircraft — about \(knockOnMinutes) min knock-on")
+            }
+            if knock > level { level = knock }
+        }
+
+        // Weather at the inbound's origin delays the feeder, not us directly,
+        // and the rotation usually has some slack — so it enters one level
+        // down. A "low" there demotes to nothing and is dropped entirely.
+        if let origin = inboundOrigin, let iata = inboundOriginIATA,
+           let demoted = Level(rawValue: origin.level.rawValue - 1), demoted > .none {
+            if demoted > level { level = demoted }
+            reasons.append("\(iata), where your aircraft is now: \(origin.reasons.first ?? "poor weather")")
+        }
+
+        return Assessment(level: level, reasons: reasons)
     }
 }

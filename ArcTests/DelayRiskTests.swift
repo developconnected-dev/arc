@@ -77,4 +77,69 @@ final class DelayRiskTests: XCTestCase {
         XCTAssertEqual(a.level, .low, "32kt is breezy, not a delay")
         XCTAssertFalse(a.isWorthShowing)
     }
+
+    // MARK: - Departure outlook (weather × inbound aircraft)
+
+    /// A 25-minute knock-on with clear skies must still surface — the inbound
+    /// aircraft is the #1 cause of delays and the whole point of the outlook.
+    func testKnockOnAloneIsModerate() {
+        let a = DelayRisk.departureOutlook(weather: nil, knockOnMinutes: 25,
+                                           inboundOrigin: nil, inboundOriginIATA: nil)
+        XCTAssertEqual(a.level, .moderate)
+        XCTAssertTrue(a.isWorthShowing)
+        XCTAssertTrue(a.reasons[0].contains("25 min"))
+    }
+
+    func testKnockOnThresholds() {
+        func lvl(_ m: Int) -> DelayRisk.Level {
+            DelayRisk.departureOutlook(weather: nil, knockOnMinutes: m,
+                                       inboundOrigin: nil, inboundOriginIATA: nil).level
+        }
+        XCTAssertEqual(lvl(0), .none)
+        XCTAssertEqual(lvl(12), .low)      // real but small — stays off the card
+        XCTAssertEqual(lvl(20), .moderate)
+        XCTAssertEqual(lvl(50), .high)
+    }
+
+    /// Fog at the field outranks a small knock-on: weather keeps top billing
+    /// and the level stays high.
+    func testWeatherKeepsTopBillingWhenWorse() {
+        let fog = DelayRisk.assess(c(vis: 600, wx: "FG"))
+        let a = DelayRisk.departureOutlook(weather: fog, knockOnMinutes: 12,
+                                           inboundOrigin: nil, inboundOriginIATA: nil)
+        XCTAssertEqual(a.level, .high)
+        XCTAssertTrue(a.reasons[0].contains("visibility") || a.reasons[0].contains("600m"))
+        XCTAssertTrue(a.reasons.contains { $0.contains("12 min") })
+    }
+
+    /// Thunderstorms where the aircraft is still parked reach us one level
+    /// down: the feeder is delayed, not (yet) this flight.
+    func testInboundOriginWeatherIsDemotedOneLevel() {
+        let stormThere = DelayRisk.assess(c(wx: "TSRA"))
+        XCTAssertEqual(stormThere.level, .high)
+        let a = DelayRisk.departureOutlook(weather: nil, knockOnMinutes: 0,
+                                           inboundOrigin: stormThere, inboundOriginIATA: "MUC")
+        XCTAssertEqual(a.level, .moderate)
+        XCTAssertTrue(a.reasons[0].contains("MUC"))
+    }
+
+    /// Merely-breezy weather at the feeder airport demotes to nothing and is
+    /// dropped — restraint is the feature.
+    func testMildInboundOriginWeatherIsDropped() {
+        let breezy = DelayRisk.assess(c(gust: 27))
+        XCTAssertEqual(breezy.level, .low)
+        let a = DelayRisk.departureOutlook(weather: nil, knockOnMinutes: 0,
+                                           inboundOrigin: breezy, inboundOriginIATA: "MUC")
+        XCTAssertEqual(a.level, .none)
+        XCTAssertTrue(a.reasons.isEmpty)
+        XCTAssertFalse(a.isWorthShowing)
+    }
+
+    func testQuietDayStaysQuiet() {
+        let a = DelayRisk.departureOutlook(weather: DelayRisk.assess(c(vis: 9999)),
+                                           knockOnMinutes: 0,
+                                           inboundOrigin: nil, inboundOriginIATA: nil)
+        XCTAssertEqual(a.level, .none)
+        XCTAssertFalse(a.isWorthShowing)
+    }
 }
