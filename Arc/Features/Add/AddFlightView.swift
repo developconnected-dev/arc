@@ -27,8 +27,9 @@ struct AddFlightView: View {
     /// adding a flight behaving exactly as it used to.
     @State private var sharedWithIds: [String]?
 
-    // Pillar 1.1: Smart AI Command Bar State
-    @State private var naturalInput = ""
+    /// Set when a query resolved to a specific flight, so the search uses it
+    /// verbatim instead of rebuilding it from the airline picker.
+    @State private var resolvedCode: String?
     @State private var isParsingNatural = false
     @State private var parseStatusMessage: String?
 
@@ -170,6 +171,9 @@ struct AddFlightView: View {
     }
 
     private func back() {
+        // Stepping back means the resolved query no longer applies; a stale one
+        // would override whatever the user picks by hand next.
+        resolvedCode = nil
         switch step {
         case .number: step = .search
         case .date: step = .number
@@ -210,76 +214,42 @@ struct AddFlightView: View {
 
     private var searchStep: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // MARK: - Pillar 1.1 Natural Language & AI Command Bar
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Image(systemName: "wand.and.stars")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(ArcTheme.brand)
-                        .symbolEffect(.pulse, options: .repeating, value: isParsingNatural)
-                    Text("SMART AI COMMAND BAR")
-                        .font(.system(size: 12, weight: .black))
-                        .tracking(1.0)
-                        .foregroundStyle(ArcTheme.brand)
-                    Spacer()
-                    if isParsingNatural {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(ArcTheme.brand)
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    TextField("Try 'Swiss 1413 tomorrow' or paste SMS...", text: $naturalInput)
-                        .font(.system(size: 15, weight: .medium))
-                        .textFieldStyle(.plain)
-                        .onSubmit { Task { await runNaturalParse() } }
-
-                    if !naturalInput.isEmpty {
-                        Button {
-                            Task { await runNaturalParse() }
-                        } label: {
-                            HStack(spacing: 5) {
-                                Text("Parse")
-                                    .font(.system(size: 13, weight: .bold))
-                                Image(systemName: "arrow.right.circle.fill")
-                                    .font(.system(size: 15))
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(ArcTheme.brand, in: Capsule())
-                            .foregroundStyle(.white)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isParsingNatural)
-                    }
-                }
-
-                if let msg = parseStatusMessage {
-                    HStack(spacing: 6) {
-                        Image(systemName: msg.contains("Failed") || msg.contains("No flight") || msg.contains("Could not") ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                            .foregroundStyle(msg.contains("Failed") || msg.contains("No flight") || msg.contains("Could not") ? .orange : .green)
-                        Text(msg)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    .transition(.opacity)
-                }
-            }
-            .padding(16)
-            .background {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color(.secondarySystemFill).opacity(0.8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(ArcTheme.brand.opacity(0.35), lineWidth: 1.5)
-                    )
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
-
-            searchField(placeholder: "Or manual: EasyJet, HAM, or U2123", text: $query)
+            // ONE field. There used to be two — an "AI command bar" and a
+            // separate manual search — which meant picking a lane before
+            // typing. This resolves locally first (instant, offline, free) and
+            // only falls back to the parser for text it can't read itself.
+            searchField(placeholder: "Flight, airline, airport, or paste a booking",
+                        text: $query)
                 .padding(.horizontal, 20)
+                .onSubmit { Task { await runUnifiedSearch() } }
+
+            if !query.isEmpty {
+                Button { Task { await runUnifiedSearch() } } label: {
+                    HStack(spacing: 7) {
+                        if isParsingNatural {
+                            ProgressView().controlSize(.small).tint(.white)
+                        } else {
+                            Image(systemName: "magnifyingglass").font(.system(size: 13, weight: .bold))
+                        }
+                        Text(isParsingNatural ? "Reading…" : "Search flight")
+                            .font(.system(size: 15, weight: .semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .background(ArcTheme.action, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(isParsingNatural)
+                .padding(.horizontal, 20).padding(.top, 12)
+            }
+
+            if let msg = parseStatusMessage {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text(msg).font(.system(size: 13)).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 20).padding(.top, 10)
+            }
 
             LazyVStack(alignment: .leading, spacing: 0) {
                 if query.isEmpty {
@@ -322,6 +292,7 @@ struct AddFlightView: View {
     private func detectedFlightRow(_ a: AirlineRef) -> some View {
         let clean = query.uppercased().replacingOccurrences(of: " ", with: "")
         return Button {
+            resolvedCode = nil
             airline = a
             number = String(clean.dropFirst(2))
             step = .date
@@ -340,7 +311,7 @@ struct AddFlightView: View {
     }
 
     private func airlineRow(_ a: AirlineRef) -> some View {
-        Button { airline = a; number = ""; step = .number } label: {
+        Button { resolvedCode = nil; airline = a; number = ""; step = .number } label: {
             HStack(spacing: 14) {
                 AirlineLogoView(iata: a.iata, size: 40)
                 VStack(alignment: .leading, spacing: 2) {
@@ -931,77 +902,52 @@ struct AddFlightView: View {
 
     // MARK: Actions
 
-    private func runNaturalParse() async {
-        guard !naturalInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        isParsingNatural = true
-        parseStatusMessage = "Extracting schedule & flight details..."
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    /// One search for everything typed or pasted.
+    ///
+    /// Resolves locally first — that covers "A31653", "Swiss 1413 tomorrow" and
+    /// "18th of September" instantly, offline and without spending a token — and
+    /// only sends text it can't read to the parser. Either way it goes straight
+    /// to results: showing the airline/number fields filled in after the user
+    /// already pressed search was just making them confirm their own input.
+    private func runUnifiedSearch() async {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        parseStatusMessage = nil
 
-        var extractedFlightCode: String?
-        var targetDate = Date.now
-
-        // 1. Try cloud AI parse endpoint
-        if let items = try? await FlightAPIClient.shared.parseBooking(text: naturalInput), let first = items.first {
-            extractedFlightCode = first.flightNumber
-            if let parsedD = DateHelpers.parseAPIDate(first.date) {
-                targetDate = parsedD
+        var resolved = FlightQueryParser.parse(text)
+        if resolved == nil, text.count > 12 {
+            // Long enough to be a pasted confirmation rather than a query.
+            isParsingNatural = true
+            if let items = try? await FlightAPIClient.shared.parseBooking(text: text),
+               let first = items.first,
+               let code = FlightQueryParser.splitCode(first.flightNumber) {
+                resolved = .init(code: code.designator + code.number,
+                                 date: DateHelpers.parseAPIDate(first.date))
             }
-        }
-
-        // 2. Smart local heuristic / natural text fallback if AI couldn't reach or network offline
-        if extractedFlightCode == nil {
-            let upper = naturalInput.uppercased()
-            if upper.contains("TOMORROW") {
-                targetDate = Calendar.current.date(byAdding: .day, value: 1, to: .now) ?? .now
-            } else if upper.contains("DAY AFTER") || upper.contains("IN 2 DAYS") {
-                targetDate = Calendar.current.date(byAdding: .day, value: 2, to: .now) ?? .now
-            }
-
-            let pattern = "([A-Z]{2,3})\\s?(\\d{1,4})"
-            if let range = upper.range(of: pattern, options: .regularExpression) {
-                let code = String(upper[range]).replacingOccurrences(of: " ", with: "")
-                extractedFlightCode = code
-            } else {
-                for a in ReferenceData.shared.searchAirlines(naturalInput) {
-                    let digits = upper.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
-                    if !digits.isEmpty {
-                        extractedFlightCode = "\(a.iata)\(digits)"
-                        break
-                    }
-                }
-            }
-        }
-
-        guard let rawCode = extractedFlightCode else {
             isParsingNatural = false
-            parseStatusMessage = "Could not identify a flight number. Try e.g. 'LX1413 tomorrow' or 'Swiss 1413'"
+        }
+
+        guard let resolved, let split = FlightQueryParser.splitCode(resolved.code) else {
+            parseStatusMessage = "No flight found in that. Try \u{201C}LX1413 tomorrow\u{201D}, or pick an airline below."
             return
         }
 
-        let letters = String(rawCode.prefix(while: { !($0.isNumber) }))
-        let numbers = String(rawCode.drop(while: { !($0.isNumber) }))
-        
-        if let foundAirline = ReferenceData.shared.airline(letters) ?? ReferenceData.shared.searchAirlines(letters).first {
-            self.airline = foundAirline
-            self.number = numbers
-            self.date = targetDate
-            
-            parseStatusMessage = "✨ Resolved \(foundAirline.iata)\(numbers)! Searching live radar..."
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            
-            step = .results
-            await runSearch()
-            parseStatusMessage = nil
-        } else {
-            parseStatusMessage = "Could not resolve airline prefix '\(letters)'."
-        }
-        isParsingNatural = false
+        resolvedCode = resolved.code
+        airline = ReferenceData.shared.airline(split.designator)
+        number = split.number
+        date = resolved.date ?? .now
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        step = .results
+        await runSearch()
     }
 
     private func runSearch() async {
-        guard let airline else { return }
+        // A resolved code wins over the airline picker: a designator we don't
+        // carry (small carriers, ICAO codes) should still be searchable rather
+        // than silently doing nothing.
+        let code = resolvedCode ?? airline.map { "\($0.iata)\(number)" } ?? ""
+        guard !code.isEmpty else { return }
         isSearching = true; errorText = nil; results = []
-        let code = "\(airline.iata)\(number)"
         let dateStr = date.formatted(.iso8601.year().month().day())
         do {
             results = try await FlightAPIClient.shared.searchFlight(number: code, date: dateStr)
