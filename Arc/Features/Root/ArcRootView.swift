@@ -249,20 +249,45 @@ struct ArcRootView: View {
             }
             controller.showAirport(iata: iata, name: name, lat: lat, lon: lon, gates: gates)
             detailDetent = .medium
+            // The terminal map used to draw the gates and then sit there. The
+            // aircraft is the reason you opened it.
+            startPlaneWatch(flight)
         }
     }
 
+    /// Follows the aircraft while either ground view is open.
+    ///
+    /// Two bugs lived here. The loop stopped as soon as `gateMarker` was nil,
+    /// but opening the terminal map CLEARS that marker — so switching to it
+    /// killed the very feed it needed. And a missing hex code aborted outright,
+    /// which is common on a flight added before its aircraft was assigned;
+    /// the registration identifies it just as well.
     private func startPlaneWatch(_ flight: Flight) {
         planeWatchTask?.cancel()
-        guard let icao24 = flight.aircraftICAO24 else { return }
+        let icao24 = flight.aircraftICAO24
+        let registration = flight.aircraftRegistration
+        guard icao24 != nil || registration != nil else { return }
+
         planeWatchTask = Task {
             while !Task.isCancelled {
-                // Back button clears the marker — stop burning OpenSky quota.
-                guard controller.gateMarker != nil else { break }
-                if let pos = try? await FlightAPIClient.shared.livePosition(icao24: icao24) {
+                // Either ground view being open is reason to keep looking; both
+                // being closed means the user left, so stop the polling.
+                guard controller.gateMarker != nil || controller.airportView != nil else { break }
+                if let pos = try? await FlightAPIClient.shared.livePosition(
+                    icao24: icao24, registration: registration) {
                     controller.livePlane = .init(
                         lat: pos.lat, lon: pos.lon,
                         heading: pos.heading, onGround: pos.on_ground)
+                    // On the ground, keep the aircraft and its gate framed
+                    // together so it can't taxi out of view. Airborne, leave the
+                    // camera alone — the user is looking at the airport.
+                    if pos.on_ground {
+                        controller.followTaxi(
+                            plane: .init(latitude: pos.lat, longitude: pos.lon),
+                            gate: controller.gateMarker.map {
+                                .init(latitude: $0.lat, longitude: $0.lon)
+                            })
+                    }
                 }
                 try? await Task.sleep(for: .seconds(8))
             }

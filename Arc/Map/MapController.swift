@@ -171,4 +171,35 @@ final class MapController {
                 span: MKCoordinateSpan(latitudeDelta: 30, longitudeDelta: 30)))
         }
     }
+
+    /// Keeps the aircraft AND its gate in frame while it taxis.
+    ///
+    /// The camera used to be parked on the gate, so at a big airport — where a
+    /// plane can land 4km away and taxi for fifteen minutes — the aircraft
+    /// drove straight off screen and the user watched an empty apron. Framing
+    /// both means the gap closes on its own: the view tightens as the plane
+    /// arrives, ending parked at the jetbridge.
+    func followTaxi(plane: CLLocationCoordinate2D, gate: CLLocationCoordinate2D?) {
+        let points = [plane] + (gate.map { [$0] } ?? [])
+        let lats = points.map(\.latitude), lons = points.map(\.longitude)
+        guard let minLat = lats.min(), let maxLat = lats.max(),
+              let minLon = lons.min(), let maxLon = lons.max() else { return }
+
+        // Deliberately NOT GeoMath.region(fitting:) — that floors the span at 2°
+        // (~220km) because it exists to frame whole routes, which at airport
+        // scale means the camera never moves at all.
+        //
+        // The floor here is gate-sized instead: fitting two points a few metres
+        // apart would otherwise zoom to the length of the aircraft.
+        let latDelta = max((maxLat - minLat) * 1.8, 0.0045)
+        let lonDelta = max((maxLon - minLon) * 1.8, 0.0045)
+
+        let region = MKCoordinateRegion(
+            // Shifted south, since the detail sheet owns the bottom half.
+            center: .init(latitude: (minLat + maxLat) / 2 - latDelta * 0.25,
+                          longitude: (minLon + maxLon) / 2),
+            span: MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta))
+
+        withAnimation(.easeInOut(duration: 1.0)) { position = .region(region) }
+    }
 }
