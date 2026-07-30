@@ -433,14 +433,10 @@ struct ArcRootView: View {
             }.buttonStyle(.plain)
         }
         .padding(.leading, 18).padding(.trailing, 10).padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(
-            Capsule().stroke(
-                LinearGradient(colors: [Color.white.opacity(0.6), Color.white.opacity(0.1)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing),
-                lineWidth: 1.2)
-        )
-        .shadow(color: Color.black.opacity(0.18), radius: 14, x: 0, y: 6)
+        // Real Liquid Glass, and no hand-drawn highlight stroke — the material
+        // provides its own edge; faking one on top is what made this read as a
+        // sticker rather than system chrome.
+        .glassEffect(.regular.interactive(), in: .capsule)
         .padding(.horizontal, 24)
     }
 }
