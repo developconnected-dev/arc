@@ -34,39 +34,10 @@ struct ArcRootView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            ArcMapView(flights: mapFlights, controller: controller,
-                       friendOverlays: tab == .friends ? friendsStore.mapOverlays : [])
-                .ignoresSafeArea()
+        tabs
+        // (tab content, map background and accessory live in `tabs` — split out
+        // so the modifier chain below stays inside the type checker's budget.)
 
-            if tab != .friends, let active = activeFlight,
-               active.liveSpeed != nil || active.liveAltitude != nil {
-                speedAltPill(active).frame(maxHeight: .infinity, alignment: .top).padding(.top, 6)
-            }
-
-            MapControls(controller: controller) { controller.fitAll(mapFlights) }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                .padding(.trailing, 12).padding(.top, 8)
-
-            // The tab sheet and any presented sheet (detail/add) EXCHANGE —
-            // the tab sheet slides away while another sheet is up, so two
-            // sheets are never stacked on top of each other.
-            BottomSheet(detent: $detent) { sheetContent }
-                .offset(y: (detailFlight != nil || showAdd) ? 1500 : 0)
-                .animation(.spring(duration: 0.45), value: detailFlight != nil || showAdd)
-
-            if offeredPasteChange != nil, !showAdd, detailFlight == nil, tab == .myFlights {
-                clipboardMagicPill
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    // Clears the tab bar (its own height plus its 8pt inset)
-                    // rather than lowering the bar, which already sits against
-                    // the home indicator.
-                    .padding(.bottom, 96)
-            }
-
-            ArcTabBar(selection: $tab, onSearch: { showAdd = true })
-                .padding(.bottom, 8)
-        }
         .sheet(isPresented: $showAdd) {
             AddFlightView(initialQuery: clipboardQuery ?? addInitialQuery)
                 .presentationDetents([.large])
@@ -335,13 +306,92 @@ struct ArcRootView: View {
         pendingOpenDetail = false
     }
 
-    @ViewBuilder private var sheetContent: some View {
-        switch tab {
-        case .myFlights: MyFlightsView { detailFlight = $0 }
-        case .friends: FriendsScreen()
-        case .passport: PassportView { detailFlight = $0 }
+    /// Native TabView: the system draws the Liquid Glass bar and owns the
+    /// safe-area insets. The map is the TabView's BACKGROUND rather than content
+    /// inside each tab — a background is built once, so there is still exactly
+    /// one MKMapView behind all three tabs and the camera never resets on
+    /// switch. Split out of `body` because the modifier chain there is long
+    /// enough to defeat the type checker on its own.
+    private var tabs: some View {
+        TabView(selection: $tab) {
+                Tab(ArcTab.myFlights.title, systemImage: ArcTab.myFlights.icon, value: ArcTab.myFlights) {
+                    tabSurface { MyFlightsView { detailFlight = $0 } }
+                }
+                Tab(ArcTab.friends.title, systemImage: ArcTab.friends.icon, value: ArcTab.friends) {
+                    tabSurface { FriendsScreen() }
+                }
+                Tab(ArcTab.passport.title, systemImage: ArcTab.passport.icon, value: ArcTab.passport) {
+                    tabSurface { PassportView { detailFlight = $0 } }
+                }
+            }
+
+        // The old circular search button competed with the tab bar for the same
+        // corner. The accessory is the native slot for a persistent primary
+        // action, and it doubles as the home for the paste offer.
+        .tabViewBottomAccessory { bottomAccessory }
+    }
+
+    /// Everything that belongs to the map, built once behind the tabs.
+    private var mapLayer: some View {
+        ZStack(alignment: .top) {
+            ArcMapView(flights: mapFlights, controller: controller,
+                       friendOverlays: tab == .friends ? friendsStore.mapOverlays : [])
+                .ignoresSafeArea()
+
+            if tab != .friends, let active = activeFlight,
+               active.liveSpeed != nil || active.liveAltitude != nil {
+                speedAltPill(active).padding(.top, 6)
+            }
+
+            MapControls(controller: controller) { controller.fitAll(mapFlights) }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.trailing, 12).padding(.top, 8)
         }
     }
+
+    /// Each tab shows the same draggable sheet over the shared map — the detent
+    /// is shared state, so the height carries across tabs exactly as before.
+    /// The sheet still slides away while a detail or add sheet is up, so two
+    /// sheets are never stacked.
+    private func tabSurface<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        // Built here rather than passed along, so the closure needn't escape.
+        let built = content()
+        return ZStack {
+            // iOS gives no way to clear a TabView's container background
+            // (`.containerBackground(for: .tabView)` is unavailable here), so the
+            // map has to live inside the tab rather than behind it. The camera
+            // and every layer are driven by the shared MapController, so
+            // switching tabs keeps the same view of the world.
+            mapLayer
+            // The accessory sits above the tab bar and adds height the custom
+            // sheet knows nothing about, so its content needs the clearance —
+            // otherwise the last control on a screen hides behind it.
+            BottomSheet(detent: $detent) { built.padding(.bottom, 56) }
+                .offset(y: (detailFlight != nil || showAdd) ? 1500 : 0)
+                .animation(.spring(duration: 0.45), value: detailFlight != nil || showAdd)
+        }
+    }
+
+    /// One accessory slot: the paste offer when there's something to paste,
+    /// otherwise the add-a-flight action. The system supplies the glass, so the
+    /// content here stays plain.
+    @ViewBuilder private var bottomAccessory: some View {
+        if offeredPasteChange != nil, !showAdd, detailFlight == nil {
+            clipboardMagicPill
+        } else {
+            Button { showAdd = true } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").font(.system(size: 15, weight: .semibold))
+                    Text("Add a flight").font(.system(size: 15, weight: .semibold))
+                }
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
 
     // MARK: - Liquid Glass Clipboard Pill
     /// Decides whether to OFFER a paste, without reading the clipboard.
@@ -432,11 +482,7 @@ struct ArcRootView: View {
                     .background(Color(.tertiarySystemFill), in: Circle())
             }.buttonStyle(.plain)
         }
-        .padding(.leading, 18).padding(.trailing, 10).padding(.vertical, 10)
-        // Real Liquid Glass, and no hand-drawn highlight stroke — the material
-        // provides its own edge; faking one on top is what made this read as a
-        // sticker rather than system chrome.
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .padding(.leading, 16).padding(.trailing, 8).padding(.vertical, 8)
         .padding(.horizontal, 24)
     }
 }
