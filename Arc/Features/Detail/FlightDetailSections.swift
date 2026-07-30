@@ -413,62 +413,43 @@ struct NotesSection: View {
 
 // MARK: - Pillar 3.2: Live Baggage Carousel & Handoff
 
+/// The arrival belt, when the airline has actually assigned one.
+///
+/// This used to claim a great deal more: a green CONFIRMED badge, a "LIVE"
+/// heading, a baggage status alternating between "Offloading from Cargo Hold"
+/// and "Bags On Carousel (~12m)", and "Exit Door 4 (~3m wait)". None of that is
+/// in any feed we have — it showed "offloading" for a flight that had not
+/// departed yet. The terminal and belt come from the airline; everything else
+/// has gone, and the card now looks like the ordinary fact it is.
 struct BaggageCarouselSection: View {
     let flight: Flight
     let belt: String
-    
+
+    /// Omitted when unknown rather than filled in as "Main", which was a guess
+    /// dressed as a fact.
+    private var terminal: String? {
+        guard let value = flight.arrivalTerminal, !value.isEmpty else { return nil }
+        return value
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Image(systemName: "suitcase.cart.fill")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Color.green)
-                    .symbolEffect(.bounce, options: .nonRepeating, value: belt)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("LIVE BAGGAGE CAROUSEL")
-                        .font(.system(size: 11, weight: .heavy))
-                        .foregroundStyle(.secondary)
-                        .tracking(0.6)
-                    Text("Terminal \(flight.arrivalTerminal ?? "Main") • Belt \(belt)")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(.primary)
-                }
-                Spacer()
-                Text("CONFIRMED")
-                    .font(.system(size: 10, weight: .black))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(Color.green, in: Capsule())
-                    .shadow(color: .green.opacity(0.4), radius: 3)
+        HStack(spacing: 12) {
+            Image(systemName: "suitcase.cart.fill")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("BAGGAGE RECLAIM")
+                    .font(.system(size: 11, weight: .heavy))
+                    .foregroundStyle(.secondary)
+                    .tracking(0.6)
+                Text(terminal.map { "Terminal \($0) · Belt \(belt)" } ?? "Belt \(belt)")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.primary)
             }
-
-            Divider()
-
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("BAGGAGE STATUS").font(.system(size: 10, weight: .heavy)).foregroundStyle(.tertiary)
-                    Text(flight.isRecentlyLanded || flight.isCompleted ? "Bags On Carousel (~12m)" : "Offloading from Cargo Hold")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.primary)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text("CURB PICKUP").font(.system(size: 10, weight: .heavy)).foregroundStyle(.tertiary)
-                    Text("Exit Door 4 (~3m wait)")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(ArcTheme.action)
-                }
-            }
+            Spacer(minLength: 0)
         }
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color(.secondarySystemGroupedBackground))
-                .shadow(color: Color.green.opacity(0.15), radius: 10, x: 0, y: 4)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(Color.green.opacity(0.3), lineWidth: 1.5)
-        )
+        .padding(14)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
     }
 }

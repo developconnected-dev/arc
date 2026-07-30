@@ -525,11 +525,14 @@ struct FlightLiveActivity: Widget {
                         .background(Color.green, in: Capsule())
                         .shadow(color: .green.opacity(0.5), radius: 4)
                     } else {
+                        // No belt assigned yet. It used to read "Baggage
+                        // Scanning…", which implied we were watching something
+                        // happen — there's no such feed; we simply don't know.
                         HStack(spacing: 5) {
                             Image(systemName: "suitcase.fill")
                                 .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
-                            Text("Baggage Scanning...")
+                            Text("Belt not assigned yet")
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(.secondary)
                         }
@@ -543,17 +546,6 @@ struct FlightLiveActivity: Widget {
                     if let gate = state.arrivalGate {
                         gateBadge(gate)
                     }
-                }
-                
-                // True Curb Logistics
-                HStack {
-                    Image(systemName: "figure.walk")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.cyan)
-                    Text("Curb Handoff: ~20m total to Baggage Claim & Exit Door")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    Spacer()
                 }
             }
         }
