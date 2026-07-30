@@ -196,6 +196,28 @@ extension Flight {
     }
 
     /// Timezone offset difference dep→arr in whole hours.
+    /// Whether either end of this flight runs on a different clock from the
+    /// phone. When it does, times shown as airport-local can look wrong next to
+    /// the device clock — an Athens departure at 13:39 reads as "in the future"
+    /// on a Swiss phone showing 13:12, even though it has already left.
+    var crossesDeviceTimezone: Bool {
+        let device = TimeZone.current.secondsFromGMT(for: scheduledDeparture)
+        return depTimeZone.secondsFromGMT(for: scheduledDeparture) != device
+            || arrTimeZone.secondsFromGMT(for: scheduledArrival) != device
+    }
+
+    /// "Times shown in airport local time (ATH +1h)" — says which clock these
+    /// numbers are on, and how far it is from the phone's, so the two
+    /// disagreeing stops being confusing. Nil when there's nothing to explain.
+    var timezoneNote: String? {
+        guard crossesDeviceTimezone else { return nil }
+        let device = TimeZone.current.secondsFromGMT(for: scheduledDeparture)
+        let delta = (depTimeZone.secondsFromGMT(for: scheduledDeparture) - device) / 3600
+        guard delta != 0 else { return "Times shown in each airport's local time" }
+        let sign = delta > 0 ? "+" : "−"
+        return "Times in each airport's local time · \(departureIATA) is \(sign)\(abs(delta))h from you"
+    }
+
     var timezoneDeltaHours: Int {
         let dep = depTimeZone.secondsFromGMT(for: scheduledDeparture)
         let arr = arrTimeZone.secondsFromGMT(for: scheduledArrival)

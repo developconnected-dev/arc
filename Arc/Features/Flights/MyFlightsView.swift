@@ -36,16 +36,6 @@ struct MyFlightsView: View {
                 .padding(.top, 4)
                 .padding(.bottom, 10)
 
-            if !friendsStore.activeOverlaps.isEmpty {
-                VStack(spacing: 8) {
-                    ForEach(friendsStore.activeOverlaps) { overlap in
-                        airportOverlapBanner(overlap)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 10)
-            }
-
             List {
                 if flights.isEmpty {
                     emptyState.padding(.top, 40)
@@ -92,33 +82,6 @@ struct MyFlightsView: View {
         }
     }
     
-    private func airportOverlapBanner(_ overlap: FriendsStore.AirportOverlap) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "figure.2.and.child.holdinghands")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(ArcTheme.brand)
-                .frame(width: 44, height: 44)
-                .background(ArcTheme.brand.opacity(0.15), in: Circle())
-            
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Airport Overlap at \(overlap.airportIATA)")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.primary)
-                Text("You and **\(overlap.friend.display_name)** will be at \(overlap.airportIATA) within a 3-hour window! Grab a coffee together.")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(14)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(ArcTheme.brand.opacity(0.35), lineWidth: 1)
-        )
-        .shadow(color: ArcTheme.brand.opacity(0.08), radius: 10, x: 0, y: 4)
-    }
 
 
     private func delete(_ flight: Flight) {

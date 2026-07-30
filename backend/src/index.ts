@@ -531,6 +531,68 @@ export default {
                            { headers: { ...cors, "cache-control": "public, max-age=300" } });
     }
 
+    // ── /weather/airport?icao=LSZH&at=<iso> — conditions now AND at a time ──
+    //
+    // What actually delays a departure is the weather at the airport, not a
+    // storm cell en route (aircraft route around those and lose minutes). This
+    // returns the current METAR plus the TAF period covering `at`, normalised.
+    // The app scores the risk from these numbers so the thresholds stay
+    // testable in Swift rather than buried in a Worker.
+    //
+    // aviationweather.gov carries international METAR/TAF, so European stations
+    // (LSZH, LGAV, EDDM …) work the same as US ones. Keyless and free.
+    if (url.pathname === "/weather/airport") {
+        const icao = (url.searchParams.get("icao") ?? "").toUpperCase().slice(0, 4);
+        if (!/^[A-Z]{4}$/.test(icao)) {
+          return Response.json({ error: "icao required" }, { status: 400, headers: cors });
+        }
+        const at = Date.parse(url.searchParams.get("at") ?? "") || Date.now();
+        const atSec = Math.floor(at / 1000);
+
+        const [metarRes, tafRes] = await Promise.all([
+          fetch(`https://aviationweather.gov/api/data/metar?ids=${icao}&format=json`,
+                { cf: { cacheTtl: 300, cacheEverything: true } }).catch(() => null),
+          fetch(`https://aviationweather.gov/api/data/taf?ids=${icao}&format=json`,
+                { cf: { cacheTtl: 900, cacheEverything: true } }).catch(() => null),
+        ]);
+
+        const metar = metarRes?.ok ? ((await metarRes.json()) as any[])[0] : null;
+        const taf = tafRes?.ok ? ((await tafRes.json()) as any[])[0] : null;
+
+        // The forecast period that contains the departure time.
+        let period: any = null;
+        for (const f of (taf?.fcsts ?? []) as any[]) {
+          if (f.timeFrom <= atSec && atSec < (f.timeTo ?? f.timeFrom)) { period = f; break; }
+        }
+        // Past the end of the TAF: fall back to its last period rather than
+        // reporting nothing at all.
+        if (!period && (taf?.fcsts?.length ?? 0) > 0) period = taf.fcsts[taf.fcsts.length - 1];
+
+        return Response.json({
+          ok: true,
+          icao,
+          now: metar ? {
+            category: metar.fltCat ?? null,
+            visibilityM: metersFromVisibility(metar.visib),
+            ceilingFt: lowestCeiling(metar.clouds),
+            windKt: numberOrNull(metar.wspd),
+            gustKt: numberOrNull(metar.wgst),
+            wx: metar.wxString ?? null,
+            observed: metar.reportTime ?? null,
+          } : null,
+          atTime: period ? {
+            visibilityM: metersFromVisibility(period.visib),
+            ceilingFt: lowestCeiling(period.clouds),
+            windKt: numberOrNull(period.wspd),
+            gustKt: numberOrNull(period.wgst),
+            windShear: period.wshearSpd != null,
+            wx: period.wxString ?? null,
+            from: period.timeFrom ?? null,
+            to: period.timeTo ?? null,
+          } : null,
+        }, { headers: { ...cors, "cache-control": "public, max-age=300" } });
+    }
+
     // ── /security/:iata — airport security wait time ──
     const securityMatch = url.pathname.match(/^\/security\/([A-Z]{3})$/i);
     if (securityMatch) {
@@ -762,6 +824,35 @@ interface AirportWeather {
   visibility: string | null;
   wx: string | null;          // raw weather phenomena, e.g. "TSRA", "-SN"
   raw: string | null;
+}
+
+function numberOrNull(v: unknown): number | null {
+  return typeof v === "number" && isFinite(v) ? v : null;
+}
+
+/// METAR/TAF visibility comes as statute miles, sometimes as "6+" — normalise
+/// to metres so one set of thresholds works everywhere.
+function metersFromVisibility(v: unknown): number | null {
+  if (typeof v === "number") return Math.round(v * 1609.34);
+  if (typeof v === "string") {
+    const n = parseFloat(v.replace("+", ""));
+    if (!isNaN(n)) return Math.round(n * 1609.34);
+  }
+  return null;
+}
+
+/// Lowest broken/overcast layer — that's the operational ceiling; scattered
+/// and few layers don't count.
+function lowestCeiling(clouds: unknown): number | null {
+  if (!Array.isArray(clouds)) return null;
+  let lowest: number | null = null;
+  for (const layer of clouds as Record<string, any>[]) {
+    const cover = String(layer.cover ?? "").toUpperCase();
+    if (cover !== "BKN" && cover !== "OVC" && cover !== "OVX") continue;
+    const base = numberOrNull(layer.base);
+    if (base != null && (lowest == null || base < lowest)) lowest = base;
+  }
+  return lowest;
 }
 
 /// SIGMET hazard codes to something a passenger can read. TS/CONVECTIVE are
