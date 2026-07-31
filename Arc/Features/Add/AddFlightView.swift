@@ -316,9 +316,7 @@ struct AddFlightView: View {
                 AirlineLogoView(iata: a.iata, size: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(a.name).font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
-                    (TextHelpers.highlight(a.iata, query: query, color: ArcTheme.action)
-                     + Text("  •  ").foregroundColor(.secondary)
-                     + TextHelpers.highlight(a.icao, query: query, color: ArcTheme.action))
+                    Text("\(TextHelpers.highlight(a.iata, query: query, color: ArcTheme.action))\(Text("  •  ").foregroundColor(.secondary))\(TextHelpers.highlight(a.icao, query: query, color: ArcTheme.action))")
                         .font(.system(size: 13, weight: .medium)).foregroundColor(.secondary)
                 }
                 Spacer()
@@ -335,10 +333,7 @@ struct AddFlightView: View {
                     .frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(a.name).font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
-                    (TextHelpers.highlight(a.iata, query: query, color: ArcTheme.action)
-                     + Text("  •  ").foregroundColor(.secondary)
-                     + TextHelpers.highlight(a.icao, query: query, color: ArcTheme.action)
-                     + Text("  •  \(a.city)").foregroundColor(.secondary))
+                    Text("\(TextHelpers.highlight(a.iata, query: query, color: ArcTheme.action))\(Text("  •  ").foregroundColor(.secondary))\(TextHelpers.highlight(a.icao, query: query, color: ArcTheme.action))\(Text("  •  \(a.city)").foregroundColor(.secondary))")
                         .font(.system(size: 13, weight: .medium)).foregroundColor(.secondary)
                 }
                 Spacer()
@@ -553,9 +548,7 @@ struct AddFlightView: View {
                     Text(statusLabel(r)).font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(statusColor(r))
                 }
-                (Text(depCity).font(.system(size: 18, weight: .bold)).foregroundColor(.primary)
-                 + Text(" to ").font(.system(size: 18)).foregroundColor(.secondary)
-                 + Text(arrCity).font(.system(size: 18, weight: .bold)).foregroundColor(.primary))
+                TextHelpers.cityPair(depCity, arrCity, size: 18)
                 HStack(spacing: 18) {
                     Text("\(r.dep_iata)  \(timeOnly(r.dep_scheduled, at: r.dep_iata))").font(.system(size: 14, weight: .semibold)).foregroundStyle(ArcTheme.onTime)
                     Text("\(r.arr_iata)  \(timeOnly(r.arr_scheduled, at: r.arr_iata))").font(.system(size: 14, weight: .semibold)).foregroundStyle(ArcTheme.onTime)
@@ -1062,7 +1055,7 @@ struct AddFlightView: View {
     private func syncToCloud(_ flight: Flight) {
         Task {
             try? await ArcSupabase.shared.upsertUserFlight(flight)
-            try? await ArcSupabase.shared.shareFlight(flight)
+            _ = try? await ArcSupabase.shared.shareFlight(flight)
         }
     }
 }

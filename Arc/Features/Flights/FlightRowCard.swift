@@ -104,9 +104,7 @@ struct FlightRowCard: View {
     }
 
     private var cityPair: some View {
-        (Text(flight.departureCity).font(.system(size: 18, weight: .bold)).foregroundColor(.primary)
-         + Text(" to ").font(.system(size: 18, weight: .regular)).foregroundColor(.secondary)
-         + Text(flight.arrivalCity).font(.system(size: 18, weight: .bold)).foregroundColor(.primary))
+        TextHelpers.cityPair(flight.departureCity, flight.arrivalCity, size: 18)
             .lineLimit(1)
     }
 

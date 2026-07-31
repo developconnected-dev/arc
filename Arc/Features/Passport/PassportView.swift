@@ -5,6 +5,7 @@ import SwiftData
 /// and the sortable past-flights list. Renders over the shared map (globe).
 struct PassportView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.displayScale) private var displayScale
     @Query(sort: \Flight.scheduledDeparture, order: .reverse) private var allFlights: [Flight]
     @State private var scope: Scope = .allTime
     @State private var sort: SortKey = .date
@@ -66,7 +67,7 @@ struct PassportView: View {
                             .overlay(alignment: .bottom) {
                                 Rectangle()
                                     .fill(Color(.separator))
-                                    .frame(height: 1.0 / UIScreen.main.scale)
+                                    .frame(height: 1.0 / displayScale)
                                     .frame(maxWidth: .infinity)
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -250,9 +251,7 @@ struct PassportView: View {
                     Spacer()
                     Text(dateText(f)).font(.system(size: 13)).foregroundStyle(.secondary)
                 }
-                (Text(f.departureCity).font(.system(size: 17, weight: .bold)).foregroundColor(.primary)
-                 + Text(" to ").font(.system(size: 17)).foregroundColor(.secondary)
-                 + Text(f.arrivalCity).font(.system(size: 17, weight: .bold)).foregroundColor(.primary))
+                TextHelpers.cityPair(f.departureCity, f.arrivalCity, size: 17)
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     if f.status == .cancelled { statusTag("Cancelled", color: ArcTheme.late) }
