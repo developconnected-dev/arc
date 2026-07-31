@@ -43,11 +43,21 @@ enum InboundMonitor {
         flight.inboundDelayMinutes = inbound.delayMinutes
         flight.inboundArrivalTime = inbound.scheduledArrival
 
+        // The best pre-departure news travels as a push, once, and only when
+        // it's close enough to departure to be reassuring rather than noise.
+        let hoursOut = flight.scheduledDeparture.timeIntervalSince(.now) / 3600
+        if !flight.inboundArrivedNotified, hoursOut > 0, hoursOut <= 4,
+           inbound.status == "landed" || (inbound.effectiveArrival.map { $0 <= .now } ?? false) {
+            flight.inboundArrivedNotified = true
+            ArcNotifications.notifyInboundArrived(flight: flight)
+        }
+
         // Knock-on prediction: can the plane physically make our departure?
+        // Whole-chain math, so lateness two airports away is seen hours
+        // before the immediate inbound admits anything.
         let previous = flight.predictedDelayMinutes
-        if let eta = inbound.effectiveArrival,
-           let p = RotationChain.predictDelay(
-               inboundEffectiveArrival: eta,
+        if let p = RotationChain.predictChainDelay(
+               chain: chain,
                scheduledDeparture: flight.scheduledDeparture,
                aircraftType: flight.aircraftType,
                officialDelayMinutes: flight.delayMinutes) {

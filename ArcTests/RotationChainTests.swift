@@ -111,4 +111,101 @@ final class RotationChainTests: XCTestCase {
             delayMinutes: 10, status: "landed")
         XCTAssertEqual(l.effectiveArrival, DateHelpers.parseAPIDate("2026-07-20T16:42:00.000Z"))
     }
+
+    // MARK: - Chain propagation
+
+    private func rleg(_ number: String, from dep: String, to arr: String,
+                      schedDep: String?, schedArr: String,
+                      status: String = "scheduled", delay: Int = 0) -> RotationLeg {
+        RotationLeg(flightNumber: number, depIATA: dep, arrIATA: arr,
+                    scheduledArrival: DateHelpers.parseAPIDate(schedArr),
+                    actualArrival: nil, delayMinutes: delay, status: status,
+                    scheduledDeparture: schedDep.flatMap { DateHelpers.parseAPIDate($0) })
+    }
+
+    /// The scenario the single-leg view is blind to: the feeder is 50 minutes
+    /// late this morning while tonight's inbound still reads "on time". The
+    /// chain carries the lateness through the middle turnaround and predicts
+    /// ~30 minutes; the old math would have said nothing at all.
+    func testLatenessTwoLegsAwayPropagates() {
+        let chain = [
+            rleg("LX1571", from: "VIE", to: "ZRH",
+                 schedDep: "2026-07-20T09:00:00.000Z", schedArr: "2026-07-20T11:00:00.000Z",
+                 status: "active", delay: 50),
+            rleg("LX1412", from: "ZRH", to: "BEG",
+                 schedDep: "2026-07-20T12:00:00.000Z", schedArr: "2026-07-20T13:30:00.000Z"),
+        ]
+        // Single-leg view: inbound on time, lands 13:30, +35m turnaround →
+        // ready 14:05 for a 14:00 departure → below the 10-min bar → silent.
+        XCTAssertNil(RotationChain.predictDelay(
+            inboundEffectiveArrival: DateHelpers.parseAPIDate("2026-07-20T13:30:00.000Z")!,
+            scheduledDeparture: DateHelpers.parseAPIDate("2026-07-20T14:00:00.000Z")!,
+            aircraftType: nil, officialDelayMinutes: 0))
+
+        // Chain view: feeder lands 11:50 → ready 12:25 → LX1412 slips 25m →
+        // lands 13:55 → ready 14:30 → 30 minutes late.
+        let p = RotationChain.predictChainDelay(
+            chain: chain,
+            scheduledDeparture: DateHelpers.parseAPIDate("2026-07-20T14:00:00.000Z")!,
+            aircraftType: nil, officialDelayMinutes: 0)
+        XCTAssertEqual(p?.minutes, 30)
+        XCTAssertTrue(p?.reason.contains("carries through") == true)
+    }
+
+    /// Ground-time slack absorbs small lateness: a 20-minute-late feeder with
+    /// an hour on the ground in between is a non-event, and the chain must
+    /// stay silent rather than cry wolf.
+    func testGroundSlackAbsorbsSmallLateness() {
+        let chain = [
+            rleg("LX1571", from: "VIE", to: "ZRH",
+                 schedDep: "2026-07-20T09:00:00.000Z", schedArr: "2026-07-20T11:00:00.000Z",
+                 status: "active", delay: 20),
+            rleg("LX1412", from: "ZRH", to: "BEG",
+                 schedDep: "2026-07-20T12:00:00.000Z", schedArr: "2026-07-20T13:30:00.000Z"),
+        ]
+        XCTAssertNil(RotationChain.predictChainDelay(
+            chain: chain,
+            scheduledDeparture: DateHelpers.parseAPIDate("2026-07-20T14:15:00.000Z")!,
+            aircraftType: nil, officialDelayMinutes: 0))
+    }
+
+    /// Legs cached before scheduledDeparture existed can't propagate — the
+    /// math degrades to the immediate-inbound answer, never to a wrong one.
+    func testMissingDepartureTimesDegradeGracefully() {
+        let chain = [
+            rleg("LX1571", from: "VIE", to: "ZRH",
+                 schedDep: nil, schedArr: "2026-07-20T11:00:00.000Z",
+                 status: "active", delay: 50),
+            rleg("LX1412", from: "ZRH", to: "BEG",
+                 schedDep: nil, schedArr: "2026-07-20T13:30:00.000Z",
+                 status: "scheduled", delay: 42),
+        ]
+        // Propagation impossible; the inbound's own 42-min lateness still counts.
+        let p = RotationChain.predictChainDelay(
+            chain: chain,
+            scheduledDeparture: DateHelpers.parseAPIDate("2026-07-20T14:00:00.000Z")!,
+            aircraftType: nil, officialDelayMinutes: 0)
+        XCTAssertEqual(p?.minutes, 47)   // 13:30+42m = 14:12 + 35m turnaround = 14:47
+        XCTAssertTrue(p?.reason.contains("Inbound aircraft lands too late") == true)
+    }
+
+    /// A landed leg's actual time is the truth — no propagation on top of it.
+    func testLandedLegsAreNotSecondGuessed() {
+        let chain = [
+            rleg("LX1571", from: "VIE", to: "ZRH",
+                 schedDep: "2026-07-20T09:00:00.000Z", schedArr: "2026-07-20T11:00:00.000Z",
+                 status: "active", delay: 90),
+            RotationLeg(flightNumber: "LX1412", depIATA: "ZRH", arrIATA: "BEG",
+                        scheduledArrival: DateHelpers.parseAPIDate("2026-07-20T13:30:00.000Z"),
+                        actualArrival: DateHelpers.parseAPIDate("2026-07-20T13:32:00.000Z"),
+                        delayMinutes: 2, status: "landed",
+                        scheduledDeparture: DateHelpers.parseAPIDate("2026-07-20T12:00:00.000Z")),
+        ]
+        // The plane demonstrably made it: landed 13:32 → ready 14:07 for a
+        // 14:00 departure → 7 minutes, under the bar → silent.
+        XCTAssertNil(RotationChain.predictChainDelay(
+            chain: chain,
+            scheduledDeparture: DateHelpers.parseAPIDate("2026-07-20T14:00:00.000Z")!,
+            aircraftType: nil, officialDelayMinutes: 0))
+    }
 }
