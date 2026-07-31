@@ -164,7 +164,7 @@ actor FlightAPIClient {
 
     func parseBooking(text: String) async throws -> [ParsedFlightItem] {
         let url = baseURL.appending(path: "/parse-booking")
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: url, timeoutInterval: 60)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(["text": text])
@@ -184,7 +184,11 @@ actor FlightAPIClient {
     /// in the list is a real, addable flight.
     func searchNatural(query: String) async throws -> [FlightSearchResult] {
         let url = baseURL.appending(path: "/search-flights")
-        var req = URLRequest(url: url)
+        // The Worker parses with AI, reads departure boards and verifies every
+        // candidate before answering — a cold search takes well over the
+        // session's 15 s idle timeout. Without this override the request
+        // times out and the caller's `try?` shows it as "no flights found".
+        var req = URLRequest(url: url, timeoutInterval: 90)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(["query": query])
