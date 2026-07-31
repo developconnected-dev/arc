@@ -376,10 +376,10 @@ struct FlightDetailView: View {
         }
         .confirmationDialog("Delete this flight?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete \(flight.flightNumberSpaced)", role: .destructive) {
-                Task { await LiveActivityManager.shared.endActivity(for: flight) }
-                modelContext.delete(flight)
-                try? modelContext.save()
-                dismiss()
+                Task {
+                    await Flight.delete(flight, from: modelContext)
+                    dismiss()
+                }
             }
         }
     }

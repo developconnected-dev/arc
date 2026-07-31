@@ -930,7 +930,7 @@ struct AddFlightView: View {
         isParsingNatural = true
         var found: [FlightAPIClient.FlightSearchResult] = []
         if let route = FlightQueryParser.parseRoute(text) {
-            let dateStr = (route.date ?? .now).formatted(.iso8601.year().month().day())
+            let dateStr = DateHelpers.apiDate(route.date ?? .now, at: route.depIATA)
             found = (try? await FlightAPIClient.shared.searchNatural(
                 query: text, depIATA: route.depIATA, arrIATA: route.arrIATA, dateISO: dateStr)) ?? []
         }
@@ -971,7 +971,9 @@ struct AddFlightView: View {
         let code = resolvedCode ?? airline.map { "\($0.iata)\(number)" } ?? ""
         guard !code.isEmpty else { return }
         isSearching = true; errorText = nil; results = []
-        let dateStr = date.formatted(.iso8601.year().month().day())
+        // The chip shows the user's calendar date — send exactly that, not
+        // the UTC-shifted one (they differ from late evening onward).
+        let dateStr = DateHelpers.apiDate(date, at: nil)
         do {
             results = try await FlightAPIClient.shared.searchFlight(number: code, date: dateStr)
             // A number the providers don't index is often a codeshare

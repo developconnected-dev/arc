@@ -139,7 +139,13 @@ final class FlightTracker: ObservableObject {
                 // detect it from the clock so the flight list and widget show correctly
                 for flight in flights {
                     let depTime = flight.actualDeparture ?? flight.scheduledDeparture.addingTimeInterval(Double(flight.delayMinutes) * 60)
-                    let arrTime = flight.estimatedArrival ?? flight.scheduledArrival
+                    // The delay shifts the arrival too. Without it, a delayed
+                    // airborne flight was force-"landed" at its ORIGINAL
+                    // arrival time, then the next poll saw "active" from the
+                    // API and flipped back — landed notifications and Live
+                    // Activity churn every cycle until touchdown.
+                    let arrTime = flight.estimatedArrival
+                        ?? flight.scheduledArrival.addingTimeInterval(Double(flight.delayMinutes) * 60)
 
                     if (flight.statusRaw == "scheduled" || flight.statusRaw == "boarding" || flight.statusRaw == "gateClosed") && Date.now >= depTime {
                         let oldStatus = flight.statusRaw
@@ -323,13 +329,18 @@ final class FlightTracker: ObservableObject {
     // MARK: - Status Update
 
     private func updateFlightStatus(_ flight: Flight) async {
-        let dateStr = flight.scheduledDeparture.formatted(.iso8601.year().month().day())
+        // ADB's date is the LOCAL departure date at the airport — UTC
+        // formatting fetched yesterday's leg for early-morning departures.
+        let dateStr = DateHelpers.apiDate(flight.scheduledDeparture, at: flight.departureIATA)
         do {
             let results = try await FlightAPIClient.shared.searchFlight(
                 number: flight.flightNumber,
                 date: dateStr
             )
-            guard let latest = results.first else { return }
+            // One number often flies several legs a day (A→B→C); blindly
+            // taking the first stamped the WRONG leg's status, gates and
+            // actual times onto the tracked flight every poll.
+            guard let latest = ScheduleBackfill.bestLeg(results, matching: flight) else { return }
 
             // Update status
             flight.statusRaw = FlightStatus.heal(rawValue: latest.status, scheduledArrival: flight.scheduledArrival).rawValue

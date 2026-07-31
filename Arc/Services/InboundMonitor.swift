@@ -14,8 +14,8 @@ enum InboundMonitor {
         // The inbound leg may have departed the day before (overnight rotation),
         // so pull both the flight's own date and the previous day, then merge.
         // Each call degrades to `[]` independently rather than failing the whole check.
-        let todayStr = flight.scheduledDeparture.formatted(.iso8601.year().month().day())
-        let yesterdayStr = flight.scheduledDeparture.addingTimeInterval(-86400).formatted(.iso8601.year().month().day())
+        let todayStr = DateHelpers.apiDate(flight.scheduledDeparture, at: flight.departureIATA)
+        let yesterdayStr = DateHelpers.apiDate(flight.scheduledDeparture.addingTimeInterval(-86400), at: flight.departureIATA)
 
         let todayLegs = (try? await FlightAPIClient.shared.inboundLegs(registration: registration, date: todayStr)) ?? []
         let yesterdayLegs = (try? await FlightAPIClient.shared.inboundLegs(registration: registration, date: yesterdayStr)) ?? []

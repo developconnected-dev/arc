@@ -68,12 +68,23 @@ enum ScheduleBackfill {
     /// every pass of the tracker loop.
     static func check(_ flight: Flight, at now: Date = .now) async {
         flight.lastScheduleCheckAt = now
-        let date = flight.scheduledDeparture.formatted(.iso8601.year().month().day())
+        let date = DateHelpers.apiDate(flight.scheduledDeparture, at: flight.departureIATA)
         guard let legs = try? await FlightAPIClient.shared.searchFlight(
             number: flight.flightNumber, date: date),
               let leg = bestLeg(legs, matching: flight) else { return }
 
+        // The typed departure keys two things that must move WITH it: the
+        // 2-hour reminder (else it fires 2 h before a time that no longer
+        // exists) and the shared row's natural key (else friends keep a
+        // frozen duplicate at the old time forever).
+        let typedDeparture = flight.scheduledDeparture
         apply(leg, to: flight)
+        if flight.scheduledDeparture != typedDeparture {
+            ArcNotifications.removeDepartureReminder(flightNumber: flight.flightNumber, scheduledDeparture: typedDeparture)
+            ArcNotifications.scheduleDepartureReminder(for: flight)
+            let number = flight.flightNumber
+            Task { try? await ArcSupabase.shared.unshareFlight(flightNumber: number, scheduledDeparture: typedDeparture) }
+        }
         ArcNotifications.scheduleFound(flight)
         // Push the real times to friends now rather than waiting for this
         // flight to enter a polling tier, which could be weeks away.

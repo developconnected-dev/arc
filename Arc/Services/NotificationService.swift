@@ -134,18 +134,31 @@ enum ArcNotifications {
         )
     }
 
+    /// Remove the reminder tied to one specific (old) departure time — used
+    /// when the backfill replaces a typed time. Targeted by exact id, so it
+    /// can never race the newly scheduled replacement.
+    static func removeDepartureReminder(flightNumber: String, scheduledDeparture: Date) {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [
+            "departure-\(flightNumber)-\(Int(scheduledDeparture.timeIntervalSince1970))",
+        ])
+    }
+
     // MARK: - Cleanup
 
     static func removeAll(for flight: Flight) {
         let flightNum = flight.flightNumber
         UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
+            // Match the id's own separator or its end — flight numbers are
+            // prefix-ambiguous, and a bare hasPrefix("departure-LX17") also
+            // swept away LX178's reminder.
             let ids = requests
-                .filter { $0.identifier.hasPrefix("departure-\(flightNum)") ||
-                          $0.identifier.hasPrefix("gate-\(flightNum)") ||
-                          $0.identifier.hasPrefix("delay-\(flightNum)") ||
-                          $0.identifier.hasPrefix("predicted-\(flightNum)") ||
-                          $0.identifier.hasPrefix("landed-\(flightNum)") ||
-                          $0.identifier.hasPrefix("cancelled-\(flightNum)") }
+                .filter { id in
+                    ["departure-\(flightNum)-", "gate-\(flightNum)-", "delay-\(flightNum)-",
+                     "predicted-\(flightNum)-"].contains(where: id.identifier.hasPrefix)
+                    || id.identifier == "landed-\(flightNum)"
+                    || id.identifier == "cancelled-\(flightNum)"
+                    || id.identifier == "inbound-arrived-\(flightNum)"
+                }
                 .map(\.identifier)
             UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ids)
         }
