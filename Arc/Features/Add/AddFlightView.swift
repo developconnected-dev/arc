@@ -931,11 +931,22 @@ struct AddFlightView: View {
             return
         }
 
-        // Everything else — routes in plain language, city names, codeshare
-        // numbers, pasted confirmations — goes to the Worker, which returns
-        // only real flights verified against schedule data. The user picks.
+        // A route readable locally ("Athens to Munich 18 Sep") skips the
+        // server-side AI parse — most of a warm search's wait. If it finds
+        // nothing (a misresolved city, say), the AI path below still runs.
         isParsingNatural = true
-        let found = (try? await FlightAPIClient.shared.searchNatural(query: text)) ?? []
+        var found: [FlightAPIClient.FlightSearchResult] = []
+        if let route = FlightQueryParser.parseRoute(text) {
+            let dateStr = (route.date ?? .now).formatted(.iso8601.year().month().day())
+            found = (try? await FlightAPIClient.shared.searchNatural(
+                query: text, depIATA: route.depIATA, arrIATA: route.arrIATA, dateISO: dateStr)) ?? []
+        }
+        // Everything else — free text, codeshare numbers, pasted
+        // confirmations — goes through the Worker's AI parser, which returns
+        // only real flights verified against schedule data. The user picks.
+        if found.isEmpty {
+            found = (try? await FlightAPIClient.shared.searchNatural(query: text)) ?? []
+        }
         isParsingNatural = false
         guard !found.isEmpty else {
             parseStatusMessage = "No flights found for that. Try \u{201C}LX1413 tomorrow\u{201D} or \u{201C}Athens to Munich 18 Sep\u{201D}, or pick an airline below."

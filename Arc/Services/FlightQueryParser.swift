@@ -42,7 +42,12 @@ enum FlightQueryParser {
             return token
         }
         // "Swiss 1413" / "LX 1413": a name or designator, then a separate number.
+        // Ordinary English words are never meant as designators, even when an
+        // airline holds that IATA — "on 18 September" is not Nauru Airlines ON18.
+        let stopwords: Set<String> = ["ON", "TO", "IN", "AT", "OF", "THE", "AND",
+                                      "OR", "FOR", "BY", "FROM", "A", "AN", "MY"]
         for (index, token) in tokens.enumerated() where index + 1 < tokens.count {
+            guard !stopwords.contains(token) else { continue }
             let next = tokens[index + 1]
             guard next.allSatisfy(\.isNumber), next.count <= 4 else { continue }
             if let airline = ReferenceData.shared.airline(token)
@@ -76,9 +81,29 @@ enum FlightQueryParser {
             if let d = f.date(from: String(upper[iso])) { return d }
         }
 
-        // Day + month name in either order, with or without an ordinal suffix.
-        guard let monthName = months.keys.first(where: { upper.contains($0) }),
-              let month = months[monthName] else { return nil }
+        // Swiss/European numeric dates: "18.9.", "18.09.2026".
+        if let match = upper.firstMatch(of: /(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?/),
+           let day = Int(match.1), let month = Int(match.2),
+           (1...31).contains(day), (1...12).contains(month) {
+            var year = match.3.flatMap { Int($0) } ?? calendar.component(.year, from: now)
+            if year < 100 { year += 2000 }
+            var parts = DateComponents(year: year, month: month, day: day, hour: 12)
+            if let candidate = calendar.date(from: parts) {
+                if match.3 == nil, candidate < calendar.startOfDay(for: now) {
+                    parts.year = year + 1
+                    return calendar.date(from: parts)
+                }
+                return candidate
+            }
+        }
+
+        // Day + month name in either order, abbreviated ("18 Sep") or full,
+        // with or without an ordinal suffix.
+        let wordTokens = upper.components(separatedBy: CharacterSet.letters.inverted)
+            .filter { $0.count >= 3 }
+        guard let month = wordTokens.lazy
+            .compactMap({ t in months.first(where: { $0.key.hasPrefix(t) })?.value })
+            .first else { return nil }
         let tokens = upper.components(separatedBy: CharacterSet.decimalDigits.inverted)
             .filter { !$0.isEmpty }
         guard let day = tokens.compactMap({ Int($0) }).first(where: { $0 >= 1 && $0 <= 31 })
@@ -97,5 +122,76 @@ enum FlightQueryParser {
     static func parse(_ text: String, now: Date = .now) -> Query? {
         guard let code = findCode(in: text) else { return nil }
         return Query(code: code, date: findDate(in: text, now: now))
+    }
+
+    // MARK: - Route queries ("Athens to Munich 18 September")
+
+    struct RouteQuery: Equatable {
+        let depIATA: String
+        let arrIATA: String
+        let date: Date?
+    }
+
+    /// Cities that are ambiguous by name — namesakes on other continents
+    /// (Athens, Georgia) or metros with several airports — resolved to the
+    /// airport a flight search means by default. Same single-airport choice
+    /// the AI parser makes, without the AI.
+    private static let primaryAirport: [String: String] = [
+        "ATHENS": "ATH", "LONDON": "LHR", "PARIS": "CDG", "MILAN": "MXP",
+        "ROME": "FCO", "NEW YORK": "JFK", "ISTANBUL": "IST", "MOSCOW": "SVO",
+        "TOKYO": "HND", "OSAKA": "KIX", "BANGKOK": "BKK", "SAO PAULO": "GRU",
+        "BUENOS AIRES": "EZE", "WASHINGTON": "IAD", "CHICAGO": "ORD",
+        "HOUSTON": "IAH", "DUBAI": "DXB", "SHANGHAI": "PVG", "BEIJING": "PEK",
+        "SEOUL": "ICN", "STOCKHOLM": "ARN", "OSLO": "OSL", "BERLIN": "BER",
+        "MONTREAL": "YUL", "TORONTO": "YYZ", "SAN FRANCISCO": "SFO",
+        "LOS ANGELES": "LAX", "BRUSSELS": "BRU", "BUCHAREST": "OTP",
+    ]
+
+    private static let leftNoise: Set<String> = [
+        "ADD", "SEARCH", "FIND", "SHOW", "ME", "A", "AN", "THE",
+        "FLIGHT", "FLIGHTS", "FROM", "PLEASE",
+    ]
+
+    private static func isDateish(_ token: String) -> Bool {
+        if token.first?.isNumber == true { return true }
+        if ["ON", "TOMORROW", "TODAY", "TONIGHT", "NEXT", "THIS"].contains(token) { return true }
+        return token.count >= 3 && months.keys.contains { $0.hasPrefix(token) }
+    }
+
+    private static func resolveAirport(_ name: String) -> AirportRef? {
+        guard !name.isEmpty else { return nil }
+        let ref = ReferenceData.shared
+        if name.count == 3, let a = ref.airport(name) { return a }
+        if let primary = primaryAirport[name], let a = ref.airport(primary) { return a }
+        let cityMatches = ref.airports.filter { $0.city.uppercased() == name }
+        if cityMatches.count == 1 { return cityMatches[0] }
+        // Namesake cities: exactly one "International" airport is decisive.
+        let intl = cityMatches.filter { $0.name.uppercased().contains("INTERNATIONAL") }
+        return intl.count == 1 ? intl[0] : nil
+    }
+
+    /// "Athens to Munich 18 September" resolved locally — no AI, no network.
+    /// Answers only when both endpoints resolve unambiguously; everything
+    /// else stays with the server-side AI parser.
+    static func parseRoute(_ text: String, now: Date = .now) -> RouteQuery? {
+        // A recognisable flight number means this is not a route query.
+        guard findCode(in: text) == nil else { return nil }
+        let upper = text.uppercased()
+        guard let toRange = upper.range(of: " TO ") else { return nil }
+
+        func tokens(_ s: Substring) -> [String] {
+            s.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
+        }
+        let depTokens = tokens(upper[..<toRange.lowerBound]).filter { !leftNoise.contains($0) }
+        var arrTokens: [String] = []
+        for t in tokens(upper[toRange.upperBound...]) {
+            if isDateish(t) { break }
+            arrTokens.append(t)
+        }
+
+        guard let dep = resolveAirport(depTokens.joined(separator: " ")),
+              let arr = resolveAirport(arrTokens.joined(separator: " ")),
+              dep.iata != arr.iata else { return nil }
+        return RouteQuery(depIATA: dep.iata, arrIATA: arr.iata, date: findDate(in: text, now: now))
     }
 }

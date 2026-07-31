@@ -182,16 +182,24 @@ actor FlightAPIClient {
     /// candidate flights from real departure boards, and returns only
     /// candidates verified against schedule data for the date — so everything
     /// in the list is a real, addable flight.
-    func searchNatural(query: String) async throws -> [FlightSearchResult] {
+    /// `depIATA`/`arrIATA`/`dateISO`: route already resolved locally — the
+    /// Worker skips its AI parse entirely, which is most of a warm search's
+    /// latency.
+    func searchNatural(query: String, depIATA: String? = nil, arrIATA: String? = nil,
+                       dateISO: String? = nil) async throws -> [FlightSearchResult] {
         let url = baseURL.appending(path: "/search-flights")
-        // The Worker parses with AI, reads departure boards and verifies every
-        // candidate before answering — a cold search takes well over the
-        // session's 15 s idle timeout. Without this override the request
-        // times out and the caller's `try?` shows it as "no flights found".
+        // The Worker reads departure boards and verifies every candidate
+        // before answering — a cold search takes well over the session's
+        // 15 s idle timeout. Without this override the request times out
+        // and the caller's `try?` shows it as "no flights found".
         var req = URLRequest(url: url, timeoutInterval: 90)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONEncoder().encode(["query": query])
+        var payload = ["query": query]
+        payload["dep_iata"] = depIATA
+        payload["arr_iata"] = arrIATA
+        payload["date"] = dateISO
+        req.httpBody = try JSONEncoder().encode(payload)
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return [] }
         return (try? JSONDecoder().decode(NaturalSearchResponse.self, from: data))?.flights ?? []
