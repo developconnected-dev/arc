@@ -20,6 +20,7 @@
 		147ED96EDE432F34CFA07B0F /* GeoMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A38232A6E768DF2669A448 /* GeoMathTests.swift */; };
 		174541C286F7C1FAFD253F1A /* FriendsFeedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5460A62472771819DEC2B78A /* FriendsFeedTests.swift */; };
 		1D39A49F3A94F85646D62092 /* DelayRisk.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F45EC7B8D2BEC6A79A78C9B /* DelayRisk.swift */; };
+		3D1679FF44E0401391A7D211 /* SunSide.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD4970FBE871470C8E9DCC87 /* SunSide.swift */; };
 		1EB9E39748B4D282482786CE /* FlightAudienceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FAE84C003F055E6FD5E1EC /* FlightAudienceTests.swift */; };
 		23E38F386FC1075984846921 /* FlightDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 734A69EC4EB99125C060E4F5 /* FlightDetailView.swift */; };
 		24335899C998B9EE85F3DE8D /* ConnectionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07671944B30A0ADDE336955B /* ConnectionCard.swift */; };
@@ -172,6 +173,7 @@
 		4C489E29357F66E23EFC0D7B /* ClipboardFlightCodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardFlightCodeTests.swift; sourceTree = "<group>"; };
 		4CDBA155BE116022B7E2F90F /* MapControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapControls.swift; sourceTree = "<group>"; };
 		4F45EC7B8D2BEC6A79A78C9B /* DelayRisk.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelayRisk.swift; sourceTree = "<group>"; };
+		BD4970FBE871470C8E9DCC87 /* SunSide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SunSide.swift; sourceTree = "<group>"; };
 		4F7A0EB241567A257D24DFD0 /* FlightRowCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightRowCard.swift; sourceTree = "<group>"; };
 		4FB40E7D146DE8662884B50D /* FlightLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightLiveActivity.swift; sourceTree = "<group>"; };
 		516D231D56AA6F92EB9A324E /* AirportOverlapRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirportOverlapRow.swift; sourceTree = "<group>"; };
@@ -346,6 +348,7 @@
 				4C1301041A06C6716593057B /* ConnectionPlanner.swift */,
 				B2ED974C878C66DFB8E89AFE /* DateHelpers.swift */,
 				4F45EC7B8D2BEC6A79A78C9B /* DelayRisk.swift */,
+				BD4970FBE871470C8E9DCC87 /* SunSide.swift */,
 				1E47BF7D61BAF11682C2B4E2 /* FlightAPIClient.swift */,
 				A904E8731146A7FB8744B074 /* FlightExporter.swift */,
 				CE57FDA3B828171629338130 /* FlightQueryParser.swift */,
@@ -670,6 +673,7 @@
 				D262DB5DCAC33D8852BB44F0 /* ConnectionPlanner.swift in Sources */,
 				9B63152237B6E5F4B7FA9392 /* DateHelpers.swift in Sources */,
 				1D39A49F3A94F85646D62092 /* DelayRisk.swift in Sources */,
+				3D1679FF44E0401391A7D211 /* SunSide.swift in Sources */,
 				9B2EABE20799CFF960C725EA /* DelayRiskCard.swift in Sources */,
 				8625562A2DEDFF9FE944C920 /* DemoSeed.swift in Sources */,
 				7E14E00521A22BF09D8F195B /* Flight+Display.swift in Sources */,

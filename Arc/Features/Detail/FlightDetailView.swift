@@ -17,6 +17,7 @@ struct FlightDetailView: View {
     @State private var editText = ""
     @State private var airportSheet: AirportSheetTarget?
     @State private var showShare = false
+    @State private var confirmDelete = false
     @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
 
     private struct AirportSheetTarget: Identifiable { let id: String }
@@ -39,9 +40,6 @@ struct FlightDetailView: View {
                     statusBanner
                     if !companions.isEmpty {
                         companionsCard
-                    }
-                    if flight.isDelayed || flight.predictedDelayMinutes > 0 {
-                        honestDelayCard
                     }
                     endpointsCard
                     // Only when the airline has actually assigned a belt. The
@@ -360,13 +358,31 @@ struct FlightDetailView: View {
 
     // MARK: Action bar
 
+    /// Share works; the bell was a decoration with nothing behind it and is
+    /// gone — a control that does nothing teaches people to stop tapping.
     private var actionBar: some View {
         HStack(spacing: 14) {
             Button { showShare = true } label: { actionIcon("square.and.arrow.up") }
                 .buttonStyle(.plain)
-            actionIcon("bell")
-            actionIcon("ellipsis")
+            Menu {
+                Button {
+                    UIPasteboard.general.string = flight.flightNumberSpaced
+                } label: {
+                    Label("Copy Flight Number", systemImage: "doc.on.doc")
+                }
+                Button(role: .destructive) { confirmDelete = true } label: {
+                    Label("Delete Flight", systemImage: "trash")
+                }
+            } label: { actionIcon("ellipsis") }
             Spacer()
+        }
+        .confirmationDialog("Delete this flight?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete \(flight.flightNumberSpaced)", role: .destructive) {
+                Task { await LiveActivityManager.shared.endActivity(for: flight) }
+                modelContext.delete(flight)
+                try? modelContext.save()
+                dismiss()
+            }
         }
     }
 
@@ -441,35 +457,4 @@ struct FlightDetailView: View {
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
     }
 
-    private var honestDelayCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "info.circle.fill")
-                    .foregroundStyle(ArcTheme.late)
-                Text("Why is my flight late?")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.primary)
-            }
-            Text(delayExplanationText)
-                .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(.secondary)
-                .lineSpacing(2)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ArcTheme.late.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    private var delayExplanationText: String {
-        if let reason = flight.predictionReason, !reason.isEmpty {
-            return "Honest tracking: \(reason). We predict your flight will depart around \(flight.predictedDelayMinutes) minutes behind schedule based on turnaround math."
-        }
-        if let inb = flight.inboundFlightNumber, flight.inboundDelayMinutes > 0 {
-            return "Your incoming aircraft (\(inb)) is currently running \(flight.inboundDelayMinutes)m behind schedule."
-        }
-        if flight.isDelayed {
-            return "Your departure is currently delayed by \(flight.delayMinutes) minutes from \(flight.departureCity). Inbound rotation is being monitored for further updates."
-        }
-        return "Monitoring aircraft turnaround and terminal telemetry for real-time departure estimates."
-    }
 }

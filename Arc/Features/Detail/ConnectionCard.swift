@@ -67,6 +67,12 @@ struct ConnectionCard: View {
                 }
             }
 
+            // These are tiered estimates (airport size, terminal change,
+            // international vs domestic), not live airport data — say so.
+            Text("Typical times for this airport — not live queue data.")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+
             if plan.risk == .tight || plan.risk == .risky {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
