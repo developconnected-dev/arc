@@ -167,13 +167,8 @@ struct WheresMyPlaneSection: View {
     /// the airline's official time.
     private func predictionRow(minutes: Int, reason: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "wand.and.stars")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Arc predicts ~\(minutes)m late")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.orange)
+                SmartLabel(text: "Arc predicts ~\(minutes)m late")
                 Text(reason + " — the airline still shows \(flight.delayMinutes > 0 ? "+\(flight.delayMinutes)m" : "on time").")
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(0.75))
@@ -319,8 +314,12 @@ struct DetailedTimetableSection: View {
                     // A prediction you can't check afterwards is marketing.
                     if flight.isCompleted, flight.predictedDelayAtDeparture > 0 {
                         Divider()
-                        plainRow("Arc predicted",
-                                 "+\(flight.predictedDelayAtDeparture)m · actual \(flight.delayMinutes > 0 ? "+\(flight.delayMinutes)m" : "on time")")
+                        HStack {
+                            SmartLabel(text: "Arc predicted", size: 15)
+                            Spacer()
+                            Text("+\(flight.predictedDelayAtDeparture)m · actual \(flight.delayMinutes > 0 ? "+\(flight.delayMinutes)m" : "on time")")
+                                .font(.system(size: 15)).foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
