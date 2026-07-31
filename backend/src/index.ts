@@ -435,11 +435,12 @@ export default {
               "content-type": "application/json",
             },
             body: JSON.stringify({
-              model: "claude-sonnet-5",
+              // Haiku, same as the search parse: trivial extraction, and
+              // every flight it names is looked up against real schedule
+              // data afterwards. No thinking param — Haiku doesn't think
+              // unless asked.
+              model: "claude-haiku-4-5",
               max_tokens: 1000,
-              // Extraction needs no reasoning pass; on this model thinking is
-              // on by default and would eat into max_tokens.
-              thinking: { type: "disabled" },
               output_config: {
                 format: {
                   type: "json_schema",
