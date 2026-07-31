@@ -179,6 +179,19 @@ final class MapController {
     /// drove straight off screen and the user watched an empty apron. Framing
     /// both means the gap closes on its own: the view tightens as the plane
     /// arrives, ending parked at the jetbridge.
+    /// Camera to an aircraft that is NOT at the expected airport — parked at
+    /// another field or airborne mid-rotation. Airborne gets a wide frame (a
+    /// cruising dot outruns a tight one in seconds); on the ground a
+    /// city-scale frame shows which airport the plane is sitting at.
+    func frameRemotePlane(plane: CLLocationCoordinate2D, airborne: Bool) {
+        let span = airborne ? 2.2 : 0.12
+        withAnimation(.easeInOut(duration: 1.0)) {
+            position = .region(MKCoordinateRegion(
+                center: plane,
+                span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span)))
+        }
+    }
+
     func followTaxi(plane: CLLocationCoordinate2D, gate: CLLocationCoordinate2D?) {
         let points = [plane] + (gate.map { [$0] } ?? [])
         let lats = points.map(\.latitude), lons = points.map(\.longitude)

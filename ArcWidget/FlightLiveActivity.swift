@@ -225,6 +225,23 @@ struct FlightLiveActivity: Widget {
 
     private enum Phase { case preDeparture, inFlight, landed }
 
+    /// The "getting there" window: still scheduled and more than ~1¾ h out —
+    /// roughly, before the point where a two-hours-early traveller has left.
+    private func showsDirections(_ state: FlightActivityAttributes.ContentState) -> Bool {
+        state.status == "scheduled"
+            && Date.now < state.departureTime.addingTimeInterval(-105 * 60)
+    }
+
+    private func directionsURL(attrs: FlightActivityAttributes,
+                               state: FlightActivityAttributes.ContentState) -> URL? {
+        var s = "arc://directions/\(attrs.departureIATA)"
+        if let t = state.departureTerminal,
+           let encoded = t.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            s += "?t=\(encoded)"
+        }
+        return URL(string: s)
+    }
+
     /// True only when a data source actually reported the landing. A phase of
     /// .landed with this false means the CLOCK passed the cached ETA while
     /// offline — the plane is probably down, but nobody has confirmed it, so
@@ -294,6 +311,32 @@ struct FlightLiveActivity: Widget {
             }
             .padding(.top, 3)
             .padding(.bottom, 16)
+
+            // Long before boarding, the useful action is getting TO the
+            // airport: one tap into Apple Maps with the terminal set. The
+            // pill retires ~1¾ h before departure — by then the user is en
+            // route or already through security, and the space belongs to
+            // boarding info again. The app resolves the coordinates; a
+            // widget has no airport database.
+            if showsDirections(state), let url = directionsURL(attrs: attrs, state: state) {
+                Link(destination: url) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "car.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Directions to \(attrs.departureIATA)\(state.departureTerminal.map { " · Terminal \($0)" } ?? "")")
+                            .font(.system(size: 13, weight: .semibold))
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 11, weight: .bold))
+                            .opacity(0.6)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(.blue.opacity(0.16), in: Capsule())
+                    .foregroundStyle(.blue)
+                }
+                .padding(.bottom, 8)
+            }
 
             // Security wait (Waitport live data or time-of-day estimate) —
             // only meaningful while still landside, i.e. before boarding.
