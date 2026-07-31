@@ -570,16 +570,15 @@ export default {
           // dates ("tomorrow") change meaning at midnight. Saves the single
           // slowest fixed cost (~2-3 s) on every repeat, from any device.
           const pkey = `aiparse|${new Date().toISOString().slice(0, 10)}|${query.toLowerCase().replace(/\s+/g, " ").slice(0, 120)}`;
-          const prows = await sbSelect(env, `/flight_cache?key=eq.${encodeURIComponent(pkey)}&select=*`);
-          const prow = prows[0];
+          const prow = (await cacheRows(env, [pkey])).get(pkey);
           if (prow && Date.now() - Date.parse(String(prow.fetched_at)) < 24 * 3600_000) {
             parsed = prow.payload as unknown as ParsedFlightQuery;
           } else {
             parsed = await aiParseFlightQuery(query, env);
             if (parsed) {
-              const w = await sbService(env, "POST", "/flight_cache?on_conflict=key", {
-                key: pkey, payload: parsed, provider: "aiparse", fetched_at: new Date().toISOString(),
-              });
+              const fresh = { key: pkey, payload: parsed, provider: "aiparse", fetched_at: new Date().toISOString() };
+              rowMemoSet(pkey, fresh);
+              const w = await sbService(env, "POST", "/flight_cache?on_conflict=key", fresh);
               if (!w.ok) console.error("aiparse cache write failed:", w.status, await w.text());
             }
           }
@@ -680,10 +679,7 @@ export default {
         // reads plus retries overflowed Cloudflare's 50-subrequests-per-
         // invocation cap on cold searches (the whole search 500'd).
         const keyOf = (c: { number: string; date: string }) => `flight|${c.number}|${c.date}`;
-        const preRows = capped.length
-          ? await sbSelect(env, `/flight_cache?key=in.(${capped.map(c => encodeURIComponent(keyOf(c))).join(",")})&select=*`)
-          : [];
-        const preByKey = new Map(preRows.map(r => [String(r["key"]), r]));
+        const preByKey = await cacheRows(env, capped.map(keyOf));
         // AeroDataBox rate-limits per second (a 4-wide burst drew 429s and
         // identical searches grew result by result as stragglers cached).
         // Pipelined pacing: LAUNCH one provider call every ~1.4 s without
@@ -1315,10 +1311,47 @@ interface AirportWeather {
 /// FIDS arrivals cached in the same table as flight lookups. Five minutes: a
 /// stand can change late, but not every few seconds, and one call serves every
 /// flight arriving in that hour.
+// ── Isolate-local row cache over flight_cache ──
+// Every Supabase read is a ~100-200 ms edge→DB round trip, and a warm search
+// strings several in sequence. Holding rows briefly per isolate skips the
+// re-DOWNLOAD only — every consumer still judges freshness from the row's
+// own fetched_at, so nothing is served past its real TTL. Writes update the
+// memo in place; other isolates' writes surface within 60 s, which for
+// schedule data is noise.
+const rowMemo = new Map<string, { row: Record<string, any> | null; at: number }>();
+const ROW_MEMO_MS = 60_000;
+
+function rowMemoSet(key: string, row: Record<string, any> | null): void {
+  if (rowMemo.size > 500) rowMemo.clear();
+  rowMemo.set(key, { row, at: Date.now() });
+}
+
+/// flight_cache rows for the given keys (memo first, one bulk read for the
+/// rest). Absent rows come back as null — also memoized, so a dead candidate
+/// doesn't cost a read per search.
+async function cacheRows(env: Env, keys: string[]): Promise<Map<string, Record<string, any> | null>> {
+  const out = new Map<string, Record<string, any> | null>();
+  const missing: string[] = [];
+  for (const k of keys) {
+    const hit = rowMemo.get(k);
+    if (hit && Date.now() - hit.at < ROW_MEMO_MS) out.set(k, hit.row);
+    else missing.push(k);
+  }
+  if (missing.length) {
+    const rows = await sbSelect(env, `/flight_cache?key=in.(${missing.map(encodeURIComponent).join(",")})&select=*`);
+    const byKey = new Map(rows.map(r => [String(r["key"]), r]));
+    for (const k of missing) {
+      const row = byKey.get(k) ?? null;
+      rowMemoSet(k, row);
+      out.set(k, row);
+    }
+  }
+  return out;
+}
+
 async function cachedFids(env: Env, key: string, ttlMs = 5 * 60_000): Promise<Record<string, any>[] | null> {
   if (!env.SUPABASE_SERVICE_KEY) return null;
-  const rows = await sbSelect(env, `/flight_cache?key=eq.${encodeURIComponent(key)}&select=*`);
-  const row = rows[0];
+  const row = (await cacheRows(env, [key])).get(key);
   if (!row) return null;
   if (Date.now() - Date.parse(String(row.fetched_at)) > ttlMs) return null;
   return row.payload as Record<string, any>[];
@@ -1344,9 +1377,6 @@ async function adbRouteDiscovery(
 ): Promise<{ routeNumbers: string[]; board: BoardEntry[] }> {
   const empty = { routeNumbers: [], board: [] };
   if (!env.RAPIDAPI_KEY) return empty;
-  const budget = await budgetRow(env);
-  const remaining = budget["adb_remaining"] as number | null | undefined;
-  if (typeof remaining === "number" && remaining <= 0) return empty;
 
   // Nearest date with the target's weekday that FIDS can still serve.
   const today = new Date(); today.setUTCHours(0, 0, 0, 0);
@@ -1362,10 +1392,24 @@ async function adbRouteDiscovery(
   const numbers: string[] = [];
   const board: BoardEntry[] = [];
   let paceNeeded = false;
-  for (const [from, to] of [[`${day}T00:00`, `${day}T11:59`], [`${day}T12:00`, `${day}T23:59`]]) {
-    const key = `fidsdep|${depIATA}|${from.slice(0, 13)}`;
-    let departures = await cachedFids(env, key, 24 * 3600_000);
+  const windows = [[`${day}T00:00`, `${day}T11:59`], [`${day}T12:00`, `${day}T23:59`]];
+  const keys = windows.map(([from]) => `fidsdep|${depIATA}|${from.slice(0, 13)}`);
+  // Both windows in one (memoized) read; the budget row is read lazily,
+  // only when a board actually needs fetching — a warm search pays zero
+  // extra round trips here.
+  const rows = await cacheRows(env, keys);
+  let budget: Record<string, any> | null = null;
+  for (let i = 0; i < windows.length; i++) {
+    const [from, to] = windows[i];
+    const key = keys[i];
+    const row = rows.get(key);
+    let departures = row && Date.now() - Date.parse(String(row.fetched_at)) < 24 * 3600_000
+      ? (row.payload as Record<string, any>[])
+      : null;
     if (!departures) {
+      budget ??= await budgetRow(env);
+      const remaining = budget["adb_remaining"] as number | null | undefined;
+      if (typeof remaining === "number" && remaining <= 0) continue;
       // Same per-second provider limit as verification: don't fire the
       // second window on the heels of the first.
       if (paceNeeded) await new Promise((r) => setTimeout(r, 650));
@@ -1407,9 +1451,9 @@ async function adbRouteDiscovery(
 
 async function storeFids(env: Env, key: string, arrivals: Record<string, any>[]): Promise<void> {
   if (!env.SUPABASE_SERVICE_KEY) return;
-  await sbService(env, "POST", "/flight_cache?on_conflict=key", {
-    key, payload: arrivals, provider: "adb-fids", fetched_at: new Date().toISOString(),
-  });
+  const fresh = { key, payload: arrivals, provider: "adb-fids", fetched_at: new Date().toISOString() };
+  rowMemoSet(key, fresh);
+  await sbService(env, "POST", "/flight_cache?on_conflict=key", fresh);
 }
 
 function numberOrNull(v: unknown): number | null {
@@ -1696,7 +1740,7 @@ async function fetchLegsCached(
   const key = `${kind}|${ident.toUpperCase()}|${date}`;
   const cached = pre !== undefined
     ? (pre ?? undefined)
-    : (await sbSelect(env, `/flight_cache?key=eq.${encodeURIComponent(key)}&select=*`))[0];
+    : ((await cacheRows(env, [key])).get(key) ?? undefined);
   const cachedLegs = cached ? (cached.payload as Record<string, unknown>[]) : null;
   if (cachedRowFresh(cached, date)) {
     return { legs: cachedLegs!, cache: "hit" };
@@ -1737,9 +1781,9 @@ async function fetchLegsCached(
       // dead candidates — burning quota and, when the re-fetch got
       // rate-limited, changing the result set from search to search.
       // Transient failures (429/5xx) fall through uncached below.
-      await sbService(env, "POST", "/flight_cache?on_conflict=key", {
-        key, payload: legs, provider: "adb", fetched_at: new Date().toISOString(),
-      });
+      const fresh = { key, payload: legs, provider: "adb", fetched_at: new Date().toISOString() };
+      rowMemoSet(key, fresh);
+      await sbService(env, "POST", "/flight_cache?on_conflict=key", fresh);
       return { legs, cache: "miss" };
     }
     console.error("adb fetch failed:", res.status, key);
@@ -1752,9 +1796,9 @@ async function fetchLegsCached(
 async function cacheAirlabsResult(env: Env, ident: string, date: string,
                                   legs: Record<string, unknown>[]): Promise<void> {
   const key = `flight|${ident.toUpperCase()}|${date}`;
-  await sbService(env, "POST", "/flight_cache?on_conflict=key", {
-    key, payload: legs, provider: "airlabs", fetched_at: new Date().toISOString(),
-  });
+  const fresh = { key, payload: legs, provider: "airlabs", fetched_at: new Date().toISOString() };
+  rowMemoSet(key, fresh);
+  await sbService(env, "POST", "/flight_cache?on_conflict=key", fresh);
 }
 
 // ── Live Activity cron internals ──
