@@ -104,6 +104,10 @@ final class LiveActivityManager {
     /// keep resetting it anyway.
     private static func staleDate(for state: FlightActivityAttributes.ContentState) -> Date {
         if state.status == "landed" { return .now.addingTimeInterval(3600) }
+        // The "directions to the airport" pill retires ~1¾ h before
+        // departure — schedule the re-render that removes it.
+        let directionsCutoff = state.departureTime.addingTimeInterval(-105 * 60)
+        if Date.now < directionsCutoff { return directionsCutoff }
         if Date.now < state.departureTime { return state.departureTime }
         return max(state.arrivalTime, .now.addingTimeInterval(60))
     }

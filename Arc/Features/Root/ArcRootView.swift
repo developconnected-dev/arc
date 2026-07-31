@@ -1,4 +1,5 @@
 import SwiftUI
+import MapKit
 import SwiftData
 
 struct ArcRootView: View {
@@ -100,7 +101,25 @@ struct ArcRootView: View {
             }
         }
         .onOpenURL { url in
-            guard url.scheme == "arc", url.host() == "friend" else { return }
+            guard url.scheme == "arc" else { return }
+            // arc://directions/<IATA>?t=<terminal> — the Live Activity's
+            // "Directions" pill. Hand straight off to Apple Maps with driving
+            // directions to the departure airport; the widget can't do this
+            // itself because it has no coordinate database.
+            if url.host() == "directions" {
+                let iata = url.lastPathComponent.uppercased()
+                guard let airport = ReferenceData.shared.airport(iata) else { return }
+                let terminal = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first(where: { $0.name == "t" })?.value
+                let placemark = MKPlacemark(coordinate:
+                    .init(latitude: airport.lat, longitude: airport.lon))
+                let item = MKMapItem(placemark: placemark)
+                item.name = terminal.map { "\(airport.name) · Terminal \($0)" } ?? airport.name
+                item.openInMaps(launchOptions:
+                    [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
+                return
+            }
+            guard url.host() == "friend" else { return }
             let code = url.lastPathComponent
             guard !code.isEmpty, code != "friend" else { return }
             FriendsStore.shared.pendingInviteCode = code
@@ -271,6 +290,7 @@ struct ArcRootView: View {
         guard icao24 != nil || registration != nil else { return }
 
         planeWatchTask = Task {
+            var framedRemote = false
             while !Task.isCancelled {
                 // Either ground view being open is reason to keep looking; both
                 // being closed means the user left, so stop the polling.
@@ -280,15 +300,32 @@ struct ArcRootView: View {
                     controller.livePlane = .init(
                         lat: pos.lat, lon: pos.lon,
                         heading: pos.heading, onGround: pos.on_ground)
-                    // On the ground, keep the aircraft and its gate framed
-                    // together so it can't taxi out of view. Airborne, leave the
-                    // camera alone — the user is looking at the airport.
-                    if pos.on_ground {
+
+                    // Is the aircraft actually here? For a flight hours out,
+                    // "My plane" usually isn't at this airport yet — it's mid-
+                    // rotation somewhere else, and an empty gate answers
+                    // nothing. Fly the camera to where the plane really is.
+                    let gate = controller.gateMarker.map {
+                        CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
+                    }
+                    let farFromGate = gate.map {
+                        CLLocation(latitude: pos.lat, longitude: pos.lon)
+                            .distance(from: CLLocation(latitude: $0.latitude, longitude: $0.longitude)) > 5_000
+                    } ?? false
+
+                    if pos.on_ground && !farFromGate {
+                        // Keep the aircraft and its gate framed together so it
+                        // can't taxi out of view.
                         controller.followTaxi(
                             plane: .init(latitude: pos.lat, longitude: pos.lon),
-                            gate: controller.gateMarker.map {
-                                .init(latitude: $0.lat, longitude: $0.lon)
-                            })
+                            gate: gate)
+                    } else if !framedRemote && (farFromGate || !pos.on_ground) {
+                        // Once, not every fix: an airborne plane would drag the
+                        // camera every 8 seconds and make the map unusable.
+                        framedRemote = true
+                        controller.frameRemotePlane(
+                            plane: .init(latitude: pos.lat, longitude: pos.lon),
+                            airborne: !pos.on_ground)
                     }
                 }
                 try? await Task.sleep(for: .seconds(8))
