@@ -537,20 +537,28 @@ export default {
           // (including codeshare marketing numbers); AirLabs adds rows when
           // its quota allows. The AI's own guesses come last — they're the
           // weakest source and exist only as a fallback.
-          for (const num of await adbRouteDiscovery(env, route.dep, route.arr, defaultDay)) {
-            push(num, defaultDay);
-          }
-          for (const row of await airlabsRouteSchedules(route.dep, route.arr, env)) {
+          const [adbNums, airlabsRows] = await Promise.all([
+            adbRouteDiscovery(env, route.dep, route.arr, defaultDay),
+            airlabsRouteSchedules(route.dep, route.arr, env),
+          ]);
+          for (const num of adbNums) push(num, defaultDay);
+          for (const row of airlabsRows) {
             push(row.operating, defaultDay);
             push(row.marketing, defaultDay);
           }
         }
         for (const num of parsed.candidates ?? []) push(num, defaultDay);
 
-        const results: Record<string, unknown>[] = [];
-        for (const c of candidates.slice(0, 8)) {
+        // Verify candidates in parallel — serially this was 8 stacked
+        // AeroDataBox round-trips and pushed cold searches past the app's
+        // request timeout. Results keep candidate priority order.
+        const verified = await Promise.all(candidates.slice(0, 8).map(async (c) => {
           const { legs } = await fetchLegsCached(env, "flight", c.number, c.date, "interactive");
-          for (const leg of legs ?? []) {
+          return { c, legs: legs ?? [] };
+        }));
+        const results: Record<string, unknown>[] = [];
+        for (const { c, legs } of verified) {
+          for (const leg of legs) {
             if (String(leg["dep_scheduled"] ?? "").slice(0, 10) !== c.date) continue;
             if (route && (String(leg["dep_iata"]).toUpperCase() !== route.dep
                        || String(leg["arr_iata"]).toUpperCase() !== route.arr)) continue;
