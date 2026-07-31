@@ -35,6 +35,9 @@ struct AddFlightView: View {
     @State private var livePrefetch: (query: String, results: [FlightAPIClient.FlightSearchResult])?
     @State private var prefetchTask: Task<Void, Never>?
     @State private var isPrefetching = false
+    /// One geometry identity for the liquid-glass surface: the searching
+    /// droplet and the results panel are the same piece of glass.
+    @Namespace private var glassNS
     @State private var parseStatusMessage: String?
 
     // Manual entry state
@@ -159,7 +162,32 @@ struct AddFlightView: View {
                         .background(Color(.secondarySystemFill), in: Circle())
                 }.buttonStyle(.plain)
             }
-            Text(subtitle).font(.system(size: 15)).foregroundStyle(.secondary)
+            HStack(alignment: .center) {
+                Text(subtitle).font(.system(size: 15)).foregroundStyle(.secondary)
+                Spacer()
+                // The search action lives up here, top-right above the bar —
+                // the space under the field belongs to what emerges from it.
+                if step == .search || step == .results, !query.isEmpty {
+                    Button { Task { await runUnifiedSearch() } } label: {
+                        HStack(spacing: 5) {
+                            if isParsingNatural {
+                                ProgressView().controlSize(.mini).tint(.white)
+                            } else {
+                                Image(systemName: "magnifyingglass").font(.system(size: 12, weight: .bold))
+                            }
+                            Text(isParsingNatural ? "Reading…" : "Search")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 13).padding(.vertical, 7)
+                        .background(ArcTheme.action, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isParsingNatural)
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: query.isEmpty)
         }
         .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 14)
     }
@@ -245,40 +273,84 @@ struct AddFlightView: View {
                     }
                     schedulePrefetch(for: newValue)
                 }
+                .zIndex(2)
 
-            if step == .results {
-                chips()
-                    .padding(.horizontal, 20).padding(.top, 12)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+            // What the search produces UNFURLS FROM THE BAR. One piece of
+            // glass, two states, matched geometry between them: while
+            // searching it's a small droplet hanging off the pill; when
+            // flights land, THAT SAME GLASS stretches into the results
+            // panel — and merges back when the results dissolve. Two drops
+            // of water, not views popping in.
+            if step == .search {
+                if let live = livePrefetch, live.query == trimmedQuery, !live.results.isEmpty {
+                    glassPanel {
+                        listHeader("FLIGHTS")
+                        ForEach(live.results, id: \.flight_number) { r in
+                            Button { add(r) } label: { resultCard(r) }
+                                .buttonStyle(.plain)
+                                .disabled(isAdding)
+                                .opacity(isAdding ? 0.5 : 1)
+                            Divider().padding(.leading, 20)
+                        }
+                    }
+                } else if isPrefetching {
+                    searchDroplet
+                }
             }
 
-            if step == .search { searchStep } else { resultsStep }
+            if step == .results {
+                glassPanel {
+                    chips().padding(.horizontal, 20).padding(.bottom, 10)
+                    resultsStep
+                }
+            }
+
+            if step == .search { searchStep }
         }
         .animation(.spring(response: 0.45, dampingFraction: 0.85), value: step)
     }
 
+    /// The searching state as a droplet of the same glass, tucked under the
+    /// pill's centre.
+    private var searchDroplet: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("Searching flights…").font(.system(size: 13)).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 18).padding(.vertical, 11)
+        .background {
+            RoundedRectangle(cornerRadius: 26)
+                .fill(.ultraThinMaterial)
+                .matchedGeometryEffect(id: "liquidGlass", in: glassNS)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, -8)
+        .zIndex(1)
+        .transition(.scale(scale: 0.25, anchor: .top).combined(with: .opacity))
+    }
+
+    /// The Apple-Intelligence container: glass, tucked under the pill so it
+    /// visibly grows out of the search bar, unfurling with a spring. Shares
+    /// its geometry identity with the droplet, so search → results is one
+    /// glass surface stretching, not a swap.
+    private func glassPanel<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0, content: content)
+            .padding(.top, 30)
+            .padding(.bottom, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 26)
+                    .fill(.ultraThinMaterial)
+                    .matchedGeometryEffect(id: "liquidGlass", in: glassNS)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, -22)
+            .zIndex(1)
+            .transition(.scale(scale: 0.9, anchor: .top).combined(with: .opacity))
+    }
+
     private var searchStep: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !query.isEmpty {
-                Button { Task { await runUnifiedSearch() } } label: {
-                    HStack(spacing: 7) {
-                        if isParsingNatural {
-                            ProgressView().controlSize(.small).tint(.white)
-                        } else {
-                            Image(systemName: "magnifyingglass").font(.system(size: 13, weight: .bold))
-                        }
-                        Text(isParsingNatural ? "Reading…" : "Search flight")
-                            .font(.system(size: 15, weight: .semibold))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16).padding(.vertical, 12)
-                    .background(ArcTheme.action, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(isParsingNatural)
-                .padding(.horizontal, 20).padding(.top, 12)
-            }
-
             if let msg = parseStatusMessage {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -292,25 +364,6 @@ struct AddFlightView: View {
                     listHeader("FREQUENTLY USED")
                     ForEach(frequentAirlines, id: \.iata) { a in airlineRow(a) }
                 } else {
-                    if let live = livePrefetch, live.query == trimmedQuery, !live.results.isEmpty {
-                        Group {
-                            listHeader("FLIGHTS")
-                            ForEach(live.results, id: \.flight_number) { r in
-                                Button { add(r) } label: { resultCard(r) }
-                                    .buttonStyle(.plain)
-                                    .disabled(isAdding)
-                                    .opacity(isAdding ? 0.5 : 1)
-                                Divider().padding(.leading, 20)
-                            }
-                        }
-                        .transition(.scale(scale: 0.97, anchor: .top).combined(with: .opacity))
-                    } else if isPrefetching {
-                        HStack(spacing: 8) {
-                            ProgressView().controlSize(.small)
-                            Text("Searching flights…").font(.system(size: 13)).foregroundStyle(.secondary)
-                        }
-                        .padding(.horizontal, 20).padding(.vertical, 10)
-                    }
                     if TextHelpers.looksLikeFlightNumber(query), let a = detectedAirline {
                         detectedFlightRow(a)
                     }
@@ -359,7 +412,8 @@ struct AddFlightView: View {
         prefetchTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(700))
             guard !Task.isCancelled else { return }
-            isPrefetching = true
+            // The droplet detaches from the bar…
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) { isPrefetching = true }
             var found: [FlightAPIClient.FlightSearchResult] = []
             if let number {
                 let dateStr = DateHelpers.apiDate(number.date ?? .now, at: nil)
@@ -369,11 +423,19 @@ struct AddFlightView: View {
                 found = (try? await FlightAPIClient.shared.searchNatural(
                     query: trimmed, depIATA: route.depIATA, arrIATA: route.arrIATA, dateISO: dateStr)) ?? []
             }
-            isPrefetching = false
             // The user may have kept typing while we fetched — only show
             // results that still belong to what's in the field.
-            guard !Task.isCancelled, trimmedQuery == trimmed else { return }
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) { livePrefetch = (trimmed, found) }
+            guard !Task.isCancelled, trimmedQuery == trimmed else {
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { isPrefetching = false }
+                return
+            }
+            // …and in ONE animated turn the droplet's glass stretches into
+            // the results panel (matched geometry needs both state changes
+            // in the same transaction to pair the shapes).
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {
+                isPrefetching = false
+                livePrefetch = (trimmed, found)
+            }
         }
     }
 
