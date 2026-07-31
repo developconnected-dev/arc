@@ -20,11 +20,7 @@ final class BackgroundFlightUpdater {
             let context = ModelContext(modelContainer)
 
             while !Task.isCancelled {
-                do {
-                    await pushUpdates(context: context)
-                } catch {
-                    print("[Arc] BackgroundFlightUpdater error: \(error)")
-                }
+                await pushUpdates(context: context)
                 try? await Task.sleep(for: .seconds(60))
             }
         }

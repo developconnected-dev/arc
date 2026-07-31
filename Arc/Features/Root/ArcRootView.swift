@@ -111,9 +111,9 @@ struct ArcRootView: View {
                 guard let airport = ReferenceData.shared.airport(iata) else { return }
                 let terminal = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                     .queryItems?.first(where: { $0.name == "t" })?.value
-                let placemark = MKPlacemark(coordinate:
-                    .init(latitude: airport.lat, longitude: airport.lon))
-                let item = MKMapItem(placemark: placemark)
+                let item = MKMapItem(
+                    location: CLLocation(latitude: airport.lat, longitude: airport.lon),
+                    address: nil)
                 item.name = terminal.map { "\(airport.name) · Terminal \($0)" } ?? airport.name
                 item.openInMaps(launchOptions:
                     [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])

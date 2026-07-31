@@ -22,7 +22,12 @@ enum TextHelpers {
         let pre = String(text[text.startIndex..<range.lowerBound])
         let match = String(text[range])
         let post = String(text[range.upperBound...])
-        return Text(pre) + Text(match).foregroundColor(color) + Text(post)
+        return Text("\(Text(pre))\(Text(match).foregroundColor(color))\(Text(post))")
+    }
+
+    /// "Zurich to Munich" — bold endpoints, quiet joiner, one Text.
+    static func cityPair(_ dep: String, _ arr: String, size: CGFloat) -> Text {
+        Text("\(Text(dep).font(.system(size: size, weight: .bold)).foregroundColor(.primary))\(Text(" to ").font(.system(size: size)).foregroundColor(.secondary))\(Text(arr).font(.system(size: size, weight: .bold)).foregroundColor(.primary))")
     }
 
     /// True if the string looks like a flight number, e.g. "LX1413", "U2 123".

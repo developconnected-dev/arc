@@ -212,11 +212,8 @@ final class FlightTracker: ObservableObject {
         // Fetch inbound aircraft
         await InboundMonitor.checkInbound(for: flight)
 
-        // Fetch security wait time
-        if let security = try? await FlightAPIClient.shared.securityWaitTime(iata: flight.departureIATA) {
-            // Security data is passed via Live Activity, not stored on flight model
-            // But we trigger a Live Activity update which will fetch it
-        }
+        // Security wait isn't stored on the model — the Live Activity update
+        // below fetches it itself, so a fetch here was a duplicate API call.
 
         // Update Live Activity with all cached data
         await LiveActivityManager.shared.updateActivity(for: flight)

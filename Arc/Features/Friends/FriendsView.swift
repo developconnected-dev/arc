@@ -633,9 +633,7 @@ struct FriendFlightRow: View {
                         .foregroundStyle(contextColor)
                         .lineLimit(1)
                 }
-                (Text(flight.departure_city).font(.system(size: 17, weight: .bold)).foregroundColor(.primary)
-                 + Text(" to ").font(.system(size: 17)).foregroundColor(.secondary)
-                 + Text(flight.arrival_city).font(.system(size: 17, weight: .bold)).foregroundColor(.primary))
+                TextHelpers.cityPair(flight.departure_city, flight.arrival_city, size: 17)
                     .lineLimit(1)
                 HStack(spacing: 16) {
                     endpointChip(arrow: "arrow.up.right", iata: flight.departure_iata,
