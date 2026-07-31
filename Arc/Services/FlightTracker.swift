@@ -304,6 +304,9 @@ final class FlightTracker: ObservableObject {
     private func handleStatusChange(flight: Flight, from oldStatus: String) async {
         switch flight.statusRaw {
         case "active":
+            // Freeze what Arc was claiming the moment the flight left — the
+            // landed detail view shows prediction next to reality.
+            flight.predictedDelayAtDeparture = flight.predictedDelayMinutes
             await LiveActivityManager.shared.startActivity(for: flight)
         case "landed":
             ArcNotifications.notifyLanded(flight: flight)

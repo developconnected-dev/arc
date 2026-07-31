@@ -70,6 +70,12 @@ final class Flight {
     var rotationData: Data?
     var predictedDelayMinutes: Int = 0
     var predictionReason: String?
+    /// Snapshot of `predictedDelayMinutes` frozen at the moment the flight
+    /// went active — so after landing, the prediction can be checked against
+    /// what actually happened instead of quietly forgotten.
+    var predictedDelayAtDeparture: Int = 0
+    /// The "your aircraft has arrived" notification fires exactly once.
+    var inboundArrivedNotified: Bool = false
 
     // User-entered trip details
     var bookingCode: String?

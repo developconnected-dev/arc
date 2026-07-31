@@ -10,6 +10,10 @@ struct RotationLeg: Codable, Equatable {
     let actualArrival: Date?
     let delayMinutes: Int
     let status: String
+    /// When this leg is meant to push back — what lets lateness propagate
+    /// through the chain. Optional so rotation data cached before the field
+    /// existed still decodes.
+    var scheduledDeparture: Date? = nil
 
     /// Best-known arrival: actual if reported, else scheduled + known delay.
     var effectiveArrival: Date? {
@@ -61,7 +65,8 @@ enum RotationChain {
                 scheduledArrival: DateHelpers.parseAPIDate(leg.arr_scheduled),
                 actualArrival: DateHelpers.parseAPIDate(leg.arr_actual),
                 delayMinutes: leg.delay ?? 0,
-                status: leg.status))
+                status: leg.status,
+                scheduledDeparture: DateHelpers.parseAPIDate(leg.dep_scheduled)))
 
             airport = leg.dep_iata
             cutoff = DateHelpers.parseAPIDate(leg.dep_scheduled)
@@ -104,5 +109,56 @@ enum RotationChain {
         guard predicted <= 6 * 60 else { return nil }
 
         return (predicted, "Inbound aircraft lands too late for a \(turnaround)-min turnaround")
+    }
+
+    /// The whole-day version: lateness rolls forward through every remaining
+    /// turnaround instead of only the immediate inbound.
+    ///
+    /// Each stop absorbs slack — scheduled ground time minus the minimum
+    /// turnaround — and what can't be absorbed pushes the next leg. That sees
+    /// trouble two airports away hours before the single-leg view can: a
+    /// feeder running 50 minutes late this morning becomes tonight's delay
+    /// even though tonight's inbound still reads "on time". Legs already
+    /// landed contribute their actual times; legs missing a scheduled
+    /// departure simply don't propagate (old cached data degrades to the
+    /// single-leg behaviour, never to a wrong answer).
+    static func predictChainDelay(
+        chain: [RotationLeg],
+        scheduledDeparture: Date,
+        aircraftType: String?,
+        officialDelayMinutes: Int
+    ) -> (minutes: Int, reason: String)? {
+        guard !chain.isEmpty else { return nil }
+        let turnaround = turnaroundMinutes(for: aircraftType)
+
+        var carried: Date?
+        var propagatedHops = 0
+        for leg in chain {
+            guard let schedArr = leg.scheduledArrival else { carried = nil; continue }
+            var effArr = leg.effectiveArrival ?? schedArr
+            // A leg still ahead of the plane can't leave before the plane is
+            // there and turned around — landed legs already tell the truth.
+            if let carried, let schedDep = leg.scheduledDeparture,
+               leg.actualArrival == nil, leg.status != "landed" {
+                let readyAt = carried.addingTimeInterval(Double(turnaround) * 60)
+                let slip = readyAt.timeIntervalSince(schedDep)
+                if slip > 0 {
+                    let propagated = schedArr.addingTimeInterval(slip)
+                    if propagated > effArr { effArr = propagated; propagatedHops += 1 }
+                }
+            }
+            carried = effArr
+        }
+        guard let finalArrival = carried else { return nil }
+
+        let earliest = finalArrival.addingTimeInterval(Double(turnaround) * 60)
+        let predicted = Int(ceil(earliest.timeIntervalSince(scheduledDeparture) / 60))
+        guard predicted >= officialDelayMinutes + 10 else { return nil }
+        guard predicted <= 6 * 60 else { return nil }
+
+        let reason = propagatedHops > 0
+            ? "Lateness earlier in the aircraft's day carries through each \(turnaround)-min turnaround"
+            : "Inbound aircraft lands too late for a \(turnaround)-min turnaround"
+        return (predicted, reason)
     }
 }

@@ -84,6 +84,17 @@ enum ArcNotifications {
         )
     }
 
+    /// The best possible pre-departure news, pushed instead of buried in a
+    /// card: the tail that flies YOUR leg is on the ground at your airport.
+    static func notifyInboundArrived(flight: Flight) {
+        guard prefs.object(forKey: "notifyDelays") == nil || prefs.bool(forKey: "notifyDelays") else { return }
+        send(
+            title: "Your aircraft has arrived",
+            body: "The plane for \(flight.flightNumberSpaced) is on the ground at \(flight.departureCity). Departure \(flight.effectiveDepTimeLocal).",
+            id: "inbound-arrived-\(flight.flightNumber)"
+        )
+    }
+
     /// Connection risk got worse (delays ate the layover buffer).
     static func notifyConnectionRisk(_ plan: ConnectionPlanner.Plan) {
         send(
