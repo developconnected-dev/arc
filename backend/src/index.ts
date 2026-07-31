@@ -182,9 +182,12 @@ async function aiParseFlightQuery(query: string, env: Env): Promise<ParsedFlight
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-5",
+      // Haiku: this is a trivial extract-a-route task, every answer is
+      // verified against real schedule data before reaching the user, and
+      // the parse is the search's largest fixed latency (~3 s on Sonnet).
+      // No thinking param — Haiku 4.5 doesn't think unless asked to.
+      model: "claude-haiku-4-5",
       max_tokens: 800,
-      thinking: { type: "disabled" },
       output_config: {
         format: {
           type: "json_schema",
