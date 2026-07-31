@@ -31,6 +31,10 @@ struct AddFlightView: View {
     /// verbatim instead of rebuilding it from the airline picker.
     @State private var resolvedCode: String?
     @State private var isParsingNatural = false
+    // Search-as-you-type: results fetched on keystroke pause, shown inline.
+    @State private var livePrefetch: (query: String, results: [FlightAPIClient.FlightSearchResult])?
+    @State private var prefetchTask: Task<Void, Never>?
+    @State private var isPrefetching = false
     @State private var parseStatusMessage: String?
 
     // Manual entry state
@@ -256,6 +260,22 @@ struct AddFlightView: View {
                     listHeader("FREQUENTLY USED")
                     ForEach(frequentAirlines, id: \.iata) { a in airlineRow(a) }
                 } else {
+                    if let live = livePrefetch, live.query == trimmedQuery, !live.results.isEmpty {
+                        listHeader("FLIGHTS")
+                        ForEach(live.results, id: \.flight_number) { r in
+                            Button { add(r) } label: { resultCard(r) }
+                                .buttonStyle(.plain)
+                                .disabled(isAdding)
+                                .opacity(isAdding ? 0.5 : 1)
+                            Divider().padding(.leading, 20)
+                        }
+                    } else if isPrefetching {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Searching flights…").font(.system(size: 13)).foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 20).padding(.vertical, 10)
+                    }
                     if TextHelpers.looksLikeFlightNumber(query), let a = detectedAirline {
                         detectedFlightRow(a)
                     }
@@ -264,6 +284,8 @@ struct AddFlightView: View {
                 }
             }
             .padding(.top, 12)
+            .onChange(of: query) { _, newValue in schedulePrefetch(for: newValue) }
+            .onDisappear { prefetchTask?.cancel() }
 
             Button { enterManual(prefillingFrom: nil) } label: {
                 HStack(spacing: 10) {
@@ -275,6 +297,45 @@ struct AddFlightView: View {
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 20).padding(.top, 16)
+        }
+    }
+
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Search-as-you-type: ~0.7 s after the last keystroke, if the text
+    /// parses LOCALLY (a flight number or a resolvable route), run the real
+    /// search and show matches inline. The local-parse gate is what makes
+    /// this affordable — a half-typed city name never reaches the network,
+    /// so abandoned keystrokes can't burn API quota.
+    private func schedulePrefetch(for text: String) {
+        prefetchTask?.cancel()
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let live = livePrefetch, live.query != trimmed { livePrefetch = nil }
+        guard trimmed.count >= 3 else { isPrefetching = false; return }
+        let number = FlightQueryParser.parse(trimmed)
+        let route = number == nil ? FlightQueryParser.parseRoute(trimmed) : nil
+        guard number != nil || route != nil else { isPrefetching = false; return }
+
+        prefetchTask = Task {
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
+            isPrefetching = true
+            var found: [FlightAPIClient.FlightSearchResult] = []
+            if let number {
+                let dateStr = DateHelpers.apiDate(number.date ?? .now, at: nil)
+                found = (try? await FlightAPIClient.shared.searchFlight(number: number.code, date: dateStr)) ?? []
+            } else if let route {
+                let dateStr = DateHelpers.apiDate(route.date ?? .now, at: route.depIATA)
+                found = (try? await FlightAPIClient.shared.searchNatural(
+                    query: trimmed, depIATA: route.depIATA, arrIATA: route.arrIATA, dateISO: dateStr)) ?? []
+            }
+            isPrefetching = false
+            // The user may have kept typing while we fetched — only show
+            // results that still belong to what's in the field.
+            guard !Task.isCancelled, trimmedQuery == trimmed else { return }
+            withAnimation(.easeOut(duration: 0.15)) { livePrefetch = (trimmed, found) }
         }
     }
 
@@ -910,6 +971,12 @@ struct AddFlightView: View {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         parseStatusMessage = nil
+
+        // The keystroke-pause prefetch may already hold this exact answer.
+        if let live = livePrefetch, live.query == text, !live.results.isEmpty {
+            adoptNaturalResults(live.results)
+            return
+        }
 
         // Fast path: a flight number readable locally — instant and offline.
         if let resolved = FlightQueryParser.parse(text),
