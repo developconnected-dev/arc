@@ -32,10 +32,15 @@ extension Flight {
         guard !isActive else { return nil }
         let interval = scheduledDeparture.timeIntervalSince(.now)
         guard interval > 0 else { return nil }
-        let days = Int(interval) / 86400
+        // Calendar days, not seconds/86400 — two flights on the same date
+        // must show the same count regardless of departure hour.
+        let cal = Calendar.current
+        let days = cal.dateComponents(
+            [.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: scheduledDeparture)
+        ).day ?? 0
         let hours = Int(interval) / 3600
         let minutes = Int(interval) / 60
-        if days >= 1 { return ("\(days)", days == 1 ? "DAY" : "DAYS") }
+        if days >= 1 && hours >= 12 { return ("\(days)", days == 1 ? "DAY" : "DAYS") }
         if hours >= 1 { return ("\(hours)", hours == 1 ? "HOUR" : "HOURS") }
         return ("\(max(1, minutes))", "MIN")
     }

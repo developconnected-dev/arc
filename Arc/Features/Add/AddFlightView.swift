@@ -890,15 +890,19 @@ struct AddFlightView: View {
         f.timeZone = ReferenceData.shared.timezone(iata) ?? .current
         return f.string(from: d)
     }
-    private func countdownValue(_ r: FlightAPIClient.FlightSearchResult) -> String {
-        guard let d = DateHelpers.parseAPIDate(r.dep_scheduled) else { return "—" }
-        let s = Int(d.timeIntervalSince(.now)); let days = s/86400; let hrs = s/3600
-        return days >= 1 ? "\(days)" : "\(max(0, hrs))"
+    /// Calendar days, not seconds/86400: flights on the same date must show
+    /// the same number regardless of departure hour. Within ~12 h the hour
+    /// count is the honest answer ("1 DAY" for tonight-at-midnight isn't).
+    private func countdown(_ r: FlightAPIClient.FlightSearchResult) -> (value: String, unit: String) {
+        guard let d = DateHelpers.parseAPIDate(r.dep_scheduled) else { return ("—", "") }
+        let cal = Calendar.current
+        let days = cal.dateComponents([.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: d)).day ?? 0
+        let hrs = Int(d.timeIntervalSince(.now)) / 3600
+        if days >= 1 && hrs >= 12 { return ("\(days)", days == 1 ? "DAY" : "DAYS") }
+        return ("\(max(0, hrs))", "HOURS")
     }
-    private func countdownUnit(_ r: FlightAPIClient.FlightSearchResult) -> String {
-        guard let d = DateHelpers.parseAPIDate(r.dep_scheduled) else { return "" }
-        return Int(d.timeIntervalSince(.now)) >= 86400 ? "DAYS" : "HOURS"
-    }
+    private func countdownValue(_ r: FlightAPIClient.FlightSearchResult) -> String { countdown(r).value }
+    private func countdownUnit(_ r: FlightAPIClient.FlightSearchResult) -> String { countdown(r).unit }
 
     // MARK: Actions
 
