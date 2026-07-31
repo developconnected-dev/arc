@@ -214,7 +214,7 @@ async function aiParseFlightQuery(query: string, env: Env): Promise<ParsedFlight
           },
         },
       },
-      system: `You turn a flight-search query into structured search terms. Today's date is ${new Date().toISOString().slice(0, 10)}. The query may be a flight number, a codeshare marketing number, a route in city or airport names, free text, or a pasted booking confirmation. Resolve cities to IATA airport codes. When the year is missing, pick the next occurrence of the date from today. For routes, list the well-known nonstop flight numbers serving them in candidates; for a codeshare-looking number (an airline code with a number that airline doesn't operate itself on any plausible route), list the likely operating flight numbers — and when you are confident which route that marketing number serves, also fill dep_iata and arr_iata so the route can be searched directly.`,
+      system: `You turn a flight-search query into structured search terms. Today's date is ${new Date().toISOString().slice(0, 10)}. The query may be a flight number, a codeshare marketing number, a route in city or airport names, free text, or a pasted booking confirmation. Resolve cities to IATA airport codes. When the year is missing, pick the next occurrence of the date from today. For routes, list the well-known nonstop flight numbers serving them in candidates; for a codeshare-looking number (an airline code with a number that airline doesn't operate itself on any plausible route), list the likely operating flight numbers — and when you are CONFIDENT which route that marketing number serves, also fill dep_iata and arr_iata so the route can be searched directly. Never guess a route you are unsure of: flight-number candidates get filtered against the route, but a wrong route itself would surface real flights the user never asked about.`,
       messages: [{ role: "user", content: query }],
     }),
   });
@@ -234,16 +234,21 @@ async function aiParseFlightQuery(query: string, env: Env): Promise<ParsedFlight
 /// and lets verification decide which is real. Errors (including the monthly
 /// quota being exhausted) surface as an empty list — the caller has other
 /// candidate sources.
+// AirLabs reports an exhausted monthly quota inside a 200 response; remember
+// that for a while instead of spending ~0.5 s per search awaiting the same no.
+let airlabsDeadUntil = 0;
+
 async function airlabsRouteSchedules(
   dep: string, arr: string, env: Env
 ): Promise<{ operating: string | null; marketing: string | null }[]> {
-  if (!env.AIRLABS_KEY) return [];
+  if (!env.AIRLABS_KEY || Date.now() < airlabsDeadUntil) return [];
   try {
     const res = await fetch(
       `https://airlabs.co/api/v9/schedules?dep_iata=${encodeURIComponent(dep)}&arr_iata=${encodeURIComponent(arr)}&api_key=${env.AIRLABS_KEY}`
     );
     if (!res.ok) return [];
-    const data = await res.json() as { response?: Array<Record<string, any>> };
+    const data = await res.json() as { response?: Array<Record<string, any>>; error?: unknown };
+    if (data.error) { airlabsDeadUntil = Date.now() + 6 * 3600_000; return []; }
     if (!Array.isArray(data.response)) return [];
     return data.response.map(r => ({
       operating: (r.cs_flight_iata as string) ?? null,
@@ -252,6 +257,37 @@ async function airlabsRouteSchedules(
   } catch {
     return [];
   }
+}
+
+/// Resolve a flight number AirLabs' schedule DB knows — crucially including
+/// codeshare marketing numbers (A31653), which no other source indexes.
+/// Returns the operating number + route so the normal ADB verification can
+/// take over. Tries the number as marketing (cs_flight_iata) first, then as
+/// its own flight. Quota-guarded like the route lookup.
+async function airlabsNumberSchedules(
+  number: string, env: Env
+): Promise<{ operating: string; dep: string; arr: string }[]> {
+  if (!env.AIRLABS_KEY || Date.now() < airlabsDeadUntil) return [];
+  const clean = number.replace(/\s+/g, "");
+  for (const param of ["cs_flight_iata", "flight_iata"]) {
+    try {
+      const res = await fetch(
+        `https://airlabs.co/api/v9/schedules?${param}=${encodeURIComponent(clean)}&api_key=${env.AIRLABS_KEY}`
+      );
+      if (!res.ok) continue;
+      const data = await res.json() as { response?: Array<Record<string, any>>; error?: unknown };
+      if (data.error) { airlabsDeadUntil = Date.now() + 6 * 3600_000; return []; }
+      const rows = (data.response ?? [])
+        .map(r => ({
+          operating: String(r.flight_iata ?? ""),
+          dep: String(r.dep_iata ?? "").toUpperCase(),
+          arr: String(r.arr_iata ?? "").toUpperCase(),
+        }))
+        .filter(r => r.operating && r.dep && r.arr);
+      if (rows.length) return rows;
+    } catch { /* try the next param */ }
+  }
+  return [];
 }
 
 async function airlabsFlightSearch(number: string, env: Env): Promise<Record<string, unknown>[]> {
@@ -507,22 +543,54 @@ export default {
     // can't reach the user. Returns the verified flights; the app lets the
     // user pick.
     if (url.pathname === "/search-flights" && req.method === "POST") {
-      if (!env.AI_API_KEY?.startsWith("sk-ant-")) {
-        return Response.json({ error: "AI search not configured" }, { status: 503, headers: cors });
-      }
       try {
-        const body = await req.json<{ query?: string }>() ?? {};
+        const body = await req.json<{ query?: string; dep_iata?: string; arr_iata?: string; date?: string }>() ?? {};
         const query = (body.query ?? "").trim();
         if (!query) return Response.json({ error: "Empty query" }, { status: 400, headers: cors });
 
-        const parsed = await aiParseFlightQuery(query, env);
+        // The app resolves plain routes locally and sends them pre-parsed —
+        // skipping the AI call, which is most of a warm search's latency.
+        // AI stays the parser for everything it can't read.
+        const t0 = Date.now();
+        const timings: Record<string, number> = {};
+        const preParsed = /^[A-Z]{3}$/i.test(body.dep_iata ?? "")
+          && /^[A-Z]{3}$/i.test(body.arr_iata ?? "")
+          && /^\d{4}-\d{2}-\d{2}$/.test(body.date ?? "");
+        let parsed: ParsedFlightQuery | null;
+        if (preParsed) {
+          parsed = { flights: [], dep_iata: body.dep_iata!, arr_iata: body.arr_iata!,
+                     date: body.date!, candidates: [] };
+        } else {
+          if (!env.AI_API_KEY?.startsWith("sk-ant-")) {
+            return Response.json({ error: "AI search not configured" }, { status: 503, headers: cors });
+          }
+          parsed = await aiParseFlightQuery(query, env);
+        }
+        timings["parse"] = Date.now() - t0;
         if (!parsed) return Response.json({ flights: [] }, { headers: cors });
 
         const today = new Date().toISOString().slice(0, 10);
         const defaultDay = parsed.date || today;
-        const route = parsed.dep_iata && parsed.arr_iata
+        let route = parsed.dep_iata && parsed.arr_iata
           ? { dep: parsed.dep_iata.toUpperCase(), arr: parsed.arr_iata.toUpperCase() }
           : null;
+
+        // A typed number with no route to anchor it: AirLabs' schedule DB is
+        // the one source that maps codeshare marketing numbers (A31653) to
+        // the operating flight + route. One quota-guarded call, only in
+        // exactly this corner; the route it yields feeds board discovery
+        // and filters verification like any other.
+        const resolvedOperating: { number: string; date: string }[] = [];
+        if (!route) {
+          for (const f of (parsed.flights ?? []).slice(0, 2)) {
+            const rows = await airlabsNumberSchedules(f.number, env);
+            if (rows.length) {
+              route = { dep: rows[0].dep, arr: rows[0].arr };
+              for (const r of rows) resolvedOperating.push({ number: r.operating, date: f.date || defaultDay });
+              break;
+            }
+          }
+        }
 
         // Candidates in priority order: numbers the user actually typed,
         // then AirLabs schedule rows for the route (operating AND codeshare
@@ -535,22 +603,41 @@ export default {
           }
         };
         for (const f of parsed.flights ?? []) push(f.number, f.date || defaultDay);
+        for (const r of resolvedOperating) push(r.number, r.date);
         if (route) {
           // Real data first: the departure board names the route's flights
           // (including codeshare marketing numbers); AirLabs adds rows when
           // its quota allows. The AI's own guesses come last — they're the
           // weakest source and exist only as a fallback.
-          const [adbNums, airlabsRows] = await Promise.all([
+          const [discovery, airlabsRows] = await Promise.all([
             adbRouteDiscovery(env, route.dep, route.arr, defaultDay),
             airlabsRouteSchedules(route.dep, route.arr, env),
           ]);
-          for (const num of adbNums) push(num, defaultDay);
+          // A queried number that shows on the board as a codeshare row maps
+          // to its operating flight via the rows sharing its movement —
+          // that's how "A31653" (indexed nowhere) becomes LH1757. Those
+          // siblings outrank plain route discovery.
+          for (const f of parsed.flights ?? []) {
+            const clean = (f.number ?? "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+            const mine = discovery.board.find(b => b.number === clean);
+            if (!mine) continue;
+            for (const sib of discovery.board) {
+              if (sib.number !== mine.number && sib.dest === mine.dest && sib.time === mine.time) {
+                push(sib.number, f.date || defaultDay);
+              }
+            }
+          }
+          for (const num of discovery.routeNumbers) push(num, defaultDay);
           for (const row of airlabsRows) {
             push(row.operating, defaultDay);
             push(row.marketing, defaultDay);
           }
         }
-        for (const num of parsed.candidates ?? []) push(num, defaultDay);
+        // AI-guessed numbers are only usable when a route filters them —
+        // unfiltered, a wrong guess that happens to be a real flight
+        // somewhere (CA1653 for "A31653") sails through verification.
+        if (route) for (const num of parsed.candidates ?? []) push(num, defaultDay);
+        timings["discovery"] = Date.now() - t0 - timings["parse"];
 
         // Verify candidates concurrently, but through a pool of 4: the full
         // 8-wide burst tripped the provider's per-second rate limit, and a
@@ -599,7 +686,8 @@ export default {
           }
         }
         if ((body as any).debug) {
-          return Response.json({ flights: results, parsed, candidates }, { headers: cors });
+          timings["verify"] = Date.now() - t0 - timings["parse"] - timings["discovery"];
+          return Response.json({ flights: results, parsed, candidates, timings }, { headers: cors });
         }
         return Response.json({ flights: results }, { headers: cors });
       } catch (err: any) {
@@ -1193,13 +1281,20 @@ async function cachedFids(env: Env, key: string, ttlMs = 5 * 60_000): Promise<Re
 /// seasonal change surfaces as a dropped candidate, not a wrong result.
 /// Costs two budget-guarded FIDS calls per airport-day, cached for a day and
 /// shared with everything else that reads the same board.
+/// One row of a departure board: with `withCodeshared=true` a codeshare
+/// marketing number and its operating flight appear as SEPARATE rows sharing
+/// the same destination and scheduled time — which is how a marketing number
+/// nobody indexes (A31653) maps to the flight that actually operates it.
+interface BoardEntry { number: string; dest: string; time: string }
+
 async function adbRouteDiscovery(
   env: Env, depIATA: string, arrIATA: string, targetDate: string
-): Promise<string[]> {
-  if (!env.RAPIDAPI_KEY) return [];
+): Promise<{ routeNumbers: string[]; board: BoardEntry[] }> {
+  const empty = { routeNumbers: [], board: [] };
+  if (!env.RAPIDAPI_KEY) return empty;
   const budget = await budgetRow(env);
   const remaining = budget["adb_remaining"] as number | null | undefined;
-  if (typeof remaining === "number" && remaining <= 0) return [];
+  if (typeof remaining === "number" && remaining <= 0) return empty;
 
   // Nearest date with the target's weekday that FIDS can still serve.
   const today = new Date(); today.setUTCHours(0, 0, 0, 0);
@@ -1213,6 +1308,7 @@ async function adbRouteDiscovery(
   const day = discovery.toISOString().slice(0, 10);
 
   const numbers: string[] = [];
+  const board: BoardEntry[] = [];
   let paceNeeded = false;
   for (const [from, to] of [[`${day}T00:00`, `${day}T11:59`], [`${day}T12:00`, `${day}T23:59`]]) {
     const key = `fidsdep|${depIATA}|${from.slice(0, 13)}`;
@@ -1242,12 +1338,14 @@ async function adbRouteDiscovery(
     }
     for (const d of departures) {
       const dest = String(d?.movement?.airport?.iata ?? "").toUpperCase();
-      if (dest !== arrIATA.toUpperCase()) continue;
       const num = String(d?.number ?? "").replace(/\s+/g, "").toUpperCase();
-      if (num && !numbers.includes(num)) numbers.push(num);
+      if (!num || !dest) continue;
+      const time = String(d?.movement?.scheduledTime?.utc ?? d?.movement?.scheduledTime?.local ?? "");
+      board.push({ number: num, dest, time });
+      if (dest === arrIATA.toUpperCase() && !numbers.includes(num)) numbers.push(num);
     }
   }
-  return numbers;
+  return { routeNumbers: numbers, board };
 }
 
 async function storeFids(env: Env, key: string, arrivals: Record<string, any>[]): Promise<void> {
@@ -1487,6 +1585,10 @@ function cacheTTLms(legs: Record<string, any>[]): number {
     : Date.parse(String(leg["arr_scheduled"] ?? "")) + delayMs;
   const now = Date.now();
   if (isNaN(dep) || isNaN(arr)) return 10 * 60_000;
+  // A schedule weeks out barely moves; hold it long so repeat searches of
+  // the same route (family, next day) answer from cache — near-instant and
+  // quota-free. Within a week, tighten back up.
+  if (now < dep - 7 * 24 * 3600_000) return 72 * 3600_000;  // deep future
   if (now < dep - 24 * 3600_000) return 6 * 3600_000;       // far future
   if (now < dep - 3 * 3600_000) return 30 * 60_000;         // day-of
   if (now < dep + 20 * 60_000) return 5 * 60_000;           // boarding/departure
@@ -1517,7 +1619,13 @@ async function fetchLegsCached(
   const cachedLegs = cached ? (cached.payload as Record<string, unknown>[]) : null;
   if (cached && cachedLegs) {
     const age = Date.now() - Date.parse(String(cached.fetched_at));
-    if (age < cacheTTLms(cachedLegs as Record<string, any>[])) {
+    // Empty payload = a cached "doesn't fly that date". For dates weeks out
+    // that answer is stable — hold it 48 h so searches stop re-burning quota
+    // on the same dead candidates. Near-term, re-ask soon: schedules appear.
+    const depMs = Date.parse(`${date}T00:00:00Z`);
+    const ttl = cachedLegs.length > 0 ? cacheTTLms(cachedLegs as Record<string, any>[])
+      : (isFinite(depMs) && depMs - Date.now() > 7 * 86_400_000 ? 48 * 3600_000 : 10 * 60_000);
+    if (age < ttl) {
       return { legs: cachedLegs, cache: "hit" };
     }
   }
