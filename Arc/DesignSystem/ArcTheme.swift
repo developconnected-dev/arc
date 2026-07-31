@@ -65,12 +65,32 @@ struct GatePill: View {
 
 /// "✦ Arc predicts ~32m late" — the badge for Arc's own inferences.
 /// Sparkles + the smart gradient and nothing else; if a number came from the
-/// airline, it never wears this.
+/// airline, it never wears this. A single shimmer sweeps across on first
+/// appearance — once, never looping.
 struct SmartLabel: View {
     let text: String
     var size: CGFloat = 14
+    @State private var shimmered = false
 
     var body: some View {
+        label
+            .overlay {
+                GeometryReader { geo in
+                    LinearGradient(colors: [.clear, .white.opacity(0.85), .clear],
+                                   startPoint: .leading, endPoint: .trailing)
+                        .frame(width: geo.size.width * 0.55)
+                        .offset(x: shimmered ? geo.size.width + 12 : -geo.size.width * 0.55 - 12)
+                }
+                .mask(label)
+                .allowsHitTesting(false)
+            }
+            .onAppear {
+                guard !shimmered else { return }
+                withAnimation(.easeInOut(duration: 1.0).delay(0.25)) { shimmered = true }
+            }
+    }
+
+    private var label: some View {
         HStack(spacing: 5) {
             Image(systemName: "sparkles")
                 .font(.system(size: size - 2, weight: .semibold))
@@ -79,4 +99,45 @@ struct SmartLabel: View {
         }
         .foregroundStyle(ArcTheme.smartGradient)
     }
+}
+
+/// The Apple-Intelligence edge treatment, honestly borrowed: the Siri palette
+/// as an angular gradient stroked around a capsule, a blurred twin providing
+/// the bloom, and a slowly rotating phase so the colors travel. At rest it
+/// breathes quietly; `active` (the AI is reading) brightens and widens it.
+struct SiriGlow: ViewModifier {
+    var active: Bool
+
+    private static let palette: [Color] = [
+        Color(red: 0.35, green: 0.55, blue: 1.00),
+        Color(red: 0.70, green: 0.35, blue: 1.00),
+        Color(red: 1.00, green: 0.35, blue: 0.62),
+        Color(red: 1.00, green: 0.62, blue: 0.30),
+        Color(red: 0.35, green: 0.55, blue: 1.00),
+    ]
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                    let t = context.date.timeIntervalSinceReferenceDate
+                    let gradient = AngularGradient(
+                        colors: Self.palette, center: .center,
+                        angle: .degrees((t * 22).truncatingRemainder(dividingBy: 360)))
+                    let breathe = 0.5 + 0.5 * sin(t * 1.1)
+                    ZStack {
+                        Capsule().stroke(gradient, lineWidth: active ? 5 : 3)
+                            .blur(radius: active ? 7 : 5)
+                        Capsule().stroke(gradient, lineWidth: active ? 1.8 : 1.2)
+                    }
+                    .opacity(active ? 0.95 : 0.35 + 0.2 * breathe)
+                }
+                .allowsHitTesting(false)
+            }
+            .animation(.easeInOut(duration: 0.35), value: active)
+    }
+}
+
+extension View {
+    func siriGlow(active: Bool) -> some View { modifier(SiriGlow(active: active)) }
 }
