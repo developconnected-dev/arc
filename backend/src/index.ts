@@ -161,7 +161,10 @@ interface ParsedFlightQuery {
   dep_iata: string;
   arr_iata: string;
   date: string;
-  candidates: string[];
+  // Retired from the schema (AI number-guessing was the weakest source and
+  // its output tokens most of the parse latency); kept optional so cached
+  // parses from before the change still deserialize.
+  candidates?: string[];
 }
 
 /// One structured-output call: explicit flight numbers, a route if the text
@@ -203,18 +206,13 @@ async function aiParseFlightQuery(query: string, env: Env): Promise<ParsedFlight
               dep_iata: { type: "string", description: "Departure airport IATA if a route is named, else empty string" },
               arr_iata: { type: "string", description: "Arrival airport IATA if a route is named, else empty string" },
               date: { type: "string", description: "Travel date YYYY-MM-DD, else empty string" },
-              candidates: {
-                type: "array",
-                items: { type: "string" },
-                description: "Up to 6 IATA flight numbers of real scheduled nonstop services that likely match: flights serving the named route, or the operating flight behind a codeshare marketing number in the query. Empty if unsure.",
-              },
             },
-            required: ["flights", "dep_iata", "arr_iata", "date", "candidates"],
+            required: ["flights", "dep_iata", "arr_iata", "date"],
             additionalProperties: false,
           },
         },
       },
-      system: `You turn a flight-search query into structured search terms. Today's date is ${new Date().toISOString().slice(0, 10)}. The query may be a flight number, a codeshare marketing number, a route in city or airport names, free text, or a pasted booking confirmation. Resolve cities to IATA airport codes. When the year is missing, pick the next occurrence of the date from today. For routes, list the well-known nonstop flight numbers serving them in candidates; for a codeshare-looking number (an airline code with a number that airline doesn't operate itself on any plausible route), list the likely operating flight numbers — and when you are CONFIDENT which route that marketing number serves, also fill dep_iata and arr_iata so the route can be searched directly. Never guess a route you are unsure of: flight-number candidates get filtered against the route, but a wrong route itself would surface real flights the user never asked about.`,
+      system: `You turn a flight-search query into structured search terms. Today's date is ${new Date().toISOString().slice(0, 10)}. The query may be a flight number, a codeshare marketing number, a route in city or airport names, free text, or a pasted booking confirmation. Resolve cities to IATA airport codes. When the year is missing, pick the next occurrence of the date from today. For a codeshare-looking number (an airline code with a number that airline doesn't operate itself on any plausible route): when you are CONFIDENT which route that marketing number serves, also fill dep_iata and arr_iata so the route can be searched directly. Never guess a route you are unsure of — a wrong route would surface real flights the user never asked about. Answer with the minimum: no candidate lists, no commentary.`,
       messages: [{ role: "user", content: query }],
     }),
   });
@@ -565,7 +563,23 @@ export default {
           if (!env.AI_API_KEY?.startsWith("sk-ant-")) {
             return Response.json({ error: "AI search not configured" }, { status: 503, headers: cors });
           }
-          parsed = await aiParseFlightQuery(query, env);
+          // Same text, same day → same parse. Keyed by day because relative
+          // dates ("tomorrow") change meaning at midnight. Saves the single
+          // slowest fixed cost (~2-3 s) on every repeat, from any device.
+          const pkey = `aiparse|${new Date().toISOString().slice(0, 10)}|${query.toLowerCase().replace(/\s+/g, " ").slice(0, 120)}`;
+          const prows = await sbSelect(env, `/flight_cache?key=eq.${encodeURIComponent(pkey)}&select=*`);
+          const prow = prows[0];
+          if (prow && Date.now() - Date.parse(String(prow.fetched_at)) < 24 * 3600_000) {
+            parsed = prow.payload as unknown as ParsedFlightQuery;
+          } else {
+            parsed = await aiParseFlightQuery(query, env);
+            if (parsed) {
+              const w = await sbService(env, "POST", "/flight_cache?on_conflict=key", {
+                key: pkey, payload: parsed, provider: "aiparse", fetched_at: new Date().toISOString(),
+              });
+              if (!w.ok) console.error("aiparse cache write failed:", w.status, await w.text());
+            }
+          }
         }
         timings["parse"] = Date.now() - t0;
         if (!parsed) return Response.json({ flights: [] }, { headers: cors });
@@ -667,25 +681,34 @@ export default {
           ? await sbSelect(env, `/flight_cache?key=in.(${capped.map(c => encodeURIComponent(keyOf(c))).join(",")})&select=*`)
           : [];
         const preByKey = new Map(preRows.map(r => [String(r["key"]), r]));
-        // AeroDataBox rate-limits per second: even a 4-wide burst drew 429s,
-        // and each 429'd candidate vanished from that search only — identical
-        // searches grew result by result as stragglers finally cached. So:
-        // serial, pacing only the calls that actually hit the provider
-        // (cache hits pass instantly; a warm search stays fast).
-        const verified: { c: { number: string; date: string }; legs: Record<string, unknown>[] }[] = [];
-        let retriesLeft = 4;
-        let paceNeeded = false;
+        // AeroDataBox rate-limits per second (a 4-wide burst drew 429s and
+        // identical searches grew result by result as stragglers cached).
+        // Pipelined pacing: LAUNCH one provider call every ~1.4 s without
+        // waiting for its response — same safe request rate as before, minus
+        // one response-time per cold candidate. Cache hits pass instantly.
+        // Failures get one serial, paced retry pass at the end.
+        const slots: (CachedFetch | Promise<CachedFetch>)[] = [];
+        let lastLaunch = 0;
         for (const c of capped) {
-          if (paceNeeded) await new Promise((r) => setTimeout(r, 1000));
           const pre = preByKey.get(keyOf(c)) ?? null;
-          let r = await fetchLegsCached(env, "flight", c.number, c.date, "interactive", pre);
-          paceNeeded = r.cache !== "hit";
-          if (r.legs === null && retriesLeft-- > 0) {
-            await new Promise((r2) => setTimeout(r2, 2500));
-            r = await fetchLegsCached(env, "flight", c.number, c.date, "interactive", null);
+          if (cachedRowFresh(pre, c.date)) {
+            slots.push({ legs: pre!.payload as Record<string, unknown>[], cache: "hit" });
+            continue;
           }
-          verified.push({ c, legs: r.legs ?? [] });
+          const wait = lastLaunch + 1400 - Date.now();
+          if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+          lastLaunch = Date.now();
+          slots.push(fetchLegsCached(env, "flight", c.number, c.date, "interactive", pre));
         }
+        const settled = await Promise.all(slots.map((s) => Promise.resolve(s)));
+        let retriesLeft = 3;
+        for (let i = 0; i < settled.length; i++) {
+          if (settled[i].legs === null && retriesLeft-- > 0) {
+            await new Promise((r) => setTimeout(r, 1400));
+            settled[i] = await fetchLegsCached(env, "flight", capped[i].number, capped[i].date, "interactive", null);
+          }
+        }
+        const verified = capped.map((c, i) => ({ c, legs: settled[i].legs ?? [] }));
         const results: Record<string, unknown>[] = [];
         for (const { c, legs } of verified) {
           for (const leg of legs) {
@@ -1368,7 +1391,12 @@ async function adbRouteDiscovery(
       if (!num || !dest) continue;
       const time = String(d?.movement?.scheduledTime?.utc ?? d?.movement?.scheduledTime?.local ?? "");
       board.push({ number: num, dest, time });
-      if (dest === arrIATA.toUpperCase() && !numbers.includes(num)) numbers.push(num);
+      // Codeshare alias rows stay on the board (they resolve typed marketing
+      // numbers to their operator) but are NOT verification candidates: the
+      // by-number endpoint doesn't index them, so each one bought a paced
+      // provider call for a guaranteed empty answer.
+      const isAlias = String(d?.codeshareStatus ?? "").toLowerCase() === "iscodeshared";
+      if (dest === arrIATA.toUpperCase() && !isAlias && !numbers.includes(num)) numbers.push(num);
     }
   }
   return { routeNumbers: numbers, board };
@@ -1637,6 +1665,21 @@ interface CachedFetch {
   cache: "hit" | "stale" | "miss" | "none";
 }
 
+/// Is this flight_cache row still fresh for `date`? Shared by fetchLegsCached
+/// and the search pipeliner, which must know BEFORE calling whether a real
+/// provider fetch will happen — pacing is for provider calls, not cache hits.
+/// Empty payload = a cached "doesn't fly that date": stable for dates weeks
+/// out (48 h), re-asked soon near-term because schedules appear.
+function cachedRowFresh(row: Record<string, any> | null | undefined, date: string): boolean {
+  const legs = row?.payload as Record<string, any>[] | undefined;
+  if (!row || !legs) return false;
+  const age = Date.now() - Date.parse(String(row.fetched_at));
+  const depMs = Date.parse(`${date}T00:00:00Z`);
+  const ttl = legs.length > 0 ? cacheTTLms(legs)
+    : (isFinite(depMs) && depMs - Date.now() > 7 * 86_400_000 ? 48 * 3600_000 : 10 * 60_000);
+  return age < ttl;
+}
+
 /// Cache-first, budget-guarded provider fetch. `kind` picks the ADB endpoint
 /// (flight number vs tail registration); results are stored ALREADY MAPPED
 /// so every consumer sees one provider-agnostic shape.
@@ -1652,17 +1695,8 @@ async function fetchLegsCached(
     ? (pre ?? undefined)
     : (await sbSelect(env, `/flight_cache?key=eq.${encodeURIComponent(key)}&select=*`))[0];
   const cachedLegs = cached ? (cached.payload as Record<string, unknown>[]) : null;
-  if (cached && cachedLegs) {
-    const age = Date.now() - Date.parse(String(cached.fetched_at));
-    // Empty payload = a cached "doesn't fly that date". For dates weeks out
-    // that answer is stable — hold it 48 h so searches stop re-burning quota
-    // on the same dead candidates. Near-term, re-ask soon: schedules appear.
-    const depMs = Date.parse(`${date}T00:00:00Z`);
-    const ttl = cachedLegs.length > 0 ? cacheTTLms(cachedLegs as Record<string, any>[])
-      : (isFinite(depMs) && depMs - Date.now() > 7 * 86_400_000 ? 48 * 3600_000 : 10 * 60_000);
-    if (age < ttl) {
-      return { legs: cachedLegs, cache: "hit" };
-    }
+  if (cachedRowFresh(cached, date)) {
+    return { legs: cachedLegs!, cache: "hit" };
   }
 
   // Needs a refresh — is there budget left?
