@@ -155,6 +155,102 @@ function airlabsToISO(utcTime: unknown, localTime: unknown): string {
   return "";
 }
 
+/// What the AI reads out of a free-text flight search.
+interface ParsedFlightQuery {
+  flights: { number: string; date: string }[];
+  dep_iata: string;
+  arr_iata: string;
+  date: string;
+  candidates: string[];
+}
+
+/// One structured-output call: explicit flight numbers, a route if the text
+/// names one (cities resolved to IATA), a date, and — the part that catches
+/// codeshares — flight numbers *likely to operate* the route or to be the
+/// operating flight behind a marketing number. Candidates are suggestions
+/// only; the caller verifies each against real schedule data before anything
+/// reaches the user.
+async function aiParseFlightQuery(query: string, env: Env): Promise<ParsedFlightQuery | null> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": env.AI_API_KEY!,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-5",
+      max_tokens: 800,
+      thinking: { type: "disabled" },
+      output_config: {
+        format: {
+          type: "json_schema",
+          schema: {
+            type: "object",
+            properties: {
+              flights: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    number: { type: "string", description: "IATA flight number written in the text, compact, e.g. A31653" },
+                    date: { type: "string", description: "YYYY-MM-DD if this leg has its own date, else empty string" },
+                  },
+                  required: ["number", "date"],
+                  additionalProperties: false,
+                },
+              },
+              dep_iata: { type: "string", description: "Departure airport IATA if a route is named, else empty string" },
+              arr_iata: { type: "string", description: "Arrival airport IATA if a route is named, else empty string" },
+              date: { type: "string", description: "Travel date YYYY-MM-DD, else empty string" },
+              candidates: {
+                type: "array",
+                items: { type: "string" },
+                description: "Up to 6 IATA flight numbers of real scheduled nonstop services that likely match: flights serving the named route, or the operating flight behind a codeshare marketing number in the query. Empty if unsure.",
+              },
+            },
+            required: ["flights", "dep_iata", "arr_iata", "date", "candidates"],
+            additionalProperties: false,
+          },
+        },
+      },
+      system: `You turn a flight-search query into structured search terms. Today's date is ${new Date().toISOString().slice(0, 10)}. The query may be a flight number, a codeshare marketing number, a route in city or airport names, free text, or a pasted booking confirmation. Resolve cities to IATA airport codes. When the year is missing, pick the next occurrence of the date from today. For routes, list the well-known nonstop flight numbers serving them in candidates; for a codeshare-looking number (an airline code with a number that airline doesn't operate itself on any plausible route), list the likely operating flight numbers — and when you are confident which route that marketing number serves, also fill dep_iata and arr_iata so the route can be searched directly.`,
+      messages: [{ role: "user", content: query }],
+    }),
+  });
+  if (!res.ok) return null;
+  const data = await res.json<any>();
+  if (data?.stop_reason === "refusal") return null;
+  const text = (data?.content ?? []).find((b: any) => b.type === "text")?.text;
+  if (!text) return null;
+  try { return JSON.parse(text) as ParsedFlightQuery; } catch { return null; }
+}
+
+/// Scheduled flights on a route, per AirLabs. Each row can carry both an
+/// operating and a codeshare number; the caller treats both as candidates
+/// and lets verification decide which is real. Errors (including the monthly
+/// quota being exhausted) surface as an empty list — the caller has other
+/// candidate sources.
+async function airlabsRouteSchedules(
+  dep: string, arr: string, env: Env
+): Promise<{ operating: string | null; marketing: string | null }[]> {
+  if (!env.AIRLABS_KEY) return [];
+  try {
+    const res = await fetch(
+      `https://airlabs.co/api/v9/schedules?dep_iata=${encodeURIComponent(dep)}&arr_iata=${encodeURIComponent(arr)}&api_key=${env.AIRLABS_KEY}`
+    );
+    if (!res.ok) return [];
+    const data = await res.json() as { response?: Array<Record<string, any>> };
+    if (!Array.isArray(data.response)) return [];
+    return data.response.map(r => ({
+      operating: (r.cs_flight_iata as string) ?? null,
+      marketing: (r.flight_iata as string) ?? null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 async function airlabsFlightSearch(number: string, env: Env): Promise<Record<string, unknown>[]> {
   if (!env.AIRLABS_KEY) return [];
   const clean = number.replace(/\s+/g, "");
@@ -394,6 +490,81 @@ export default {
         return Response.json({ ok: true, flights: parsed?.flights ?? [] }, { headers: cors });
       } catch (err: any) {
         return Response.json({ error: "Invalid request format or JSON", details: err?.message }, { status: 400, headers: cors });
+      }
+    }
+
+    // ── /search-flights ── natural-language search: routes, codeshares, free text
+    //
+    // "Athens to Munich on 18 September" or "A31653 18 Sep" (a codeshare
+    // marketing number no provider indexes). One AI call turns the text into
+    // explicit numbers, a route, and *likely operating flights*; AirLabs route
+    // schedules add real candidates when its quota is alive. Every candidate
+    // is then verified against the cached AeroDataBox pipeline for the target
+    // date — an AI guess that doesn't verify is dropped, so hallucination
+    // can't reach the user. Returns the verified flights; the app lets the
+    // user pick.
+    if (url.pathname === "/search-flights" && req.method === "POST") {
+      if (!env.AI_API_KEY?.startsWith("sk-ant-")) {
+        return Response.json({ error: "AI search not configured" }, { status: 503, headers: cors });
+      }
+      try {
+        const body = await req.json<{ query?: string }>() ?? {};
+        const query = (body.query ?? "").trim();
+        if (!query) return Response.json({ error: "Empty query" }, { status: 400, headers: cors });
+
+        const parsed = await aiParseFlightQuery(query, env);
+        if (!parsed) return Response.json({ flights: [] }, { headers: cors });
+
+        const today = new Date().toISOString().slice(0, 10);
+        const defaultDay = parsed.date || today;
+        const route = parsed.dep_iata && parsed.arr_iata
+          ? { dep: parsed.dep_iata.toUpperCase(), arr: parsed.arr_iata.toUpperCase() }
+          : null;
+
+        // Candidates in priority order: numbers the user actually typed,
+        // then AirLabs schedule rows for the route (operating AND codeshare
+        // columns — verification sorts out which is real), then AI guesses.
+        const candidates: { number: string; date: string }[] = [];
+        const push = (num: string | undefined | null, date: string) => {
+          const clean = (num ?? "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+          if (clean.length >= 3 && !candidates.some(c => c.number === clean && c.date === date)) {
+            candidates.push({ number: clean, date });
+          }
+        };
+        for (const f of parsed.flights ?? []) push(f.number, f.date || defaultDay);
+        if (route) {
+          // Real data first: the departure board names the route's flights
+          // (including codeshare marketing numbers); AirLabs adds rows when
+          // its quota allows. The AI's own guesses come last — they're the
+          // weakest source and exist only as a fallback.
+          for (const num of await adbRouteDiscovery(env, route.dep, route.arr, defaultDay)) {
+            push(num, defaultDay);
+          }
+          for (const row of await airlabsRouteSchedules(route.dep, route.arr, env)) {
+            push(row.operating, defaultDay);
+            push(row.marketing, defaultDay);
+          }
+        }
+        for (const num of parsed.candidates ?? []) push(num, defaultDay);
+
+        const results: Record<string, unknown>[] = [];
+        for (const c of candidates.slice(0, 8)) {
+          const { legs } = await fetchLegsCached(env, "flight", c.number, c.date, "interactive");
+          for (const leg of legs ?? []) {
+            if (String(leg["dep_scheduled"] ?? "").slice(0, 10) !== c.date) continue;
+            if (route && (String(leg["dep_iata"]).toUpperCase() !== route.dep
+                       || String(leg["arr_iata"]).toUpperCase() !== route.arr)) continue;
+            if (results.some(r => r["flight_number"] === leg["flight_number"]
+                               && r["dep_scheduled"] === leg["dep_scheduled"])) continue;
+            results.push(leg);
+          }
+        }
+        if ((body as any).debug) {
+          return Response.json({ flights: results, parsed, candidates }, { headers: cors });
+        }
+        return Response.json({ flights: results }, { headers: cors });
+      } catch (err: any) {
+        return Response.json({ error: "Search failed", details: err?.message }, { status: 500, headers: cors });
       }
     }
 
@@ -965,13 +1136,67 @@ interface AirportWeather {
 /// FIDS arrivals cached in the same table as flight lookups. Five minutes: a
 /// stand can change late, but not every few seconds, and one call serves every
 /// flight arriving in that hour.
-async function cachedFids(env: Env, key: string): Promise<Record<string, any>[] | null> {
+async function cachedFids(env: Env, key: string, ttlMs = 5 * 60_000): Promise<Record<string, any>[] | null> {
   if (!env.SUPABASE_SERVICE_KEY) return null;
   const rows = await sbSelect(env, `/flight_cache?key=eq.${encodeURIComponent(key)}&select=*`);
   const row = rows[0];
   if (!row) return null;
-  if (Date.now() - Date.parse(String(row.fetched_at)) > 5 * 60_000) return null;
+  if (Date.now() - Date.parse(String(row.fetched_at)) > ttlMs) return null;
   return row.payload as Record<string, any>[];
+}
+
+/// Which flight numbers fly a route, discovered from the departure board.
+///
+/// Schedules repeat weekly, so the board of the *nearest same weekday within
+/// FIDS reach* names the flights that operate the route on the target date —
+/// including codeshare marketing numbers, which FIDS lists as their own
+/// entries. The caller verifies every number against the target date, so a
+/// seasonal change surfaces as a dropped candidate, not a wrong result.
+/// Costs two budget-guarded FIDS calls per airport-day, cached for a day and
+/// shared with everything else that reads the same board.
+async function adbRouteDiscovery(
+  env: Env, depIATA: string, arrIATA: string, targetDate: string
+): Promise<string[]> {
+  if (!env.RAPIDAPI_KEY) return [];
+  const budget = await budgetRow(env);
+  const remaining = budget["adb_remaining"] as number | null | undefined;
+  if (typeof remaining === "number" && remaining <= 0) return [];
+
+  // Nearest date with the target's weekday that FIDS can still serve.
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  const target = new Date(`${targetDate}T00:00:00Z`);
+  let discovery = target;
+  const daysOut = Math.round((target.getTime() - today.getTime()) / 86_400_000);
+  if (daysOut > 6 || daysOut < -6) {
+    const shift = ((target.getUTCDay() - today.getUTCDay()) + 7) % 7;
+    discovery = new Date(today.getTime() + shift * 86_400_000);
+  }
+  const day = discovery.toISOString().slice(0, 10);
+
+  const numbers: string[] = [];
+  for (const [from, to] of [[`${day}T00:00`, `${day}T11:59`], [`${day}T12:00`, `${day}T23:59`]]) {
+    const key = `fidsdep|${depIATA}|${from.slice(0, 13)}`;
+    let departures = await cachedFids(env, key, 24 * 3600_000);
+    if (!departures) {
+      const path = `/flights/airports/iata/${depIATA}/${encodeURIComponent(from)}/${encodeURIComponent(to)}`
+        + `?withLeg=false&direction=Departure&withCancelled=false&withCodeshared=true`
+        + `&withCargo=false&withPrivate=false&withLocation=false`;
+      const res = await adbFetch(path, env);
+      await budgetBump(env, "adb_interactive", (budget["adb_interactive"] as number) ?? 0,
+                       res.headers.get("x-ratelimit-requests-remaining"));
+      if (!res.ok) continue;
+      const raw = await res.json() as Record<string, any>;
+      departures = (raw?.departures ?? []) as Record<string, any>[];
+      await storeFids(env, key, departures);
+    }
+    for (const d of departures) {
+      const dest = String(d?.movement?.airport?.iata ?? "").toUpperCase();
+      if (dest !== arrIATA.toUpperCase()) continue;
+      const num = String(d?.number ?? "").replace(/\s+/g, "").toUpperCase();
+      if (num && !numbers.includes(num)) numbers.push(num);
+    }
+  }
+  return numbers;
 }
 
 async function storeFids(env: Env, key: string, arrivals: Record<string, any>[]): Promise<void> {

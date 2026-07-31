@@ -914,34 +914,49 @@ struct AddFlightView: View {
         guard !text.isEmpty else { return }
         parseStatusMessage = nil
 
-        var resolved = FlightQueryParser.parse(text)
-        if resolved == nil, text.count > 12 {
-            // Long enough to be a pasted confirmation rather than a query.
-            isParsingNatural = true
-            if let items = try? await FlightAPIClient.shared.parseBooking(text: text),
-               let first = items.first,
-               let code = FlightQueryParser.splitCode(first.flightNumber) {
-                resolved = .init(code: code.designator + code.number,
-                                 date: DateHelpers.parseAPIDate(first.date))
-            }
-            isParsingNatural = false
-        }
-
-        guard let resolved, let split = FlightQueryParser.splitCode(resolved.code) else {
-            parseStatusMessage = "No flight found in that. Try \u{201C}LX1413 tomorrow\u{201D}, or pick an airline below."
+        // Fast path: a flight number readable locally — instant and offline.
+        if let resolved = FlightQueryParser.parse(text),
+           let split = FlightQueryParser.splitCode(resolved.code) {
+            resolvedCode = resolved.code
+            airline = ReferenceData.shared.airline(split.designator)
+            number = split.number
+            date = resolved.date ?? .now
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            step = .results
+            await runSearch(fallbackQuery: text)
             return
         }
 
-        resolvedCode = resolved.code
-        airline = ReferenceData.shared.airline(split.designator)
-        number = split.number
-        date = resolved.date ?? .now
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        step = .results
-        await runSearch()
+        // Everything else — routes in plain language, city names, codeshare
+        // numbers, pasted confirmations — goes to the Worker, which returns
+        // only real flights verified against schedule data. The user picks.
+        isParsingNatural = true
+        let found = (try? await FlightAPIClient.shared.searchNatural(query: text)) ?? []
+        isParsingNatural = false
+        guard !found.isEmpty else {
+            parseStatusMessage = "No flights found for that. Try \u{201C}LX1413 tomorrow\u{201D} or \u{201C}Athens to Munich 18 Sep\u{201D}, or pick an airline below."
+            return
+        }
+        adoptNaturalResults(found)
     }
 
-    private func runSearch() async {
+    /// Show Worker-found flights on the results step, seeding the header chips
+    /// from the first hit; with several matches the user picks the right one.
+    private func adoptNaturalResults(_ found: [FlightAPIClient.FlightSearchResult]) {
+        if let first = found.first,
+           let split = FlightQueryParser.splitCode(first.flight_number) {
+            resolvedCode = first.flight_number
+            airline = ReferenceData.shared.airline(split.designator)
+            number = split.number
+            if let d = DateHelpers.parseAPIDate(first.dep_scheduled) { date = d }
+        }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        results = found
+        errorText = nil
+        step = .results
+    }
+
+    private func runSearch(fallbackQuery: String? = nil) async {
         // A resolved code wins over the airline picker: a designator we don't
         // carry (small carriers, ICAO codes) should still be searchable rather
         // than silently doing nothing.
@@ -951,6 +966,13 @@ struct AddFlightView: View {
         let dateStr = date.formatted(.iso8601.year().month().day())
         do {
             results = try await FlightAPIClient.shared.searchFlight(number: code, date: dateStr)
+            // A number the providers don't index is often a codeshare
+            // marketing number (A31653 riding on LH1757). The natural search
+            // can resolve those through route discovery — try it before
+            // concluding the schedule isn't out.
+            if results.isEmpty, let fallbackQuery {
+                results = (try? await FlightAPIClient.shared.searchNatural(query: fallbackQuery)) ?? []
+            }
             // Almost never a typo. Airlines file schedules at different times,
             // so a real booking months out often isn't in the data yet even
             // though other flights on the same day are — saying "not found"

@@ -173,6 +173,26 @@ actor FlightAPIClient {
         return response.flights
     }
 
+    private struct NaturalSearchResponse: Codable, Sendable {
+        let flights: [FlightSearchResult]
+    }
+
+    /// Free-text search: routes ("Athens to Munich on 18 September"), codeshare
+    /// numbers, pasted confirmations. The Worker parses the text, discovers
+    /// candidate flights from real departure boards, and returns only
+    /// candidates verified against schedule data for the date — so everything
+    /// in the list is a real, addable flight.
+    func searchNatural(query: String) async throws -> [FlightSearchResult] {
+        let url = baseURL.appending(path: "/search-flights")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(["query": query])
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return [] }
+        return (try? JSONDecoder().decode(NaturalSearchResponse.self, from: data))?.flights ?? []
+    }
+
     // MARK: - Inbound aircraft ("Where's My Plane")
 
     /// All legs flown by a given tail number on a given date, per the Worker's
