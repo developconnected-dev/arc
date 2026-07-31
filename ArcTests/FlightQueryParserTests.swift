@@ -153,4 +153,41 @@ final class FlightQueryParserTests: XCTestCase {
     func testUnresolvableCityFallsThrough() {
         XCTAssertNil(FlightQueryParser.parseRoute("Xqzw to Munich", now: now))
     }
+
+    // MARK: German queries — the family's other language
+
+    func testGermanRouteWithUmlautsAndNach() {
+        let r = FlightQueryParser.parseRoute("Zürich nach Hamburg 18. September", now: now)
+        XCTAssertEqual(r?.depIATA, "ZRH")
+        XCTAssertEqual(r?.arrIATA, "HAM")
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = .current
+        XCTAssertEqual(cal.component(.day, from: r!.date!), 18)
+    }
+
+    func testGermanExonymsAndNoise() {
+        let r = FlightQueryParser.parseRoute("Flug von Wien nach Lissabon", now: now)
+        XCTAssertEqual(r?.depIATA, "VIE")
+        XCTAssertEqual(r?.arrIATA, "LIS")
+    }
+
+    func testGermanRelativeDates() {
+        let cal = Calendar.current
+        let morgen = FlightQueryParser.parseRoute("Zürich nach München morgen", now: now)
+        XCTAssertEqual(morgen?.arrIATA, "MUC")
+        XCTAssertEqual(cal.startOfDay(for: morgen!.date!),
+                       cal.startOfDay(for: cal.date(byAdding: .day, value: 1, to: now)!))
+        let uebermorgen = FlightQueryParser.findDate(in: "Wien nach Rom übermorgen", now: now)
+        XCTAssertEqual(cal.startOfDay(for: uebermorgen!),
+                       cal.startOfDay(for: cal.date(byAdding: .day, value: 2, to: now)!))
+    }
+
+    func testGermanMonths() {
+        let d = FlightQueryParser.findDate(in: "Genf nach Prag 18 Okt", now: now)
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = .current
+        XCTAssertEqual(cal.component(.month, from: d!), 10)
+        let mai = FlightQueryParser.findDate(in: "5 Mai", now: now)
+        XCTAssertEqual(cal.component(.month, from: mai!), 5)
+    }
 }
