@@ -250,6 +250,15 @@ struct AddFlightView: View {
     /// found the wrong flights should be one tap into the same field, not a
     /// back-navigation. The resolved chips morph in beneath it.
     private var unifiedSearchFlow: some View {
+        // The real Apple mechanism, not an imitation: inside a
+        // GlassEffectContainer, glass shapes whose edges come within
+        // `spacing` of each other BLEND — so the loading droplet rests
+        // close enough to stay visibly connected to the bar (the Siri
+        // "suggestion oozing out" look), while the settled results panel
+        // sits beyond the spacing and reads as its own pane. glassEffectID
+        // in one namespace makes appearing/disappearing shapes morph out
+        // of and back into their neighbour instead of fading.
+        GlassEffectContainer(spacing: 18) {
         VStack(alignment: .leading, spacing: 0) {
             // ONE field. There used to be two — an "AI command bar" and a
             // separate manual search — which meant picking a lane before
@@ -257,6 +266,7 @@ struct AddFlightView: View {
             // only falls back to the parser for text it can't read itself.
             searchField(placeholder: "Flight, airline, airport, or paste a booking",
                         text: $query)
+                .glassEffectID("bar", in: glassNS)
                 .siriGlow(active: isParsingNatural || isPrefetching)
                 .padding(.horizontal, 20)
                 .onSubmit { Task { await runUnifiedSearch() } }
@@ -308,45 +318,40 @@ struct AddFlightView: View {
             if step == .search { searchStep }
         }
         .animation(.spring(response: 0.45, dampingFraction: 0.85), value: step)
+        }
     }
 
-    /// The searching state as a droplet of the same glass, tucked under the
-    /// pill's centre.
+    /// The searching state: a droplet of glass hanging just under the bar —
+    /// deliberately INSIDE the container's blend distance, so it stays
+    /// visibly connected to the pill while the search runs (the Siri look).
     private var searchDroplet: some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small)
             Text("Searching flights…").font(.system(size: 13)).foregroundStyle(.secondary)
         }
         .padding(.horizontal, 18).padding(.vertical, 11)
-        .background {
-            RoundedRectangle(cornerRadius: 26)
-                .fill(.ultraThinMaterial)
-                .matchedGeometryEffect(id: "liquidGlass", in: glassNS)
-        }
+        .glassEffect(.regular, in: .rect(cornerRadius: 24))
+        .glassEffectID("results", in: glassNS)
         .frame(maxWidth: .infinity)
-        .padding(.top, -8)
+        .padding(.top, 6)
         .zIndex(1)
-        .transition(.scale(scale: 0.25, anchor: .top).combined(with: .opacity))
+        .transition(.offset(y: -26).combined(with: .opacity))
     }
 
-    /// The Apple-Intelligence container: glass, tucked under the pill so it
-    /// visibly grows out of the search bar, unfurling with a spring. Shares
-    /// its geometry identity with the droplet, so search → results is one
-    /// glass surface stretching, not a swap.
+    /// The settled results pane: same glass identity as the droplet (one
+    /// surface morphing, not a swap), resting BEYOND the blend distance so
+    /// it separates cleanly from the bar once the animation lands.
     private func glassPanel<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0, content: content)
-            .padding(.top, 30)
+            .padding(.top, 14)
             .padding(.bottom, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: 26)
-                    .fill(.ultraThinMaterial)
-                    .matchedGeometryEffect(id: "liquidGlass", in: glassNS)
-            }
+            .glassEffect(.regular, in: .rect(cornerRadius: 26))
+            .glassEffectID("results", in: glassNS)
             .padding(.horizontal, 20)
-            .padding(.top, -22)
+            .padding(.top, 22)
             .zIndex(1)
-            .transition(.scale(scale: 0.9, anchor: .top).combined(with: .opacity))
+            .transition(.offset(y: -30).combined(with: .opacity))
     }
 
     private var searchStep: some View {
@@ -979,7 +984,7 @@ struct AddFlightView: View {
             }
         }
         .padding(14)
-        .background(Color(.secondarySystemFill), in: Capsule())
+        .glassEffect(.regular, in: .capsule)
     }
 
     private var arrowButton: some View {
