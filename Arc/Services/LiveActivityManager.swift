@@ -34,7 +34,10 @@ final class LiveActivityManager {
         return FlightActivityAttributes.ContentState(
             status: flight.statusRaw,
             departureTime: depTime,
-            arrivalTime: flight.estimatedArrival ?? flight.scheduledArrival,
+            // Delay shifts the arrival too, matching depTime above — the
+            // lock screen otherwise counts down to an arrival that passed.
+            arrivalTime: flight.estimatedArrival
+                ?? flight.scheduledArrival.addingTimeInterval(Double(max(0, flight.delayMinutes)) * 60),
             boardingTime: boardingTime,
             securityWaitMinutes: securityWait,
             delayMinutes: flight.delayMinutes,

@@ -31,12 +31,16 @@ enum LiveActivityPushSync {
 
         // Push-to-start token: lets the server START a Live Activity for an
         // upcoming flight even if the app hasn't been opened in days.
+        // The owner id is REQUIRED server-side: the cron only starts
+        // activities for the token owner's own flights, and sends nothing
+        // for ownerless tokens — so wait briefly for sign-in if it races us.
         Task {
             for await tokenData in Activity<FlightActivityAttributes>.pushToStartTokenUpdates {
                 let body: [String: Any] = [
                     "token": hex(tokenData),
                     "type": "start",
                     "env": apnsEnv,
+                    "user_id": await ownerId() as Any,
                 ]
                 guard let json = try? JSONSerialization.data(withJSONObject: body) else { continue }
                 await FlightAPIClient.shared.registerLiveActivityToken(json)
@@ -59,10 +63,21 @@ enum LiveActivityPushSync {
         }
     }
 
+    /// The signed-in Supabase user id, waiting up to ~10 s for the session to
+    /// load when token registration races app start. nil if truly signed out.
+    private static func ownerId() async -> String? {
+        for _ in 0..<20 {
+            if let id = ArcSupabase.shared.currentUser?.id { return id }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        return ArcSupabase.shared.currentUser?.id
+    }
+
     private static func observe(_ activity: Activity<FlightActivityAttributes>) {
         Task {
             for await tokenData in activity.pushTokenUpdates {
-                let body = registrationBody(for: activity, token: hex(tokenData))
+                var body = registrationBody(for: activity, token: hex(tokenData))
+                body["user_id"] = await ownerId() as Any
                 guard let json = try? JSONSerialization.data(withJSONObject: body) else { continue }
                 await FlightAPIClient.shared.registerLiveActivityToken(json)
             }

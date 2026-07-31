@@ -26,6 +26,20 @@ enum DateHelpers {
         return isoWithFractional.date(from: s) ?? isoPlain.date(from: s)
     }
 
+    /// The calendar date of `date` AT THE GIVEN AIRPORT, as "yyyy-MM-dd" — the
+    /// form AeroDataBox's by-number and by-registration endpoints expect.
+    /// Formatting the instant in UTC instead (what `.iso8601` does) shifts a
+    /// 00:30 CEST departure onto the PREVIOUS day: every poll then fetches
+    /// yesterday's leg of the same number and stamps its landed status and
+    /// times onto a flight that hasn't boarded yet.
+    static func apiDate(_ date: Date, at iata: String?) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = iata.flatMap { ReferenceData.shared.timezone($0) } ?? .current
+        return f.string(from: date)
+    }
+
     /// Re-projects the wall-clock digits (year/month/day/hour/minute) of `date`,
     /// as read in the device's own calendar, onto `timeZone` — i.e. "16:22" stays
     /// "16:22" but becomes 16:22 in the target zone rather than 16:22 device-local.

@@ -291,13 +291,14 @@ async function airlabsNumberSchedules(
 }
 
 async function airlabsFlightSearch(number: string, env: Env): Promise<Record<string, unknown>[]> {
-  if (!env.AIRLABS_KEY) return [];
+  if (!env.AIRLABS_KEY || Date.now() < airlabsDeadUntil) return [];
   const clean = number.replace(/\s+/g, "");
   const res = await fetch(
     `https://airlabs.co/api/v9/flight?flight_iata=${encodeURIComponent(clean)}&api_key=${env.AIRLABS_KEY}`
   );
   if (!res.ok) return [];
-  const data = await res.json() as { response?: Record<string, any> };
+  const data = await res.json() as { response?: Record<string, any>; error?: unknown };
+  if (data.error) { airlabsDeadUntil = Date.now() + 6 * 3600_000; return []; }
   const f = data.response;
   if (!f || typeof f !== "object") return [];
 
@@ -639,6 +640,17 @@ export default {
         if (route) for (const num of parsed.candidates ?? []) push(num, defaultDay);
         timings["discovery"] = Date.now() - t0 - timings["parse"];
 
+        // The requested date is the LOCAL departure date; leg timestamps are
+        // UTC. Strict equality dropped every verified flight whose UTC date
+        // differs from its local one (00:30 JST = previous day in UTC) —
+        // paid for, correct, and then filtered out. ADB's by-number endpoint
+        // is itself local-date-indexed, so ±1 day is exact, not sloppy.
+        const sameFlightDay = (legIso: unknown, dateStr: string) => {
+          const leg = String(legIso ?? "").slice(0, 10);
+          if (!leg) return false;
+          const diff = Math.abs(Date.parse(`${leg}T00:00Z`) - Date.parse(`${dateStr}T00:00Z`));
+          return isFinite(diff) && diff <= 86_400_000;
+        };
         // Verify candidates concurrently, but through a pool of 4: the full
         // 8-wide burst tripped the provider's per-second rate limit, and a
         // rate-limited candidate silently vanished from THAT search only —
@@ -677,7 +689,7 @@ export default {
         const results: Record<string, unknown>[] = [];
         for (const { c, legs } of verified) {
           for (const leg of legs) {
-            if (String(leg["dep_scheduled"] ?? "").slice(0, 10) !== c.date) continue;
+            if (!sameFlightDay(leg["dep_scheduled"], c.date)) continue;
             if (route && (String(leg["dep_iata"]).toUpperCase() !== route.dep
                        || String(leg["arr_iata"]).toUpperCase() !== route.arr)) continue;
             if (results.some(r => r["flight_number"] === leg["flight_number"]
@@ -725,7 +737,12 @@ export default {
             results = (await airlabsScheduleSearch(number, env)).filter(matchesDate);
           }
           if (results.length > 0) {
-            await cacheAirlabsResult(env, number, day, results as Record<string, unknown>[]);
+            // Cache only date-anchored answers. A date-less query passes the
+            // filter above unconditionally, and AirLabs is real-time-only —
+            // caching ITS current leg under today's key let the cron read
+            // "landed" for a flight that hadn't departed and end its Live
+            // Activity.
+            if (date) await cacheAirlabsResult(env, number, day, results as Record<string, unknown>[]);
             const b = await budgetRow(env);
             await budgetBump(env, "airlabs_calls", (b["airlabs_calls"] as number) ?? 0);
             return Response.json(results, { headers: { ...cors, "x-arc-cache": "airlabs" } });
@@ -982,7 +999,10 @@ export default {
                              { status: 400, headers: cors });
       }
 
-      const key = `fids|${icao}|${from.slice(0, 13)}`;   // hour bucket
+      // Key on the WHOLE window. Start-hour alone made two different windows
+      // share one cached board — a flight arriving in the part only the
+      // second window covered got a wrong "not found" for 5 minutes.
+      const key = `fids|${icao}|${from.slice(0, 13)}|${to.slice(0, 13)}`;
       let arrivals = await cachedFids(env, key);
 
       if (!arrivals) {
@@ -1194,7 +1214,7 @@ export default {
     if (url.pathname === "/la/register" && req.method === "POST") {
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, reason: "unconfigured" }, { headers: cors });
       try {
-        const body = await req.json() as { token?: string; type?: string; env?: string; flight?: Record<string, unknown> };
+        const body = await req.json() as { token?: string; type?: string; env?: string; user_id?: string; flight?: Record<string, unknown> };
         if (!body.token || (body.type !== "update" && body.type !== "start")) {
           return new Response("bad request", { status: 400, headers: cors });
         }
@@ -1202,6 +1222,12 @@ export default {
         const row: Record<string, unknown> = {
           token: body.token,
           token_type: body.type,
+          // Owner of this device's token. pushStarts refuses to start
+          // activities for tokens without one — the owner is what stops
+          // one user's flight from appearing on another user's lock screen.
+          user_id: typeof body.user_id === "string"
+            && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.user_id)
+            ? body.user_id : null,
           apns_env: body.env === "production" ? "production" : "sandbox",
           flight_number: f["flight_number"] ?? null,
           departure_iata: f["departure_iata"] ?? null,
@@ -1553,7 +1579,10 @@ async function budgetRow(env: Env): Promise<Record<string, any>> {
     ? rows[0]
     : { month: m, adb_cron: 0, adb_interactive: 0, airlabs_calls: 0 };
   if (!rows.length) await sbService(env, "POST", "/api_budget?on_conflict=month", { month: m });
-  budgetMemo = { row, at: Date.now() };
+  // Memoize only a REAL row. sbSelect answers [] for errors too, and pinning
+  // the fabricated all-zeros row for 10 s makes the guard fail open exactly
+  // when Supabase is having a bad moment.
+  if (rows.length) budgetMemo = { row, at: Date.now() };
   return row;
 }
 
@@ -1575,7 +1604,13 @@ async function budgetBump(env: Env, field: string, current: number,
 /// Phase-aware freshness: how long a cached answer stays good, judged from
 /// the flight's own times. Tight only in the windows where data actually
 /// moves (boarding/departure, arrival); loose in cruise and the far future.
+// One payload can hold several legs of the same number (A→B→C). Freshness
+// must follow the MOST demanding leg — judging by legs[0] alone froze the
+// second sector's gates and delay for 24 h the moment the first one landed.
 function cacheTTLms(legs: Record<string, any>[]): number {
+  if (legs.length > 1) {
+    return Math.min(...legs.map(l => cacheTTLms([l])));
+  }
   const leg = legs[0];
   if (!leg) return 10 * 60_000;
   const delayMs = ((leg["delay"] as number) ?? 0) * 60_000;
@@ -1725,6 +1760,7 @@ function refDate(iso: string | null | undefined): number | null {
 interface TokenRow {
   token: string;
   token_type: string;
+  user_id: string | null;
   apns_env: "sandbox" | "production";
   flight_number: string | null;
   departure_iata: string | null;
@@ -1743,7 +1779,17 @@ async function runLiveActivityCron(env: Env): Promise<void> {
   const rows = await sbSelect(env, "/live_activity_tokens?select=*") as unknown as TokenRow[];
   const updateRows = rows.filter(r => r.token_type === "update" && r.flight_number && r.scheduled_departure);
 
-  for (const row of updateRows) {
+  // Stay under Cloudflare's 50-subrequests-per-invocation cap: a refresh
+  // tick costs up to ~8 subrequests per row, and rows come back in stable DB
+  // order — an unbounded loop over many tokens starved the SAME tail of
+  // users on every single invocation once the cap threw. Shuffle and cap;
+  // the cron runs every minute, so the rest are simply next in line.
+  const shuffled = [...updateRows];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  for (const row of shuffled.slice(0, 15)) {
     try {
       await pushUpdateForRow(env, row);
     } catch { /* keep the loop alive for other rows */ }
@@ -1915,10 +1961,15 @@ async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[
   if (upcoming.length === 0) return;
 
   for (const startRow of startRows) {
+    // No owner, no starts — fail closed. Cross-joining every user's flights
+    // with every start token put user A's flight (seat included) on user
+    // B's lock screen; a token registered before sign-in gets nothing until
+    // it re-registers with its owner.
+    if (!startRow.user_id) continue;
     const sent: Record<string, number> = startRow.last_state?.sent ?? {};
     let sentChanged = false;
 
-    for (const f of upcoming) {
+    for (const f of upcoming.filter(u => u["user_id"] === startRow.user_id)) {
       const key = `${f.flight_number}-${String(f.scheduled_departure).slice(0, 10)}`;
       // Skip if an update token already exists for this flight (activity is
       // already running) or we already sent a start recently.
@@ -2136,8 +2187,8 @@ body{background:#06080f;color:#e8eefc;font-family:-apple-system,system-ui,sans-s
   <div class="brand">Live from <b>Arc</b> · <span id="updated"></span></div>
 </div></footer>
 <script>
-var D=${JSON.stringify(payload)};
-var CODE=${JSON.stringify(code)};
+var D=${JSON.stringify(payload).replace(/</g, "\\u003c")};
+var CODE=${JSON.stringify(code).replace(/</g, "\\u003c")};
 var N=160;
 
 function P(s){return s?Date.parse(s):null}
@@ -2234,12 +2285,15 @@ function renderStatic(){
   var dt=document.getElementById('dep-time'),at=document.getElementById('arr-time');
   dt.textContent=fmtT(depT());at.textContent=fmtT(arrT());
   dt.className='t'+(f.delay>0?' late':'');at.className='t'+(f.delay>0?' late':'');
+  // Escape data before it meets innerHTML — these strings come from
+  // client-written rows, and this page is meant to be sent to strangers.
+  var E=function(s){return String(s).replace(/[&<>"']/g,function(c){return '&#'+c.charCodeAt(0)+';'})};
   var facts=[];
-  if(f.dep.gate)facts.push('Gate <b>'+f.dep.gate+'</b>');
-  if(f.dep.terminal)facts.push('Terminal <b>'+f.dep.terminal+'</b>');
-  if(f.arr.belt)facts.push('Belt <b>'+f.arr.belt+'</b>');
-  if(f.aircraft)facts.push(f.aircraft);
-  if(f.delay>0)facts.push('<b>+'+f.delay+' min</b>');
+  if(f.dep.gate)facts.push('Gate <b>'+E(f.dep.gate)+'</b>');
+  if(f.dep.terminal)facts.push('Terminal <b>'+E(f.dep.terminal)+'</b>');
+  if(f.arr.belt)facts.push('Belt <b>'+E(f.arr.belt)+'</b>');
+  if(f.aircraft)facts.push(E(f.aircraft));
+  if(f.delay>0)facts.push('<b>+'+(+f.delay||0)+' min</b>');
   document.getElementById('facts').innerHTML=facts.map(function(x){return '<div class="fact">'+x+'</div>'}).join('');
   if(D.expired)document.getElementById('ribbon').hidden=false;
 }

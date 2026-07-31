@@ -214,7 +214,9 @@ final class Flight {
     /// Flight progress 0..1 based on time
     var progress: Double {
         let depTime = actualDeparture ?? scheduledDeparture.addingTimeInterval(Double(delayMinutes) * 60)
-        let arrTime = estimatedArrival ?? scheduledArrival
+        // Delay shifts the arrival too — otherwise a delayed flight reads
+        // 100% while still airborne.
+        let arrTime = estimatedArrival ?? scheduledArrival.addingTimeInterval(Double(delayMinutes) * 60)
 
         // If arrival time has passed, flight is done
         if Date.now >= arrTime { return 1.0 }
@@ -328,6 +330,29 @@ final class Flight {
         if points.count > 500 { points = Array(points.suffix(500)) }
 
         trackPoints = points
+    }
+}
+
+extension Flight {
+    /// The one true delete. Three screens deleted flights three different
+    /// ways — the detail menu left the flight in the family's shared feed,
+    /// the lists left a Live Activity running, and one ended the activity in
+    /// a Task racing the deletion (touching a deleted model). Everything a
+    /// removal involves lives here, in a safe order: end the Live Activity
+    /// and read what we need BEFORE the model dies, then clean up remotely.
+    @MainActor
+    static func delete(_ flight: Flight, from context: ModelContext) async {
+        let id = flight.id
+        let number = flight.flightNumber
+        let departure = flight.scheduledDeparture
+        await LiveActivityManager.shared.endActivity(for: flight)
+        ArcNotifications.removeAll(for: flight)
+        context.delete(flight)
+        try? context.save()
+        Task {
+            try? await ArcSupabase.shared.deleteUserFlight(id: id)
+            try? await ArcSupabase.shared.unshareFlight(flightNumber: number, scheduledDeparture: departure)
+        }
     }
 }
 
