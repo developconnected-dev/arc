@@ -218,7 +218,10 @@ async function aiParseFlightQuery(query: string, env: Env): Promise<ParsedFlight
       messages: [{ role: "user", content: query }],
     }),
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    console.error("aiParseFlightQuery failed:", res.status, await res.text());
+    return null;
+  }
   const data = await res.json<any>();
   if (data?.stop_reason === "refusal") return null;
   const text = (data?.content ?? []).find((b: any) => b.type === "text")?.text;
@@ -549,13 +552,41 @@ export default {
         }
         for (const num of parsed.candidates ?? []) push(num, defaultDay);
 
-        // Verify candidates in parallel — serially this was 8 stacked
-        // AeroDataBox round-trips and pushed cold searches past the app's
-        // request timeout. Results keep candidate priority order.
-        const verified = await Promise.all(candidates.slice(0, 8).map(async (c) => {
-          const { legs } = await fetchLegsCached(env, "flight", c.number, c.date, "interactive");
-          return { c, legs: legs ?? [] };
-        }));
+        // Verify candidates concurrently, but through a pool of 4: the full
+        // 8-wide burst tripped the provider's per-second rate limit, and a
+        // rate-limited candidate silently vanished from THAT search only —
+        // identical searches grew 5 → 6 → 7 results as the cache filled in.
+        // `legs === null` means transient failure (429/network), never
+        // "doesn't exist" — those get one delayed retry so the first search
+        // already returns the complete set.
+        const capped = candidates.slice(0, 8);
+        // One bulk read for every candidate's cache row — per-candidate
+        // reads plus retries overflowed Cloudflare's 50-subrequests-per-
+        // invocation cap on cold searches (the whole search 500'd).
+        const keyOf = (c: { number: string; date: string }) => `flight|${c.number}|${c.date}`;
+        const preRows = capped.length
+          ? await sbSelect(env, `/flight_cache?key=in.(${capped.map(c => encodeURIComponent(keyOf(c))).join(",")})&select=*`)
+          : [];
+        const preByKey = new Map(preRows.map(r => [String(r["key"]), r]));
+        // AeroDataBox rate-limits per second: even a 4-wide burst drew 429s,
+        // and each 429'd candidate vanished from that search only — identical
+        // searches grew result by result as stragglers finally cached. So:
+        // serial, pacing only the calls that actually hit the provider
+        // (cache hits pass instantly; a warm search stays fast).
+        const verified: { c: { number: string; date: string }; legs: Record<string, unknown>[] }[] = [];
+        let retriesLeft = 4;
+        let paceNeeded = false;
+        for (const c of capped) {
+          if (paceNeeded) await new Promise((r) => setTimeout(r, 1000));
+          const pre = preByKey.get(keyOf(c)) ?? null;
+          let r = await fetchLegsCached(env, "flight", c.number, c.date, "interactive", pre);
+          paceNeeded = r.cache !== "hit";
+          if (r.legs === null && retriesLeft-- > 0) {
+            await new Promise((r2) => setTimeout(r2, 2500));
+            r = await fetchLegsCached(env, "flight", c.number, c.date, "interactive", null);
+          }
+          verified.push({ c, legs: r.legs ?? [] });
+        }
         const results: Record<string, unknown>[] = [];
         for (const { c, legs } of verified) {
           for (const leg of legs) {
@@ -1182,14 +1213,26 @@ async function adbRouteDiscovery(
   const day = discovery.toISOString().slice(0, 10);
 
   const numbers: string[] = [];
+  let paceNeeded = false;
   for (const [from, to] of [[`${day}T00:00`, `${day}T11:59`], [`${day}T12:00`, `${day}T23:59`]]) {
     const key = `fidsdep|${depIATA}|${from.slice(0, 13)}`;
     let departures = await cachedFids(env, key, 24 * 3600_000);
     if (!departures) {
+      // Same per-second provider limit as verification: don't fire the
+      // second window on the heels of the first.
+      if (paceNeeded) await new Promise((r) => setTimeout(r, 650));
+      paceNeeded = true;
       const path = `/flights/airports/iata/${depIATA}/${encodeURIComponent(from)}/${encodeURIComponent(to)}`
         + `?withLeg=false&direction=Departure&withCancelled=false&withCodeshared=true`
         + `&withCargo=false&withPrivate=false&withLocation=false`;
-      const res = await adbFetch(path, env);
+      let res = await adbFetch(path, env);
+      if (!res.ok) {
+        // One delayed retry: a transiently failed window silently shrank
+        // the candidate list — and the result set — on that search only,
+        // so identical searches returned different flights.
+        await new Promise((r) => setTimeout(r, 500));
+        res = await adbFetch(path, env);
+      }
       await budgetBump(env, "adb_interactive", (budget["adb_interactive"] as number) ?? 0,
                        res.headers.get("x-ratelimit-requests-remaining"));
       if (!res.ok) continue;
@@ -1399,12 +1442,21 @@ function monthKey(): string {
   return new Date().toISOString().slice(0, 7);
 }
 
+// A cold search reads the budget ~10× in two seconds, and every read is a
+// Cloudflare subrequest counted against the 50-per-invocation cap the search
+// overflowed. The budget is monthly — a 10 s-stale read changes nothing.
+let budgetMemo: { row: Record<string, any>; at: number } | null = null;
+
 async function budgetRow(env: Env): Promise<Record<string, any>> {
+  if (budgetMemo && Date.now() - budgetMemo.at < 10_000) return budgetMemo.row;
   const m = monthKey();
   const rows = await sbSelect(env, `/api_budget?month=eq.${m}&select=*`);
-  if (rows.length) return rows[0];
-  await sbService(env, "POST", "/api_budget?on_conflict=month", { month: m });
-  return { month: m, adb_cron: 0, adb_interactive: 0, airlabs_calls: 0 };
+  const row = rows.length
+    ? rows[0]
+    : { month: m, adb_cron: 0, adb_interactive: 0, airlabs_calls: 0 };
+  if (!rows.length) await sbService(env, "POST", "/api_budget?on_conflict=month", { month: m });
+  budgetMemo = { row, at: Date.now() };
+  return row;
 }
 
 async function budgetBump(env: Env, field: string, current: number,
@@ -1415,6 +1467,10 @@ async function budgetBump(env: Env, field: string, current: number,
   // the two disagreeing is exactly how a plan upgrade went unnoticed.
   const left = remaining == null ? NaN : Number(remaining);
   if (Number.isFinite(left)) patch["adb_remaining"] = left;
+  if (budgetMemo) {
+    budgetMemo.row[field] = current + 1;
+    if (Number.isFinite(left)) budgetMemo.row["adb_remaining"] = left;
+  }
   await sbService(env, "PATCH", `/api_budget?month=eq.${monthKey()}`, patch);
 }
 
@@ -1449,11 +1505,15 @@ interface CachedFetch {
 /// so every consumer sees one provider-agnostic shape.
 async function fetchLegsCached(
   env: Env, kind: "flight" | "reg", ident: string, date: string,
-  source: "cron" | "interactive"
+  source: "cron" | "interactive",
+  // Cache row already fetched by the caller (bulk read): the row itself,
+  // or null for "known absent". undefined = not preloaded, read it here.
+  pre?: Record<string, any> | null
 ): Promise<CachedFetch> {
   const key = `${kind}|${ident.toUpperCase()}|${date}`;
-  const rows = await sbSelect(env, `/flight_cache?key=eq.${encodeURIComponent(key)}&select=*`);
-  const cached = rows[0];
+  const cached = pre !== undefined
+    ? (pre ?? undefined)
+    : (await sbSelect(env, `/flight_cache?key=eq.${encodeURIComponent(key)}&select=*`))[0];
   const cachedLegs = cached ? (cached.payload as Record<string, unknown>[]) : null;
   if (cached && cachedLegs) {
     const age = Date.now() - Date.parse(String(cached.fetched_at));
@@ -1489,17 +1549,21 @@ async function fetchLegsCached(
     // Count attempts, not just successes — a 429 burns real quota state.
     await budgetBump(env, field, (budget[field] as number) ?? 0,
                      res.headers.get("x-ratelimit-requests-remaining"));
-    if (res.ok) {
-      const raw = (await res.json()) as unknown;
+    if (res.ok || res.status === 404) {
+      const raw = res.ok ? ((await res.json()) as unknown) : [];
       const legs = (Array.isArray(raw) ? raw : []).map((l) => mapLeg(l as Record<string, any>));
-      if (legs.length > 0) {
-        await sbService(env, "POST", "/flight_cache?on_conflict=key", {
-          key, payload: legs, provider: "adb", fetched_at: new Date().toISOString(),
-        });
-        return { legs, cache: "miss" };
-      }
+      // Cache empty answers too: "doesn't fly that date" is a definitive
+      // answer (10-min TTL). Without it every search re-fetched the same
+      // dead candidates — burning quota and, when the re-fetch got
+      // rate-limited, changing the result set from search to search.
+      // Transient failures (429/5xx) fall through uncached below.
+      await sbService(env, "POST", "/flight_cache?on_conflict=key", {
+        key, payload: legs, provider: "adb", fetched_at: new Date().toISOString(),
+      });
+      return { legs, cache: "miss" };
     }
-  } catch { /* fall through to stale/none */ }
+    console.error("adb fetch failed:", res.status, key);
+  } catch (e) { console.error("adb fetch threw:", key, String(e)); }
   return { legs: cachedLegs, cache: cachedLegs ? "stale" : "none" };
 }
 
