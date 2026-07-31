@@ -1,4 +1,5 @@
 import XCTest
+import CoreLocation
 @testable import Arc
 
 /// The point of these thresholds is restraint: the app should say nothing when
@@ -141,5 +142,59 @@ final class DelayRiskTests: XCTestCase {
                                            inboundOrigin: nil, inboundOriginIATA: nil)
         XCTAssertEqual(a.level, .none)
         XCTAssertFalse(a.isWorthShowing)
+    }
+}
+
+/// Sun-side geometry: verified against hand-checkable cases rather than an
+/// ephemeris — the tip only needs left vs right, day vs night.
+final class SunSideTests: XCTestCase {
+    /// At UTC noon in midsummer, the subsolar point is near lon 0 in the
+    /// northern tropics. From 45°N the sun is due south; flying east it's on
+    /// the right, flying west on the left.
+    func testSunSouthOfNorthernObserver() {
+        let noon = DateHelpers.parseAPIDate("2026-06-21T12:00:00.000Z")!
+        let p = CLLocationCoordinate2D(latitude: 45, longitude: 0)
+        let sun = SunSide.sunPosition(at: p, date: noon)
+        XCTAssertEqual(sun.azimuth, 180, accuracy: 8)
+        XCTAssertGreaterThan(sun.elevation, 30)
+
+        XCTAssertEqual(SunSide.side(course: 90, sunAzimuth: sun.azimuth), "right")
+        XCTAssertEqual(SunSide.side(course: 270, sunAzimuth: sun.azimuth), "left")
+        // Flying straight at it — neither window wins.
+        XCTAssertNil(SunSide.side(course: 180, sunAzimuth: sun.azimuth))
+    }
+
+    func testMidnightIsBelowHorizon() {
+        let midnight = DateHelpers.parseAPIDate("2026-06-21T00:00:00.000Z")!
+        let p = CLLocationCoordinate2D(latitude: 45, longitude: 0)
+        XCTAssertLessThan(SunSide.sunPosition(at: p, date: midnight).elevation, 0)
+    }
+
+    /// A short northern eastbound hop at midday: sun on the right, the whole way.
+    func testMiddayEastboundTipSaysRight() {
+        let dep = DateHelpers.parseAPIDate("2026-06-21T10:30:00.000Z")!
+        let arr = DateHelpers.parseAPIDate("2026-06-21T12:30:00.000Z")!
+        let tip = SunSide.tip(dep: .init(latitude: 47, longitude: 8),    // ~ZRH
+                              arr: .init(latitude: 41, longitude: 28),   // ~IST
+                              departure: dep, arrival: arr)
+        XCTAssertEqual(tip?.title, "Sun on the right side")
+    }
+
+    /// The same route at night says "night flight", not a sun side.
+    func testNightFlightTip() {
+        let dep = DateHelpers.parseAPIDate("2026-06-21T22:30:00.000Z")!
+        let arr = DateHelpers.parseAPIDate("2026-06-22T00:30:00.000Z")!
+        let tip = SunSide.tip(dep: .init(latitude: 41, longitude: 28),
+                              arr: .init(latitude: 47, longitude: 8),
+                              departure: dep, arrival: arr)
+        XCTAssertEqual(tip?.title, "Night flight")
+    }
+
+    /// Zeroed coordinates (a manually added flight before geocoding) must
+    /// produce silence, not a tip computed from Null Island.
+    func testMissingCoordinatesSayNothing() {
+        XCTAssertNil(SunSide.tip(dep: .init(latitude: 0, longitude: 0),
+                                 arr: .init(latitude: 47, longitude: 8),
+                                 departure: .now, arrival: .now.addingTimeInterval(3600)))
     }
 }

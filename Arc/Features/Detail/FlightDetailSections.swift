@@ -17,22 +17,54 @@ private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some 
 
 // MARK: - Good to Know
 
+/// Only facts worth knowing: no card at all beats a card of filler.
+///
+/// The old default row claimed "No known disruptions — X and Y operating
+/// normally", asserting airport-level knowledge no feed provides, and its
+/// delay rows repeated what the status banner already says. What remains is
+/// real: cancellation/diversion (worth repeating — it changes everything),
+/// the timezone math, and which side of the aircraft the sun will be on —
+/// computed from the route and the clock, not guessed.
 struct GoodToKnowSection: View {
     let flight: Flight
+
+    private var sunTip: SunSide.Tip? {
+        guard !flight.isCompleted else { return nil }
+        return SunSide.tip(
+            dep: .init(latitude: flight.departureLat, longitude: flight.departureLon),
+            arr: .init(latitude: flight.arrivalLat, longitude: flight.arrivalLon),
+            departure: flight.effectiveDeparture, arrival: flight.effectiveArrival)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionTitle("Good to Know")
-            card { disruptionRow }
-            if flight.timezoneDeltaHours != 0 {
-                card {
-                    HStack(spacing: 10) {
-                        Image(systemName: "clock.arrow.2.circlepath").foregroundStyle(.secondary)
-                        VStack(alignment: .leading, spacing: 2) {
-                            let d = flight.timezoneDeltaHours
-                            Text("\(d > 0 ? "+" : "")\(d) Hour Timezone Change")
-                                .font(.system(size: 15, weight: .semibold))
-                            Text("\(flight.arrTimeLocal) arrival is \(flight.arrivalInDepartureLocal) \(flight.departureCity) time")
-                                .font(.system(size: 13)).foregroundStyle(.secondary)
+        let disrupted = flight.status == .cancelled || flight.status == .diverted
+        let tip = sunTip
+        if disrupted || flight.timezoneDeltaHours != 0 || tip != nil {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionTitle("Good to Know")
+                if disrupted { card { disruptionRow } }
+                if flight.timezoneDeltaHours != 0 {
+                    card {
+                        HStack(spacing: 10) {
+                            Image(systemName: "clock.arrow.2.circlepath").foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                let d = flight.timezoneDeltaHours
+                                Text("\(d > 0 ? "+" : "")\(d) Hour Timezone Change")
+                                    .font(.system(size: 15, weight: .semibold))
+                                Text("\(flight.arrTimeLocal) arrival is \(flight.arrivalInDepartureLocal) \(flight.departureCity) time")
+                                    .font(.system(size: 13)).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                if let tip {
+                    card {
+                        HStack(spacing: 10) {
+                            Image(systemName: tip.icon).foregroundStyle(.orange)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(tip.title).font(.system(size: 15, weight: .semibold))
+                                Text(tip.detail).font(.system(size: 13)).foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -41,40 +73,27 @@ struct GoodToKnowSection: View {
     }
 
     @ViewBuilder private var disruptionRow: some View {
-        let (icon, tint, title, sub) = disruptionInfo
+        let cancelled = flight.status == .cancelled
         HStack(spacing: 10) {
-            Image(systemName: icon).foregroundStyle(tint)
+            Image(systemName: cancelled ? "xmark.seal.fill" : "arrow.triangle.turn.up.right.diamond.fill")
+                .foregroundStyle(ArcTheme.late)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 15, weight: .semibold))
-                Text(sub).font(.system(size: 13)).foregroundStyle(.secondary)
+                Text(cancelled ? "Flight cancelled" : "Flight diverted")
+                    .font(.system(size: 15, weight: .semibold))
+                Text(cancelled
+                     ? "\(flight.departureIATA) → \(flight.arrivalIATA) will not operate as scheduled"
+                     : "This flight was routed to a different airport")
+                    .font(.system(size: 13)).foregroundStyle(.secondary)
             }
         }
-    }
-
-    private var disruptionInfo: (icon: String, tint: Color, title: String, sub: String) {
-        if flight.status == .cancelled {
-            return ("xmark.seal.fill", ArcTheme.late, "Flight cancelled",
-                    "\(flight.departureIATA) → \(flight.arrivalIATA) will not operate as scheduled")
-        }
-        if flight.status == .diverted {
-            return ("arrow.triangle.turn.up.right.diamond.fill", ArcTheme.late, "Flight diverted",
-                    "This flight was routed to a different airport")
-        }
-        if flight.delayMinutes > 15 {
-            return ("exclamationmark.triangle.fill", ArcTheme.late, "Running \(flight.delayMinutes)m late",
-                    "\(flight.departureIATA) → \(flight.arrivalIATA) is experiencing delays")
-        }
-        if flight.delayMinutes > 0 {
-            return ("clock.fill", .orange, "Minor delay — \(flight.delayMinutes)m",
-                    "\(flight.departureIATA) and \(flight.arrivalIATA) operating with a short delay")
-        }
-        return ("checkmark.seal.fill", ArcTheme.onTime, "No known disruptions",
-                "\(flight.departureIATA) and \(flight.arrivalIATA) operating normally")
     }
 }
 
 // MARK: - Where's My Plane
 
+/// The aircraft's story, not its portrait: which tail, what Arc predicts, and
+/// the legs the plane has flown today. The decorative silhouette is gone —
+/// this card earns its space with information.
 struct WheresMyPlaneSection: View {
     let flight: Flight
     var body: some View {
@@ -84,11 +103,7 @@ struct WheresMyPlaneSection: View {
                 Text(flight.aircraftType ?? "Aircraft").font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.85))
             }
-            .padding(.horizontal, 16).padding(.top, 16)
-
-            AircraftArt(type: flight.aircraftType, color: .white)
-                .frame(maxWidth: .infinity).frame(height: 120)
-                .padding(.horizontal, 24).padding(.vertical, 10)
+            .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
 
             VStack(alignment: .leading, spacing: 10) {
                 thisFlightRow
@@ -299,6 +314,14 @@ struct DetailedTimetableSection: View {
                     groupHeader("TOTALS")
                     plainRow("Air Time", flight.durationFormatted)
                     plainRow("Distance", flight.distanceFormatted)
+                    // Calibration in public: once the flight has flown, show
+                    // what Arc predicted at departure next to what happened.
+                    // A prediction you can't check afterwards is marketing.
+                    if flight.isCompleted, flight.predictedDelayAtDeparture > 0 {
+                        Divider()
+                        plainRow("Arc predicted",
+                                 "+\(flight.predictedDelayAtDeparture)m · actual \(flight.delayMinutes > 0 ? "+\(flight.delayMinutes)m" : "on time")")
+                    }
                 }
             }
         }
@@ -368,6 +391,17 @@ struct RouteHistorySection: View {
     private var onRoute: [Flight] {
         all.filter { $0.status == .landed && $0.departureIATA == flight.departureIATA && $0.arrivalIATA == flight.arrivalIATA }
     }
+    /// Punctuality from the user's own completed flights — data no API sells,
+    /// and it compounds with every trip the family takes.
+    private var punctualityLine: String? {
+        guard onRoute.count >= 2 else { return nil }
+        let delays = onRoute.map(\.delayMinutes).sorted()
+        let onTime = delays.filter { $0 <= 15 }.count
+        let median = delays[delays.count / 2]
+        let medianText = median > 0 ? "median +\(median)m" : "typically on time"
+        return "On time \(onTime) of \(onRoute.count) · \(medianText)"
+    }
+
     var body: some View {
         card {
             VStack(alignment: .leading, spacing: 10) {
@@ -377,6 +411,13 @@ struct RouteHistorySection: View {
                     stat("Flights", "\(onRoute.count)")
                     stat("Distance", "\(Int(onRoute.map(\.distanceKm).reduce(0,+))) km")
                     stat("Flight Time", "\(Int(onRoute.map(\.duration).reduce(0,+)) / 3600)h")
+                }
+                if let punctualityLine {
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock.badge.checkmark")
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text(punctualityLine).font(.system(size: 13)).foregroundStyle(.secondary)
+                    }
                 }
             }
         }
