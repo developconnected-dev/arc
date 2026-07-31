@@ -57,15 +57,25 @@ struct DelayRiskCard: View {
     private func row(_ entry: Entry) -> some View {
         let high = entry.assessment.level == .high
         let inboundDriven = entry.assessment.reasons.first?.hasPrefix("Inbound aircraft") == true
+        // Arc's own inference wears the smart mark; a HIGH warning keeps the
+        // plain red triangle — urgency outranks branding.
+        let smart = inboundDriven && !high
         return HStack(alignment: .top, spacing: 10) {
-            Image(systemName: high ? "exclamationmark.triangle.fill"
-                  : inboundDriven ? "airplane.arrival" : "cloud.rain.fill")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(high ? ArcTheme.late : .orange)
-                .frame(width: 20)
+            Group {
+                if high {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(ArcTheme.late)
+                } else if smart {
+                    Image(systemName: "sparkles").foregroundStyle(ArcTheme.smartGradient)
+                } else {
+                    Image(systemName: "cloud.rain.fill").foregroundStyle(.orange)
+                }
+            }
+            .font(.system(size: 15, weight: .semibold))
+            .frame(width: 20)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(entry.airport) · \(entry.assessment.level.title)")
                     .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(smart ? AnyShapeStyle(ArcTheme.smartGradient) : AnyShapeStyle(.primary))
                 Text(entry.assessment.reasons.joined(separator: " · "))
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)

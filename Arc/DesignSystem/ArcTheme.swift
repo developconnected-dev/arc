@@ -19,6 +19,15 @@ enum ArcTheme {
 
     static func timeColor(late: Bool) -> Color { late ? Self.late : Self.onTime }
 
+    /// The one visual voice for what Arc INFERS itself — delay predictions,
+    /// AI-read searches — as opposed to data the airline reported. Sparkles
+    /// plus this coral→magenta ramp, nothing louder, and used sparingly:
+    /// the marker only means something while it's rare.
+    static let smartGradient = LinearGradient(
+        colors: [Color(red: 1.00, green: 0.48, blue: 0.30),
+                 Color(red: 0.83, green: 0.27, blue: 0.75)],
+        startPoint: .leading, endPoint: .trailing)
+
     // Type scale (system SF Pro)
     static let screenTitle = Font.system(size: 34, weight: .heavy)
     static let sheetTitle  = Font.system(size: 22, weight: .bold)
@@ -51,5 +60,23 @@ struct GatePill: View {
         .foregroundStyle(.black)
         .padding(.horizontal, 10).padding(.vertical, 6)
         .background(ArcTheme.gate, in: RoundedRectangle(cornerRadius: ArcTheme.gatePillCorner))
+    }
+}
+
+/// "✦ Arc predicts ~32m late" — the badge for Arc's own inferences.
+/// Sparkles + the smart gradient and nothing else; if a number came from the
+/// airline, it never wears this.
+struct SmartLabel: View {
+    let text: String
+    var size: CGFloat = 14
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "sparkles")
+                .font(.system(size: size - 2, weight: .semibold))
+            Text(text)
+                .font(.system(size: size, weight: .bold))
+        }
+        .foregroundStyle(ArcTheme.smartGradient)
     }
 }

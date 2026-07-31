@@ -224,6 +224,15 @@ struct AddFlightView: View {
             // only falls back to the parser for text it can't read itself.
             searchField(placeholder: "Flight, airline, airport, or paste a booking",
                         text: $query)
+                // The field glows only while the AI is genuinely reading the
+                // text — a quiet "something smart is happening", not a skin.
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(ArcTheme.smartGradient, lineWidth: 1.5)
+                        .opacity(isParsingNatural ? 1 : 0)
+                )
+                .shadow(color: Color(red: 0.9, green: 0.35, blue: 0.55).opacity(isParsingNatural ? 0.3 : 0), radius: 10)
+                .animation(.easeInOut(duration: 0.3), value: isParsingNatural)
                 .padding(.horizontal, 20)
                 .onSubmit { Task { await runUnifiedSearch() } }
 
