@@ -181,7 +181,10 @@ struct AddFlightView: View {
         switch step {
         case .number: step = .search
         case .date: step = .number
-        case .results: step = .date
+        // A number-flow search (airline + number picked step by step) backs
+        // up to the date picker; a bar search just returns to live search —
+        // the bar is still filled, so "back" means "show me the field state".
+        case .results: step = number.isEmpty ? .search : .date
         case .manual: step = manualReturnStep
         case .search: break
         }
@@ -191,10 +194,9 @@ struct AddFlightView: View {
 
     @ViewBuilder private var content: some View {
         switch step {
-        case .search: searchStep
+        case .search, .results: unifiedSearchFlow
         case .number: numberStep
         case .date: dateStep
-        case .results: resultsStep
         case .manual: manualStep
         }
     }
@@ -214,9 +216,12 @@ struct AddFlightView: View {
             .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 12))
     }
 
-    // MARK: Step 1 — search
+    // MARK: Step 1 — search (and results, sharing one persistent bar)
 
-    private var searchStep: some View {
+    /// The search bar STAYS on the results step — refining a search that
+    /// found the wrong flights should be one tap into the same field, not a
+    /// back-navigation. The resolved chips morph in beneath it.
+    private var unifiedSearchFlow: some View {
         VStack(alignment: .leading, spacing: 0) {
             // ONE field. There used to be two — an "AI command bar" and a
             // separate manual search — which meant picking a lane before
@@ -224,18 +229,36 @@ struct AddFlightView: View {
             // only falls back to the parser for text it can't read itself.
             searchField(placeholder: "Flight, airline, airport, or paste a booking",
                         text: $query)
-                // The field glows only while the AI is genuinely reading the
-                // text — a quiet "something smart is happening", not a skin.
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(ArcTheme.smartGradient, lineWidth: 1.5)
-                        .opacity(isParsingNatural ? 1 : 0)
-                )
-                .shadow(color: Color(red: 0.9, green: 0.35, blue: 0.55).opacity(isParsingNatural ? 0.3 : 0), radius: 10)
-                .animation(.easeInOut(duration: 0.3), value: isParsingNatural)
+                .siriGlow(active: isParsingNatural || isPrefetching)
                 .padding(.horizontal, 20)
                 .onSubmit { Task { await runUnifiedSearch() } }
+                .onChange(of: query) { _, newValue in
+                    // Editing on the results step is the "that wasn't it" path:
+                    // fall back to live search state and let the prefetch run.
+                    if step == .results {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                            step = .search
+                            resolvedCode = nil
+                            results = []
+                            errorText = nil
+                        }
+                    }
+                    schedulePrefetch(for: newValue)
+                }
 
+            if step == .results {
+                chips()
+                    .padding(.horizontal, 20).padding(.top, 12)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            if step == .search { searchStep } else { resultsStep }
+        }
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: step)
+    }
+
+    private var searchStep: some View {
+        VStack(alignment: .leading, spacing: 0) {
             if !query.isEmpty {
                 Button { Task { await runUnifiedSearch() } } label: {
                     HStack(spacing: 7) {
@@ -270,14 +293,17 @@ struct AddFlightView: View {
                     ForEach(frequentAirlines, id: \.iata) { a in airlineRow(a) }
                 } else {
                     if let live = livePrefetch, live.query == trimmedQuery, !live.results.isEmpty {
-                        listHeader("FLIGHTS")
-                        ForEach(live.results, id: \.flight_number) { r in
-                            Button { add(r) } label: { resultCard(r) }
-                                .buttonStyle(.plain)
-                                .disabled(isAdding)
-                                .opacity(isAdding ? 0.5 : 1)
-                            Divider().padding(.leading, 20)
+                        Group {
+                            listHeader("FLIGHTS")
+                            ForEach(live.results, id: \.flight_number) { r in
+                                Button { add(r) } label: { resultCard(r) }
+                                    .buttonStyle(.plain)
+                                    .disabled(isAdding)
+                                    .opacity(isAdding ? 0.5 : 1)
+                                Divider().padding(.leading, 20)
+                            }
                         }
+                        .transition(.scale(scale: 0.97, anchor: .top).combined(with: .opacity))
                     } else if isPrefetching {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
@@ -293,7 +319,6 @@ struct AddFlightView: View {
                 }
             }
             .padding(.top, 12)
-            .onChange(of: query) { _, newValue in schedulePrefetch(for: newValue) }
             .onDisappear { prefetchTask?.cancel() }
 
             Button { enterManual(prefillingFrom: nil) } label: {
@@ -327,7 +352,11 @@ struct AddFlightView: View {
         let route = number == nil ? FlightQueryParser.parseRoute(trimmed) : nil
         guard number != nil || route != nil else { isPrefetching = false; return }
 
-        prefetchTask = Task {
+        // @MainActor is load-bearing: this method is nonisolated (plain View
+        // struct func), so a bare Task ran off-main and its @State writes
+        // were sometimes silently dropped — inline results appeared on some
+        // runs and not others.
+        prefetchTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(700))
             guard !Task.isCancelled else { return }
             isPrefetching = true
@@ -344,7 +373,7 @@ struct AddFlightView: View {
             // The user may have kept typing while we fetched — only show
             // results that still belong to what's in the field.
             guard !Task.isCancelled, trimmedQuery == trimmed else { return }
-            withAnimation(.easeOut(duration: 0.15)) { livePrefetch = (trimmed, found) }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) { livePrefetch = (trimmed, found) }
         }
     }
 
@@ -550,7 +579,6 @@ struct AddFlightView: View {
 
     private var resultsStep: some View {
         VStack(alignment: .leading, spacing: 12) {
-            chips().padding(.horizontal, 20)
             if isSearching {
                 HStack { ProgressView(); Text("Searching…").foregroundStyle(.secondary) }.padding(20)
             } else if let errorText {
@@ -889,7 +917,7 @@ struct AddFlightView: View {
             }
         }
         .padding(14)
-        .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color(.secondarySystemFill), in: Capsule())
     }
 
     private var arrowButton: some View {

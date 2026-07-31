@@ -54,8 +54,11 @@ enum FlightQueryParser {
             // name-contains airline match otherwise turns "Hamburg 18
             // September" into defunct-airline flight 18.
             guard !ReferenceData.shared.airports.contains(where: { $0.city.uppercased() == token }) else { continue }
+            // Exact designator, or an airline NAME the token starts (Swiss,
+            // Lufthansa). Contains-matching is too loose here: "HAM 24"
+            // reached "Hamburg Airways" and became a bogus flight number.
             if let airline = ReferenceData.shared.airline(token)
-                ?? ReferenceData.shared.searchAirlines(token).first {
+                ?? ReferenceData.shared.airlines.first(where: { $0.name.uppercased().hasPrefix(token) && token.count >= 4 }) {
                 return "\(airline.iata)\(next)"
             }
         }
