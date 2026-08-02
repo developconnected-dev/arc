@@ -336,6 +336,7 @@ struct FriendsListView: View {
     @State private var filter: FeedFilter = .all
     @State private var groups: [FriendGroup] = []
     @State private var presentedFlight: Flight?
+    @State private var showPastFlights = false
 
     /// The people the current filter admits — nil means everyone.
     private var filterIds: Set<String>? {
@@ -523,6 +524,11 @@ struct FriendsListView: View {
         return store.feed.filter { ids.contains($0.user.id) }
     }
 
+    private var filteredPast: [FriendsStore.FeedItem] {
+        guard let ids = filterIds else { return store.pastFeed }
+        return store.pastFeed.filter { ids.contains($0.user.id) }
+    }
+
     @ViewBuilder private var content: some View {
         if let error = store.lastError {
             Text(error).font(.system(size: 13)).foregroundStyle(.secondary)
@@ -542,24 +548,13 @@ struct FriendsListView: View {
         if !items.isEmpty {
             LazyVStack(spacing: 0) {
                 ForEach(items) { item in
-                    Button {
-                        presentedFlight = store.transientFlight(for: item)
-                        // Zoom the globe onto this flight's arc behind the
-                        // half-height detail.
-                        if let dlat = item.flight.departure_lat, let dlon = item.flight.departure_lon,
-                           let alat = item.flight.arrival_lat, let alon = item.flight.arrival_lon {
-                            store.focusedRoute = .init(
-                                id: item.flight.id,
-                                dep: .init(latitude: dlat, longitude: dlon),
-                                arr: .init(latitude: alat, longitude: alon))
-                        }
-                    } label: {
-                        FriendFlightRow(item: item)
-                    }
-                    .buttonStyle(.plain)
+                    feedRow(item)
+                        .transition(.opacity.combined(with: .move(edge: .leading)))
                     Divider().padding(.leading, 84)
                 }
             }
+            // Filter changes slide/fade the rows instead of snapping.
+            .animation(.easeInOut(duration: 0.25), value: items.map(\.id))
         } else if store.friends.isEmpty && store.pending.isEmpty && !store.isLoading {
             VStack(spacing: 12) {
                 Spacer().frame(height: 30)
@@ -577,6 +572,68 @@ struct FriendsListView: View {
                     .font(.system(size: 15, weight: .semibold)).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity)
+        }
+
+        if !filteredPast.isEmpty {
+            pastSection
+        }
+    }
+
+    private func feedRow(_ item: FriendsStore.FeedItem) -> some View {
+        Button {
+            presentedFlight = store.transientFlight(for: item)
+            // Zoom the globe onto this flight's arc behind the
+            // half-height detail.
+            if let dlat = item.flight.departure_lat, let dlon = item.flight.departure_lon,
+               let alat = item.flight.arrival_lat, let alon = item.flight.arrival_lon {
+                store.focusedRoute = .init(
+                    id: item.flight.id,
+                    dep: .init(latitude: dlat, longitude: dlon),
+                    arr: .init(latitude: alat, longitude: alon))
+            }
+        } label: {
+            FriendFlightRow(item: item)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Landed-over-30-minutes flights, collapsed by default — recent history
+    /// without cluttering the live feed.
+    private var pastSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) { showPastFlights.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Text("Past Flights")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.secondary)
+                    Text("\(filteredPast.count)")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(Color(.secondarySystemFill), in: Capsule())
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(showPastFlights ? 180 : 0))
+                }
+                .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if showPastFlights {
+                LazyVStack(spacing: 0) {
+                    ForEach(filteredPast) { item in
+                        feedRow(item)
+                            .opacity(0.7)
+                        Divider().padding(.leading, 84)
+                    }
+                }
+                .transition(.opacity)
+            }
         }
     }
 
@@ -612,13 +669,29 @@ struct FriendFlightRow: View {
     private var tint: Color { flight.delay_minutes > 0 ? ArcTheme.late : ArcTheme.onTime }
 
     var body: some View {
+        // A minute heartbeat so the countdown/context lines stay honest while
+        // the tab sits open — same rhythm as the map bubbles.
+        TimelineView(.periodic(from: .now, by: 60)) { context in
         HStack(alignment: .center, spacing: 14) {
             VStack(spacing: 4) {
                 FriendAvatar(name: item.user.display_name, size: 46, avatarURL: item.user.avatar_url)
-                Text(statusMini)
+                    .overlay {
+                        // Airborne friends wear their flight's progress as a
+                        // thin ring around the avatar.
+                        if airborne {
+                            Circle()
+                                .trim(from: 0, to: max(0.04, FriendFlightMath.progress(flight)))
+                                .stroke(ArcTheme.onTime, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                                .rotationEffect(.degrees(-90))
+                                .padding(-3)
+                        }
+                    }
+                Text(statusMini(at: context.date))
                     .font(.system(size: 9, weight: .heavy)).tracking(0.5)
                     .foregroundStyle(airborne ? ArcTheme.action : .secondary)
                     .lineLimit(1)
+                    .contentTransition(.numericText())
+                    .animation(.default, value: statusMini(at: context.date))
             }
             .frame(width: 56)
 
@@ -628,10 +701,12 @@ struct FriendFlightRow: View {
                     Text(flight.flight_number)
                         .font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
                     Spacer(minLength: 8)
-                    Text(contextLine)
+                    Text(contextLine(at: context.date))
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(contextColor)
                         .lineLimit(1)
+                        .contentTransition(.numericText())
+                        .animation(.default, value: contextLine(at: context.date))
                 }
                 TextHelpers.cityPair(flight.departure_city, flight.arrival_city, size: 17)
                     .lineLimit(1)
@@ -646,25 +721,33 @@ struct FriendFlightRow: View {
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
         .contentShape(Rectangle())
+        }
     }
 
-    private var statusMini: String {
+    private func statusMini(at now: Date) -> String {
         if airborne { return "IN AIR" }
         if flight.status == "landed" { return "LANDED" }
-        if let dep = FriendFlightMath.departure(flight), dep > .now {
-            let mins = Int(dep.timeIntervalSinceNow / 60)
+        if let dep = FriendFlightMath.departure(flight), dep > now {
+            let mins = Int(dep.timeIntervalSince(now) / 60)
+            if mins >= 1440 { return "IN \(mins / 1440)D" }
             return mins >= 60 ? "IN \(mins / 60)H" : "IN \(mins)M"
         }
         return "LANDED"
     }
 
-    private var contextLine: String {
+    /// Only facts we actually have. The old line invented a "True Curb ETA
+    /// +35m" constant for every landed flight — fabricated intelligence.
+    private func contextLine(at now: Date) -> String {
         if airborne, let arr = FriendFlightMath.arrival(flight) {
-            return "Landing in \(FriendFlightMath.hmLower(Int(arr.timeIntervalSinceNow / 60)))"
+            return "Landing in \(FriendFlightMath.hmLower(Int(arr.timeIntervalSince(now) / 60)))"
         }
-        if flight.status == "landed" { return "Landed • True Curb ETA +35m" }
+        if flight.status == "landed" || (FriendFlightMath.departure(flight).map { $0 <= now } ?? false) {
+            if let arr = FriendFlightMath.arrival(flight), arr <= now {
+                return "Landed \(FriendFlightMath.hmLower(Int(now.timeIntervalSince(arr) / 60))) ago"
+            }
+            return "Landed"
+        }
         if flight.delay_minutes > 0 { return "Departs \(flight.delay_minutes)m late" }
-        if let dep = FriendFlightMath.departure(flight), dep <= .now { return "Landed • True Curb ETA +35m" }
         return "On Time"
     }
 
