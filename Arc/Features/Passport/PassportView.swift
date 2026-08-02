@@ -269,6 +269,7 @@ struct PassportView: View {
 
     private func dateText(_ f: Flight) -> String {
         let d = DateFormatter(); d.locale = Locale(identifier: "en_GB"); d.dateFormat = "d MMM yyyy"
+        d.timeZone = f.depTimeZone   // the flight's local date, not the device's
         return d.string(from: f.scheduledDeparture)
     }
 

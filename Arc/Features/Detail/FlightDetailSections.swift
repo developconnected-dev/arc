@@ -139,8 +139,12 @@ struct WheresMyPlaneSection: View {
             .background(Color(.systemBackground).opacity(0.15))
         }
         .background(
-            LinearGradient(colors: [Color(red: 0.28, green: 0.55, blue: 0.92),
-                                    Color(red: 0.14, green: 0.38, blue: 0.75)],
+            // The card is Arc's own inference (rotation chain + knock-on
+            // prediction), so it wears the smart ramp — deepened coral→magenta
+            // rather than the sticker-bright text gradient, keeping the white
+            // type legible at card scale.
+            LinearGradient(colors: [Color(red: 0.82, green: 0.36, blue: 0.22),
+                                    Color(red: 0.58, green: 0.18, blue: 0.54)],
                            startPoint: .top, endPoint: .bottom)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16))

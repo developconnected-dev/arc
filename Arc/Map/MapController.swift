@@ -8,6 +8,14 @@ final class MapController {
     var style: MapStyleKind = .standard
     var gateMarker: GateMarker?
     var livePlane: LivePlane?
+    /// Which flight the ADS-B feed is tracking — the map suppresses that
+    /// flight's route-derived plane so the same aircraft never renders twice
+    /// (orange live fix + white estimated position) while a ground view is up.
+    var livePlaneFlightID: UUID?
+    /// The tracked tail's identifiers (icao24 / registration, lowercased).
+    /// Connection legs ride the same aircraft, so a different Flight row can
+    /// still be the plane the feed is drawing — match on identity, not row.
+    var livePlaneAircraftKeys: Set<String> = []
     var airportView: AirportView?
     var airportGates: [AirportGate] = []
     /// Latest camera span (updated on gesture end) — gate labels appear only
@@ -16,7 +24,10 @@ final class MapController {
     /// Off by default: an en-route hazard layer is a deliberate thing to look
     /// at, not something to leave painted over every flight.
     var showWeatherHazards: Bool = false
-    var showDayNightTerminator: Bool = true
+    /// True when a published advisory actually intersects a drawn route —
+    /// drives the badge on the weather toggle so the user knows the layer
+    /// has something to show before turning it on.
+    var hazardsTouchRoutes: Bool = false
 
     /// Minute heartbeat so a clock-estimated plane creeps along its arc between
     /// data refreshes. Costs nothing: it triggers no network call, just a
@@ -106,6 +117,8 @@ final class MapController {
     func clearGateMarker() {
         gateMarker = nil
         livePlane = nil
+        livePlaneFlightID = nil
+        livePlaneAircraftKeys = []
         airportView = nil
         airportGates = []
         if let restore = styleBeforeAirport {

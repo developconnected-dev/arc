@@ -109,24 +109,28 @@ final class Flight {
         self.scheduledDeparture = date
     }
 
-    /// Intelligent offline / data freshness indicator text
-    var dataFreshnessText: String {
+    /// Intelligent offline / data freshness indicator text.
+    ///
+    /// "Offline" is a claim about the DEVICE, so it's only made when the
+    /// device is actually offline — stale data while connected just says how
+    /// old it is ("Updated 17m ago"), because the likely cause is the source
+    /// having nothing new for this flight, not a lost connection.
+    @MainActor var dataFreshnessText: String {
+        let online = NetworkMonitor.shared.isConnected
         guard let updateTime = lastStatusUpdate ?? liveUpdatedAt else {
-            return "Offline • Cached Schedule"
+            return online ? "Schedule • No live data yet" : "Offline • Cached Schedule"
         }
         let interval = Date.now.timeIntervalSince(updateTime)
-        if interval < 60 {
-            return "Live • Just updated"
-        } else if interval < 600 { // under 10 minutes
-            let mins = max(1, Int(interval / 60))
-            return "Live • \(mins)m ago"
-        } else if interval < 3600 { // under 1 hour
-            let mins = Int(interval / 60)
-            return "Offline • Cached \(mins)m ago"
+        let age: String = if interval < 3600 {
+            "\(max(1, Int(interval / 60)))m ago"
+        } else if interval < 86400 {
+            "\(Int(interval / 3600))h ago"
         } else {
-            let hours = max(1, Int(interval / 3600))
-            return "Offline • Cached \(hours)h ago"
+            "\(Int(interval / 86400))d ago"
         }
+        if interval < 60 { return "Live • Just updated" }
+        if interval < 600 { return "Live • \(age)" }
+        return online ? "Updated \(age)" : "Offline • Cached \(age)"
     }
 
     /// Row-sized freshness. The full sentence ("Offline • Cached 12m ago") is
@@ -138,7 +142,8 @@ final class Flight {
         let interval = Date.now.timeIntervalSince(updateTime)
         if interval < 60 { return "Live" }
         if interval < 3600 { return "\(max(1, Int(interval / 60)))m" }
-        return "\(max(1, Int(interval / 3600)))h"
+        if interval < 86400 { return "\(max(1, Int(interval / 3600)))h" }
+        return "\(Int(interval / 86400))d"
     }
 
     var isDataFresh: Bool {

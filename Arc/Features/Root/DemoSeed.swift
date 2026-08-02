@@ -149,24 +149,49 @@ enum DemoSeed {
     @MainActor
     static func startDemoLiveActivityIfRequested() {
         let args = ProcessInfo.processInfo.arguments
-        guard args.contains("-laDemo") || args.contains("-laDemoLanding") || args.contains("-laDemoTakeoff") else { return }
+        guard args.contains("-laDemo") || args.contains("-laDemoLanding") || args.contains("-laDemoTakeoff")
+                || args.contains("-laDemoPreflight") else { return }
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         // -laDemoLanding: lands in ~1 min — verifies the offline in-flight →
         // landed flip (and that nothing counts UP afterwards) within minutes.
         // -laDemoTakeoff: boarding, departs in ~1 min — verifies the offline
-        // pre-flight → in-flight flip and its 'estimated' honesty label.
+        // pre-flight → departing flip ("Departing… waiting for takeoff
+        // confirmation" while the departure is clock-passed but unconfirmed,
+        // then in-flight after the 20-min grace).
         let landingSoon = args.contains("-laDemoLanding")
         let takeoffSoon = args.contains("-laDemoTakeoff")
         let attrs = FlightActivityAttributes(
             flightNumber: "B6 416", departureIATA: "SFO", arrivalIATA: "JFK",
             departureCity: "San Francisco", arrivalCity: "New York",
             airline: "JetBlue", aircraftType: "Airbus A321", seat: "1A")
+        // -laDemoPreflight: hours before departure, no gate assigned yet —
+        // the state that truncated the compact island's countdown ("2:4…")
+        // and left its trailing side empty.
+        if args.contains("-laDemoPreflight") {
+            let state = FlightActivityAttributes.ContentState(
+                status: "scheduled",
+                departureTime: .now.addingTimeInterval(160 * 60),
+                arrivalTime: .now.addingTimeInterval((160 + 380) * 60),
+                boardingTime: .now.addingTimeInterval(125 * 60),
+                securityWaitMinutes: nil,
+                delayMinutes: 0, arrivalDelayMinutes: 0, insight: nil,
+                departureGate: nil, departureTerminal: "2",
+                arrivalGate: nil, arrivalTerminal: "5", baggageClaim: nil,
+                altitude: nil, speed: nil, heading: nil, progress: 0)
+            _ = try? Activity.request(
+                attributes: attrs,
+                content: .init(state: state, staleDate: state.departureTime),
+                pushType: nil)
+            return
+        }
         let state = FlightActivityAttributes.ContentState(
             status: takeoffSoon ? "boarding" : "active",
             departureTime: .now.addingTimeInterval(takeoffSoon ? 60 : (landingSoon ? -9 * 60 : -3 * 60)),
             arrivalTime: .now.addingTimeInterval(takeoffSoon ? 11 * 60 : (landingSoon ? 60 : 7 * 60)),
             boardingTime: nil, securityWaitMinutes: nil,
             delayMinutes: -10,   // photo parity: "10m Early"
+            arrivalDelayMinutes: -10,
+            insight: "Making up time in the air — arrival trending early",
             departureGate: "B7", departureTerminal: "2",
             arrivalGate: nil, arrivalTerminal: "5", baggageClaim: nil,
             altitude: 10600, speed: 480, heading: 90, progress: 0.3)

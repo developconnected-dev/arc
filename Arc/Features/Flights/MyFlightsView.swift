@@ -43,6 +43,11 @@ struct MyFlightsView: View {
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets())
                 } else {
+                    // Flat list, one smooth surface. A connection is bound by
+                    // omission and a spine: no divider between its legs, and a
+                    // continuous vertical line through the layover row linking
+                    // the two countdown blocks — transit-map grammar instead
+                    // of a container that breaks the surface.
                     ForEach(Array(flights.enumerated()), id: \.element.id) { idx, flight in
                         Button { onSelect(flight) } label: { FlightRowCard(flight: flight) }
                             .buttonStyle(.plain)
@@ -55,10 +60,16 @@ struct MyFlightsView: View {
                                 }
                             }
                             .overlay(alignment: .bottom) {
-                                if idx < flights.count - 1 {
+                                if idx < flights.count - 1, !isConnectionGap(after: idx) {
                                     Divider().padding(.leading, 20)
                                 }
                             }
+                        if isConnectionGap(after: idx), let plan = connectionPlan {
+                            layoverConnector(plan)
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                        }
                     }
                 }
                 Color.clear.frame(height: 140)   // clear the floating pill
@@ -88,6 +99,60 @@ struct MyFlightsView: View {
         Task { await Flight.delete(flight, from: modelContext) }
     }
 
+    // MARK: Connection grouping
+
+    /// The one connection among the listed flights, if any — computed from the
+    /// same planner the detail screen uses, so both agree on what a journey is.
+    private var connectionPair: (inbound: Flight, outbound: Flight)? {
+        ConnectionPlanner.detectConnection(from: allFlights)
+    }
+
+    private var connectionPlan: ConnectionPlanner.Plan? {
+        connectionPair.map { ConnectionPlanner.plan(inbound: $0.inbound, outbound: $0.outbound) }
+    }
+
+    /// True when the row at `idx` is the inbound leg and the next row is its
+    /// outbound — the gap between them is a layover, not a separator.
+    private func isConnectionGap(after idx: Int) -> Bool {
+        guard let pair = connectionPair, idx + 1 < flights.count else { return false }
+        return flights[idx].id == pair.inbound.id && flights[idx + 1].id == pair.outbound.id
+    }
+
+    /// The live layover line between two connected legs: a continuous spine
+    /// through the countdown column linking the two legs (no divider between
+    /// them), clock, and the planner's verdict — refreshed each minute so
+    /// "1h 12m layover" is never yesterday's number.
+    private func layoverConnector(_ plan: ConnectionPlanner.Plan) -> some View {
+        TimelineView(.periodic(from: .now, by: 60)) { _ in
+            let layover = Int(plan.outbound.effectiveDeparture
+                .timeIntervalSince(plan.inbound.effectiveArrival) / 60)
+            let risk = ConnectionPlanner.risk(neededMinutes: plan.neededMinutes, layoverMinutes: layover)
+            let tint: Color = switch risk {
+            case .relaxed, .normal: ArcTheme.onTime
+            case .tight: .orange
+            case .risky: ArcTheme.late
+            }
+            HStack(spacing: 14) {
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(tint.opacity(0.45))
+                    .frame(width: 2)
+                    .frame(width: 56)   // centered under the countdown blocks
+                Image(systemName: "clock")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(tint)
+                Text("\(FriendFlightMath.hmLower(layover)) layover in \(plan.inbound.arrivalIATA) • \(risk.rawValue)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .contentTransition(.numericText())
+                Spacer()
+            }
+            .frame(height: 34)
+            // Match FlightRowCard's inner padding so the spine sits exactly
+            // under the countdown numbers.
+            .padding(.horizontal, 20)
+        }
+    }
+
     private var header: some View {
         HStack(spacing: 12) {
             Text("My Flights").font(ArcTheme.screenTitle)
@@ -114,13 +179,15 @@ struct MyFlightsView: View {
         VStack(spacing: 10) {
             Image(systemName: "airplane.departure")
                 .font(.system(size: 44))
-                .foregroundStyle(.tertiary)
-            Text("No upcoming flights")
+                .foregroundStyle(ArcTheme.smartGradient.opacity(0.75))
+            Text("Where to next?")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.secondary)
-            Text("Tap the search button to add a flight.")
+            Text("Search a flight number, route, or just paste your booking email.")
                 .font(.system(size: 14))
                 .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
         }
         .frame(maxWidth: .infinity)
     }

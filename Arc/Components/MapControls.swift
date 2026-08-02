@@ -19,11 +19,14 @@ struct MapControls: View {
                         controller.showWeatherHazards.toggle()
                     }
                 }
-                Divider().frame(width: 28)
-                controlButton(controller.showDayNightTerminator ? "moon.stars.fill" : "moon",
-                              color: controller.showDayNightTerminator ? .yellow : .primary) {
-                    withAnimation(.easeInOut) {
-                        controller.showDayNightTerminator.toggle()
+                // Badge only while the layer is off AND would actually show
+                // something on a route — an invitation, not a decoration.
+                .overlay(alignment: .topTrailing) {
+                    if controller.hazardsTouchRoutes && !controller.showWeatherHazards {
+                        Circle().fill(Color.orange)
+                            .frame(width: 8, height: 8)
+                            .overlay(Circle().stroke(.white.opacity(0.8), lineWidth: 1))
+                            .padding(8)
                     }
                 }
             }
