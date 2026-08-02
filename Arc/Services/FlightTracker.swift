@@ -364,7 +364,28 @@ final class FlightTracker: ObservableObject {
             if let gate = latest.arr_gate, !gate.isEmpty { flight.arrivalGate = gate }
             if let terminal = latest.arr_terminal, !terminal.isEmpty { flight.arrivalTerminal = terminal }
             if let baggage = latest.arr_baggage, !baggage.isEmpty { flight.baggageClaim = baggage }
-            if let reg = latest.aircraft_registration, !reg.isEmpty { flight.aircraftRegistration = reg }
+            if let reg = latest.aircraft_registration, !reg.isEmpty {
+                if let old = flight.aircraftRegistration, !old.isEmpty,
+                   old.caseInsensitiveCompare(reg) != .orderedSame {
+                    // Aircraft swap: the rotation chain and knock-on
+                    // prediction describe a tail that no longer flies this
+                    // leg — the airline swapping planes is exactly how a
+                    // scary prediction gets resolved. Clear everything
+                    // derived from the old tail and re-check the new one
+                    // immediately instead of waiting out the 15-min throttle.
+                    flight.rotationLegs = []
+                    flight.predictedDelayMinutes = 0
+                    flight.predictionReason = nil
+                    flight.inboundChecked = false
+                    flight.inboundFlightNumber = nil
+                    flight.aircraftRegistration = reg
+                    if let icao24 = latest.aircraft_icao24, !icao24.isEmpty { flight.aircraftICAO24 = icao24 }
+                    let swapped = flight
+                    Task { @MainActor in await InboundMonitor.checkInbound(for: swapped) }
+                } else {
+                    flight.aircraftRegistration = reg
+                }
+            }
             if let icao24 = latest.aircraft_icao24, !icao24.isEmpty { flight.aircraftICAO24 = icao24 }
             flight.lastStatusUpdate = .now
 

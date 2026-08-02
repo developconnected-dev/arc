@@ -25,20 +25,25 @@ enum ScheduleBackfill {
         return now.timeIntervalSince(last) >= interval
     }
 
-    /// A flight number can fly several legs in a day, so prefer the one whose
-    /// route matches what the user typed; fall back to the first leg when they
-    /// only knew the number.
+    /// A flight number can fly several legs in a day, so prefer the ones whose
+    /// route matches what the user typed — and among those, the leg scheduled
+    /// CLOSEST to this flight's departure. Shuttle numbers fly one route
+    /// multiple times a day; route-only matching stamped the morning leg's
+    /// actual times onto an evening flight, which then read "6h early".
     nonisolated static func bestLeg(_ legs: [FlightAPIClient.FlightSearchResult],
                                     matching flight: Flight) -> FlightAPIClient.FlightSearchResult? {
         let dep = flight.departureIATA.uppercased()
         let arr = flight.arrivalIATA.uppercased()
-        if !dep.isEmpty, !arr.isEmpty,
-           let exact = legs.first(where: {
-               $0.dep_iata.uppercased() == dep && $0.arr_iata.uppercased() == arr
-           }) {
-            return exact
+        let scheduled = flight.scheduledDeparture
+        let onRoute = legs.filter {
+            $0.dep_iata.uppercased() == dep && $0.arr_iata.uppercased() == arr
         }
-        return legs.first
+        let pool = onRoute.isEmpty ? legs : onRoute
+        func distance(_ leg: FlightAPIClient.FlightSearchResult) -> TimeInterval {
+            guard let d = DateHelpers.parseAPIDate(leg.dep_scheduled) else { return .greatestFiniteMagnitude }
+            return abs(d.timeIntervalSince(scheduled))
+        }
+        return pool.min { distance($0) < distance($1) }
     }
 
     /// The published schedule wins over what was typed — that's the whole
