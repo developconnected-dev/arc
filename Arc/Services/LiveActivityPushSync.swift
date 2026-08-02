@@ -112,8 +112,15 @@ enum LiveActivityPushSync {
                 "airline": attrs.airline,
                 "aircraft_type": attrs.aircraftType as Any,
                 "seat": attrs.seat as Any,
-                "scheduled_departure": iso.string(from: state.departureTime),
-                "scheduled_arrival": iso.string(from: state.arrivalTime),
+                // state.departureTime/arrivalTime are EFFECTIVE times —
+                // makeState already added the known delay. The Worker adds
+                // the provider's current delay on top of what we send here,
+                // so sending them as-is double-counts every delay known at
+                // registration. Reconstruct the true schedule.
+                "scheduled_departure": iso.string(from: state.departureTime
+                    .addingTimeInterval(-Double(max(0, state.delayMinutes)) * 60)),
+                "scheduled_arrival": iso.string(from: state.arrivalTime
+                    .addingTimeInterval(-Double(state.arrivalDelayMinutes ?? max(0, state.delayMinutes)) * 60)),
             ],
         ]
     }

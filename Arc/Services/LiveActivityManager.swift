@@ -31,16 +31,22 @@ final class LiveActivityManager {
             securityWait = try? await FlightAPIClient.shared.securityWaitTime(iata: flight.departureIATA)?.securityMinutes
         }
 
+        // Delay shifts the arrival too, matching depTime above — the
+        // lock screen otherwise counts down to an arrival that passed.
+        let arrTime = flight.estimatedArrival
+            ?? flight.scheduledArrival.addingTimeInterval(Double(max(0, flight.delayMinutes)) * 60)
+
         return FlightActivityAttributes.ContentState(
             status: flight.statusRaw,
             departureTime: depTime,
-            // Delay shifts the arrival too, matching depTime above — the
-            // lock screen otherwise counts down to an arrival that passed.
-            arrivalTime: flight.estimatedArrival
-                ?? flight.scheduledArrival.addingTimeInterval(Double(max(0, flight.delayMinutes)) * 60),
+            arrivalTime: arrTime,
             boardingTime: boardingTime,
             securityWaitMinutes: securityWait,
             delayMinutes: flight.delayMinutes,
+            // Arrival delay is its own number: the provider revises arrival
+            // independently (estimatedArrival), so a 20m late departure can
+            // still arrive on time — or vice versa.
+            arrivalDelayMinutes: Int((arrTime.timeIntervalSince(flight.scheduledArrival) / 60).rounded()),
             departureGate: flight.departureGate,
             departureTerminal: flight.departureTerminal,
             arrivalGate: flight.arrivalGate,
@@ -53,7 +59,7 @@ final class LiveActivityManager {
         )
     }
 
-    func startActivity(for flight: Flight, friendName: String? = nil) async {
+    func startActivity(for flight: Flight, friendName: String? = nil, friendAvatarFile: String? = nil) async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
         // Don't start a duplicate
@@ -76,7 +82,8 @@ final class LiveActivityManager {
             airline: flight.airline,
             aircraftType: flight.aircraftType,
             seat: flight.seat,
-            friendName: friendName
+            friendName: friendName,
+            friendAvatarFile: friendAvatarFile
         )
 
         let state = await makeState(for: flight)
@@ -112,6 +119,11 @@ final class LiveActivityManager {
         let directionsCutoff = state.departureTime.addingTimeInterval(-105 * 60)
         if Date.now < directionsCutoff { return directionsCutoff }
         if Date.now < state.departureTime { return state.departureTime }
+        // The widget hedges "Departing…" for 20 min past an UNCONFIRMED
+        // departure — schedule the re-render that ends the hedge and flips
+        // to the in-flight layout (the offline-takeoff case).
+        let departingGraceEnd = state.departureTime.addingTimeInterval(20 * 60)
+        if state.status != "active", Date.now < departingGraceEnd { return departingGraceEnd }
         return max(state.arrivalTime, .now.addingTimeInterval(60))
     }
 
@@ -156,13 +168,15 @@ final class LiveActivityManager {
         guard let activity = activeActivities[flight.id.uuidString] else { return }
         let flightId = flight.id.uuidString
 
+        let finalArrival = flight.actualArrival ?? flight.scheduledArrival
         let finalState = FlightActivityAttributes.ContentState(
             status: "landed",
             departureTime: flight.actualDeparture ?? flight.scheduledDeparture,
-            arrivalTime: flight.actualArrival ?? flight.scheduledArrival,
+            arrivalTime: finalArrival,
             boardingTime: nil,
             securityWaitMinutes: nil,
             delayMinutes: flight.delayMinutes,
+            arrivalDelayMinutes: Int((finalArrival.timeIntervalSince(flight.scheduledArrival) / 60).rounded()),
             departureGate: flight.departureGate,
             departureTerminal: flight.departureTerminal,
             arrivalGate: flight.arrivalGate,

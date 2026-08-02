@@ -1,11 +1,24 @@
 import ActivityKit
 import WidgetKit
 import SwiftUI
+import UIKit
 
 struct FlightLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: FlightActivityAttributes.self) { context in
             lockScreenView(context: context)
+                // Without a tint iOS falls back to its default dark material,
+                // so the card was dark even for light-mode users. The tint is
+                // trait-resolved: near-opaque WHITE in light (translucent
+                // white over the system's dark blur just looked gray), and a
+                // frosted translucent black in dark that keeps the wallpaper
+                // glow.
+                .activityBackgroundTint(Color(uiColor: UIColor { traits in
+                    traits.userInterfaceStyle == .dark
+                        ? UIColor.black.withAlphaComponent(0.6)
+                        : UIColor.white.withAlphaComponent(0.95)
+                }))
+                .activitySystemActionForegroundColor(.primary)
         } dynamicIsland: { context in
             let phase = effectivePhase(context.state)
             return DynamicIsland {
@@ -42,10 +55,8 @@ struct FlightLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.trailing) {
                     if phase == .inFlight {
                         if let friend = context.attributes.friendName, !friend.isEmpty {
-                            HStack(spacing: 3) {
-                                Image(systemName: "person.fill")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.secondary)
+                            HStack(spacing: 4) {
+                                friendAvatar(context.attributes, size: 15)
                                 Text(friend)
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundStyle(.secondary)
@@ -71,7 +82,7 @@ struct FlightLiveActivity: Widget {
                                 .font(.system(size: 22, weight: .bold))
                             Text(context.state.arrivalTime, style: .time)
                                 .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(context.state.delayMinutes > 0 ? .orange : .secondary)
+                                .foregroundStyle(arrivalDelay(context.state) > 0 ? .orange : .secondary)
                         }
                         .padding(.top, 4)
                     }
@@ -88,10 +99,12 @@ struct FlightLiveActivity: Widget {
                                 Text(departureStatusText(context.state))
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(departureStatusColor(context.state))
+                                    .contentTransition(.numericText())
                                 Spacer()
                                 Text(arrivalStatusText(context.state))
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(arrivalStatusColor(context.state))
+                                    .contentTransition(.numericText())
                             }
                             FlightPathProgress(state: context.state)
                                 .frame(height: 18)
@@ -118,12 +131,36 @@ struct FlightLiveActivity: Widget {
                             Spacer()
                             gateBadge(context.state.arrivalGate)
                         }
+                    } else if phase == .departing {
+                        HStack(spacing: 6) {
+                            Image(systemName: "airplane.departure")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(IntelligenceShimmerText.gradient)
+                            IntelligenceShimmerText(
+                                text: "Departing…",
+                                font: .system(size: 12, weight: .bold),
+                                sweep: context.state.departureTime...context.state.departureTime.addingTimeInterval(Self.departureGrace))
+                            Text("awaiting confirmation")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            gateBadge(context.state.departureGate)
+                        }
                     } else {
                         HStack {
                             Image(systemName: "arrow.up.right")
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(.green)
-                            Text("\(Text("Departs Gate in ").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary))\(Text(timerInterval: clamped(to: context.state.departureTime), countsDown: true).font(.system(size: 11, weight: .bold)).foregroundStyle(.primary))")
+                            // Two Texts, not one interpolated Text: a live
+                            // TimeDataSource countdown loses its data source
+                            // inside string interpolation and renders as
+                            // placeholder dashes ("–h ––m").
+                            HStack(spacing: 0) {
+                                Text("Departs Gate in ")
+                                    .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+                                Text.minuteCountdown(to: context.state.departureTime)
+                                    .font(.system(size: 11, weight: .bold)).foregroundStyle(.primary)
+                            }
                             Spacer()
                             gateBadge(context.state.departureGate)
                         }
@@ -153,28 +190,29 @@ struct FlightLiveActivity: Widget {
                     Image(systemName: "airplane.arrival")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.green)
+                } else if phase == .departing {
+                    Image(systemName: "airplane.departure")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.green)
                 } else {
-                    HStack(spacing: 3) {
+                    // Gate when it's known, otherwise the departure mark.
+                    // The countdown lives on the TRAILING side, which has
+                    // room for hours — a fixed 36pt here truncated
+                    // "2:40:12" to "2:4…" with an empty right side.
+                    if context.state.departureGate != nil {
+                        gateBadge(context.state.departureGate)
+                    } else {
                         Image(systemName: "arrow.up.right")
                             .font(.system(size: 9, weight: .bold))
                             .padding(3)
                             .background(.green, in: Circle())
                             .foregroundStyle(.black)
-                        // timerInterval, not .timer: clamps at 0:00 instead of
-                        // counting UP once the date passes.
-                        Text(timerInterval: clamped(to: context.state.departureTime), countsDown: true)
-                            .font(.system(size: 11, weight: .bold).monospacedDigit())
-                            .frame(width: 36)
                     }
                 }
             } compactTrailing: {
                 if phase == .inFlight {
-                    // Clamps at 0:00 — never counts up, even if the landed
-                    // re-render is late or the plane beat its cached ETA.
-                    Text(timerInterval: progressInterval(context.state), countsDown: true)
+                    Text.minuteCountdown(to: context.state.arrivalTime)
                         .font(.system(size: 11, weight: .bold).monospacedDigit())
-                        .frame(width: 52)
-                        .multilineTextAlignment(.trailing)
                 } else if phase == .landed {
                     if let belt = context.state.baggageClaim {
                         HStack(spacing: 2) {
@@ -193,8 +231,14 @@ struct FlightLiveActivity: Widget {
                             .font(.system(size: 11, weight: .bold))
                             .foregroundStyle(.green)
                     }
-                } else {
+                } else if phase == .departing {
+                    // Clock passed departure but takeoff is unconfirmed — a
+                    // countdown says nothing here; the gate is the only
+                    // number still worth the space.
                     gateBadge(context.state.departureGate)
+                } else {
+                    Text.minuteCountdown(to: context.state.departureTime)
+                        .font(.system(size: 11, weight: .bold).monospacedDigit())
                 }
             } minimal: {
                 if phase == .inFlight {
@@ -203,6 +247,10 @@ struct FlightLiveActivity: Widget {
                         .foregroundStyle(.green)
                 } else if phase == .landed {
                     Image(systemName: isConfirmedLanded(context.state) ? "checkmark.circle.fill" : "airplane.arrival")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.green)
+                } else if phase == .departing {
+                    Image(systemName: "airplane.departure")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.green)
                 } else {
@@ -218,7 +266,14 @@ struct FlightLiveActivity: Widget {
 
     // MARK: - Phase
 
-    private enum Phase { case preDeparture, inFlight, landed }
+    private enum Phase { case preDeparture, departing, inFlight, landed }
+
+    /// How long past an UNCONFIRMED departure time the widget keeps hedging
+    /// ("Departing…") before assuming the plane is airborne. Stale data is
+    /// usually only minutes stale — a traveler seated at the gate during an
+    /// unreported extra delay must not be told they're flying. Beyond this,
+    /// the offline-mid-flight interpretation wins.
+    private static let departureGrace: TimeInterval = 20 * 60
 
     /// The "getting there" window: still scheduled and more than ~1¾ h out —
     /// roughly, before the point where a two-hours-early traveller has left.
@@ -252,6 +307,15 @@ struct FlightLiveActivity: Widget {
         // conclude "landed" from the time alone — otherwise the island wears
         // its in-flight clothes forever.
         if state.status == "active" { return Date.now >= state.arrivalTime ? .landed : .inFlight }
+        // Status still pre-departure but the clock passed the last known
+        // departure time: nobody CONFIRMED a takeoff — the data may just be
+        // stale (an unreported extra delay). Hedge with "Departing…" for a
+        // grace window instead of claiming the traveler is airborne while
+        // they may be sitting at the gate.
+        if Date.now >= state.departureTime && Date.now < state.departureTime + Self.departureGrace,
+           Date.now < state.arrivalTime {
+            return .departing
+        }
         if Date.now >= state.departureTime && Date.now < state.arrivalTime { return .inFlight }
         if Date.now >= state.arrivalTime { return .landed }
         return .preDeparture
@@ -265,9 +329,66 @@ struct FlightLiveActivity: Widget {
         let attrs = context.attributes
         switch effectivePhase(state) {
         case .preDeparture: preDepartureView(attrs: attrs, state: state)
+        case .departing:    departingView(attrs: attrs, state: state)
         case .inFlight:     inFlightView(attrs: attrs, state: state)
         case .landed:       landedView(attrs: attrs, state: state)
         }
+    }
+
+    // ── DEPARTING (clock past departure, takeoff not confirmed) ──
+
+    /// Mirrors the landed side's honesty pattern ("Landing soon / waiting for
+    /// confirmation"): the departure time has passed but no data source
+    /// reported a takeoff, so say what we actually know.
+    @ViewBuilder
+    private func departingView(attrs: FlightActivityAttributes, state: FlightActivityAttributes.ContentState) -> some View {
+        VStack(spacing: 0) {
+            headerRow(attrs: attrs, state: state)
+                .padding(.bottom, 10)
+
+            routeRow(attrs: attrs, state: state)
+
+            HStack {
+                Text(departureStatusText(state))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(departureStatusColor(state))
+                    .contentTransition(.numericText())
+                Spacer()
+                Text(arrivalStatusText(state))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(arrivalStatusColor(state))
+                    .contentTransition(.numericText())
+            }
+            .padding(.top, 3)
+            .padding(.bottom, 14)
+
+            insightLine(state)
+                .padding(.bottom, 8)
+
+            HStack {
+                HStack(spacing: 7) {
+                    Image(systemName: "airplane.departure")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(IntelligenceShimmerText.gradient)
+                    VStack(alignment: .leading, spacing: 1) {
+                        // The intelligence voice, not status-green: Arc is
+                        // WAITING on confirmation, and the gradient sweeps
+                        // across the text over the hedge window.
+                        IntelligenceShimmerText(
+                            text: "Departing…",
+                            font: .system(size: 14, weight: .bold),
+                            sweep: state.departureTime...state.departureTime.addingTimeInterval(Self.departureGrace))
+                        Text("Waiting for takeoff confirmation")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                Spacer()
+                gateBadge(state.departureGate)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 17)
     }
 
     // ── PRE-DEPARTURE ──
@@ -303,9 +424,10 @@ struct FlightLiveActivity: Widget {
                 Text(arrivalStatusText(state))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(arrivalStatusColor(state))
+                    .contentTransition(.numericText())
             }
             .padding(.top, 3)
-            .padding(.bottom, 16)
+            .padding(.bottom, 10)
 
             // Long before boarding, the useful action is getting TO the
             // airport: one tap into Apple Maps with the terminal set. The
@@ -313,7 +435,9 @@ struct FlightLiveActivity: Widget {
             // route or already through security, and the space belongs to
             // boarding info again. The app resolves the coordinates; a
             // widget has no airport database.
-            if showsDirections(state), let url = directionsURL(attrs: attrs, state: state) {
+            // Friend mode: never — directions to an airport the VIEWER isn't
+            // flying from are noise (and cost a row against the height cap).
+            if attrs.friendName == nil, showsDirections(state), let url = directionsURL(attrs: attrs, state: state) {
                 Link(destination: url) {
                     HStack(spacing: 6) {
                         Image(systemName: "car.fill")
@@ -333,9 +457,19 @@ struct FlightLiveActivity: Widget {
                 .padding(.bottom, 8)
             }
 
+            // The smart line, when the Worker pushed one. It takes priority
+            // over the security-wait row below (one contextual row, not two —
+            // pre-departure is the tallest layout and the height cap is hard).
+            insightLine(state)
+                .padding(.bottom, 8)
+
             // Security wait (Waitport live data or time-of-day estimate) —
-            // only meaningful while still landside, i.e. before boarding.
-            if let wait = state.securityWaitMinutes, wait > 0,
+            // only meaningful while still landside, i.e. before boarding, and
+            // only for the traveler themself: the security queue at the
+            // FRIEND's airport is their problem, not the viewer's.
+            if attrs.friendName == nil,
+               (state.insight ?? "").isEmpty,
+               let wait = state.securityWaitMinutes, wait > 0,
                state.status != "boarding", state.status != "gateClosed" {
                 HStack(spacing: 5) {
                     Image(systemName: "figure.walk.motion")
@@ -395,7 +529,10 @@ struct FlightLiveActivity: Widget {
                 .padding(.bottom, 8)
             }
 
-            // Departs Gate countdown + gate badge
+            // Departs Gate countdown + gate badge. The badge shows here ONLY
+            // when no row above carried it — boarding/gate-closed rows and the
+            // estimated-boarding row all have their own badge, and two
+            // identical yellow pills stacked reads as a rendering bug.
             HStack {
                 HStack(spacing: 5) {
                     Image(systemName: "arrow.up.right")
@@ -403,15 +540,30 @@ struct FlightLiveActivity: Widget {
                         .padding(4)
                         .background(.green, in: Circle())
                         .foregroundStyle(.black)
-                    Text("\(Text("Departs Gate in ").font(.system(size: 14, weight: .medium)).foregroundStyle(.primary))\(Text(timerInterval: clamped(to: state.departureTime), countsDown: true).font(.system(size: 14, weight: .bold)).foregroundStyle(.primary))")
+                    // .relative, not the TimeDataSource countdown: the
+                    // lock-screen Live Activity renderer draws the new
+                    // TimeDataSource text as placeholder dashes ("–h ––m") —
+                    // only the classic live styles work here.
+                    HStack(spacing: 0) {
+                        Text("Departs Gate in ")
+                            .font(.system(size: 14, weight: .medium)).foregroundStyle(.primary)
+                        Text(state.departureTime, style: .relative)
+                            .font(.system(size: 14, weight: .bold)).foregroundStyle(.primary)
+                    }
                 }
                 Spacer()
-                if state.boardingTime == nil || Date.now >= (state.boardingTime ?? .distantFuture) {
+                if state.status != "boarding", state.status != "gateClosed",
+                   state.boardingTime == nil || Date.now >= (state.boardingTime ?? .distantFuture) {
                     gateBadge(state.departureGate)
                 }
             }
         }
-        .padding(20)
+        // 17pt vertical: enough air that the card doesn't read as squeezed,
+        // while staying under the lock screen's hard height cap (anything
+        // over just gets CLIPPED) — the row paddings above are trimmed to
+        // buy the edges this room.
+        .padding(.horizontal, 20)
+        .padding(.vertical, 17)
     }
 
     // ── IN FLIGHT ──
@@ -420,7 +572,7 @@ struct FlightLiveActivity: Widget {
     private func inFlightView(attrs: FlightActivityAttributes, state: FlightActivityAttributes.ContentState) -> some View {
         VStack(spacing: 0) {
             headerRow(attrs: attrs, state: state)
-                .padding(.bottom, 10)
+                .padding(.bottom, 8)
 
             routeRow(attrs: attrs, state: state)
 
@@ -428,23 +580,31 @@ struct FlightLiveActivity: Widget {
                 Text(departureStatusText(state))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(departureStatusColor(state))
+                    .contentTransition(.numericText())
                 Spacer()
                 Text(arrivalStatusText(state))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(arrivalStatusColor(state))
+                    .contentTransition(.numericText())
             }
             .padding(.top, 3)
-            .padding(.bottom, 14)
+            .padding(.bottom, 10)
+
+            insightLine(state)
+                .padding(.bottom, 6)
 
             // Flighty's glowing flight-path line, filling left→right with
             // progress — self-animating even offline (see FlightPathProgress).
             FlightPathProgress(state: state)
-                .frame(height: 30)
-                .padding(.bottom, 4)
+                .frame(height: 24)
+                .padding(.bottom, 2)
 
             arrivalCountdown(state)
         }
-        .padding(20)
+        // Same edge treatment as pre-departure: 17pt vertical air, bought by
+        // trimming the flight path's height rather than the outer margins.
+        .padding(.horizontal, 20)
+        .padding(.vertical, 17)
     }
 
     /// Big centered "1 hr, 20 min / UNTIL GATE ARRIVAL". `.relative` text is
@@ -456,18 +616,32 @@ struct FlightLiveActivity: Widget {
             Spacer()
             VStack(spacing: 2) {
                 if Date.now >= state.arrivalTime {
-                    Text(isConfirmedLanded(state) ? "LANDED" : "LANDING SOON")
-                        .font(.system(size: 16, weight: .bold).monospacedDigit())
-                        .foregroundStyle(.green)
-                    Text(isConfirmedLanded(state) ? "ARRIVED" : "WAITING FOR CONFIRMATION")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                        .tracking(0.4)
+                    if isConfirmedLanded(state) {
+                        Text("LANDED")
+                            .font(.system(size: 16, weight: .bold).monospacedDigit())
+                            .foregroundStyle(.green)
+                        Text("ARRIVED")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .tracking(0.4)
+                    } else {
+                        // Unconfirmed = Arc is waiting: intelligence voice,
+                        // sweeping over the plausible touch-down window.
+                        IntelligenceShimmerText(
+                            text: "LANDING SOON",
+                            font: .system(size: 16, weight: .bold),
+                            sweep: state.arrivalTime...state.arrivalTime.addingTimeInterval(15 * 60))
+                        Text("WAITING FOR CONFIRMATION")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .tracking(0.4)
+                    }
                 } else {
-                    // timerInterval clamps at 0:00 — a .relative Text would
-                    // silently start counting UP after the arrival time if
-                    // the landed re-render hadn't fired yet.
-                    Text(timerInterval: progressInterval(state), countsDown: true)
+                    // .relative — the lock screen can't render the
+                    // TimeDataSource countdown (placeholder dashes). The
+                    // arrival staleDate re-render flips this branch before
+                    // it could start counting up.
+                    Text(state.arrivalTime, style: .relative)
                         .font(.system(size: 16, weight: .bold).monospacedDigit())
                         .foregroundStyle(.green)
                         .multilineTextAlignment(.center)
@@ -494,13 +668,6 @@ struct FlightLiveActivity: Widget {
         state.departureTime...max(state.arrivalTime, state.departureTime.addingTimeInterval(60))
     }
 
-    /// Countdown interval ending at `end`, valid even if `end` already passed
-    /// (the text then just sits at 0:00 instead of counting up).
-    private func clamped(to end: Date) -> ClosedRange<Date> {
-        let start = min(Date.now, end.addingTimeInterval(-1))
-        return start...end
-    }
-
     // ── LANDED ──
 
     @ViewBuilder
@@ -515,12 +682,22 @@ struct FlightLiveActivity: Widget {
                         .font(.system(size: 14, weight: .semibold))
                 }
                 Spacer()
-                Text(isConfirmedLanded(state) ? "LANDED" : "LANDING SOON")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.green)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(.green.opacity(0.12), in: Capsule())
+                if isConfirmedLanded(state) {
+                    Text("LANDED")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.green)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.green.opacity(0.12), in: Capsule())
+                } else {
+                    IntelligenceShimmerText(
+                        text: "LANDING SOON",
+                        font: .system(size: 11, weight: .bold),
+                        sweep: state.arrivalTime...state.arrivalTime.addingTimeInterval(15 * 60))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color(.secondarySystemFill).opacity(0.6), in: Capsule())
+                }
             }
             .padding(.bottom, 12)
 
@@ -593,10 +770,8 @@ struct FlightLiveActivity: Widget {
             }
             Spacer()
             if let friend = attrs.friendName, !friend.isEmpty {
-                HStack(spacing: 3) {
-                    Image(systemName: "person.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
+                HStack(spacing: 5) {
+                    friendAvatar(attrs, size: 18)
                     Text(friend)
                         .font(.system(size: 14, weight: .semibold))
                         .lineLimit(1)
@@ -621,6 +796,7 @@ struct FlightLiveActivity: Widget {
                 Text(state.departureTime, style: .time)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.green)
+                    .contentTransition(.numericText())
             }
             Spacer()
             HStack(spacing: 2) {
@@ -638,9 +814,53 @@ struct FlightLiveActivity: Widget {
             HStack(spacing: 4) {
                 Text(state.arrivalTime, style: .time)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(state.delayMinutes > 0 ? .orange : .secondary)
+                    .foregroundStyle(arrivalDelay(state) > 0 ? .orange : .secondary)
+                    .contentTransition(.numericText())
                 Text(attrs.arrivalIATA)
                     .font(.system(size: 20, weight: .bold))
+            }
+        }
+    }
+
+    /// The friend's profile picture, staged by the app in the App Group
+    /// container before the activity started (widgets can't load network
+    /// images). Falls back to the generic person icon when no avatar file
+    /// exists — older activities, push-to-start, or users without a photo.
+    @ViewBuilder
+    private func friendAvatar(_ attrs: FlightActivityAttributes, size: CGFloat) -> some View {
+        if let file = attrs.friendAvatarFile,
+           let dir = FileManager.default.containerURL(
+               forSecurityApplicationGroupIdentifier: "group.com.arc.flighttracker"),
+           let image = UIImage(contentsOfFile: dir.appendingPathComponent("la-avatars/\(file)").path) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: size, height: size)
+                .clipShape(Circle())
+        } else {
+            Image(systemName: "person.fill")
+                .font(.system(size: size * 0.6))
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    /// The AI smart line: one sentence of understanding pushed by the Worker
+    /// (delay trend, knock-on expectation). Sparkle wears the intelligence
+    /// gradient; the text stays quiet secondary — the insight should read as
+    /// understanding, not decoration.
+    @ViewBuilder
+    private func insightLine(_ state: FlightActivityAttributes.ContentState) -> some View {
+        if let insight = state.insight, !insight.isEmpty {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(IntelligenceShimmerText.gradient)
+                Text(insight)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.numericText())
             }
         }
     }
@@ -652,8 +872,12 @@ struct FlightLiveActivity: Widget {
             HStack(spacing: 4) {
                 Image(systemName: "figure.walk")
                     .font(.system(size: 10, weight: .bold))
+                // Airport-board flip: when a push moves the gate, the badge
+                // visibly rolls to the new value instead of silently differing
+                // at the next glance.
                 Text(gate)
                     .font(.system(size: 13, weight: .bold))
+                    .contentTransition(.numericText())
             }
             .foregroundStyle(.black)
             .padding(.horizontal, 8)
@@ -676,12 +900,22 @@ struct FlightLiveActivity: Widget {
         return .green
     }
 
+    /// Arrival has its own delay when the provider revised the arrival time
+    /// independently; older pushes without the field fall back to the shared
+    /// departure delay.
+    private func arrivalDelay(_ s: FlightActivityAttributes.ContentState) -> Int {
+        s.arrivalDelayMinutes ?? s.delayMinutes
+    }
+
     private func arrivalStatusText(_ s: FlightActivityAttributes.ContentState) -> String {
-        s.delayMinutes > 0 ? "\(s.delayMinutes)m Late" : "On Time"
+        let d = arrivalDelay(s)
+        if d < 0 { return "\(abs(d))m Early" }
+        if d > 0 { return "\(d)m Late" }
+        return "On Time"
     }
 
     private func arrivalStatusColor(_ s: FlightActivityAttributes.ContentState) -> Color {
-        s.delayMinutes > 0 ? .orange : .green
+        arrivalDelay(s) > 0 ? .orange : .green
     }
 }
 

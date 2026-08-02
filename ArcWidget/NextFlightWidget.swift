@@ -61,16 +61,16 @@ struct NextFlightSmallView: View {
             // happen automatically (see the timeline provider).
             let phase = flight.phase(at: entry.date)
             VStack(alignment: .leading, spacing: 6) {
-                // Countdown — .relative style is system-animated: it keeps
-                // ticking on the lock/home screen with no app process running,
-                // unlike the old pre-rendered countdownText string.
+                // Countdown — live minute-precision text is system-animated:
+                // it keeps ticking on the lock/home screen with no app process
+                // running, unlike the old pre-rendered countdownText string.
                 Group {
                     switch phase {
-                    case .inFlight:
-                        // Clamps at 0:00 at the cached ETA — .relative would
-                        // count UP past it until the landed entry renders.
-                        Text(timerInterval: min(flight.effectiveDeparture, flight.effectiveArrival - 60)...flight.effectiveArrival,
-                             countsDown: true)
+                    // .relative is minute-precision (no seconds column) and
+                    // the one live style every render path supports. The
+                    // landed timeline entry retires the in-flight countdown
+                    // before it could start counting up past the ETA.
+                    case .inFlight: Text(flight.effectiveArrival, style: .relative)
                     case .upcoming: Text(flight.effectiveDeparture, style: .relative)
                     case .landed: Text(flight.status == "landed" ? "Landed" : "Arriving")
                     }
@@ -210,12 +210,10 @@ struct NextFlightMediumView: View {
     private func flightRow(_ flight: WidgetFlight) -> some View {
         let phase = flight.phase(at: entry.date)
         HStack(spacing: 10) {
-            // Countdown — live .relative style, not a pre-rendered string
+            // Countdown — live .relative text: minute precision, no seconds
             Group {
                 switch phase {
-                case .inFlight:
-                    Text(timerInterval: min(flight.effectiveDeparture, flight.effectiveArrival - 60)...flight.effectiveArrival,
-                         countsDown: true)
+                case .inFlight: Text(flight.effectiveArrival, style: .relative)
                 case .upcoming: Text(flight.effectiveDeparture, style: .relative)
                 case .landed: Text(flight.status == "landed" ? "Landed" : "Arriving")
                 }

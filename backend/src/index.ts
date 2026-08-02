@@ -695,7 +695,9 @@ export default {
             slots.push({ legs: pre!.payload as Record<string, unknown>[], cache: "hit" });
             continue;
           }
-          const wait = lastLaunch + 1400 - Date.now();
+          // 1.1 s spacing: the provider limit is per-second — 1.4 s was
+          // comfortable but cost ~2.5 s extra on an 8-candidate cold search.
+          const wait = lastLaunch + 1100 - Date.now();
           if (wait > 0) await new Promise((r) => setTimeout(r, wait));
           lastLaunch = Date.now();
           slots.push(fetchLegsCached(env, "flight", c.number, c.date, "interactive", pre));
@@ -704,7 +706,7 @@ export default {
         let retriesLeft = 3;
         for (let i = 0; i < settled.length; i++) {
           if (settled[i].legs === null && retriesLeft-- > 0) {
-            await new Promise((r) => setTimeout(r, 1400));
+            await new Promise((r) => setTimeout(r, 1100));
             settled[i] = await fetchLegsCached(env, "flight", capped[i].number, capped[i].date, "interactive", null);
           }
         }
@@ -1887,6 +1889,72 @@ async function runLiveActivityCron(env: Env): Promise<void> {
       await pushStarts(env, startRows, updateRows);
     } catch { /* best-effort */ }
   }
+
+  // Friend-facing flight rows: shared_flights is only ever written by the
+  // traveler's own device, so it froze the moment they stopped opening the
+  // app — which is exactly when friends watch closest. Keep active-window
+  // rows fresh server-side from the same provider cache the pushes use.
+  try {
+    await refreshSharedFlights(env);
+  } catch { /* best-effort */ }
+}
+
+/// Refresh provider-derived fields of shared_flights rows in their active
+/// window (4 h before departure → 45 min past delay-adjusted arrival), so a
+/// friend's view keeps moving when the traveler's device goes quiet. Never
+/// touches live position/progress — those stay device-reported.
+async function refreshSharedFlights(env: Env): Promise<void> {
+  const now = Date.now();
+  const from = new Date(now - 24 * 3600_000).toISOString();
+  const to = new Date(now + 4 * 3600_000).toISOString();
+  const rows = await sbSelect(env,
+    "/shared_flights?select=id,flight_number,departure_iata,arrival_iata,scheduled_departure,scheduled_arrival," +
+    `status,delay_minutes,departure_gate,arrival_gate,baggage_claim,updated_at&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}`
+  ) as unknown as Record<string, any>[];
+
+  const active = rows.filter(r => {
+    const delayMs = ((r.delay_minutes as number) ?? 0) * 60_000;
+    const dep = new Date(r.scheduled_departure).getTime();
+    const arr = new Date(r.scheduled_arrival ?? r.scheduled_departure).getTime() + delayMs;
+    return now >= dep - 4 * 3600_000 && now <= arr + 45 * 60_000
+      && r.status !== "landed" && r.status !== "cancelled"
+      // The traveler's own device may be updating this row right now —
+      // only step in once it has gone quiet.
+      && (!r.updated_at || now - Date.parse(r.updated_at) > 5 * 60_000);
+  });
+
+  // Same shuffle-and-cap as the token loop: bounded subrequests per tick,
+  // nobody starved — the cron runs every minute.
+  for (let i = active.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [active[i], active[j]] = [active[j], active[i]];
+  }
+  for (const row of active.slice(0, 5)) {
+    const day = String(row.scheduled_departure).slice(0, 10);
+    const { legs } = await fetchLegsCached(env, "flight", row.flight_number, day, "cron");
+    const leg = (legs ?? []).find(l =>
+      l["dep_iata"] === row.departure_iata && l["arr_iata"] === row.arrival_iata
+    ) ?? (legs && legs.length > 0 ? legs[0] : null);
+    if (!leg) continue;
+    const changed =
+      leg["status"] !== row.status ||
+      (leg["delay"] ?? 0) !== row.delay_minutes ||
+      (leg["dep_gate"] ?? row.departure_gate) !== row.departure_gate ||
+      (leg["arr_gate"] ?? row.arrival_gate) !== row.arrival_gate ||
+      (leg["arr_baggage"] ?? row.baggage_claim) !== row.baggage_claim;
+    if (!changed) continue;
+    await sbService(env, "PATCH", `/shared_flights?id=eq.${row.id}`, {
+      status: leg["status"],
+      delay_minutes: leg["delay"] ?? 0,
+      // A provider null must not erase device-reported values.
+      departure_gate: leg["dep_gate"] ?? row.departure_gate ?? null,
+      arrival_gate: leg["arr_gate"] ?? row.arrival_gate ?? null,
+      baggage_claim: leg["arr_baggage"] ?? row.baggage_claim ?? null,
+      estimated_arrival: leg["arr_actual"] ?? null,
+      actual_departure: leg["dep_actual"] ?? null,
+      updated_at: new Date().toISOString(),
+    });
+  }
 }
 
 /// How often the cron re-consults the provider, by flight phase. Progress
@@ -1948,10 +2016,13 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   const depMs = flight?.["dep_actual"] ? new Date(flight["dep_actual"]).getTime() : schedDepMs + delay * 60_000;
   const arrMs = flight?.["arr_actual"] ? new Date(flight["arr_actual"]).getTime() : schedArrMs + delay * 60_000;
 
-  // Status: provider value, then clock-healed the same way the app heals.
-  let status: string = flight?.["status"] ?? "scheduled";
-  if ((status === "scheduled" || status === "boarding" || status === "gateClosed") && now >= depMs) status = "active";
-  if (status === "active" && now >= arrMs) status = "landed";
+  // Status: the provider's value, UNTOUCHED. The widget already flips its
+  // layout by clock on its own; the status string is its CONFIRMATION
+  // signal ("Departing…"/"Landing soon" vs. confirmed flying/landed).
+  // Clock-healing to "active"/"landed" here fabricated confirmations —
+  // a traveler still seated at the gate through an unreported extra delay
+  // was told they were flying.
+  const status: string = flight?.["status"] ?? "scheduled";
 
   // Done: final "end" push (keeps the landed card up an hour), then forget the token.
   if (now > arrMs + 45 * 60 * 1000 || status === "cancelled") {
@@ -1960,7 +2031,7 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
         timestamp: Math.floor(now / 1000),
         event: "end",
         "dismissal-date": Math.floor(now / 1000) + 3600,
-        "content-state": contentState(status, depMs, arrMs, delay, flight),
+        "content-state": contentState(status, depMs, arrMs, delay, Math.round((arrMs - schedArrMs) / 60_000), flight),
       },
     };
     await sendLiveActivityPush(env, row.token, row.apns_env, APP_BUNDLE_ID, endPayload, 5);
@@ -1974,16 +2045,61 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   // stale-date = next phase boundary: iOS re-renders the Live Activity once
   // when content goes stale, and that render re-evaluates the clock-based
   // phase — so the pre→during→after layout flips on time even if this was
-  // the last push before the device went offline (i.e. takeoff).
-  const staleAt = status === "scheduled" || status === "boarding" || status === "gateClosed"
+  // the last push before the device went offline (i.e. takeoff). Judged by
+  // CLOCK, not status (status is no longer clock-healed): the boundary
+  // after an unconfirmed departure is the end of the widget's 20-min
+  // "Departing…" hedge.
+  const unconfirmedDep = status === "scheduled" || status === "boarding" || status === "gateClosed";
+  const staleAt = now < depMs
     ? Math.floor(depMs / 1000)
-    : Math.floor(Math.max(arrMs, now + 60_000) / 1000);
+    : unconfirmedDep && now < depMs + 20 * 60_000
+      ? Math.floor((depMs + 20 * 60_000) / 1000)
+      : Math.floor(Math.max(arrMs, now + 60_000) / 1000);
+  // Routine progress ticks every 5 minutes (they cost no provider calls —
+  // progress comes from stored times); real changes push immediately at
+  // priority 10. Every-minute pushes just drained the system's LA budget.
+  if (!dataChanged && now - pushedAt < 5 * 60 * 1000) return;
+
+  // The smart line: regenerated only when the situation FINGERPRINT changes
+  // (a new delay, a gate move, a status flip); routine ticks re-push the
+  // cached line, so Haiku runs a handful of times per flight, not per push.
+  const arrDelay = Math.round((arrMs - schedArrMs) / 60_000);
+  const insightKey = [status, delay, arrDelay, flight?.["dep_gate"] ?? "", flight?.["arr_baggage"] ?? ""].join("|");
+  // No line by DEFAULT. A normal flight — on time, gate where it was, no
+  // trend — gets nothing; only a situation with an actual story is worth a
+  // model call, let alone the user's attention.
+  const gateMoved = prior.insight_gate != null
+    && (flight?.["dep_gate"] ?? null) !== prior.insight_gate;
+  const delayMoved = prior.insight_delay != null
+    && Math.abs(delay - (prior.insight_delay as number)) >= 10;
+  const hasStory =
+    Math.abs(arrDelay - delay) >= 10   // schedule padding absorbing a late start (or losing time)
+    || delayMoved                       // delay trend since the last line
+    || gateMoved                        // gate change
+    || delay >= 25                      // a delay big enough to re-plan around
+    || arrDelay <= -10;                 // making up real time in the air
+  let insight: string | null = null;
+  if (hasStory && env.AI_API_KEY) {
+    insight = prior.insight_key === insightKey
+      ? ((prior.insight as string | null) ?? null)
+      : await generateInsight(env, {
+          status,
+          departure_delay_minutes: delay,
+          arrival_delay_minutes: arrDelay,
+          previous_departure_delay_minutes: prior.insight_delay ?? null,
+          minutes_until_departure: Math.round((depMs - now) / 60_000),
+          departure_gate: flight?.["dep_gate"] ?? null,
+          previous_departure_gate: prior.insight_gate ?? null,
+          baggage_belt: flight?.["arr_baggage"] ?? null,
+        });
+  }
+
   const payload = {
     aps: {
       timestamp: Math.floor(now / 1000),
       event: "update",
       "stale-date": staleAt,
-      "content-state": contentState(status, depMs, arrMs, delay, flight),
+      "content-state": contentState(status, depMs, arrMs, delay, arrDelay, flight, insight),
       ...(dataChanged && flight?.["dep_gate"] ? {
         alert: {
           title: `${row.flight_number} update`,
@@ -1992,13 +2108,13 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
       } : {}),
     },
   };
-  // Routine progress ticks every 5 minutes (they cost no provider calls —
-  // progress comes from stored times); real changes push immediately at
-  // priority 10. Every-minute pushes just drained the system's LA budget.
-  if (!dataChanged && now - pushedAt < 5 * 60 * 1000) return;
   const st = await sendLiveActivityPush(env, row.token, row.apns_env, APP_BUNDLE_ID, payload, dataChanged ? 10 : 5);
   await sbService(env, "PATCH", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`, {
-    last_state: { ...prior, flight, fetched_at: lastFetch, pushed_at: now },
+    last_state: {
+      ...prior, flight, fetched_at: lastFetch, pushed_at: now,
+      insight, insight_key: insightKey, insight_delay: delay,
+      insight_gate: flight?.["dep_gate"] ?? null,
+    },
   });
   if (st === 410 || st === 400) {
     await sbService(env, "DELETE", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`);
@@ -2007,8 +2123,62 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
 
 /// Mirror of FlightActivityAttributes.ContentState — field names and types are
 /// a wire contract with the app; change them together or pushes silently fail.
+/// The Live Activity's "smart line": one sentence of UNDERSTANDING — not a
+/// restatement of numbers the widget already shows (times, delay, gate are
+/// all visible), but what they mean: a delay trend, a knock-on expectation,
+/// time made up in the air. Phrased by Haiku from structured signals, same
+/// idiom as the parse calls above. The caller caches by signal fingerprint
+/// so the model runs only when the situation actually changes — never on
+/// routine progress ticks.
+async function generateInsight(env: Env, signals: Record<string, unknown>): Promise<string | null> {
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": env.AI_API_KEY!,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        // Haiku: a trivial phrasing task over a handful of numbers, running
+        // inside the cron's latency budget.
+        model: "claude-haiku-4-5",
+        max_tokens: 120,
+        output_config: {
+          format: {
+            type: "json_schema",
+            schema: {
+              type: "object",
+              properties: {
+                insight: {
+                  type: "string",
+                  description: "ONE calm, factual line, max 70 characters, no emoji. Empty string when the numbers carry no story worth adding.",
+                },
+              },
+              required: ["insight"],
+              additionalProperties: false,
+            },
+          },
+        },
+        system: "You write the single smart line on a flight tracker's lock-screen widget — but ONLY when it genuinely earns its place. The widget already SHOWS times, delay minutes, gate and baggage; restating any of them is worthless. The bar: would this line change what the traveler does or expects? A delay that keeps growing vs. one that is holding, a late departure the schedule padding will absorb (arrival delay clearly smaller than departure delay), a gate change, real time being made up in the air. Anything obvious or merely descriptive fails the bar — prefer the empty string; silence is the default, a line is the exception. When you do write one: calm, factual, max 70 characters, no emoji.",
+        messages: [{ role: "user", content: JSON.stringify(signals) }],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as Record<string, any>;
+    const text = data?.content?.[0]?.text;
+    if (typeof text !== "string") return null;
+    const insight = String(JSON.parse(text)?.insight ?? "").trim();
+    return insight.length > 0 ? insight.slice(0, 90) : null;
+  } catch (e) {
+    console.error("insight generation failed:", String(e));
+    return null;
+  }
+}
+
 function contentState(
-  status: string, depMs: number, arrMs: number, delay: number, flight: Record<string, any> | null
+  status: string, depMs: number, arrMs: number, delay: number, arrDelay: number,
+  flight: Record<string, any> | null, insight: string | null = null
 ): Record<string, unknown> {
   const now = Date.now();
   const total = arrMs - depMs;
@@ -2020,6 +2190,8 @@ function contentState(
     boardingTime: null,
     securityWaitMinutes: null,
     delayMinutes: delay,
+    arrivalDelayMinutes: arrDelay,
+    insight,
     departureGate: flight?.["dep_gate"] ?? null,
     departureTerminal: flight?.["dep_terminal"] ?? null,
     arrivalGate: flight?.["arr_gate"] ?? null,
@@ -2078,7 +2250,7 @@ async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[
             aircraftType: f.aircraft_type ?? null,
             seat: f.seat ?? null,
           },
-          "content-state": contentState(f.status ?? "scheduled", depMs, arrMs, f.delay_minutes ?? 0, {
+          "content-state": contentState(f.status ?? "scheduled", depMs, arrMs, f.delay_minutes ?? 0, f.delay_minutes ?? 0, {
             dep_gate: f.departure_gate, dep_terminal: f.departure_terminal,
             arr_gate: f.arrival_gate, arr_terminal: f.arrival_terminal,
             arr_baggage: f.baggage_claim,
