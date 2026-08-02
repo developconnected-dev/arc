@@ -80,6 +80,11 @@ struct FlightRowCard: View {
                     .padding(.top, 2)
             }
         }
+        // Pin the row to the leading edge even when content wants more width
+        // than it has — an overflowing stack otherwise gets CENTERED, which
+        // shifted each row left by a different amount (whichever badge/chip
+        // happened to be widest) and broke the column alignment.
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 14)
         .padding(.horizontal, 20)
         .contentShape(Rectangle())
@@ -190,7 +195,8 @@ struct FlightRowCard: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
-        .fixedSize()
+        // No fixedSize: the badge yields (truncates) when the row is tight,
+        // instead of forcing the whole row to overflow and mis-align.
         .padding(.horizontal, 7)
         .padding(.vertical, 3.5)
         .background(Color(.secondarySystemFill).opacity(0.8), in: Capsule())
