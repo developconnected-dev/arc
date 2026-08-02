@@ -236,7 +236,9 @@ final class FriendsStore {
     /// The flight-centric feed (Flighty's Friends' Flights): every friend's
     /// relevant flights in one list — airborne first (soonest landing on
     /// top), then everything still to come (soonest departure first), then
-    /// flights landed in the last 24h.
+    /// flights landed in the last 30 minutes. Older landings live in
+    /// `pastFeed` — same grace period a user's own flight gets in My Flights
+    /// before moving to Passport.
     ///
     /// Upcoming has no far horizon on purpose: families book holidays months
     /// ahead, and the whole point of adding someone is seeing the trip they
@@ -254,7 +256,7 @@ final class FriendsStore {
                 } else if let dep = FriendFlightMath.departure(f), dep > now {
                     ranked.append((item, 1, dep.timeIntervalSince1970))
                 } else if let arr = FriendFlightMath.arrival(f), arr <= now,
-                          arr > now.addingTimeInterval(-24 * 3600) {
+                          arr > now.addingTimeInterval(-FriendFlightMath.landedGrace) {
                     ranked.append((item, 2, -arr.timeIntervalSince1970))
                 }
             }
@@ -262,6 +264,26 @@ final class FriendsStore {
         return ranked
             .sorted { ($0.bucket, $0.order) < ($1.bucket, $1.order) }
             .map(\.item)
+    }
+
+    /// Flights whose 30-minute post-landing grace has expired — the collapsed
+    /// "Past Flights" section at the bottom of the friends list. Two weeks is
+    /// plenty: this is "how was the trip?", not an archive.
+    var pastFeed: [FeedItem] { pastFeed(at: .now) }
+
+    func pastFeed(at now: Date) -> [FeedItem] {
+        var out: [(item: FeedItem, arr: Date)] = []
+        for entry in friends {
+            for f in entry.flights where f.status != "cancelled" {
+                guard !FriendFlightMath.isAirborne(f, at: now),
+                      let arr = FriendFlightMath.arrival(f),
+                      arr <= now.addingTimeInterval(-FriendFlightMath.landedGrace),
+                      arr > now.addingTimeInterval(-14 * 24 * 3600)
+                else { continue }
+                out.append((FeedItem(user: entry.user, flight: f), arr))
+            }
+        }
+        return out.sorted { $0.arr > $1.arr }.map(\.item)
     }
 
     /// A display-only Flight model — NOT inserted into SwiftData — so a
@@ -360,6 +382,10 @@ final class FriendsStore {
 /// possibly stale status — same healing rules as the rest of the app: the
 /// clock wins over what the status claims.
 enum FriendFlightMath {
+    /// How long a landed flight stays "live" (feed + map bubble) before
+    /// retiring to Past Flights — mirrors My Flights' 30-minute grace.
+    static let landedGrace: TimeInterval = 30 * 60
+
     static func departure(_ f: ArcSupabase.SharedFlight) -> Date? {
         DateHelpers.parseAPIDate(f.scheduled_departure)
             .map { $0.addingTimeInterval(Double(f.delay_minutes) * 60) }
@@ -402,7 +428,8 @@ enum FriendFlightMath {
 
     /// The flight a friend's row/bubble should show. Priority: airborne now →
     /// next upcoming (within 36h — a trip next month isn't "news") → landed
-    /// within the last 24h → nothing.
+    /// within the last 30 minutes (then the bubble retires, matching the
+    /// feed's grace period) → nothing.
     static func spotlight(from flights: [ArcSupabase.SharedFlight],
                           at now: Date = .now) -> ArcSupabase.SharedFlight? {
         let valid = flights.filter { $0.status != "cancelled" }
@@ -414,7 +441,7 @@ enum FriendFlightMath {
         if let upcoming { return upcoming.0 }
         let recentlyLanded = valid
             .compactMap { f in arrival(f).map { (f, $0) } }
-            .filter { $0.1 <= now && $0.1 > now.addingTimeInterval(-24 * 3600) }
+            .filter { $0.1 <= now && $0.1 > now.addingTimeInterval(-landedGrace) }
             .max { $0.1 < $1.1 }
         return recentlyLanded?.0
     }
@@ -442,13 +469,23 @@ enum FriendFlightMath {
         return ("ON TIME", .countdown)
     }
 
+    /// Past a day, hours stop meaning anything ("IN 523H 14M") — roll to days.
     static func hm(_ minutes: Int) -> String {
-        minutes >= 60 ? "\(minutes / 60)H \(minutes % 60)M" : "\(minutes)M"
+        let m = max(0, minutes)
+        if m >= 1440 {
+            let d = m / 1440, h = (m % 1440) / 60
+            return h > 0 ? "\(d)D \(h)H" : "\(d)D"
+        }
+        return m >= 60 ? "\(m / 60)H \(m % 60)M" : "\(m)M"
     }
 
     /// "2h 10m" / "45m" — lowercase variant for prose lines ("Landing in …").
     static func hmLower(_ minutes: Int) -> String {
         let m = max(0, minutes)
+        if m >= 1440 {
+            let d = m / 1440, h = (m % 1440) / 60
+            return h > 0 ? "\(d)d \(h)h" : "\(d)d"
+        }
         return m >= 60 ? "\(m / 60)h \(m % 60)m" : "\(m)m"
     }
 

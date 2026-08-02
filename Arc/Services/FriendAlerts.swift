@@ -177,8 +177,13 @@ enum FriendAlerts {
 
             let flight = FriendsStore.shared.transientFlight(
                 for: .init(user: entry.user, flight: f))
+            // Stage the avatar in the App Group first — the widget can only
+            // render what's already on disk when the activity starts.
+            let avatarFile = await LiveActivityAvatarStore.ensureAvatar(
+                userId: entry.user.id, urlString: entry.user.avatar_url)
             await LiveActivityManager.shared.startActivity(
-                for: flight, friendName: entry.user.display_name)
+                for: flight, friendName: entry.user.display_name,
+                friendAvatarFile: avatarFile)
             await LiveActivityManager.shared.updateActivity(for: flight)
         }
     }
