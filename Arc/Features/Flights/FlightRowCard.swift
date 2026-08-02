@@ -97,7 +97,9 @@ struct FlightRowCard: View {
         VStack(spacing: 0) {
             if let cd = flight.countdown {
                 Text(cd.value)
-                    .font(.system(size: cd.value.count > 2 ? 24 : 30, weight: .heavy))
+                    // Monospaced digits: "24", "34" and "46" render the same
+                    // width, so the centered numbers form a true column.
+                    .font(.system(size: cd.value.count > 2 ? 24 : 30, weight: .heavy).monospacedDigit())
                     .foregroundStyle(.primary)
                     .contentTransition(.numericText(countsDown: true))
                     .animation(.default, value: cd.value)
@@ -133,10 +135,13 @@ struct FlightRowCard: View {
     }
 
     private var routeRow: some View {
-        HStack(spacing: 14) {
+        // Sized to genuinely FIT the row's width: the old 14pt type plus 14pt
+        // gaps was ~28pt wider than the space, so the stack overflowed and
+        // SwiftUI centered it — every row shifted by a different amount.
+        HStack(spacing: 10) {
             endpoint(arrow: "arrow.up.right", iata: flight.departureIATA, time: flight.effectiveDepTimeLocal)
             endpoint(arrow: "arrow.down.right", iata: flight.arrivalIATA, time: flight.effectiveArrTimeLocal)
-            Spacer(minLength: 6)
+            Spacer(minLength: 4)
             dataFreshnessBadge
         }
     }
@@ -146,21 +151,19 @@ struct FlightRowCard: View {
         // every flight, not just imminent ones. IATA stays neutral; the
         // circle and the (effective) time carry the color.
         let tint = flight.isDelayed ? ArcTheme.late : ArcTheme.onTime
-        return HStack(spacing: 6) {
+        return HStack(spacing: 5) {
             Image(systemName: arrow)
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 18, height: 18)
                 .background(tint, in: Circle())
             Text(iata)
-                .font(.system(size: 14, weight: .bold))
+                .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(.primary)
             Text(time)
-                .font(.system(size: 14, weight: .semibold).monospacedDigit())
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
                 .foregroundStyle(tint)
         }
-        // The route is the point of the row: it keeps its natural width and the
-        // badge beside it yields, rather than the times wrapping mid-digit.
         .fixedSize(horizontal: true, vertical: false)
     }
 
@@ -195,8 +198,9 @@ struct FlightRowCard: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
-        // No fixedSize: the badge yields (truncates) when the row is tight,
-        // instead of forcing the whole row to overflow and mis-align.
+        // Fixed size: the badge's text must never be squeezed into a bare
+        // dot — the row is sized so everything fits instead.
+        .fixedSize()
         .padding(.horizontal, 7)
         .padding(.vertical, 3.5)
         .background(Color(.secondarySystemFill).opacity(0.8), in: Capsule())
