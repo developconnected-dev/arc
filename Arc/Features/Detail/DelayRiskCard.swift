@@ -11,13 +11,37 @@ struct DelayRiskCard: View {
 
     @State private var departure: DelayRisk.Assessment?
     @State private var arrival: DelayRisk.Assessment?
+    @State private var checkedAt: Date?
 
     var body: some View {
         Group {
-            if let worth = shown, !worth.isEmpty {
+            if flight.showsPrediction || shown?.isEmpty == false {
                 VStack(alignment: .leading, spacing: 10) {
-                    ForEach(worth, id: \.airport) { entry in
+                    // The prediction's REASONING lives here, on the detail
+                    // screen — the list chip states the number, this card
+                    // explains it.
+                    if flight.showsPrediction {
+                        VStack(alignment: .leading, spacing: 3) {
+                            SmartLabel(text: "Arc predicts +\(flight.predictedDelayMinutes)m", size: 15)
+                            Text((flight.predictionReason ?? "Knock-on from the aircraft's earlier legs today")
+                                 + " — the airline still shows \(flight.delayMinutes > 0 ? "+\(flight.delayMinutes)m" : "on time").")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    ForEach(shown ?? [], id: \.airport) { entry in
                         row(entry)
+                    }
+                    // Date the assessment: "checked 2m ago" turns a quiet card
+                    // into evidence that Arc is actually watching.
+                    if let checkedAt {
+                        TimelineView(.periodic(from: .now, by: 60)) { context in
+                            let mins = max(0, Int(context.date.timeIntervalSince(checkedAt) / 60))
+                            Text(mins == 0 ? "Checked just now" : "Checked \(mins)m ago")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.tertiary)
+                        }
                     }
                 }
                 .padding(14)
@@ -45,8 +69,17 @@ struct DelayRiskCard: View {
 
     private var shown: [Entry]? {
         var out: [Entry] = []
-        if let departure, departure.isWorthShowing {
-            out.append(Entry(airport: flight.departureIATA, assessment: departure))
+        if var departure, departure.isWorthShowing {
+            // The prediction row above already explains the knock-on with
+            // better reasoning — the outlook keeps only its OTHER reasons
+            // (weather here, weather at the feeder), or stays silent.
+            if flight.showsPrediction {
+                let rest = departure.reasons.filter { !$0.hasPrefix("Inbound aircraft — about") }
+                departure = DelayRisk.Assessment(level: departure.level, reasons: rest)
+            }
+            if !departure.reasons.isEmpty {
+                out.append(Entry(airport: flight.departureIATA, assessment: departure))
+            }
         }
         if let arrival, arrival.isWorthShowing {
             out.append(Entry(airport: flight.arrivalIATA, assessment: arrival))
@@ -123,5 +156,6 @@ struct DelayRiskCard: View {
             .airportConditions(icao: icao, at: flight.effectiveArrival) {
             arrival = DelayRisk.assess(now: conditions.now, atDeparture: conditions.atTime)
         }
+        checkedAt = .now
     }
 }

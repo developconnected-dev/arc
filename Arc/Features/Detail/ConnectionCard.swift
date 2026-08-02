@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// Connection Assistant card in Flight Detail: the other leg, the live
 /// layover, a four-tier risk rating, and the concrete steps of the transfer
@@ -6,6 +7,23 @@ import SwiftUI
 struct ConnectionCard: View {
     let plan: ConnectionPlanner.Plan
     let currentFlightID: UUID
+    @Query private var allFlights: [Flight]
+
+    /// Median arrival lateness of the user's OWN completed flights on the
+    /// inbound route — the leg whose lateness actually eats the layover.
+    /// Personal history, so it only speaks with at least a little of it
+    /// (2+ flights) and something worth saying (10m+ median).
+    private var historyMedianDelay: Int? {
+        let onRoute = allFlights.filter {
+            $0.status == .landed
+                && $0.departureIATA == plan.inbound.departureIATA
+                && $0.arrivalIATA == plan.inbound.arrivalIATA
+        }
+        guard onRoute.count >= 2 else { return nil }
+        let delays = onRoute.map(\.delayMinutes).sorted()
+        let median = delays[delays.count / 2]
+        return median >= 10 ? median : nil
+    }
 
     private var otherLeg: Flight {
         plan.inbound.id == currentFlightID ? plan.outbound : plan.inbound
@@ -47,6 +65,23 @@ struct ConnectionCard: View {
                 layoverStat(title: "YOU NEED ~", value: formatMinutes(plan.neededMinutes),
                             color: Color(.secondaryLabel))
                 Spacer()
+            }
+
+            // Route memory: how this layover tends to play out for THIS user.
+            // Plain styling on purpose — it's history, not Arc inference, so
+            // it doesn't wear the smart mark.
+            if let median = historyMedianDelay {
+                let effective = plan.layoverMinutes - median
+                let tighter = effective < plan.neededMinutes
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 12))
+                        .foregroundStyle(tighter ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary))
+                    Text("Your \(plan.inbound.departureIATA) → \(plan.inbound.arrivalIATA) flights have arrived +\(median)m median — in practice this is more like a \(formatMinutes(max(0, effective))) layover.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(tighter ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.secondary))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Divider()

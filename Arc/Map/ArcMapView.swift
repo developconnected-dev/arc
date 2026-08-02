@@ -14,7 +14,6 @@ struct ArcMapView: View {
         // @Observable change read only inside it didn't register as a
         // dependency — the layer appeared or vanished on the next pan instead
         // of on the tap. Hoisting the reads makes the toggle immediate.
-        let showTerminator = controller.showDayNightTerminator
         let showHazards = controller.showWeatherHazards
         let hazards = controller.hazards
         // Observation hook: the minute tick re-derives estimated plane positions.
@@ -27,12 +26,6 @@ struct ArcMapView: View {
                 ForEach(routeHazards(hazards)) { hazard in
                     hazardArea(hazard)
                 }
-            }
-
-            if showTerminator {
-                MapPolygon(coordinates: GeoMath.solarTerminatorPolygon(date: .now))
-                    .foregroundStyle(Color.indigo.opacity(0.28))
-                    .stroke(Color.orange.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
             }
 
             // Friends' flights (Friends tab): route arcs + avatar bubbles
@@ -188,17 +181,37 @@ struct ArcMapView: View {
                     // airborne flight simply had no plane whenever OpenSky had
                     // nothing for that aircraft — which is often, and always
                     // when offline. Friend flights already worked this way.
-                    if flight.isActive, let plane = ownPlane(flight, dep: dep, arr: arr) {
+                    // Skip the aircraft the ADS-B ground-view feed is already
+                    // drawing (the orange plane) — otherwise the same physical
+                    // plane shows twice: live fix + slightly-stale route
+                    // position. Matched by flight row OR tail identity, since
+                    // connection legs share one aircraft.
+                    if flight.isActive,
+                       !(controller.livePlane != nil && isFeedAircraft(flight)),
+                       let plane = ownPlane(flight, dep: dep, arr: arr) {
                         Annotation("", coordinate: plane.coordinate) {
+                            ActivePlaneGlyph(heading: plane.heading, isLive: plane.isLive)
+                        }
+                    }
+
+                    // The inbound rotation, live on the map: for an upcoming
+                    // flight whose tail is currently flying toward the
+                    // departure airport, draw that leg and the aircraft on it.
+                    // "Where's my plane" stops being a text section — you can
+                    // watch your bird coming. Suppressed while the ground-view
+                    // ADS-B feed draws the same tail in orange.
+                    if flight.isUpcoming,
+                       !(controller.livePlane != nil && isFeedAircraft(flight)),
+                       let inbound = inboundLegOverlay(flight) {
+                        MapPolyline(coordinates: inbound.path)
+                            .stroke(Color(red: 0.83, green: 0.27, blue: 0.75).opacity(0.55),
+                                    style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [1, 5]))
+                        Annotation("", coordinate: inbound.position) {
                             Image(systemName: "airplane")
-                                .font(.system(size: 18, weight: .black))
-                                .foregroundStyle(.white)
-                                .rotationEffect(.degrees(plane.heading - 90))
-                                .shadow(radius: 2)
-                                // Estimated positions read slightly softer than
-                                // a real fix, so the map never overstates what
-                                // it knows.
-                                .opacity(plane.isLive ? 1 : 0.85)
+                                .font(.system(size: 14, weight: .black))
+                                .foregroundStyle(ArcTheme.smartGradient)
+                                .rotationEffect(.degrees(inbound.heading - 90))
+                                .shadow(color: .black.opacity(0.35), radius: 2)
                         }
                     }
                 }
@@ -207,13 +220,21 @@ struct ArcMapView: View {
         .mapStyle(controller.style == .hybrid ? .hybrid(elevation: .realistic) : .standard(elevation: .realistic))
         // Keep an airborne flight's plane creeping along its arc with no live
         // fix and no network: the position is derived from the clock, so this
-        // only needs a nudge to re-render. Zero network calls.
-        .task(id: flights.contains(where: \.isActive)) {
-            guard flights.contains(where: \.isActive) else { return }
+        // only needs a nudge to re-render. Zero network calls. Inbound
+        // rotation legs need the same heartbeat, so upcoming flights with a
+        // known rotation count too.
+        .task(id: flights.contains { $0.isActive || ($0.isUpcoming && !$0.rotationLegs.isEmpty) }) {
+            guard flights.contains(where: { $0.isActive || ($0.isUpcoming && !$0.rotationLegs.isEmpty) })
+            else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
                 controller.clockTick += 1
             }
+        }
+        // Tell the weather toggle whether it has anything to say: a badge on
+        // the control beats making the user toggle blind.
+        .task(id: "\(controller.hazards.count)-\(flights.count)") {
+            controller.hazardsTouchRoutes = !routeHazards(controller.hazards).isEmpty
         }
         .mapControlVisibility(.hidden)
         .onMapCameraChange(frequency: .onEnd) { context in
@@ -252,11 +273,76 @@ struct ArcMapView: View {
         }
     }
 
+    /// The active flight's own plane, with a slow breathing halo — the one
+    /// aircraft on the map that's *yours, right now* reads as alive.
+    private struct ActivePlaneGlyph: View {
+        let heading: Double
+        let isLive: Bool
+        @State private var breathe = false
+
+        var body: some View {
+            ZStack {
+                Circle()
+                    .fill(ArcTheme.routeLine.opacity(0.35))
+                    .frame(width: 34, height: 34)
+                    .scaleEffect(breathe ? 1.25 : 0.8)
+                    .opacity(breathe ? 0.1 : 0.45)
+                Image(systemName: "airplane")
+                    .font(.system(size: 18, weight: .black))
+                    .foregroundStyle(.white)
+                    .rotationEffect(.degrees(heading - 90))
+                    .shadow(radius: 2)
+                    // Estimated positions read slightly softer than a real
+                    // fix, so the map never overstates what it knows.
+                    .opacity(isLive ? 1 : 0.85)
+            }
+            .onAppear {
+                withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) {
+                    breathe = true
+                }
+            }
+        }
+    }
+
+    /// The currently-flying leg of an upcoming flight's rotation chain: path,
+    /// clock-estimated position, and heading. Nil when the tail isn't in the
+    /// air (parked feeders and landed inbounds have nothing to show).
+    private func inboundLegOverlay(_ flight: Flight)
+    -> (path: [CLLocationCoordinate2D], position: CLLocationCoordinate2D, heading: Double)? {
+        let now = Date.now
+        guard let leg = flight.rotationLegs.first(where: { leg in
+            guard leg.status != "landed",
+                  let dep = leg.scheduledDeparture, let arr = leg.effectiveArrival
+            else { return false }
+            return leg.status.lowercased() == "active" || (dep <= now && now < arr)
+        }),
+        let depAirport = ReferenceData.shared.airport(leg.depIATA),
+        let arrAirport = ReferenceData.shared.airport(leg.arrIATA),
+        let dep = leg.scheduledDeparture, let arr = leg.effectiveArrival, arr > dep
+        else { return nil }
+        let gc = GeoMath.greatCircle(from: depAirport.coordinate, to: arrAirport.coordinate)
+        let progress = min(1, max(0, now.timeIntervalSince(dep) / arr.timeIntervalSince(dep)))
+        guard let pos = GeoMath.position(along: gc, progress: progress) else { return nil }
+        return (gc, pos.coordinate, pos.heading)
+    }
+
     private func endpointDot(past: Bool) -> some View {
         Circle().fill(.white).frame(width: past ? 8 : 10, height: past ? 8 : 10)
             .overlay(Circle().stroke(past ? ArcTheme.routeLinePast : ArcTheme.action,
                                      lineWidth: past ? 2 : 3))
             .opacity(past ? 0.8 : 1)
+    }
+
+    /// Is this flight riding the aircraft the ground-view ADS-B feed is
+    /// drawing? True on the watched flight itself or any flight sharing its
+    /// tail (icao24 / registration).
+    private func isFeedAircraft(_ flight: Flight) -> Bool {
+        if controller.livePlaneFlightID == flight.id { return true }
+        let keys = controller.livePlaneAircraftKeys
+        guard !keys.isEmpty else { return false }
+        return [flight.aircraftICAO24, flight.aircraftRegistration]
+            .compactMap { $0?.lowercased() }
+            .contains(where: keys.contains)
     }
 
     /// Where to draw this flight's plane: the live fix if we have one, else the

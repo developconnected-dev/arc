@@ -65,12 +65,13 @@ struct GatePill: View {
 
 /// "✦ Arc predicts ~32m late" — the badge for Arc's own inferences.
 /// Sparkles + the smart gradient and nothing else; if a number came from the
-/// airline, it never wears this. A single shimmer sweeps across on first
-/// appearance — once, never looping.
+/// airline, it never wears this. A slow shimmer sweeps across on a long,
+/// regular cadence — a quiet pulse, not a spinner: the pause between sweeps
+/// is what keeps it feeling considered rather than busy.
 struct SmartLabel: View {
     let text: String
     var size: CGFloat = 14
-    @State private var shimmered = false
+    @State private var sweeping = false
 
     var body: some View {
         label
@@ -79,14 +80,30 @@ struct SmartLabel: View {
                     LinearGradient(colors: [.clear, .white.opacity(0.85), .clear],
                                    startPoint: .leading, endPoint: .trailing)
                         .frame(width: geo.size.width * 0.55)
-                        .offset(x: shimmered ? geo.size.width + 12 : -geo.size.width * 0.55 - 12)
+                        .offset(x: sweeping ? geo.size.width + 12 : -geo.size.width * 0.55 - 12)
                 }
                 .mask(label)
                 .allowsHitTesting(false)
             }
-            .onAppear {
-                guard !shimmered else { return }
-                withAnimation(.easeInOut(duration: 1.0).delay(0.25)) { shimmered = true }
+            .task {
+                // Both rest positions sit outside the mask, so the un-animated
+                // reset between sweeps is invisible.
+                try? await Task.sleep(for: .seconds(0.4))
+                while !Task.isCancelled {
+                    withAnimation(.easeInOut(duration: 1.8)) { sweeping = true }
+                    try? await Task.sleep(for: .seconds(2.0))
+                    sweeping = false
+                    try? await Task.sleep(for: .seconds(6.0))
+                }
+            }
+            // A changed prediction sweeps IMMEDIATELY — the shimmer is Arc
+            // saying "I just re-thought this", not only an ambient pulse.
+            .onChange(of: text) { _, _ in
+                Task {
+                    sweeping = false
+                    try? await Task.sleep(for: .milliseconds(60))
+                    withAnimation(.easeInOut(duration: 1.8)) { sweeping = true }
+                }
             }
     }
 
@@ -119,18 +136,27 @@ struct SiriGlow: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { context in
                     let t = context.date.timeIntervalSinceReferenceDate
+                    // Siri speeds up when it's listening: slow color travel at
+                    // rest, brisk while the AI reads.
                     let gradient = AngularGradient(
                         colors: Self.palette, center: .center,
-                        angle: .degrees((t * 22).truncatingRemainder(dividingBy: 360)))
-                    let breathe = 0.5 + 0.5 * sin(t * 1.1)
+                        angle: .degrees((t * (active ? 55 : 20)).truncatingRemainder(dividingBy: 360)))
+                    let breathe = 0.5 + 0.5 * sin(t * 1.3)
                     ZStack {
-                        Capsule().stroke(gradient, lineWidth: active ? 5 : 3)
-                            .blur(radius: active ? 7 : 5)
-                        Capsule().stroke(gradient, lineWidth: active ? 1.8 : 1.2)
+                        // Wide bloom spilling OUTSIDE the bar — the light the
+                        // earlier mask was clipping away; without it the glow
+                        // reads as a faint colored border, not a glow.
+                        Capsule().stroke(gradient, lineWidth: active ? 6 : 3.5)
+                            .blur(radius: active ? 11 : 8)
+                        // Tight halo hugging the edge.
+                        Capsule().stroke(gradient, lineWidth: active ? 2.5 : 1.6)
+                            .blur(radius: 1.5)
+                        // The crisp line itself.
+                        Capsule().strokeBorder(gradient, lineWidth: active ? 1.6 : 1.1)
                     }
-                    .opacity(active ? 0.95 : 0.35 + 0.2 * breathe)
+                    .opacity(active ? 0.85 + 0.15 * breathe : 0.5 + 0.25 * breathe)
                 }
                 .allowsHitTesting(false)
             }

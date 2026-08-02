@@ -95,6 +95,9 @@ extension Flight {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_GB")
         f.dateFormat = "EEE, d MMM"
+        // Airport-local, like every time in the app: a 00:30 red-eye must
+        // show its local departure DATE, not the date in the user's zone.
+        f.timeZone = depTimeZone
         return f.string(from: scheduledDeparture)
     }
 
@@ -113,6 +116,8 @@ extension Flight {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_GB")
         f.dateFormat = "EEE, d MMM"
+        // Same rule as cardTopRight: the flight's date is its LOCAL date.
+        f.timeZone = depTimeZone
         return f.string(from: scheduledDeparture).uppercased()
     }
 
@@ -171,7 +176,10 @@ extension Flight {
     /// "On Time", "1h 2m Late", etc. for an endpoint given its delta.
     private func deltaLabel(effective: Date, scheduled: Date) -> String {
         let mins = Int(effective.timeIntervalSince(scheduled) / 60)
-        if mins <= -1 { return "\(abs(mins))m Early" }
+        if mins <= -1 {
+            let e = abs(mins), h = e / 60, m = e % 60
+            return h > 0 ? "\(h)h \(m)m Early" : "\(m)m Early"
+        }
         if mins >= 1 {
             let h = mins / 60, m = mins % 60
             return h > 0 ? "\(h)h \(m)m Late" : "\(m)m Late"

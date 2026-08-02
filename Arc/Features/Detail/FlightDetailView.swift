@@ -36,28 +36,34 @@ struct FlightDetailView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 18) {
+                    // Ordered by urgency of the traveler's questions:
+                    // what's happening (banner, Arc's read, the connection
+                    // verdict) → the flight itself (times, baggage, maps) →
+                    // context (people, good-to-know, aircraft) → records.
                     header
                     statusBanner
-                    if !companions.isEmpty {
-                        companionsCard
+                    if !flight.isCompleted {
+                        DelayRiskCard(flight: flight)
                     }
-                    endpointsCard
+                    if let plan = connection {
+                        ConnectionCard(plan: plan, currentFlightID: flight.id)
+                    }
                     // Only when the airline has actually assigned a belt. The
                     // old fallback invented "7 (Belt Confirmed)" for any landed
                     // flight — a made-up number presented as confirmed.
                     if let belt = flight.baggageClaim, !belt.isEmpty {
                         BaggageCarouselSection(flight: flight, belt: belt)
                     }
+                    endpointsCard
                     mapActionsRow
                     if !flight.isCompleted {
                         AirportOverlapRow(flight: flight)
-                        DelayRiskCard(flight: flight)
+                    }
+                    if !companions.isEmpty {
+                        companionsCard
                     }
                     if isOwnFlight { bookingSeatRow; audienceCard }
                     GoodToKnowSection(flight: flight)
-                    if let plan = connection {
-                        ConnectionCard(plan: plan, currentFlightID: flight.id)
-                    }
                     if isOwnFlight { WheresMyPlaneSection(flight: flight).id("plane") }
                     DetailedTimetableSection(flight: flight)
                     AirlineInfoSection(flight: flight)
@@ -83,6 +89,21 @@ struct FlightDetailView: View {
             }
         }
         .presentationDragIndicator(.visible)
+        // Opening the detail is the strongest possible "I want fresh data
+        // NOW" signal — poll immediately instead of waiting out the global
+        // tracking interval.
+        .task(id: flight.id) {
+            guard isOwnFlight, !flight.isCompleted else { return }
+            await FlightTracker.shared.burstUpdate(flights: [flight], modelContext: modelContext)
+            // Re-run the knock-on prediction too — the tracker's own inbound
+            // check rides a 15-minute throttle, but opening the detail is a
+            // user-initiated "is my plane still on time?" and deserves a
+            // fresh answer. The SmartLabel sweeps when the number changes.
+            if flight.isUpcoming {
+                await InboundMonitor.checkInbound(for: flight)
+                try? modelContext.save()
+            }
+        }
         .sheet(item: $airportSheet) { target in
             AirportStatusView(iata: target.id)
                 .presentationDetents([.medium, .large])
@@ -133,6 +154,7 @@ struct FlightDetailView: View {
                 Text(flight.bannerHeadline)
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(flight.bannerColor)
+                    .contentTransition(.opacity)
                 Spacer()
                 HStack(spacing: 5) {
                     Circle()
@@ -151,6 +173,30 @@ struct FlightDetailView: View {
                     Text(inbound).font(.system(size: 14)).foregroundStyle(.secondary)
                     Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
                 }
+            }
+            // Airborne: the widget's system-animated progress bar lives INSIDE
+            // the banner — one card says everything, instead of a second card
+            // repeating the countdown right below.
+            if flight.isActive {
+                let dep = flight.actualDeparture ?? flight.scheduledDeparture
+                let arr = max(flight.effectiveArrival, dep.addingTimeInterval(60))
+                HStack(spacing: 10) {
+                    Text(flight.departureIATA)
+                        .font(.system(size: 12, weight: .heavy))
+                        .foregroundStyle(.secondary)
+                    ProgressView(
+                        timerInterval: min(dep, arr - 60)...arr,
+                        countsDown: false,
+                        label: { EmptyView() },
+                        currentValueLabel: { EmptyView() }
+                    )
+                    .progressViewStyle(.linear)
+                    .tint(flight.bannerColor)
+                    Text(flight.arrivalIATA)
+                        .font(.system(size: 12, weight: .heavy))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, 6)
             }
             // Name the clock. The times are correct and match the booking, but
             // nothing said they were airport-local, so they read as wrong
@@ -179,13 +225,19 @@ struct FlightDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(flight.bannerColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+        // Status flips (On Time → Delayed → In Air) crossfade instead of
+        // snapping — the banner is the screen's voice, it shouldn't stutter.
+        .animation(.easeInOut(duration: 0.35), value: flight.bannerHeadline)
     }
 
     /// Inbound-aircraft status only makes sense while something is still
     /// actively being tracked — a landed/cancelled flight already happened,
     /// so "checking inbound aircraft" would misleadingly read as present-tense.
     private var inboundLine: String? {
-        if flight.isActive { return "Live tracking active" }
+        // Only claim "live" while the data actually is — saying "Live
+        // tracking active" next to a 17-minute-old freshness pill reads as
+        // a contradiction, because it is one.
+        if flight.isActive { return flight.isDataFresh ? "Live tracking active" : "Tracking — waiting for fresh data" }
         guard flight.isUpcoming, flight.aircraftRegistration != nil else { return nil }
         if !flight.inboundChecked { return "Checking inbound aircraft" }
         // The best possible pre-departure news (Flighty parity): the tail
@@ -291,6 +343,8 @@ struct FlightDetailView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(time).font(.system(size: 40, weight: .regular))
                             .foregroundStyle(flight.bannerColor)
+                            .contentTransition(.numericText())
+                            .animation(.default, value: time)
                         if changed {
                             Text(schedTime).font(.system(size: 17))
                                 .strikethrough().foregroundStyle(.secondary)

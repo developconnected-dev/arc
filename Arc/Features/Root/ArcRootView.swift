@@ -300,6 +300,9 @@ struct ArcRootView: View {
                     controller.livePlane = .init(
                         lat: pos.lat, lon: pos.lon,
                         heading: pos.heading, onGround: pos.on_ground)
+                    controller.livePlaneFlightID = flight.id
+                    controller.livePlaneAircraftKeys = Set(
+                        [icao24, registration].compactMap { $0?.lowercased() })
 
                     // Is the aircraft actually here? For a flight hours out,
                     // "My plane" usually isn't at this airport yet — it's mid-

@@ -30,14 +30,15 @@ struct AddFlightView: View {
     /// Set when a query resolved to a specific flight, so the search uses it
     /// verbatim instead of rebuilding it from the airline picker.
     @State private var resolvedCode: String?
+    /// Results reached from the bar keep the typed query visible right above
+    /// them — repeating it as airline/number/date chips was just noise. The
+    /// step-by-step flow has no bar text, so it keeps the chips.
+    @State private var fromBarSearch = false
     @State private var isParsingNatural = false
     // Search-as-you-type: results fetched on keystroke pause, shown inline.
     @State private var livePrefetch: (query: String, results: [FlightAPIClient.FlightSearchResult])?
     @State private var prefetchTask: Task<Void, Never>?
     @State private var isPrefetching = false
-    /// One geometry identity for the liquid-glass surface: the searching
-    /// droplet and the results panel are the same piece of glass.
-    @Namespace private var glassNS
     @State private var parseStatusMessage: String?
 
     // Manual entry state
@@ -62,7 +63,19 @@ struct AddFlightView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            headerBar
+            // The glass container scopes to the bar + droplet ONLY. Results
+            // used to share it, and the container draws all its glass as one
+            // layer above the ScrollView's clip — rows scrolled over the bar,
+            // the panel stayed fused to the bar's bubble, and its geometry
+            // morphs read as sliding in sideways.
+            GlassEffectContainer(spacing: 18) {
+                VStack(alignment: .leading, spacing: 0) {
+                    headerBar
+                    if step == .search || step == .results {
+                        pinnedSearchHeader
+                    }
+                }
+            }
             ScrollView { content.padding(.bottom, 40) }
             Spacer(minLength: 0)
         }
@@ -212,7 +225,10 @@ struct AddFlightView: View {
         // A number-flow search (airline + number picked step by step) backs
         // up to the date picker; a bar search just returns to live search —
         // the bar is still filled, so "back" means "show me the field state".
-        case .results: step = number.isEmpty ? .search : .date
+        // (number.isEmpty was the old proxy for this, but bar searches seed
+        // `number` from the first hit, so they wrongly backed into the date
+        // picker for a flow the user never stepped through.)
+        case .results: step = (fromBarSearch || number.isEmpty) ? .search : .date
         case .manual: step = manualReturnStep
         case .search: break
         }
@@ -222,7 +238,7 @@ struct AddFlightView: View {
 
     @ViewBuilder private var content: some View {
         switch step {
-        case .search, .results: unifiedSearchFlow
+        case .search, .results: scrollableSearchContent
         case .number: numberStep
         case .date: dateStep
         case .manual: manualStep
@@ -244,35 +260,19 @@ struct AddFlightView: View {
             .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 12))
     }
 
-    // MARK: Step 1 — search (and results, sharing one persistent bar)
+    // MARK: Step 1 — Pinned Search Header & Scrollable Results
 
-    /// The search bar STAYS on the results step — refining a search that
-    /// found the wrong flights should be one tap into the same field, not a
-    /// back-navigation. The resolved chips morph in beneath it.
-    private var unifiedSearchFlow: some View {
-        // The real Apple mechanism, not an imitation: inside a
-        // GlassEffectContainer, glass shapes whose edges come within
-        // `spacing` of each other BLEND — so the loading droplet rests
-        // close enough to stay visibly connected to the bar (the Siri
-        // "suggestion oozing out" look), while the settled results panel
-        // sits beyond the spacing and reads as its own pane. glassEffectID
-        // in one namespace makes appearing/disappearing shapes morph out
-        // of and back into their neighbour instead of fading.
-        GlassEffectContainer(spacing: 18) {
+    /// Pinned liquid glass search bar and loading droplet that stay frozen above
+    /// the scrollable content, allowing query refinement at any scroll offset.
+    private var pinnedSearchHeader: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // ONE field. There used to be two — an "AI command bar" and a
-            // separate manual search — which meant picking a lane before
-            // typing. This resolves locally first (instant, offline, free) and
-            // only falls back to the parser for text it can't read itself.
             searchField(placeholder: "Flight, airline, airport, or paste a booking",
                         text: $query)
-                .glassEffectID("bar", in: glassNS)
                 .siriGlow(active: isParsingNatural || isPrefetching)
                 .padding(.horizontal, 20)
+                .padding(.top, 6)
                 .onSubmit { Task { await runUnifiedSearch() } }
                 .onChange(of: query) { _, newValue in
-                    // Editing on the results step is the "that wasn't it" path:
-                    // fall back to live search state and let the prefetch run.
                     if step == .results {
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                             step = .search
@@ -285,12 +285,30 @@ struct AddFlightView: View {
                 }
                 .zIndex(2)
 
-            // What the search produces UNFURLS FROM THE BAR. One piece of
-            // glass, two states, matched geometry between them: while
-            // searching it's a small droplet hanging off the pill; when
-            // flights land, THAT SAME GLASS stretches into the results
-            // panel — and merges back when the results dissolve. Two drops
-            // of water, not views popping in.
+            // The droplet accompanies EVERY in-flight search from the bar —
+            // prefetch and the AI parse alike (the AI path used to run with
+            // no droplet, so results appeared from nowhere instead of
+            // morphing out of it). Never alongside the live panel — one
+            // thing under the bar at a time.
+            if step == .search && (isPrefetching || isParsingNatural) && !livePanelVisible {
+                searchDroplet
+            }
+        }
+        .padding(.bottom, 4)
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: step)
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: isPrefetching)
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: isParsingNatural)
+        .zIndex(2)
+    }
+
+    private var livePanelVisible: Bool {
+        guard let live = livePrefetch else { return false }
+        return live.query == trimmedQuery && !live.results.isEmpty
+    }
+
+    /// The scrolling list of flight results and frequent selections beneath the pinned bar.
+    private var scrollableSearchContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
             if step == .search {
                 if let live = livePrefetch, live.query == trimmedQuery, !live.results.isEmpty {
                     glassPanel {
@@ -303,14 +321,14 @@ struct AddFlightView: View {
                             Divider().padding(.leading, 20)
                         }
                     }
-                } else if isPrefetching {
-                    searchDroplet
                 }
             }
 
             if step == .results {
                 glassPanel {
-                    chips().padding(.horizontal, 20).padding(.bottom, 10)
+                    if !fromBarSearch {
+                        chips().padding(.horizontal, 20).padding(.bottom, 10)
+                    }
                     resultsStep
                 }
             }
@@ -318,40 +336,43 @@ struct AddFlightView: View {
             if step == .search { searchStep }
         }
         .animation(.spring(response: 0.45, dampingFraction: 0.85), value: step)
-        }
     }
 
     /// The searching state: a droplet of glass hanging just under the bar —
     /// deliberately INSIDE the container's blend distance, so it stays
     /// visibly connected to the pill while the search runs (the Siri look).
     private var searchDroplet: some View {
-        HStack(spacing: 8) {
-            ProgressView().controlSize(.small)
-            Text("Searching flights…").font(.system(size: 13)).foregroundStyle(.secondary)
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.mini)
+            Text(isParsingNatural ? "Reading your request…" : "Searching flights…")
+                .font(.system(size: 11.5, weight: .medium))
+                .tracking(0.2)
+                .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 18).padding(.vertical, 11)
-        .glassEffect(.regular, in: .rect(cornerRadius: 24))
-        .glassEffectID("results", in: glassNS)
+        .padding(.horizontal, 14).padding(.vertical, 7)
+        .glassEffect(.regular, in: .capsule)
         .frame(maxWidth: .infinity)
-        .padding(.top, 6)
+        .padding(.top, 4)
         .zIndex(1)
-        .transition(.offset(y: -26).combined(with: .opacity))
+        // Straight down out of the bar, and back up into it — opacity keeps
+        // the glass from popping at the ends of the merge.
+        .transition(.offset(y: -16).combined(with: .scale(scale: 0.8, anchor: .top)).combined(with: .opacity))
     }
 
-    /// The settled results pane: same glass identity as the droplet (one
-    /// surface morphing, not a swap), resting BEYOND the blend distance so
-    /// it separates cleanly from the bar once the animation lands.
+    /// The settled results pane: its own free-standing piece of glass, clear
+    /// of the bar's bubble. Appearing it slides down out of the bar; clearing
+    /// the query runs the same move in reverse, so the results read as being
+    /// absorbed back into it.
     private func glassPanel<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0, content: content)
             .padding(.top, 14)
             .padding(.bottom, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .glassEffect(.regular, in: .rect(cornerRadius: 26))
-            .glassEffectID("results", in: glassNS)
             .padding(.horizontal, 20)
-            .padding(.top, 22)
+            .padding(.top, 10)
             .zIndex(1)
-            .transition(.offset(y: -30).combined(with: .opacity))
+            .transition(.offset(y: -24).combined(with: .scale(scale: 0.9, anchor: .top)).combined(with: .opacity))
     }
 
     private var searchStep: some View {
@@ -404,11 +425,23 @@ struct AddFlightView: View {
     private func schedulePrefetch(for text: String) {
         prefetchTask?.cancel()
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let live = livePrefetch, live.query != trimmed { livePrefetch = nil }
-        guard trimmed.count >= 3 else { isPrefetching = false; return }
+        // Animated: clearing the field (the x button) is what lands here,
+        // and the open panel or droplet should retract INTO the bar, not
+        // vanish between frames.
+        let retract = Animation.spring(response: 0.45, dampingFraction: 0.85)
+        if let live = livePrefetch, live.query != trimmed {
+            withAnimation(retract) { livePrefetch = nil }
+        }
+        guard trimmed.count >= 3 else {
+            withAnimation(retract) { isPrefetching = false }
+            return
+        }
         let number = FlightQueryParser.parse(trimmed)
         let route = number == nil ? FlightQueryParser.parseRoute(trimmed) : nil
-        guard number != nil || route != nil else { isPrefetching = false; return }
+        guard number != nil || route != nil else {
+            withAnimation(retract) { isPrefetching = false }
+            return
+        }
 
         // @MainActor is load-bearing: this method is nonisolated (plain View
         // struct func), so a bare Task ran off-main and its @State writes
@@ -417,8 +450,8 @@ struct AddFlightView: View {
         prefetchTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(700))
             guard !Task.isCancelled else { return }
-            // The droplet detaches from the bar…
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) { isPrefetching = true }
+            // The droplet emerges from the bar…
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { isPrefetching = true }
             var found: [FlightAPIClient.FlightSearchResult] = []
             if let number {
                 let dateStr = DateHelpers.apiDate(number.date ?? .now, at: nil)
@@ -431,13 +464,13 @@ struct AddFlightView: View {
             // The user may have kept typing while we fetched — only show
             // results that still belong to what's in the field.
             guard !Task.isCancelled, trimmedQuery == trimmed else {
-                withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { isPrefetching = false }
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { isPrefetching = false }
                 return
             }
-            // …and in ONE animated turn the droplet's glass stretches into
-            // the results panel (matched geometry needs both state changes
-            // in the same transaction to pair the shapes).
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {
+            // …and in ONE animated turn the droplet retracts into the bar
+            // as the results panel slides out beneath it — a single handoff,
+            // not two unrelated pops.
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
                 isPrefetching = false
                 livePrefetch = (trimmed, found)
             }
@@ -637,6 +670,7 @@ struct AddFlightView: View {
         if Calendar.current.startOfDay(for: d) < Calendar.current.startOfDay(for: .now.addingTimeInterval(-7 * 86400)) {
             enterManual(prefillingFrom: d, returningTo: .date)
         } else {
+            fromBarSearch = false
             step = .results
             Task { await runSearch() }
         }
@@ -1090,6 +1124,7 @@ struct AddFlightView: View {
             number = split.number
             date = resolved.date ?? .now
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            fromBarSearch = true
             step = .results
             await runSearch(fallbackQuery: text)
             return
@@ -1098,7 +1133,7 @@ struct AddFlightView: View {
         // A route readable locally ("Athens to Munich 18 Sep") skips the
         // server-side AI parse — most of a warm search's wait. If it finds
         // nothing (a misresolved city, say), the AI path below still runs.
-        isParsingNatural = true
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { isParsingNatural = true }
         var found: [FlightAPIClient.FlightSearchResult] = []
         if let route = FlightQueryParser.parseRoute(text) {
             let dateStr = DateHelpers.apiDate(route.date ?? .now, at: route.depIATA)
@@ -1111,12 +1146,17 @@ struct AddFlightView: View {
         if found.isEmpty {
             found = (try? await FlightAPIClient.shared.searchNatural(query: text)) ?? []
         }
-        isParsingNatural = false
         guard !found.isEmpty else {
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { isParsingNatural = false }
             parseStatusMessage = "No flights found for that. Try \u{201C}LX1413 tomorrow\u{201D} or \u{201C}Athens to Munich 18 Sep\u{201D}, or pick an airline below."
             return
         }
-        adoptNaturalResults(found)
+        // One transaction, like the prefetch path: the droplet's retraction
+        // and the panel's arrival animate together as a single handoff.
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+            isParsingNatural = false
+            adoptNaturalResults(found)
+        }
     }
 
     /// Show Worker-found flights on the results step, seeding the header chips
@@ -1132,6 +1172,7 @@ struct AddFlightView: View {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         results = found
         errorText = nil
+        fromBarSearch = true
         step = .results
     }
 

@@ -25,17 +25,30 @@ struct FlightRowCard: View {
                     }
                     Spacer(minLength: 8)
                     if let newGate = flight.departureGate, flight.previousDepartureGate != nil, !flight.isCompleted {
-                        HStack(spacing: 4) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 11))
-                            Text("Gate -> \(newGate)")
-                                .font(.system(size: 12, weight: .bold))
+                        // Same vocabulary as the detail screen's gate pills:
+                        // yellow chip, black type — "gate" always looks like
+                        // this in Arc, instead of a one-off warning capsule.
+                        HStack(spacing: 5) {
+                            Text("New gate")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.up.right")
+                                    .font(.system(size: 9, weight: .bold))
+                                Text(newGate)
+                                    .font(.system(size: 13, weight: .bold))
+                            }
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(ArcTheme.gate, in: RoundedRectangle(cornerRadius: ArcTheme.gatePillCorner))
                         }
-                        .foregroundStyle(Color.orange)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Color.orange.opacity(0.15), in: Capsule())
-                        .overlay(Capsule().stroke(Color.orange.opacity(0.4), lineWidth: 1))
+                        .lineLimit(1)
+                    } else if flight.showsPrediction {
+                        // Arc's own inference wears the smart mark — sparkles,
+                        // gradient, and SmartLabel's shimmer sweep on appear.
+                        SmartLabel(text: "Arc predicts +\(flight.predictedDelayMinutes)m", size: 13)
+                            .lineLimit(1)
                     } else {
                         Text(flight.cardTopRight)
                             .font(.system(size: 14, weight: .semibold))
@@ -73,11 +86,16 @@ struct FlightRowCard: View {
     }
 
     private var countdownBlock: some View {
+        // Minute heartbeat + rolling digits: the countdown ticks live like the
+        // widget's, instead of waiting for an unrelated re-render.
+        TimelineView(.periodic(from: .now, by: 60)) { _ in
         VStack(spacing: 0) {
             if let cd = flight.countdown {
                 Text(cd.value)
                     .font(.system(size: cd.value.count > 2 ? 24 : 30, weight: .heavy))
                     .foregroundStyle(.primary)
+                    .contentTransition(.numericText(countsDown: true))
+                    .animation(.default, value: cd.value)
                 Text(cd.unit)
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.secondary)
@@ -100,6 +118,7 @@ struct FlightRowCard: View {
             } else {
                 Text("—").font(.system(size: 24, weight: .heavy)).foregroundStyle(.tertiary)
             }
+        }
         }
     }
 
