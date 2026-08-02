@@ -135,14 +135,23 @@ struct FlightRowCard: View {
     }
 
     private var routeRow: some View {
-        // Sized to genuinely FIT the row's width: the old 14pt type plus 14pt
-        // gaps was ~28pt wider than the space, so the stack overflowed and
-        // SwiftUI centered it — every row shifted by a different amount.
+        // Never overflow, on ANY width (Display Zoom shrinks the logical
+        // screen by ~26pt): try the full badge first, and when the row is
+        // tight fall back to a deliberate dot-only chip. An overflowing
+        // stack gets centered by SwiftUI, which shifted every row by a
+        // different amount — degrading the badge is the honest trade.
+        ViewThatFits(in: .horizontal) {
+            routeContent(fullBadge: true)
+            routeContent(fullBadge: false)
+        }
+    }
+
+    private func routeContent(fullBadge: Bool) -> some View {
         HStack(spacing: 10) {
             endpoint(arrow: "arrow.up.right", iata: flight.departureIATA, time: flight.effectiveDepTimeLocal)
             endpoint(arrow: "arrow.down.right", iata: flight.arrivalIATA, time: flight.effectiveArrTimeLocal)
             Spacer(minLength: 4)
-            dataFreshnessBadge
+            dataFreshnessBadge(showText: fullBadge)
         }
     }
 
@@ -181,7 +190,9 @@ struct FlightRowCard: View {
         .padding(.leading, 2)
     }
 
-    private var dataFreshnessBadge: some View {
+    /// Full: dot + age text in a capsule. Compact (tight rows): just the dot
+    /// in an even, round chip — an intentional glyph, not a squeezed capsule.
+    private func dataFreshnessBadge(showText: Bool) -> some View {
         HStack(spacing: 5) {
             Circle()
                 .fill(flight.isDataFresh ? Color.green : Color.orange)
@@ -193,16 +204,17 @@ struct FlightRowCard: View {
                         .opacity(flight.isActive ? 0 : 1)
                         .animation(flight.isActive ? .easeInOut(duration: 1.4).repeatForever(autoreverses: false) : .default, value: flight.isActive)
                 )
-            Text(flight.dataFreshnessShort)
-                .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            if showText {
+                Text(flight.dataFreshnessShort)
+                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
-        // Fixed size: the badge's text must never be squeezed into a bare
-        // dot — the row is sized so everything fits instead.
+        // fixedSize so the text renders whole or not at all — never squeezed.
         .fixedSize()
-        .padding(.horizontal, 7)
-        .padding(.vertical, 3.5)
+        .padding(.horizontal, showText ? 7 : 5)
+        .padding(.vertical, showText ? 3.5 : 5)
         .background(Color(.secondarySystemFill).opacity(0.8), in: Capsule())
     }
 }
