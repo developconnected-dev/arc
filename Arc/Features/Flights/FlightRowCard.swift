@@ -10,7 +10,7 @@ struct FlightRowCard: View {
         // not the top edge.
         HStack(alignment: .center, spacing: 14) {
             countdownBlock
-                .frame(width: 56)
+                .frame(width: 52)
 
             VStack(alignment: .leading, spacing: 6) {
                 // airline logo + number ........ status/date
@@ -86,7 +86,10 @@ struct FlightRowCard: View {
         // happened to be widest) and broke the column alignment.
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 14)
-        .padding(.horizontal, 20)
+        // 14, not 20: combined with the list's own insets the rows had 40pt
+        // of side chrome — trimmed so the full freshness badge fits even on
+        // Display Zoom widths instead of degrading to the bare dot.
+        .padding(.horizontal, 14)
         .contentShape(Rectangle())
     }
 
@@ -147,10 +150,10 @@ struct FlightRowCard: View {
     }
 
     private func routeContent(fullBadge: Bool) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             endpoint(arrow: "arrow.up.right", iata: flight.departureIATA, time: flight.effectiveDepTimeLocal)
             endpoint(arrow: "arrow.down.right", iata: flight.arrivalIATA, time: flight.effectiveArrTimeLocal)
-            Spacer(minLength: 4)
+            Spacer(minLength: 2)
             dataFreshnessBadge(showText: fullBadge)
         }
     }
@@ -160,7 +163,7 @@ struct FlightRowCard: View {
         // every flight, not just imminent ones. IATA stays neutral; the
         // circle and the (effective) time carry the color.
         let tint = flight.isDelayed ? ArcTheme.late : ArcTheme.onTime
-        return HStack(spacing: 5) {
+        return HStack(spacing: 4) {
             Image(systemName: arrow)
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(.white)

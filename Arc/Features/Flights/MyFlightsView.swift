@@ -53,7 +53,7 @@ struct MyFlightsView: View {
                             .buttonStyle(.plain)
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) { delete(flight) } label: {
                                     Label("Delete", systemImage: "trash")
@@ -68,7 +68,7 @@ struct MyFlightsView: View {
                             layoverConnector(plan)
                                 .listRowSeparator(.hidden)
                                 .listRowBackground(Color.clear)
-                                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                         }
                     }
                 }
@@ -136,7 +136,7 @@ struct MyFlightsView: View {
                 RoundedRectangle(cornerRadius: 1)
                     .fill(tint.opacity(0.45))
                     .frame(width: 2)
-                    .frame(width: 56)   // centered under the countdown blocks
+                    .frame(width: 52)   // centered under the countdown blocks
                 Image(systemName: "clock")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(tint)
@@ -149,7 +149,7 @@ struct MyFlightsView: View {
             .frame(height: 34)
             // Match FlightRowCard's inner padding so the spine sits exactly
             // under the countdown numbers.
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 14)
         }
     }
 
