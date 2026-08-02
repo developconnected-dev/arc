@@ -117,13 +117,27 @@ final class FriendsStore {
                 }
             }
         }
-        // Announce only what's newly discovered. The banner used to sit on the
-        // flight list permanently; a notification at the moment of discovery is
-        // both more useful and less wearing, and the id dedupes per pairing.
-        let previous = Set(activeOverlaps.map { "\($0.friend.id)|\($0.airportIATA)" })
-        for overlap in found where !previous.contains("\(overlap.friend.id)|\(overlap.airportIATA)") {
-            ArcNotifications.notifyAirportOverlap(overlap)
+        // Announce only what's newly discovered — against a PERSISTED set,
+        // not in-memory state: every cold launch started with empty memory,
+        // so the same "Anna is at ZRH too" fired again on every app open.
+        // Keys are pruned once their overlap ends, so a future rendezvous at
+        // the same airport can announce again.
+        let announcedKey = "friendOverlaps.announced"
+        var announced = Set(UserDefaults.standard.stringArray(forKey: announcedKey) ?? [])
+        for overlap in found {
+            let key = "\(overlap.friend.id)|\(overlap.airportIATA)"
+            if !announced.contains(key) {
+                announced.insert(key)
+                ArcNotifications.notifyAirportOverlap(overlap)
+            }
         }
+        // Only prune on a real pass — a refresh that ran before the friends
+        // list loaded would otherwise wipe the memory and re-announce
+        // everything on the next one.
+        if !friends.isEmpty {
+            announced.formIntersection(found.map { "\($0.friend.id)|\($0.airportIATA)" })
+        }
+        UserDefaults.standard.set(Array(announced), forKey: announcedKey)
         self.activeOverlaps = found
     }
 
