@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 
 /// Monitors the inbound aircraft for a flight — the tail's whole day of legs
 /// leading up to it — via the Worker's `/inbound` endpoint (AeroDataBox
@@ -36,11 +37,34 @@ enum InboundMonitor {
             return
         }
 
+        // When the immediate inbound is already in the air, ask ADS-B where it
+        // actually is: remaining distance at current speed (+ a fixed
+        // approach/taxi buffer) beats any schedule projection, in both
+        // directions — it catches planes making up time AND planes holding.
+        var liveETA: Date?
+        if inbound.actualArrival == nil, inbound.status != "landed",
+           inbound.scheduledDeparture.map({ $0 <= .now }) == true,
+           let dest = ReferenceData.shared.airport(flight.departureIATA),
+           let pos = try? await FlightAPIClient.shared.livePosition(
+               icao24: flight.aircraftICAO24, registration: registration),
+           !pos.on_ground, pos.velocity > 50 {
+            let remainingKm = GeoMath.distanceKm(
+                .init(latitude: pos.lat, longitude: pos.lon), dest.coordinate)
+            liveETA = Date.now.addingTimeInterval(remainingKm * 1000 / pos.velocity + 15 * 60)
+        }
+
         // Legacy single-inbound fields — still what the detail card and
-        // late-inbound notification read.
+        // late-inbound notification read. Lateness is ARRIVAL lateness (how
+        // late the plane reaches us), not the raw departure delay the API
+        // reports — a 40m-late push-back that lands 15m late should say 15.
         flight.inboundFlightNumber = inbound.flightNumber
         flight.inboundRoute = "\(inbound.depIATA) → \(inbound.arrIATA)"
-        flight.inboundDelayMinutes = inbound.delayMinutes
+        if let sched = inbound.scheduledArrival,
+           let eff = liveETA ?? inbound.effectiveArrival {
+            flight.inboundDelayMinutes = max(0, Int(eff.timeIntervalSince(sched) / 60))
+        } else {
+            flight.inboundDelayMinutes = inbound.delayMinutes
+        }
         flight.inboundArrivalTime = inbound.scheduledArrival
 
         // The best pre-departure news travels as a push, once, and only when
@@ -60,7 +84,8 @@ enum InboundMonitor {
                chain: chain,
                scheduledDeparture: flight.scheduledDeparture,
                aircraftType: flight.aircraftType,
-               officialDelayMinutes: flight.delayMinutes) {
+               officialDelayMinutes: flight.delayMinutes,
+               liveInboundETA: liveETA) {
             flight.predictedDelayMinutes = p.minutes
             flight.predictionReason = p.reason
             // Notify only when the picture worsens meaningfully — not on

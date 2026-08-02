@@ -15,11 +15,21 @@ struct RotationLeg: Codable, Equatable {
     /// existed still decodes.
     var scheduledDeparture: Date? = nil
 
-    /// Best-known arrival: actual if reported, else scheduled + known delay.
+    /// Best-known arrival: the API's revised arrival when published, else the
+    /// schedule pushed by the DEPARTURE delay — discounted for en-route
+    /// recovery, because that `delay` field measures push-back lateness and
+    /// schedules carry padding: a 40m-late departure rarely lands 40m late.
+    /// Recovery is capped at 25m and scales with block time (~10%), so short
+    /// hops recover little and the discount can never invent an early landing.
     var effectiveArrival: Date? {
         if let actualArrival { return actualArrival }
         guard let scheduledArrival else { return nil }
-        return scheduledArrival.addingTimeInterval(Double(max(0, delayMinutes)) * 60)
+        var delay = Double(max(0, delayMinutes))
+        if delay > 0, let scheduledDeparture {
+            let blockMinutes = scheduledArrival.timeIntervalSince(scheduledDeparture) / 60
+            delay = max(0, delay - min(25, blockMinutes * 0.10))
+        }
+        return scheduledArrival.addingTimeInterval(delay * 60)
     }
 }
 
@@ -42,11 +52,22 @@ enum RotationChain {
         var chain: [RotationLeg] = []
         var airport = departureIATA
         var cutoff = departure
-        var used: Set<String> = [currentNumber]
+        // Keyed by number + scheduled arrival, not number alone: the same
+        // flight number flies daily, and merging today's and yesterday's legs
+        // under one key silently truncated chains that repeat a number.
+        var used: Set<String> = []
+        func key(_ leg: FlightAPIClient.FlightSearchResult) -> String {
+            "\(leg.flight_number)|\(leg.arr_scheduled)"
+        }
 
         while chain.count < maxLegs {
             let candidates = legs.filter { leg in
-                guard !used.contains(leg.flight_number),
+                guard leg.flight_number != currentNumber,
+                      !used.contains(key(leg)),
+                      // A cancelled leg means the tail is NOT flying this
+                      // path — chaining through it as if it lands on schedule
+                      // manufactured a confident prediction from a fiction.
+                      leg.status.lowercased() != "cancelled",
                       leg.arr_iata.uppercased() == airport.uppercased(),
                       let arrival = DateHelpers.parseAPIDate(leg.arr_scheduled)
                 else { return false }
@@ -57,7 +78,7 @@ enum RotationChain {
                 (DateHelpers.parseAPIDate($1.arr_scheduled) ?? .distantPast)
             }) else { break }
 
-            used.insert(leg.flight_number)
+            used.insert(key(leg))
             chain.append(RotationLeg(
                 flightNumber: leg.flight_number,
                 depIATA: leg.dep_iata,
@@ -126,7 +147,8 @@ enum RotationChain {
         chain: [RotationLeg],
         scheduledDeparture: Date,
         aircraftType: String?,
-        officialDelayMinutes: Int
+        officialDelayMinutes: Int,
+        liveInboundETA: Date? = nil
     ) -> (minutes: Int, reason: String)? {
         guard !chain.isEmpty else { return nil }
         let turnaround = turnaroundMinutes(for: aircraftType)
@@ -149,7 +171,10 @@ enum RotationChain {
             }
             carried = effArr
         }
-        guard let finalArrival = carried else { return nil }
+        // A live ADS-B fix for the airborne inbound beats every schedule
+        // projection — where the plane actually is outranks where the
+        // timetable says it should be.
+        guard let finalArrival = liveInboundETA ?? carried else { return nil }
 
         let earliest = finalArrival.addingTimeInterval(Double(turnaround) * 60)
         let predicted = Int(ceil(earliest.timeIntervalSince(scheduledDeparture) / 60))
