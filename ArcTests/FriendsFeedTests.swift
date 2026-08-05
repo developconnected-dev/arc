@@ -36,13 +36,33 @@ final class FriendsFeedTests: XCTestCase {
             entry("Mike", id: "m", [
                 flight("AIR1", dep: "2026-07-24T10:00:00.000Z", arr: "2026-07-24T13:00:00.000Z", status: "active"),
                 flight("UP1", dep: "2026-07-24T14:00:00.000Z", arr: "2026-07-24T16:00:00.000Z"),
-                flight("LANDED", dep: "2026-07-24T06:00:00.000Z", arr: "2026-07-24T08:00:00.000Z", status: "landed"),
+                // Landed 15 minutes ago — inside the 30-minute grace, so still
+                // in the live feed.
+                flight("LANDED", dep: "2026-07-24T09:45:00.000Z", arr: "2026-07-24T11:45:00.000Z", status: "landed"),
+                // Landed four hours ago — past the grace, so it belongs to the
+                // collapsed Past Flights section instead.
+                flight("OLD", dep: "2026-07-24T06:00:00.000Z", arr: "2026-07-24T08:00:00.000Z", status: "landed"),
             ]),
         ]
         let numbers = store.feed(at: now).map(\.flight.flight_number)
         // Airborne by soonest landing, upcoming by soonest departure, then
         // the recent landing last.
         XCTAssertEqual(numbers, ["AIR1", "AIR2", "UP1", "UP2", "LANDED"])
+    }
+
+    /// The other half of that lifecycle: once the 30-minute grace expires a
+    /// flight leaves the live feed and appears under Past Flights. It must do
+    /// both — dropping out of one without turning up in the other would make a
+    /// friend's completed trip vanish entirely.
+    func testLandingLeavesTheFeedForPastFlightsAfterTheGrace() {
+        let store = FriendsStore()
+        store.friends = [
+            entry("Mike", id: "m", [
+                flight("OLD", dep: "2026-07-24T06:00:00.000Z", arr: "2026-07-24T08:00:00.000Z", status: "landed"),
+            ]),
+        ]
+        XCTAssertEqual(store.feed(at: now).map(\.flight.flight_number), [])
+        XCTAssertEqual(store.pastFeed(at: now).map(\.flight.flight_number), ["OLD"])
     }
 
     /// A holiday booked months out still shows. The feed used to cut upcoming

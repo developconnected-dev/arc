@@ -210,7 +210,7 @@ struct AddFlightView: View {
         case .search: "Enter airline, airport, or flight"
         case .number: "Enter flight number"
         case .date: "Enter departure date"
-        case .results: "Tap flight to add to My Flights"
+        case .results: "Tap to add to My Trips"
         case .manual: "Enter the flight details yourself"
         }
     }
@@ -1147,11 +1147,11 @@ struct AddFlightView: View {
         }
 
         // A route readable locally ("Athens to Munich 18 Sep") skips the
-        // server-side AI parse — most of a warm search's wait. If it finds
-        // nothing (a misresolved city, say), the AI path below still runs.
+        // server-side AI parse — most of a warm search's wait.
         withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { isParsingNatural = true }
         var found: [FlightAPIClient.FlightSearchResult] = []
-        if let route = FlightQueryParser.parseRoute(text) {
+        let localRoute = FlightQueryParser.parseRoute(text)
+        if let route = localRoute {
             let dateStr = DateHelpers.apiDate(route.date ?? .now, at: route.depIATA)
             found = (try? await FlightAPIClient.shared.searchNatural(
                 query: text, depIATA: route.depIATA, arrIATA: route.arrIATA, dateISO: dateStr)) ?? []
@@ -1160,11 +1160,28 @@ struct AddFlightView: View {
         // confirmations — goes through the Worker's AI parser, which returns
         // only real flights verified against schedule data. The user picks.
         if found.isEmpty {
-            found = (try? await FlightAPIClient.shared.searchNatural(query: text)) ?? []
+            let loose = (try? await FlightAPIClient.shared.searchNatural(query: text)) ?? []
+            // …but it must not answer about somewhere else. "Syros to Athens"
+            // resolves locally to JSY, which the provider has no data for at
+            // all; the free-text parser then read Syros as SANTORINI and handed
+            // back JTR → ATH flights as though they were the answer. Naming two
+            // cities and being shown a third island's flights is worse than
+            // being told there's nothing — it's an invitation to add the wrong
+            // flight. So when the route was understood locally, only results on
+            // THAT route are allowed through.
+            found = Self.keepingOnlyRoute(localRoute, in: loose)
         }
         guard !found.isEmpty else {
             withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { isParsingNatural = false }
-            parseStatusMessage = "No flights found for that. Try \u{201C}LX1413 tomorrow\u{201D} or \u{201C}Athens to Munich 18 Sep\u{201D}, or pick an airline below."
+            // Name the route actually searched, and stop there. An earlier
+            // draft added "not every small airport is covered by live schedule
+            // data" — which sounded helpful and was simply wrong for the case
+            // that prompted it: Syros WAS covered, the search was crashing.
+            // Stating a cause Arc can't observe is the same mistake as the bug
+            // it was written to explain.
+            parseStatusMessage = localRoute.map {
+                "No flights found for \($0.depIATA) → \($0.arrIATA) on that date. You can still add the flight manually below."
+            } ?? "No flights found for that. Try \u{201C}LX1413 tomorrow\u{201D} or \u{201C}Athens to Munich 18 Sep\u{201D}, or pick an airline below."
             return
         }
         // One transaction, like the prefetch path: the droplet's retraction
@@ -1172,6 +1189,28 @@ struct AddFlightView: View {
         withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
             isParsingNatural = false
             adoptNaturalResults(found)
+        }
+    }
+
+    /// Free-text results, restricted to the route the user actually named.
+    ///
+    /// The free-text parser is a fallback, and a fallback is allowed to find
+    /// nothing — it is not allowed to answer about somewhere else. "Syros to
+    /// Athens" resolves locally to JSY, which has no schedule coverage at all;
+    /// the parser then read Syros as SANTORINI and returned JTR → ATH flights,
+    /// which the app presented as the answer. Naming two cities and being shown
+    /// a third island's departures is worse than an empty result: it's an
+    /// invitation to add the wrong flight.
+    ///
+    /// With no locally-understood route there is nothing to check against, so
+    /// everything passes — that's the free-text case the fallback exists for.
+    static func keepingOnlyRoute(_ route: FlightQueryParser.RouteQuery?,
+                                 in results: [FlightAPIClient.FlightSearchResult])
+        -> [FlightAPIClient.FlightSearchResult] {
+        guard let route else { return results }
+        return results.filter {
+            $0.dep_iata.uppercased() == route.depIATA.uppercased()
+                && $0.arr_iata.uppercased() == route.arrIATA.uppercased()
         }
     }
 

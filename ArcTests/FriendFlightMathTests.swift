@@ -66,12 +66,23 @@ final class FriendFlightMathTests: XCTestCase {
     }
 
     func testSpotlightFallsBackToRecentlyLanded() {
-        let landed = flight("LX4", depScheduled: "2026-07-24T02:00:00.000Z",
-                            arrScheduled: "2026-07-24T08:00:00.000Z", status: "landed")
+        // Inside the 30-minute post-landing grace — still worth spotlighting,
+        // because this is the window where the gate and the belt still matter.
+        let landed = flight("LX4", depScheduled: "2026-07-24T05:45:00.000Z",
+                            arrScheduled: "2026-07-24T11:45:00.000Z", status: "landed")
         let nextWeek = flight("LX5", depScheduled: "2026-07-30T10:00:00.000Z",
                               arrScheduled: "2026-07-30T14:00:00.000Z")
         let pick = FriendFlightMath.spotlight(from: [nextWeek, landed], at: now)
         XCTAssertEqual(pick?.flight_number, "LX4")
+    }
+
+    /// Past the grace it stops being news. Spotlighting a flight that landed
+    /// four hours ago would keep a friend's finished trip pinned to the top of
+    /// the screen for the rest of the day.
+    func testSpotlightIgnoresLandingsPastTheGrace() {
+        let landedLongAgo = flight("LX4", depScheduled: "2026-07-24T02:00:00.000Z",
+                                   arrScheduled: "2026-07-24T08:00:00.000Z", status: "landed")
+        XCTAssertNil(FriendFlightMath.spotlight(from: [landedLongAgo], at: now))
     }
 
     func testSpotlightSkipsCancelled() {

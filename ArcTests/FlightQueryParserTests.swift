@@ -191,3 +191,59 @@ final class FlightQueryParserTests: XCTestCase {
         XCTAssertEqual(cal.component(.month, from: mai!), 5)
     }
 }
+
+// MARK: - The free-text fallback must not answer about somewhere else
+
+@MainActor
+final class RouteFallbackGuardTests: XCTestCase {
+    private func result(_ number: String, _ dep: String, _ arr: String)
+        -> FlightAPIClient.FlightSearchResult {
+        FlightAPIClient.FlightSearchResult(
+            flight_number: number, airline_name: "", airline_iata: "",
+            dep_iata: dep, arr_iata: arr, dep_city: nil, arr_city: nil,
+            dep_scheduled: "", arr_scheduled: "", dep_actual: nil, arr_actual: nil,
+            status: "scheduled", dep_gate: nil, dep_terminal: nil, arr_gate: nil,
+            arr_terminal: nil, arr_baggage: nil, delay: nil, aircraft_type: nil,
+            aircraft_registration: nil, aircraft_icao24: nil,
+            dep_lat: nil, dep_lon: nil, arr_lat: nil, arr_lon: nil)
+    }
+
+    /// Syros resolves locally, and correctly, to JSY.
+    func testSyrosResolvesToItsOwnAirport() {
+        let route = FlightQueryParser.parseRoute("Syros to Athens 18 September")
+        XCTAssertEqual(route?.depIATA, "JSY")
+        XCTAssertEqual(route?.arrIATA, "ATH")
+    }
+
+    /// The reported bug: the provider has no Syros coverage, the free-text
+    /// parser read "Syros" as Santorini, and JTR → ATH flights were shown as
+    /// the answer to a question about JSY.
+    func testSantoriniResultsAreRejectedForASyrosSearch() {
+        let route = FlightQueryParser.parseRoute("Syros to Athens 18 September")
+        let santorini = [result("A3351", "JTR", "ATH"),
+                         result("FR1233", "JTR", "ATH"),
+                         result("GQ341", "JTR", "ATH")]
+        XCTAssertTrue(AddFlightView.keepingOnlyRoute(route, in: santorini).isEmpty,
+                      "a search for JSY must never be answered with JTR flights")
+    }
+
+    /// The guard must not throw away correct answers.
+    func testResultsOnTheNamedRouteSurvive() {
+        let route = FlightQueryParser.parseRoute("Athens to Munich 18 September")
+        let mixed = [result("LH1751", "ATH", "MUC"),
+                     result("A3351", "JTR", "ATH"),
+                     result("LH1755", "ath", "muc")]      // casing must not matter
+        let kept = AddFlightView.keepingOnlyRoute(route, in: mixed).map(\.flight_number)
+        XCTAssertEqual(kept, ["LH1751", "LH1755"])
+    }
+
+    /// Genuinely free text — a pasted booking, a codeshare number — has no
+    /// locally-understood route, so nothing is filtered and the fallback keeps
+    /// doing the job it exists for.
+    func testFreeTextWithNoLocalRouteIsUnfiltered() {
+        let route = FlightQueryParser.parseRoute("A31653 on the 18th of September")
+        XCTAssertNil(route)
+        let results = [result("LH1751", "ATH", "MUC")]
+        XCTAssertEqual(AddFlightView.keepingOnlyRoute(route, in: results).count, 1)
+    }
+}
