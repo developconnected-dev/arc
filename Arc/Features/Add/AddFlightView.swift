@@ -731,6 +731,16 @@ struct AddFlightView: View {
         .padding(.top, 4)
     }
 
+    /// "LH1751  ·  A3 1653" when the search resolved a codeshare, else the
+    /// number alone. The airline's name is left off here — the result row is
+    /// narrow and the logo already says whose flight it is.
+    private func resultNumberLabel(_ r: FlightAPIClient.FlightSearchResult) -> String {
+        guard let marketing = r.marketing_number?.trimmingCharacters(in: .whitespaces),
+              !marketing.isEmpty,
+              marketing.uppercased() != r.flight_number.uppercased() else { return r.flight_number }
+        return "\(r.flight_number)  ·  \(Flight.spaced(marketing))"
+    }
+
     private func resultCard(_ r: FlightAPIClient.FlightSearchResult) -> some View {
         let depCity = r.dep_city ?? ReferenceData.shared.airport(r.dep_iata)?.city ?? r.dep_iata
         let arrCity = r.arr_city ?? ReferenceData.shared.airport(r.arr_iata)?.city ?? r.arr_iata
@@ -742,8 +752,14 @@ struct AddFlightView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     AirlineLogoView(iata: String(r.flight_number.prefix(2)), size: 20)
-                    Text(r.flight_number).font(.system(size: 14, weight: .semibold)).foregroundStyle(.secondary)
-                    Spacer()
+                    // Searching a codeshare number answers with the operating
+                    // flight, so without this the result looks like a
+                    // different flight than the one that was typed — which is
+                    // the moment someone decides the app found the wrong thing.
+                    Text(resultNumberLabel(r))
+                        .font(.system(size: 14, weight: .semibold)).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
                     Text(statusLabel(r)).font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(statusColor(r))
                 }
@@ -1223,6 +1239,7 @@ struct AddFlightView: View {
 
         let f = Flight(flightNumber: r.flight_number, date: departure)
         f.sharedWithIds = sharedWithIds
+        f.marketingFlightNumber = r.marketing_number
         f.airline = r.airline_name
         f.airlineICAO = r.airline_iata
         f.departureIATA = r.dep_iata; f.arrivalIATA = r.arr_iata

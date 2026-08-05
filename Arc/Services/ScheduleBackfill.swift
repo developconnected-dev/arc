@@ -52,6 +52,9 @@ enum ScheduleBackfill {
     static func apply(_ leg: FlightAPIClient.FlightSearchResult, to flight: Flight) {
         if let dep = DateHelpers.parseAPIDate(leg.dep_scheduled) { flight.scheduledDeparture = dep }
         if let arr = DateHelpers.parseAPIDate(leg.arr_scheduled) { flight.scheduledArrival = arr }
+        if let marketing = leg.marketing_number, !marketing.isEmpty {
+            flight.marketingFlightNumber = marketing
+        }
         if !leg.airline_name.isEmpty { flight.airline = leg.airline_name }
         if !leg.dep_iata.isEmpty { flight.departureIATA = leg.dep_iata }
         if !leg.arr_iata.isEmpty { flight.arrivalIATA = leg.arr_iata }

@@ -17,9 +17,15 @@ struct FlightRowCard: View {
                 // airline logo + number + companions ........ status/date
                 HStack(spacing: 8) {
                     AirlineLogoView(iata: flight.airlineCode, size: 20)
-                    Text(flight.flightNumberSpaced)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                    // A codeshare shows the booked number alongside the one
+                    // that flies. This line is the tightest in the app, so it
+                    // degrades rather than pushing the status chip off the
+                    // row: full name → codes only → operating number alone.
+                    ViewThatFits(in: .horizontal) {
+                        numberText(flight.flightNumberWithMarketing)
+                        numberText(flight.flightNumberWithMarketingShort)
+                        numberText(flight.flightNumberSpaced)
+                    }
                     if !companions.isEmpty {
                         companionAvatars
                     }
@@ -147,6 +153,14 @@ struct FlightRowCard: View {
             routeContent(fullBadge: true)
             routeContent(fullBadge: false)
         }
+    }
+
+    private func numberText(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
     }
 
     private func routeContent(fullBadge: Bool) -> some View {

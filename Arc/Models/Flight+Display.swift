@@ -22,9 +22,45 @@ extension Flight {
 
     /// "LX1413" → "LX 1413".
     var flightNumberSpaced: String {
-        let code = flightNumber.prefix(2)
-        let rest = flightNumber.dropFirst(2)
+        Self.spaced(flightNumber)
+    }
+
+    static func spaced(_ number: String) -> String {
+        let code = number.prefix(2)
+        let rest = number.dropFirst(2)
         return rest.isEmpty ? String(code) : "\(code) \(rest)"
+    }
+
+    /// The number on the ticket, when it isn't the number that flies.
+    ///
+    /// A codeshare is booked as one flight and operated as another: the ticket
+    /// says A3 1653, the aircraft is Lufthansa's LH 1751. Only the operating
+    /// number can be tracked, so that's what's stored — but showing it alone
+    /// means the flight in the list doesn't match the booking confirmation the
+    /// person is holding, which is exactly the moment they think the app got
+    /// it wrong.
+    ///
+    /// nil whenever there's nothing extra to say — an ordinary flight, or a
+    /// codeshare whose marketing number happens to match the operator's.
+    var marketingLabel: String? {
+        guard let marketing = marketingFlightNumber?.trimmingCharacters(in: .whitespaces),
+              !marketing.isEmpty,
+              marketing.uppercased() != flightNumber.uppercased() else { return nil }
+        let iata = String(marketing.prefix(2))
+        let name = ReferenceData.shared.airline(iata)?.name
+        return [name, Self.spaced(marketing)].compactMap { $0 }.joined(separator: " ")
+    }
+
+    /// "LH 1751 · Aegean Airlines A3 1653", or just "LH 1751".
+    var flightNumberWithMarketing: String {
+        marketingLabel.map { "\(flightNumberSpaced)  ·  \($0)" } ?? flightNumberSpaced
+    }
+
+    /// The same thing without the airline's name — for places too narrow for
+    /// the full form, where "LH 1751 · A3 1653" still says the useful part.
+    var flightNumberWithMarketingShort: String {
+        guard let marketing = marketingFlightNumber, marketingLabel != nil else { return flightNumberSpaced }
+        return "\(flightNumberSpaced)  ·  \(Self.spaced(marketing))"
     }
 
     /// Countdown until departure — (value, unit) e.g. ("49","DAYS"), ("17","HOURS").

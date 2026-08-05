@@ -18,6 +18,13 @@ actor FlightAPIClient {
 
     struct FlightSearchResult: Codable, Sendable {
         let flight_number: String
+        /// The codeshare marketing number the search was made with, when the
+        /// backend had to resolve it to the operating flight — "A31653" for a
+        /// leg that comes back as LH1751. nil for an ordinary flight, and for
+        /// any older backend, so it must stay optional. `var` with a default
+        /// so decoding tolerates its absence and callers building one by hand
+        /// (tests, fixtures) don't have to name it.
+        var marketing_number: String? = nil
         let airline_name: String
         let airline_iata: String
         let dep_iata: String
