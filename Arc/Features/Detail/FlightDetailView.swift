@@ -127,6 +127,14 @@ struct FlightDetailView: View {
                 Text("\(flight.flightNumberSpaced) • \(flight.headerDateText)")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.secondary)
+                // There's room here for the whole story, so say it in words:
+                // the number above is what flies, this is what's on the
+                // ticket. Same fact the list row compresses into "· A3 1653".
+                if let marketing = flight.marketingLabel {
+                    Text("Booked as \(marketing)")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
+                }
                 cityPair
             }
             Spacer()

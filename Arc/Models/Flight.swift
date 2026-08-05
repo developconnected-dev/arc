@@ -7,6 +7,12 @@ final class Flight {
 
     // Flight identity
     var flightNumber: String = ""        // e.g. "LX17"
+    /// The codeshare number this flight was BOOKED under, when that differs
+    /// from the number that operates it — "A31653" on a flight stored as
+    /// LH1751. Only the operating number can be tracked (nothing indexes a
+    /// marketing number at range), but only the marketing one appears on the
+    /// ticket, so the ticket's number is kept for display.
+    var marketingFlightNumber: String?
     var airline: String = ""             // e.g. "Swiss"
     var airlineICAO: String = ""         // e.g. "SWR"
 
