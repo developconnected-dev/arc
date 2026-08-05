@@ -1,5 +1,6 @@
 import { apnsConfigured, sendLiveActivityPush } from "./apns";
 import { toISO, repairLegForRoute, cachedRowFresh } from "./legs";
+import { predictGate, type GateObservation } from "./gates";
 
 interface Env {
   RAPIDAPI_KEY: string;          // AeroDataBox key (RapidAPI). Set via `wrangler secret put RAPIDAPI_KEY`.
@@ -205,7 +206,7 @@ async function aiParseFlightQuery(query: string, env: Env): Promise<ParsedFlight
           },
         },
       },
-      system: `You turn a flight-search query into structured search terms. Today's date is ${new Date().toISOString().slice(0, 10)}. The query may be a flight number, a codeshare marketing number, a route in city or airport names, free text, or a pasted booking confirmation. Resolve cities to IATA airport codes. When the year is missing, pick the next occurrence of the date from today. For a codeshare-looking number (an airline code with a number that airline doesn't operate itself on any plausible route): when you are CONFIDENT which route that marketing number serves, also fill dep_iata and arr_iata so the route can be searched directly. Never guess a route you are unsure of — a wrong route would surface real flights the user never asked about. Answer with the minimum: no candidate lists, no commentary.`,
+      system: `You turn a flight-search query into structured search terms. Today's date is ${new Date().toISOString().slice(0, 10)}. The query may be a flight number, a codeshare marketing number, a route in city or airport names, free text, or a pasted booking confirmation. Resolve cities to IATA airport codes, and resolve ONLY the place actually named. Never substitute a different or similarly-named place: "Syros" is JSY and is not Santorini, "Kos" is not Kosice, "San Jose" in Costa Rica is not San Jose in California. If a name is ambiguous, or you cannot place it confidently, leave dep_iata and arr_iata empty — answering about a city the traveller did not name is far worse than not answering, because they may add the wrong flight. When the year is missing, pick the next occurrence of the date from today. For a codeshare-looking number (an airline code with a number that airline doesn't operate itself on any plausible route): when you are CONFIDENT which route that marketing number serves, also fill dep_iata and arr_iata so the route can be searched directly. Never guess a route you are unsure of — a wrong route would surface real flights the user never asked about. Answer with the minimum: no candidate lists, no commentary.`,
       messages: [{ role: "user", content: query }],
     }),
   });
@@ -1202,6 +1203,31 @@ export default {
     }
 
     // ── Gate observation flywheel: ONE upserted row per flight per day ──
+    // ── /gates/predict?flight=LH1751&dep=ATH (or &arr=ATH) ──
+    //
+    // Which gate this flight number actually tends to use, from the tracker's
+    // own observations. A connection weeks out has no assigned gates, so the
+    // walk between them can't be measured — but the same flight returns to the
+    // same pier often enough that its history beats a flat airport average.
+    if (url.pathname === "/gates/predict") {
+      const flight = (url.searchParams.get("flight") ?? "").replace(/\s+/g, "").toUpperCase();
+      const dep = (url.searchParams.get("dep") ?? "").toUpperCase();
+      const arr = (url.searchParams.get("arr") ?? "").toUpperCase();
+      const direction = dep ? "departure" : "arrival";
+      const airport = dep || arr;
+      if (!flight || !airport || !env.SUPABASE_SERVICE_KEY) {
+        return Response.json({ gate: null, terminal: null, agreeing: 0, samples: 0, confidence: 0 },
+                             { headers: cors });
+      }
+      const column = dep ? "departure_iata" : "arrival_iata";
+      const rows = await sbSelect(env,
+        `/gate_observations?flight_number=eq.${encodeURIComponent(flight)}`
+        + `&${column}=eq.${encodeURIComponent(airport)}`
+        + `&select=flight_date,dep_gate,dep_terminal,arr_gate,arr_terminal`
+        + `&order=flight_date.desc&limit=20`);
+      return Response.json(predictGate(rows as GateObservation[], direction), { headers: cors });
+    }
+
     if (url.pathname === "/gates/observe" && req.method === "POST") {
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false }, { headers: cors });
       try {
@@ -1492,8 +1518,9 @@ async function adbRouteDiscovery(
       await budgetBump(env, "adb_interactive", (budget["adb_interactive"] as number) ?? 0,
                        res.headers.get("x-ratelimit-requests-remaining"));
       if (!res.ok) continue;
-      const raw = await res.json() as Record<string, any>;
-      departures = (raw?.departures ?? []) as Record<string, any>[];
+      const rows = await fidsRows(res, "departures");
+      if (rows === null) continue;
+      departures = rows;
       await storeFids(env, key, departures);
     }
     for (const d of departures) {
@@ -1510,7 +1537,103 @@ async function adbRouteDiscovery(
       if (dest === arrIATA.toUpperCase() && !isAlias && !numbers.includes(num)) numbers.push(num);
     }
   }
+
+  // A small airport may have no departure board at all. Syros publishes
+  // nothing, so "Syros to Athens" discovered zero candidates and answered
+  // "no flights" — while GQ21 JSY→ATH sat in the provider's by-number index
+  // the whole time, findable if only something had named it. Athens, being a
+  // hub, has a perfectly good ARRIVALS board that names it.
+  //
+  // Gated on the departure board being genuinely EMPTY rather than merely
+  // having nothing for this destination: "no data for this airport" is worth
+  // a second look, "data exists and nothing flies there" is already the answer
+  // and must not buy two more provider calls on every fruitless search.
+  if (board.length === 0) {
+    for (const num of await arrivalBoardNumbers(env, depIATA, arrIATA, day)) {
+      if (!numbers.includes(num)) numbers.push(num);
+    }
+  }
   return { routeNumbers: numbers, board };
+}
+
+/// Flight numbers arriving at `arrIATA` from `depIATA`, read off the
+/// DESTINATION's arrivals board — the way round that works when the origin is
+/// too small to publish departures. Same windows, cache and budget guard as
+/// the departure board; the caller verifies every number as usual.
+async function arrivalBoardNumbers(
+  env: Env, depIATA: string, arrIATA: string, day: string
+): Promise<string[]> {
+  const numbers: string[] = [];
+  const windows = [[`${day}T00:00`, `${day}T11:59`], [`${day}T12:00`, `${day}T23:59`]];
+  const keys = windows.map(([from]) => `fidsarr|${arrIATA}|${from.slice(0, 13)}`);
+  const rows = await cacheRows(env, keys);
+  let budget: Record<string, any> | null = null;
+  let paceNeeded = false;
+
+  for (let i = 0; i < windows.length; i++) {
+    const [from, to] = windows[i];
+    const key = keys[i];
+    const row = rows.get(key);
+    let arrivals = row && Date.now() - Date.parse(String(row.fetched_at)) < 24 * 3600_000
+      ? (row.payload as Record<string, any>[])
+      : null;
+    if (!arrivals) {
+      budget ??= await budgetRow(env);
+      const remaining = budget["adb_remaining"] as number | null | undefined;
+      if (typeof remaining === "number" && remaining <= 0) continue;
+      if (paceNeeded) await new Promise((r) => setTimeout(r, 650));
+      paceNeeded = true;
+      const path = `/flights/airports/iata/${arrIATA}/${encodeURIComponent(from)}/${encodeURIComponent(to)}`
+        + `?withLeg=false&direction=Arrival&withCancelled=false&withCodeshared=true`
+        + `&withCargo=false&withPrivate=false&withLocation=false`;
+      let res = await adbFetch(path, env);
+      if (!res.ok) {
+        await new Promise((r) => setTimeout(r, 500));
+        res = await adbFetch(path, env);
+      }
+      await budgetBump(env, "adb_interactive", (budget["adb_interactive"] as number) ?? 0,
+                       res.headers.get("x-ratelimit-requests-remaining"));
+      if (!res.ok) continue;
+      const rows = await fidsRows(res, "arrivals");
+      if (rows === null) continue;
+      arrivals = rows;
+      await storeFids(env, key, arrivals);
+    }
+    for (const a of arrivals) {
+      // On an arrivals board the movement airport is where the flight CAME
+      // FROM — the mirror of the departures case.
+      const origin = String(a?.movement?.airport?.iata ?? "").toUpperCase();
+      const num = String(a?.number ?? "").replace(/\s+/g, "").toUpperCase();
+      const isAlias = String(a?.codeshareStatus ?? "").toLowerCase() === "iscodeshared";
+      if (!num || origin !== depIATA.toUpperCase() || isAlias) continue;
+      if (!numbers.includes(num)) numbers.push(num);
+    }
+  }
+  return numbers;
+}
+
+/// Movements off a FIDS response, tolerating the empty body this provider
+/// sends for "nothing here".
+///
+/// Same trap as the by-number endpoint: an airport too small to publish a
+/// board answers 2xx with zero bytes, `res.json()` throws on that, and here the
+/// throw escaped all the way out of /search-flights as a 500. So "Syros to
+/// Athens" didn't fail for want of coverage — it crashed the whole search,
+/// and the app's `try?` quietly rendered that as "no flights found".
+///
+/// null means the body was present but unreadable — a provider fault, not an
+/// answer, and must not be cached as an empty board for a day.
+async function fidsRows(res: Response, key: "departures" | "arrivals"): Promise<Record<string, any>[] | null> {
+  const body = (await res.text()).trim();
+  if (!body) return [];
+  try {
+    const raw = JSON.parse(body) as Record<string, any>;
+    const rows = raw?.[key];
+    return Array.isArray(rows) ? rows as Record<string, any>[] : [];
+  } catch {
+    console.error("adb fids bad json:", key, body.slice(0, 200));
+    return null;
+  }
 }
 
 async function storeFids(env: Env, key: string, arrivals: Record<string, any>[]): Promise<void> {

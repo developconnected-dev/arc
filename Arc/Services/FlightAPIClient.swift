@@ -265,6 +265,10 @@ actor FlightAPIClient {
         let iata: String
         let securityMinutes: Int?
         let source: String?
+        /// When the queue was actually measured. Only present on a real reading
+        /// — a "live" number of unknown age is barely better than a guess, so
+        /// callers that show it as live should show this alongside.
+        let updatedAt: String?
     }
 
     func securityWaitTime(iata: String) async throws -> SecurityInfo? {

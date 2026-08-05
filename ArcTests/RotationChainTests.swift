@@ -142,14 +142,34 @@ final class RotationChainTests: XCTestCase {
             scheduledDeparture: DateHelpers.parseAPIDate("2026-07-20T14:00:00.000Z")!,
             aircraftType: nil, officialDelayMinutes: 0))
 
-        // Chain view: feeder lands 11:50 → ready 12:25 → LX1412 slips 25m →
-        // lands 13:55 → ready 14:30 → 30 minutes late.
+        // Chain view, WITH the en-route recovery discount: the feeder is 50m
+        // down on a 2h block, claws back min(25, 10% of block) = 12m, so it
+        // lands 11:38 rather than 11:50 → ready 12:13 → LX1412 slips 13m →
+        // lands 13:43 → ready 14:18 → 18 minutes late.
         let p = RotationChain.predictChainDelay(
             chain: chain,
             scheduledDeparture: DateHelpers.parseAPIDate("2026-07-20T14:00:00.000Z")!,
             aircraftType: nil, officialDelayMinutes: 0)
-        XCTAssertEqual(p?.minutes, 30)
+        XCTAssertEqual(p?.minutes, 18)
         XCTAssertTrue(p?.reason.contains("carries through") == true)
+    }
+
+    /// The discount the case above depends on, pinned on its own so a change
+    /// to the recovery model fails HERE — naming the cause — rather than only
+    /// as a surprising arithmetic slip two legs downstream.
+    func testDelayedLegClawsBackSomeTimeEnRoute() {
+        let leg = rleg("LX1571", from: "VIE", to: "ZRH",
+                       schedDep: "2026-07-20T09:00:00.000Z", schedArr: "2026-07-20T11:00:00.000Z",
+                       status: "active", delay: 50)
+        // 50m down, 120m block → recovers min(25, 12) = 12m → 38m late.
+        XCTAssertEqual(leg.effectiveArrival, DateHelpers.parseAPIDate("2026-07-20T11:38:00.000Z"))
+
+        // The claw-back is capped, so a long-haul leg can't recover absurdly.
+        let longHaul = rleg("LX40", from: "ZRH", to: "JFK",
+                            schedDep: "2026-07-20T09:00:00.000Z", schedArr: "2026-07-20T18:00:00.000Z",
+                            status: "active", delay: 60)
+        // 540m block → 10% is 54, capped at 25 → 35m late, not 6m.
+        XCTAssertEqual(longHaul.effectiveArrival, DateHelpers.parseAPIDate("2026-07-20T18:35:00.000Z"))
     }
 
     /// Ground-time slack absorbs small lateness: a 20-minute-late feeder with
