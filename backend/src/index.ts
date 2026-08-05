@@ -1,6 +1,7 @@
 import { apnsConfigured, sendLiveActivityPush } from "./apns";
 import { toISO, repairLegForRoute, cachedRowFresh } from "./legs";
 import { predictGate, type GateObservation } from "./gates";
+import { verifiedRoute } from "./place";
 
 interface Env {
   RAPIDAPI_KEY: string;          // AeroDataBox key (RapidAPI). Set via `wrangler secret put RAPIDAPI_KEY`.
@@ -595,6 +596,23 @@ export default {
 
         const today = new Date().toISOString().slice(0, 10);
         const defaultDay = parsed.date || today;
+
+        // Check the parser's route against the places the query actually names.
+        // Asked for "Syros to Athens" it answers JTR — Santorini — and the
+        // search then offered a different island's departures as the answer.
+        // Instructing it not to changed nothing; it still says JTR. So the
+        // answer is verified rather than trusted. A pre-parsed route came from
+        // the client's own airport table and needs no second opinion.
+        let dropped: string[] = [];
+        if (!preParsed) {
+          const checked = verifiedRoute(query, parsed.dep_iata, parsed.arr_iata);
+          dropped = checked.dropped;
+          if (dropped.length) {
+            console.error("route verification dropped:", dropped.join(","), "for:", query.slice(0, 80));
+          }
+          parsed = { ...parsed, dep_iata: checked.dep, arr_iata: checked.arr };
+        }
+
         let route = parsed.dep_iata && parsed.arr_iata
           ? { dep: parsed.dep_iata.toUpperCase(), arr: parsed.arr_iata.toUpperCase() }
           : null;
@@ -758,7 +776,7 @@ export default {
         }
         if ((body as any).debug) {
           timings["verify"] = Date.now() - t0 - timings["parse"] - timings["discovery"];
-          return Response.json({ flights: results, parsed, candidates, timings }, { headers: cors });
+          return Response.json({ flights: results, parsed, candidates, timings, dropped }, { headers: cors });
         }
         return Response.json({ flights: results }, { headers: cors });
       } catch (err: any) {
