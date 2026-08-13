@@ -303,16 +303,16 @@ struct DetailedTimetableSection: View {
             card {
                 VStack(spacing: 14) {
                     groupHeader("DEPART")
-                    timeRow("Gate Departure", scheduled: flight.depTimeLocal,
+                    timeRow(flight.mode == .air ? "Gate Departure" : "Departure", scheduled: flight.depTimeLocal,
                             estimated: flight.departureChanged ? flight.effectiveDepTimeLocal : "--")
                     Divider()
                     groupHeader("ARRIVE")
-                    timeRow("Gate Arrival", scheduled: flight.arrTimeLocal,
+                    timeRow(flight.mode == .air ? "Gate Arrival" : "Arrival", scheduled: flight.arrTimeLocal,
                             estimated: flight.arrivalChanged ? flight.effectiveArrTimeLocal : "--")
                     Divider()
                     groupHeader("TOTALS")
                     plainRow("Air Time", flight.durationFormatted)
-                    plainRow("Distance", flight.distanceFormatted)
+                    if flight.hasRoute { plainRow("Distance", flight.distanceFormatted) }
                     // Calibration in public: once the flight has flown, show
                     // what Arc predicted at departure next to what happened.
                     // A prediction you can't check afterwards is marketing.

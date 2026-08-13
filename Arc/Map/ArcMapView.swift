@@ -126,6 +126,13 @@ struct ArcMapView: View {
                     let dep = CLLocationCoordinate2D(latitude: flight.departureLat, longitude: flight.departureLon)
                     let arr = CLLocationCoordinate2D(latitude: flight.arrivalLat, longitude: flight.arrivalLon)
                     let track = flight.trackPoints
+                    // A train follows rails, not a great circle. When the leg
+                    // carries the real routed path, that IS the line — the arc
+                    // is only a stand-in for modes whose provider publishes no
+                    // geometry (every flight, and every ferry).
+                    let routed = flight.routePath.map {
+                        CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
+                    }
 
                     if flight.isCompleted, track.count >= 2 {
                         // Landed: the real recorded path, airport to airport —
@@ -160,12 +167,17 @@ struct ArcMapView: View {
                             .stroke(ArcTheme.routeLine.opacity(0.75),
                                     style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [1, 4]))
                     } else if flight.isCompleted {
-                        // Past, no recorded track: muted great circle.
-                        MapPolyline(coordinates: GeoMath.greatCircle(from: dep, to: arr))
+                        // Past, no recorded track: the routed path if the leg
+                        // has one, else a muted great circle.
+                        MapPolyline(coordinates: routed.count >= 3 ? routed
+                                    : GeoMath.greatCircle(from: dep, to: arr))
                             .stroke(ArcTheme.routeLinePast, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                     } else {
                         // Upcoming (or active without track): bright + glow.
-                        let gc = GeoMath.greatCircle(from: dep, to: arr)
+                        // The routed path wins where it exists — drawing a train
+                        // as a straight line across the countryside is the one
+                        // thing on this map that is simply untrue.
+                        let gc = routed.count >= 3 ? routed : GeoMath.greatCircle(from: dep, to: arr)
                         MapPolyline(coordinates: gc)
                             .stroke(ArcTheme.routeLine.opacity(0.28), style: StrokeStyle(lineWidth: 6, lineCap: .round))
                         MapPolyline(coordinates: gc)

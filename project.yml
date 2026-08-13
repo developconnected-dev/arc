@@ -33,6 +33,11 @@ targets:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         NSSupportsLiveActivities: true
+        # Lets the app talk to a `wrangler dev` worker on http://localhost while
+        # testing. Scoped to local networking only — arbitrary cleartext loads
+        # to the internet stay blocked.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         UILaunchScreen: {}
         UIBackgroundModes: [fetch]
         BGTaskSchedulerPermittedIdentifiers: [com.arc.flighttracker.refresh]

@@ -160,7 +160,7 @@ struct AddFlightView: View {
     private var headerBar: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text("Add Flight").font(.system(size: 32, weight: .heavy))
+                Text("Add Trip").font(.system(size: 32, weight: .heavy))
                 Spacer()
                 if step != .search {
                     Button { back() } label: {
@@ -207,7 +207,7 @@ struct AddFlightView: View {
 
     private var subtitle: String {
         switch step {
-        case .search: "Enter airline, airport, or flight"
+        case .search: "Enter airline, station, port, or number"
         case .number: "Enter flight number"
         case .date: "Enter departure date"
         case .results: "Tap to add to My Trips"
@@ -266,7 +266,7 @@ struct AddFlightView: View {
     /// the scrollable content, allowing query refinement at any scroll offset.
     private var pinnedSearchHeader: some View {
         VStack(alignment: .leading, spacing: 0) {
-            searchField(placeholder: "Flight, airline, airport, or paste a booking",
+            searchField(placeholder: "Flight, train, ferry, or paste a booking",
                         text: $query)
                 .siriGlow(active: isParsingNatural || isPrefetching)
                 .padding(.horizontal, 20)
@@ -751,7 +751,12 @@ struct AddFlightView: View {
             }.frame(width: 56)
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    AirlineLogoView(iata: String(r.flight_number.prefix(2)), size: 20)
+                    // Only a flight number begins with an airline code. Handing
+                    // "BLUE STAR 2" to the airline lookup asks it for "BL" and
+                    // put a Jetstar logo on a Greek ferry.
+                    TripLogoView(mode: resultMode(r),
+                                 iata: resultMode(r) == .air ? String(r.flight_number.prefix(2)) : "",
+                                 logoURL: r.operator_logo, size: 20)
                     // Searching a codeshare number answers with the operating
                     // flight, so without this the result looks like a
                     // different flight than the one that was typed — which is
@@ -765,8 +770,12 @@ struct AddFlightView: View {
                 }
                 TextHelpers.cityPair(depCity, arrCity, size: 18)
                 HStack(spacing: 18) {
-                    Text("\(r.dep_iata)  \(timeOnly(r.dep_scheduled, at: r.dep_iata))").font(.system(size: 14, weight: .semibold)).foregroundStyle(ArcTheme.onTime)
-                    Text("\(r.arr_iata)  \(timeOnly(r.arr_scheduled, at: r.arr_iata))").font(.system(size: 14, weight: .semibold)).foregroundStyle(ArcTheme.onTime)
+                    Text("\(r.dep_iata)  \(timeOnly(r.dep_scheduled, at: r.dep_iata, tz: r.dep_tz))")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(resultReportsPunctuality(r) ? ArcTheme.onTime : Color(.label))
+                    Text("\(r.arr_iata)  \(timeOnly(r.arr_scheduled, at: r.arr_iata, tz: r.arr_tz))")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(resultReportsPunctuality(r) ? ArcTheme.onTime : Color(.label))
                 }
             }
         }
@@ -1061,21 +1070,39 @@ struct AddFlightView: View {
 
     /// The raw provider status read straight out as "Departs \(status)", which
     /// produced "Departs Landed" — and painted a cancellation on-time green.
+    private func resultMode(_ r: FlightAPIClient.FlightSearchResult) -> TripMode {
+        TripMode(rawValue: r.mode ?? "air") ?? .air
+    }
+
+    /// Does this result's source actually report punctuality? A ferry timetable
+    /// does not, so a green "On time" on a sailing is the app inventing a fact —
+    /// on the very screen someone reads beside their booking confirmation.
+    private func resultReportsPunctuality(_ r: FlightAPIClient.FlightSearchResult) -> Bool {
+        (DataTier(rawValue: r.data_tier ?? "live") ?? .live).reportsPunctuality
+    }
+
     private func statusLabel(_ r: FlightAPIClient.FlightSearchResult) -> String {
+        let mode = resultMode(r)
         switch r.status.lowercased() {
-        case "landed": "Landed"
-        case "active": "In the air"
-        case "cancelled": "Cancelled"
-        case "diverted": "Diverted"
-        default: (r.delay ?? 0) > 0 ? "Delayed \(r.delay ?? 0)m" : "On time"
+        case "landed": return mode == .air ? "Landed" : "Arrived"
+        case "active": return mode == .air ? "In the air" : "En route"
+        case "cancelled": return "Cancelled"
+        case "diverted": return "Diverted"
+        default:
+            guard resultReportsPunctuality(r) else {
+                return (DataTier(rawValue: r.data_tier ?? "live") ?? .live).qualifier ?? "Scheduled"
+            }
+            return (r.delay ?? 0) > 0 ? "Delayed \(r.delay ?? 0)m" : "On time"
         }
     }
 
     private func statusColor(_ r: FlightAPIClient.FlightSearchResult) -> Color {
         switch r.status.lowercased() {
-        case "cancelled", "diverted": ArcTheme.late
-        case "landed": .secondary
-        default: (r.delay ?? 0) > 0 ? ArcTheme.late : ArcTheme.onTime
+        case "cancelled", "diverted": return ArcTheme.late
+        case "landed": return .secondary
+        default:
+            guard resultReportsPunctuality(r) else { return Color(.secondaryLabel) }
+            return (r.delay ?? 0) > 0 ? ArcTheme.late : ArcTheme.onTime
         }
     }
 
@@ -1090,12 +1117,18 @@ struct AddFlightView: View {
     /// Athens departure in Swiss time and looked like the wrong flight. Every
     /// time here is the local time at ITS OWN airport, exactly as the airline
     /// prints it.
-    private func timeOnly(_ iso: String, at iata: String) -> String {
+    private func timeOnly(_ iso: String, at iata: String, tz: String? = nil) -> String {
         guard let d = DateHelpers.parseAPIDate(iso) else { return "" }
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_GB")
         f.dateFormat = "HH:mm"
-        f.timeZone = ReferenceData.shared.timezone(iata) ?? .current
+        // A station or a port is not in the airport table, so that lookup fails
+        // and the formatter silently falls back to the DEVICE's zone — which is
+        // how a 15:00 sailing from Piraeus rendered as 10:00. The backend sends
+        // each endpoint's own zone precisely so this doesn't have to guess.
+        f.timeZone = tz.flatMap(TimeZone.init(identifier:))
+            ?? ReferenceData.shared.timezone(iata)
+            ?? .current
         return f.string(from: d)
     }
     /// Calendar days, not seconds/86400: flights on the same date must show
@@ -1209,7 +1242,14 @@ struct AddFlightView: View {
         -> [FlightAPIClient.FlightSearchResult] {
         guard let route else { return results }
         return results.filter {
-            $0.dep_iata.uppercased() == route.depIATA.uppercased()
+            // The route being checked against came from the AIRPORT table, so
+            // it can only judge flights. A Piraeus sailing carries the port code
+            // PIR, which matches no airport and would be thrown away — deleting
+            // the very results the user searched for. Trains and ferries were
+            // resolved from the place names themselves and need no second
+            // opinion.
+            guard ($0.mode ?? "air") == "air" else { return true }
+            return $0.dep_iata.uppercased() == route.depIATA.uppercased()
                 && $0.arr_iata.uppercased() == route.arrIATA.uppercased()
         }
     }
@@ -1277,14 +1317,24 @@ struct AddFlightView: View {
         let arrival = DateHelpers.parseAPIDate(r.arr_scheduled) ?? departure.addingTimeInterval(2 * 3600)
 
         let f = Flight(flightNumber: r.flight_number, date: departure)
+        let mode = TripMode(rawValue: r.mode ?? "air") ?? .air
+        f.mode = mode
+        f.dataTier = DataTier(rawValue: r.data_tier ?? "live") ?? .live
         f.sharedWithIds = sharedWithIds
         f.marketingFlightNumber = r.marketing_number
         f.airline = r.airline_name
         f.airlineICAO = r.airline_iata
         f.departureIATA = r.dep_iata; f.arrivalIATA = r.arr_iata
-        f.departureCity = r.dep_city ?? ReferenceData.shared.airport(r.dep_iata)?.city ?? r.dep_iata
-        f.arrivalCity = r.arr_city ?? ReferenceData.shared.airport(r.arr_iata)?.city ?? r.arr_iata
-        let dep = ReferenceData.shared.airport(r.dep_iata); let arr = ReferenceData.shared.airport(r.arr_iata)
+
+        // The airport table is consulted ONLY for flights. A station or port
+        // code is not an airport code, and the codes genuinely collide — a rail
+        // leg out of Berlin Hbf carries "BER", which would quietly adopt Berlin
+        // Brandenburg's city name and coordinates and put the train at an
+        // airport it never goes near.
+        let dep = mode == .air ? ReferenceData.shared.airport(r.dep_iata) : nil
+        let arr = mode == .air ? ReferenceData.shared.airport(r.arr_iata) : nil
+        f.departureCity = r.dep_city ?? dep?.city ?? r.dep_iata
+        f.arrivalCity = r.arr_city ?? arr?.city ?? r.arr_iata
         f.departureLat = r.dep_lat ?? dep?.lat ?? 0; f.departureLon = r.dep_lon ?? dep?.lon ?? 0
         f.arrivalLat = r.arr_lat ?? arr?.lat ?? 0; f.arrivalLon = r.arr_lon ?? arr?.lon ?? 0
         f.scheduledDeparture = departure; f.scheduledArrival = arrival
@@ -1294,6 +1344,25 @@ struct AddFlightView: View {
         f.arrivalGate = r.arr_gate; f.arrivalTerminal = r.arr_terminal; f.baggageClaim = r.arr_baggage
         f.aircraftType = r.aircraft_type; f.aircraftRegistration = r.aircraft_registration
         f.aircraftICAO24 = r.aircraft_icao24
+
+        // Endpoint identity and zone. Both matter more off-air than on: the
+        // stop id is how the leg is re-found later, and the zone is the only
+        // way a station or port time can be rendered correctly at all.
+        f.departureStopID = r.dep_stop_id; f.arrivalStopID = r.arr_stop_id
+        f.departureTZID = r.dep_tz; f.arrivalTZID = r.arr_tz
+        // A platform change reuses the gate-change machinery already built for
+        // flights, so the "gate changed" treatment lights up for trains free.
+        if let advertised = r.dep_gate_scheduled, advertised != r.dep_gate {
+            f.previousDepartureGate = advertised
+        }
+        f.vesselName = r.vessel_name; f.vesselMMSI = r.vessel_mmsi
+        f.operatorLogoURL = r.operator_logo
+        f.disruptionNote = r.disruption_note
+        f.bookingURL = r.booking_url
+        f.railTripID = r.trip_id
+        if let path = r.route_path, path.count >= 3 {
+            f.routePathData = try? JSONEncoder().encode(path)
+        }
 
         modelContext.insert(f)
         do {

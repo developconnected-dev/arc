@@ -1,12 +1,40 @@
 import Foundation
 import SwiftData
 
+/// One booked leg of a trip — historically a flight, now also a train or a
+/// ferry sailing.
+///
+/// The name stays `Flight` deliberately. Renaming a `@Model` is a schema
+/// migration against journeys the user already has stored, and this type is
+/// referenced from the widget, the Live Activity attributes and the Supabase
+/// payload keys, so a rename would ripple through all three for no behavioural
+/// gain. `mode` carries what actually differs; the display layer supplies the
+/// vocabulary.
 @Model
 final class Flight {
     @Attribute(.unique) var id: UUID = UUID()
 
+    // MARK: - Mode
+    //
+    // Defaulted so every leg already on the device migrates untouched: SwiftData
+    // adds a property with a default value without a migration plan.
+
+    var modeRaw: String = "air"
+    var mode: TripMode {
+        get { TripMode(rawValue: modeRaw) ?? .air }
+        set { modeRaw = newValue.rawValue }
+    }
+
+    /// How much the source really knows — see `DataTier`. Existing rows are all
+    /// AeroDataBox-tracked flights, so `live` is the correct default for them.
+    var dataTierRaw: String = "live"
+    var dataTier: DataTier {
+        get { DataTier(rawValue: dataTierRaw) ?? .live }
+        set { dataTierRaw = newValue.rawValue }
+    }
+
     // Flight identity
-    var flightNumber: String = ""        // e.g. "LX17"
+    var flightNumber: String = ""        // e.g. "LX17" / "ICE 373" / "BLUE STAR DELOS"
     /// The codeshare number this flight was BOOKED under, when that differs
     /// from the number that operates it — "A31653" on a flight stored as
     /// LH1751. Only the operating number can be tracked (nothing indexes a
@@ -17,8 +45,38 @@ final class Flight {
     var airlineICAO: String = ""         // e.g. "SWR"
 
     // Route
-    var departureIATA: String = ""       // e.g. "ZRH"
-    var arrivalIATA: String = ""         // e.g. "JFK"
+    //
+    // These two stay SHORT — three characters — in every mode. They are rendered
+    // raw into fixed-width chips in the list row, the home widget and the
+    // Dynamic Island, none of which wrap. A rail stop id like
+    // "de-DELFI_de:11000:900003201" in this field would wreck all three, so the
+    // provider's real handle lives in `departureStopID` and this holds the
+    // three letters that go on screen (derived from the station or port name).
+    // Display-only: nothing is ever looked up by these outside air mode, so a
+    // collision with a real IATA code is harmless.
+    var departureIATA: String = ""       // e.g. "ZRH" / "BER" / "PIR"
+    var arrivalIATA: String = ""         // e.g. "JFK" / "BAS" / "THI"
+
+    /// The provider's own identifier for each endpoint, opaque and often long.
+    ///
+    /// Rail: the MOTIS stop id, which must be the one the DEPARTURE BOARD gave
+    /// (`place.stopId`) — the id used to query a board is frequently a different
+    /// DHID station from the one trips report, because a large Hauptbahnhof is
+    /// several stations that a traveller experiences as one place.
+    /// Sea: the port NAME, because Ferryhopper's search resolves names and
+    /// rejects codes ("PIR" finds nothing, "Piraeus" finds seven sailings).
+    var departureStopID: String?
+    var arrivalStopID: String?
+
+    /// IANA zone per endpoint, for the modes where the airport table can't answer.
+    ///
+    /// `ReferenceData.timezone` resolves an IATA code against the bundled airport
+    /// database. That is exactly wrong for a station or a port: "PIR" is not an
+    /// airport, and worse, some derived codes DO collide with real airports and
+    /// would silently return a plausible zone for the wrong continent. So rail
+    /// and sea legs carry their own zone and the display layer prefers it.
+    var departureTZID: String?
+    var arrivalTZID: String?
     var departureCity: String = ""       // e.g. "Zurich"
     var arrivalCity: String = ""         // e.g. "New York"
     var departureLat: Double = 0
@@ -49,6 +107,61 @@ final class Flight {
     var aircraftType: String?            // e.g. "Airbus A340-300"
     var aircraftRegistration: String?    // e.g. "HB-JMB"
     var aircraftICAO24: String?          // For OpenSky tracking
+
+    // MARK: - Vessel (sea)
+
+    var vesselName: String?              // e.g. "BLUE STAR DELOS"
+
+    /// Maritime Mobile Service Identity, for AIS position tracking.
+    ///
+    /// Kept apart from `aircraftICAO24` rather than reusing it, because that
+    /// field is what feeds the OpenSky lookup. An MMSI is nine decimal digits
+    /// where an ICAO24 is six hex, so a shared field would let a ferry's id
+    /// reach the aircraft tracker and come back with a position belonging to
+    /// something else entirely — wrong, and with nothing to raise an error.
+    /// `livePositionSource` dispatches on `mode`, never on whichever is set.
+    var vesselMMSI: String?
+
+    // MARK: - Ground/water extras
+
+    /// Operator artwork, supplied by the ferry source (airlines use the bundled
+    /// asset catalog instead).
+    var operatorLogoURL: String?
+
+    /// The operator's own words about this sailing being moved or cancelled.
+    ///
+    /// The only change signal ferries have: no Mediterranean source publishes a
+    /// per-sailing revised time, so a disruption notice is the entire substance
+    /// of "is my ferry still running". Shown verbatim rather than parsed into a
+    /// delay figure, because parsing prose into a number would manufacture a
+    /// precision the operator never stated.
+    var disruptionNote: String?
+    var disruptionSeenAt: Date?
+
+    /// Deep link back to the source for a sailing, so a changed booking can be
+    /// re-checked where it was made.
+    var bookingURL: String?
+
+    /// The leg's real routed path, JSON-encoded [[lat, lon], …].
+    ///
+    /// A great-circle arc is right for a plane and false for a train: it draws
+    /// Berlin→Basel straight across the countryside instead of routing via
+    /// Frankfurt and Mannheim. MOTIS publishes the actual track; the Worker
+    /// decodes and simplifies it to a few hundred points (~3–6 KB) so the map
+    /// can draw the real line without carrying 110 KB per leg.
+    ///
+    /// nil for flights (a great circle IS the route) and for ferries (no
+    /// provider publishes sailing geometry), and both fall back to the arc.
+    var routePathData: Data?
+
+    /// The identity of a booked train that survives the feed being re-imported.
+    ///
+    /// MOTIS trip ids embed a per-import sequence number that is renumbered when
+    /// the feed rebuilds, so a train added weeks ahead would quietly stop
+    /// resolving. `railTripID` is kept as a fast path and re-derived from the
+    /// departure board — matched on operator, service number, boarding stop and
+    /// scheduled time — whenever it fails.
+    var railTripID: String?
 
     // Inbound tracking ("Where's My Plane") — the previous rotation of this same tail
     var inboundFlightNumber: String?
@@ -193,6 +306,30 @@ final class Flight {
         status == .landed || status == .cancelled || status == .diverted
     }
 
+    /// Where a live position for this leg can be fetched from, if anywhere.
+    ///
+    /// Dispatches on `mode` rather than on whichever identifier happens to be
+    /// populated. That distinction is load-bearing: handing a nine-digit MMSI to
+    /// the ICAO24-based aircraft lookup returns a position for some other
+    /// vehicle, or none, and reports no error either way.
+    ///
+    /// Trains return `nil` — no free Europe-wide source publishes live train
+    /// positions, so a rail leg's map arc is drawn from its timetable progress.
+    var livePositionSource: LivePositionSource? {
+        switch mode {
+        case .air:
+            guard let id = aircraftICAO24?.trimmingCharacters(in: .whitespaces),
+                  !id.isEmpty else { return nil }
+            return .openSky(icao24: id)
+        case .sea:
+            guard let id = vesselMMSI?.trimmingCharacters(in: .whitespaces),
+                  id.count == 9, id.allSatisfy(\.isNumber) else { return nil }
+            return .ais(mmsi: id)
+        case .rail:
+            return nil
+        }
+    }
+
     var duration: TimeInterval {
         scheduledArrival.timeIntervalSince(scheduledDeparture)
     }
@@ -307,6 +444,13 @@ final class Flight {
         }
     }
 
+    /// Decoded route path, empty when the leg has none.
+    var routePath: [(lat: Double, lon: Double)] {
+        guard let data = routePathData,
+              let raw = try? JSONDecoder().decode([[Double]].self, from: data) else { return [] }
+        return raw.compactMap { $0.count >= 2 ? (lat: $0[0], lon: $0[1]) : nil }
+    }
+
     /// The tail's day so far, chronological (immediate inbound last).
     var rotationLegs: [RotationLeg] {
         get {
@@ -365,6 +509,14 @@ extension Flight {
             try? await ArcSupabase.shared.unshareFlight(flightNumber: number, scheduledDeparture: departure)
         }
     }
+}
+
+/// Which live-position provider can track a given leg, and the identifier it
+/// wants. Modelled as one value so the two id namespaces can never be confused
+/// at a call site.
+enum LivePositionSource: Equatable, Sendable {
+    case openSky(icao24: String)
+    case ais(mmsi: String)
 }
 
 enum FlightStatus: String, Codable, CaseIterable {

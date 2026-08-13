@@ -2,6 +2,8 @@ import { apnsConfigured, sendLiveActivityPush } from "./apns";
 import { toISO, repairLegForRoute, cachedRowFresh } from "./legs";
 import { predictGate, type GateObservation } from "./gates";
 import { verifiedRoute } from "./place";
+import { handleTransit } from "./routes-transit";
+import { modesToQuery, routeFromQuery, dateFromQuery } from "./classify";
 
 interface Env {
   RAPIDAPI_KEY: string;          // AeroDataBox key (RapidAPI). Set via `wrangler secret put RAPIDAPI_KEY`.
@@ -395,6 +397,11 @@ export default {
       });
     }
 
+    // Rail and ferry live in their own module and answer null for anything
+    // that isn't theirs, so the flight routes below are untouched by them.
+    const transit = await handleTransit(req, url, cors);
+    if (transit) return transit;
+
     if (url.pathname === "/health") {
       const budget = env.SUPABASE_SERVICE_KEY ? await budgetRow(env) : null;
       return Response.json({
@@ -553,10 +560,61 @@ export default {
     // can't reach the user. Returns the verified flights; the app lets the
     // user pick.
     if (url.pathname === "/search-flights" && req.method === "POST") {
+      // Declared out here so the catch below can still return whatever the
+      // rail/ferry providers managed, even when the flight path threw.
+      let groundAndWater: Promise<Record<string, unknown>[]> = Promise.resolve([]);
       try {
         const body = await req.json<{ query?: string; dep_iata?: string; arr_iata?: string; date?: string }>() ?? {};
         const query = (body.query ?? "").trim();
         if (!query) return Response.json({ error: "Empty query" }, { status: 400, headers: cors });
+
+        // ── which kinds of journey could this be? ──
+        //
+        // One search box, no mode picker, so the query itself decides. Rail and
+        // sea are started FIRST and awaited at the end: they talk to different
+        // providers than the flight pipeline, so running them alongside costs
+        // nothing in wall-clock and a train stops being second-class.
+        //
+        // Air is never skipped. It is the mode Arc has always answered and the
+        // classifier is evidence, not proof — dropping the flight search on a
+        // guess would be a strictly worse failure than an extra query.
+        const wanted = new Set(modesToQuery(query));
+        const queryRoute = routeFromQuery(query);
+        // The date, without an AI round-trip. Rail and ferry have no other use
+        // for the parser, so making them wait on it — and fall back to TODAY
+        // when it is slow or unconfigured — answered September bookings with
+        // this afternoon's sailings.
+        const clientDay = /^\d{4}-\d{2}-\d{2}$/.test(body.date ?? "") ? body.date! : undefined;
+        const searchDay = clientDay ?? dateFromQuery(query) ?? new Date().toISOString().slice(0, 10);
+
+        // Kicked off with whatever day we already know. When the client didn't
+        // send one, the date lives in the free text ("10 Sep") and only the
+        // parser can read it — so the call is deferred until the parse lands
+        // rather than silently searching today. Getting this wrong is not
+        // subtle: it answers a September booking with this afternoon's sailings.
+        const startGroundAndWater = (day: string) => (async () => {
+          if (!queryRoute || (!wanted.has("rail") && !wanted.has("sea"))) return [];
+          const origin = new URL(req.url).origin;
+          const jobs: Promise<Record<string, unknown>[]>[] = [];
+          const ask = async (path: string) => {
+            try {
+              const r = await fetch(`${origin}${path}`, { headers: { Accept: "application/json" } });
+              if (!r.ok) return [];
+              const j = await r.json();
+              return Array.isArray(j) ? j as Record<string, unknown>[] : [];
+            } catch { return []; }   // a provider being down must not fail the search
+          };
+          if (wanted.has("rail")) {
+            jobs.push(ask(`/rail/search?from=${encodeURIComponent(queryRoute.from)}` +
+              `&to=${encodeURIComponent(queryRoute.to)}&date=${day}`));
+          }
+          if (wanted.has("sea")) {
+            jobs.push(ask(`/ferry/search?from=${encodeURIComponent(queryRoute.from)}` +
+              `&to=${encodeURIComponent(queryRoute.to)}&date=${day}`));
+          }
+          return (await Promise.all(jobs)).flat();
+        })();
+        groundAndWater = startGroundAndWater(searchDay);
 
         // The app resolves plain routes locally and sends them pre-parsed —
         // skipping the AI call, which is most of a warm search's latency.
@@ -572,6 +630,11 @@ export default {
                      date: body.date!, candidates: [] };
         } else {
           if (!env.AI_API_KEY?.startsWith("sk-ant-")) {
+            // Rail and sea don't need the parser — they read place names
+            // straight off the query — so a missing AI key must not take them
+            // down with the flight search.
+            const only = await groundAndWater;
+            if (only.length) return Response.json({ flights: only }, { headers: cors });
             return Response.json({ error: "AI search not configured" }, { status: 503, headers: cors });
           }
           // Same text, same day → same parse. Keyed by day because relative
@@ -592,10 +655,16 @@ export default {
           }
         }
         timings["parse"] = Date.now() - t0;
-        if (!parsed) return Response.json({ flights: [] }, { headers: cors });
+        // The parser failing says nothing about a ferry: "Piraeus to Santorini"
+        // names no airport, so the AI legitimately returns nothing while the
+        // sailing the user actually wants is sitting in the other result.
+        if (!parsed) {
+          return Response.json({ flights: await groundAndWater }, { headers: cors });
+        }
 
         const today = new Date().toISOString().slice(0, 10);
         const defaultDay = parsed.date || today;
+
 
         // Check the parser's route against the places the query actually names.
         // Asked for "Syros to Athens" it answers JTR — Santorini — and the
@@ -774,12 +843,28 @@ export default {
             if (results.length) break;
           }
         }
+        // Trains and sailings join the same list, sorted with the flights by
+        // departure. They are the same shape, so one result list stays one
+        // result list — the user picks a journey, not a mode.
+        const other = await groundAndWater;
+        const merged = [...results, ...other].sort((a: any, b: any) =>
+          String(a?.dep_scheduled ?? "").localeCompare(String(b?.dep_scheduled ?? "")));
+
         if ((body as any).debug) {
           timings["verify"] = Date.now() - t0 - timings["parse"] - timings["discovery"];
-          return Response.json({ flights: results, parsed, candidates, timings, dropped }, { headers: cors });
+          return Response.json({ flights: merged, parsed, candidates, timings, dropped,
+                                 modes: [...wanted], route: queryRoute }, { headers: cors });
         }
-        return Response.json({ flights: results }, { headers: cors });
+        return Response.json({ flights: merged }, { headers: cors });
       } catch (err: any) {
+        // The flight pipeline failing says nothing about the ferry search that
+        // already succeeded beside it. Returning what we have beats returning
+        // an error the user can do nothing about — and it keeps rail and sea
+        // working when AeroDataBox, Supabase or the parser is down.
+        try {
+          const salvaged = await groundAndWater;
+          if (salvaged.length) return Response.json({ flights: salvaged }, { headers: cors });
+        } catch { /* nothing to salvage */ }
         return Response.json({ error: "Search failed", details: err?.message }, { status: 500, headers: cors });
       }
     }

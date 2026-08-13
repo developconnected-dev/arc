@@ -49,6 +49,39 @@ actor FlightAPIClient {
         let dep_lon: Double?
         let arr_lat: Double?
         let arr_lon: Double?
+
+        // MARK: Ground and water legs
+        //
+        // All optional with defaults, so a flight payload — which carries none
+        // of them — decodes exactly as before, and so an older backend that has
+        // never heard of trains keeps working against a newer app.
+
+        /// "air", "rail" or "sea". Absent means air.
+        var mode: String? = nil
+        /// "live", "scheduled" or "manual" — how much the source actually knows.
+        var data_tier: String? = nil
+        /// The provider's own endpoint handle: a MOTIS stop id, or a port name.
+        /// Long and opaque; never rendered.
+        var dep_stop_id: String? = nil
+        var arr_stop_id: String? = nil
+        /// IANA zone per endpoint. The airport table cannot answer for a station
+        /// or a port, so the backend resolves these and sends them.
+        var dep_tz: String? = nil
+        var arr_tz: String? = nil
+        /// The platform originally advertised, when it differs from the current
+        /// one. The pair is what makes a platform change visible.
+        var dep_gate_scheduled: String? = nil
+        var vessel_name: String? = nil
+        var vessel_mmsi: String? = nil
+        var operator_logo: String? = nil
+        var disruption_note: String? = nil
+        var booking_url: String? = nil
+        /// MOTIS trip id — a fast path only. It embeds a per-import sequence the
+        /// feed renumbers, so it is re-resolved rather than trusted forever.
+        var trip_id: String? = nil
+        /// The real routed path as [[lat, lon], …], already simplified by the
+        /// backend. Absent for flights and ferries, which fall back to an arc.
+        var route_path: [[Double]]? = nil
     }
 
     func searchFlight(number: String, date: String) async throws -> [FlightSearchResult] {
@@ -59,6 +92,160 @@ actor FlightAPIClient {
             ])
         let (data, _) = try await session.data(from: url)
         return try JSONDecoder().decode([FlightSearchResult].self, from: data)
+    }
+
+    // MARK: - Trips that aren't flights
+    //
+    // Rail comes from Transitous (community MOTIS, no key), sea from
+    // Ferryhopper. Both are normalised by the Worker into the SAME
+    // FlightSearchResult shape a flight arrives in, so everything downstream —
+    // the list, the detail sheet, the widget, the Live Activity — needs no idea
+    // which of the three it is holding.
+
+    private func get<T: Decodable>(_ path: String, _ items: [URLQueryItem]) async throws -> T {
+        let url = baseURL.appending(path: path).appending(queryItems: items)
+        let (data, _) = try await session.data(from: url)
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    struct ModeGuess: Codable, Sendable {
+        let mode: String
+        let confidence: Double
+        let reason: String
+    }
+    private struct ClassifyResponse: Codable, Sendable {
+        let modes: [String]
+        let ranked: [ModeGuess]
+    }
+
+    /// Which kinds of journey a query might mean, most likely first.
+    ///
+    /// Arc has one search box and no mode picker, so the query itself has to say
+    /// what it is. Several designators genuinely mean different things in
+    /// different modes — "FR 9612" is both a Ryanair flight and a Frecciarossa —
+    /// so this can legitimately return more than one, and the caller is meant to
+    /// search all of them rather than pick.
+    func classify(query: String) async -> [String] {
+        do {
+            let r: ClassifyResponse = try await get("/classify", [.init(name: "q", value: query)])
+            return r.modes
+        } catch {
+            // Never block a search on the classifier: searching all three is
+            // slower but always correct, which is the right way to fail.
+            return ["air", "rail", "sea"]
+        }
+    }
+
+    // MARK: Rail
+
+    struct TransitStop: Codable, Sendable, Identifiable {
+        let id: String
+        let name: String
+        let lat: Double?
+        let lon: Double?
+        let country: String?
+        let tz: String?
+    }
+
+    func railStations(query: String) async throws -> [TransitStop] {
+        try await get("/rail/stations", [.init(name: "q", value: query)])
+    }
+
+    struct RailDeparture: Codable, Sendable, Identifiable {
+        let trip_id: String
+        let service: String
+        let `operator`: String
+        let headsign: String
+        let mode: String
+        /// The stop as the BOARD names it. This — not the id used to query the
+        /// board — is what matches the trip response, so it is what gets stored.
+        let stop_id: String
+        let stop_name: String
+        let scheduled: String
+        let expected: String
+        let track: String?
+        let realtime: Bool
+        var id: String { trip_id }
+    }
+
+    func railDepartures(stopId: String, at date: Date = .now, limit: Int = 20)
+        async throws -> [RailDeparture] {
+        try await get("/rail/departures", [
+            .init(name: "stopId", value: stopId),
+            .init(name: "time", value: ISO8601DateFormatter().string(from: date)),
+            .init(name: "n", value: String(limit)),
+        ])
+    }
+
+    /// One booked service as a leg, sliced to the part actually travelled.
+    ///
+    /// `from`/`to` are the boarding and alighting stops. Passing them matters:
+    /// ICE 373 runs to Chur, so a Basel passenger who omits `to` gets a card
+    /// claiming they are going to Chur.
+    func railTrip(tripId: String, from: String? = nil, to: String? = nil)
+        async throws -> [FlightSearchResult] {
+        var items = [URLQueryItem(name: "tripId", value: tripId)]
+        if let from { items.append(.init(name: "from", value: from)) }
+        if let to { items.append(.init(name: "to", value: to)) }
+        return try await get("/rail/trip", items)
+    }
+
+    private struct ReresolveResponse: Codable, Sendable { let trip_id: String? }
+
+    /// Find today's trip id for a service whose stored one has gone stale.
+    ///
+    /// MOTIS trip ids embed a per-import sequence that a feed rebuild renumbers,
+    /// so a train added weeks ahead eventually stops resolving. `key` is the
+    /// stable identity — operator, number, boarding stop, scheduled time.
+    func railReresolve(stopId: String, key: String, at date: Date) async -> String? {
+        let r: ReresolveResponse? = try? await get("/rail/reresolve", [
+            .init(name: "stopId", value: stopId),
+            .init(name: "key", value: key),
+            .init(name: "time", value: ISO8601DateFormatter().string(from: date)),
+        ])
+        return r?.trip_id
+    }
+
+    // MARK: Sea
+
+    struct Port: Codable, Sendable, Identifiable {
+        let name: String
+        let code: String
+        let country: String
+        /// nil outside Arc's waters — the backend leaves it unresolved rather
+        /// than guessing an hour it can't stand behind.
+        let tz: String?
+        var id: String { code.isEmpty ? name : code }
+    }
+
+    func ferryPorts(query: String) async throws -> [Port] {
+        try await get("/ferry/ports", [.init(name: "q", value: query)])
+    }
+
+    /// Sailings on a crossing. `from`/`to` are port NAMES — Ferryhopper resolves
+    /// names and rejects codes ("PIR" finds nothing, "Piraeus" finds seven).
+    func ferrySearch(from: String, to: String, date: String)
+        async throws -> [FlightSearchResult] {
+        try await get("/ferry/search", [
+            .init(name: "from", value: from),
+            .init(name: "to", value: to),
+            .init(name: "date", value: date),
+        ])
+    }
+
+    struct FerryDisruption: Codable, Sendable {
+        let type: String?
+        let title: String?
+        let content: String?
+    }
+
+    /// Operator notices for a country's sailings — the only change signal
+    /// ferries have, since no Mediterranean source publishes a revised time per
+    /// sailing.
+    func ferryDisruptions(country: String, date: String? = nil) async -> [FerryDisruption] {
+        var items = [URLQueryItem(name: "country", value: country)]
+        if let date { items.append(.init(name: "date", value: date)) }
+        return (try? await get("/ferry/disruptions", items)) ?? []
     }
 
     // MARK: - Arrival stand

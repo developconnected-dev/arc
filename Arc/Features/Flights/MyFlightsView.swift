@@ -155,7 +155,7 @@ struct MyFlightsView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Text("My Flights").font(ArcTheme.screenTitle)
+            Text("My Trips").font(ArcTheme.screenTitle)
             Spacer()
             ShareLink(item: URL(string: "https://arc.flight")!) {
                 circleIcon("square.and.arrow.up")

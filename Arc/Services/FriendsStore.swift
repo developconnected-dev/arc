@@ -310,8 +310,20 @@ final class FriendsStore {
         let scheduledArr = DateHelpers.parseAPIDate(f.scheduled_arrival)
             ?? scheduledDep.addingTimeInterval(2 * 3600)
         let flight = Flight(flightNumber: f.flight_number, date: scheduledDep)
+        flight.mode = f.tripMode
+        flight.dataTier = f.tier
         flight.airline = f.airline
-        flight.airlineICAO = String(f.flight_number.prefix(2))
+        // Only a flight number begins with an airline code. "BLUE STAR DELOS"
+        // would yield "BL" and hang some unrelated carrier's logo on a ferry.
+        flight.airlineICAO = f.tripMode == .air ? String(f.flight_number.prefix(2)) : ""
+        // Each end's own zone. A friend's train from Berlin to Zürich crosses
+        // one, and without these the times render in the reader's zone instead
+        // of the station's — the same bug the ferry work exists to prevent.
+        flight.departureTZID = f.departure_tz
+        flight.arrivalTZID = f.arrival_tz
+        flight.vesselName = f.vessel_name
+        flight.operatorLogoURL = f.operator_logo_url
+        flight.disruptionNote = f.disruption_note
         flight.departureIATA = f.departure_iata
         flight.arrivalIATA = f.arrival_iata
         flight.departureCity = f.departure_city

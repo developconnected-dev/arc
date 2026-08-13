@@ -64,7 +64,13 @@ struct FlightDetailView: View {
                     }
                     if isOwnFlight { bookingSeatRow; audienceCard }
                     GoodToKnowSection(flight: flight)
-                    if isOwnFlight { WheresMyPlaneSection(flight: flight).id("plane") }
+                    // Aircraft rotation, tail registration and the silhouette
+                    // are all about a plane. A ferry has a vessel and a train
+                    // has neither, so this whole section is air-only until each
+                    // has something of its own to say.
+                    if isOwnFlight, flight.mode == .air {
+                        WheresMyPlaneSection(flight: flight).id("plane")
+                    }
                     DetailedTimetableSection(flight: flight)
                     AirlineInfoSection(flight: flight)
                     if isOwnFlight {
@@ -122,7 +128,8 @@ struct FlightDetailView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
-            AirlineLogoView(iata: flight.airlineCode, size: 34)
+            TripLogoView(mode: flight.mode, iata: flight.airlineCode,
+                         logoURL: flight.operatorLogoURL, size: 34)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(flight.flightNumberSpaced) • \(flight.headerDateText)")
                     .font(.system(size: 13, weight: .semibold))
@@ -266,7 +273,12 @@ struct FlightDetailView: View {
             endpoint(isArrival: false)
             HStack(spacing: 8) {
                 Image(systemName: "clock").font(.system(size: 12)).foregroundStyle(.tertiary)
-                Text("\(flight.durationFormatted) • \(flight.distanceFormatted)")
+                // Ferry ports carry no coordinates from the provider, so the
+                // great-circle distance is 0 — and "0 km" is a false statement,
+                // not a missing one. Show the duration alone in that case.
+                Text(flight.hasRoute
+                     ? "\(flight.durationFormatted) • \(flight.distanceFormatted)"
+                     : flight.durationFormatted)
                     .font(.system(size: 13)).foregroundStyle(.tertiary)
                 Rectangle().fill(Color(.separator)).frame(height: 0.5)
             }
@@ -283,7 +295,11 @@ struct FlightDetailView: View {
             // Only rendered when a host wired the closure — a friend's
             // flight opens this detail without map actions, and a dead
             // button would be worse than none.
-            if onShowAirport != nil {
+            // Both of these are airport features: an OSM terminal map and the
+            // aircraft parked at its gate. Neither exists for a station or a
+            // quayside, and an button that opens an empty map is worse than no
+            // button.
+            if onShowAirport != nil, flight.mode == .air {
             Button {
                 onShowAirport?(flight)
             } label: {
@@ -296,7 +312,7 @@ struct FlightDetailView: View {
             .buttonStyle(.plain)
             }
 
-            if flight.isUpcoming, onShowAtGate != nil {
+            if flight.isUpcoming, onShowAtGate != nil, flight.mode == .air {
                 Button { onShowAtGate?(flight) } label: {
                     Label(flight.departureGate.map { "My plane · Gate \($0)" } ?? "My plane",
                           systemImage: "airplane.circle.fill")
@@ -307,7 +323,8 @@ struct FlightDetailView: View {
                         .foregroundStyle(ArcTheme.action)
                 }
                 .buttonStyle(.plain)
-            } else if flight.isCompleted || flight.isRecentlyLanded, let gate = flight.arrivalGate, onShowAtGate != nil {
+            } else if flight.isCompleted || flight.isRecentlyLanded, let gate = flight.arrivalGate,
+                      onShowAtGate != nil, flight.mode == .air {
                 Button { onShowAtGate?(flight) } label: {
                     Label("Plane at \(gate)", systemImage: "airplane.circle.fill")
                         .font(.system(size: 14, weight: .semibold))
@@ -366,7 +383,14 @@ struct FlightDetailView: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 4) {
-                    GatePill(arrow: arrow, gate: gate ?? "--")
+                    // A flight always has a gate eventually, so an empty pill is
+                    // a useful placeholder. A ferry has no gate ever, and a
+                    // permanent yellow "--" is just clutter that reads like
+                    // missing data — so off-air the pill appears only once there
+                    // is a real platform or berth to show.
+                    if flight.mode == .air || (gate?.isEmpty == false) {
+                        GatePill(arrow: arrow, gate: gate ?? "--")
+                    }
                     if let terminal { Text("Terminal \(terminal)").font(.system(size: 13)).foregroundStyle(.secondary) }
                 }
             }

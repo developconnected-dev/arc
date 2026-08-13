@@ -470,7 +470,7 @@ struct ArcRootView: View {
             Button { showAdd = true } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").font(.system(size: 15, weight: .semibold))
-                    Text("Add a flight").font(.system(size: 15, weight: .semibold))
+                    Text("Add a trip").font(.system(size: 15, weight: .semibold))
                 }
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
