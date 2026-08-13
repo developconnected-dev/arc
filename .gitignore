@@ -1,0 +1,51 @@
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# Secrets and local env (keep .env.example if you add one)
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+credentials.json
+secrets.json
+
+# Logs and temp
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+
+# Common dependency / build output (safe to ignore even if unused)
+node_modules/
+.pnpm-store/
+.npm/
+dist/
+build/
+out/
+coverage/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+target/
+.gradle/
