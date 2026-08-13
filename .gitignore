@@ -16,3 +16,6 @@ backend/.dev.vars
 # Local build output
 build_dd/
 build_output.txt
+
+# Device build output
+build_device/

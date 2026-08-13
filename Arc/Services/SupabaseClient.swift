@@ -303,6 +303,24 @@ final class ArcSupabase: ObservableObject {
         let live_lon: Double?
         let progress: Double
         let updated_at: String?
+
+        // Optional with defaults so a friend still on an older build — whose
+        // rows predate the migration and carry none of these — decodes fine.
+        var mode: String? = nil
+        var data_tier: String? = nil
+        var departure_tz: String? = nil
+        var arrival_tz: String? = nil
+        var vessel_name: String? = nil
+        var operator_logo_url: String? = nil
+        var disruption_note: String? = nil
+
+        /// What kind of journey this is. Absent means air, which is what every
+        /// row written before trains existed actually was.
+        var tripMode: TripMode { TripMode(rawValue: mode ?? "air") ?? .air }
+
+        /// How much the source knows. Gates the punctuality language, so a
+        /// friend's ferry is never described as running on time.
+        var tier: DataTier { DataTier(rawValue: data_tier ?? "live") ?? .live }
     }
 
     /// Upserts this flight's CURRENT state into `shared_flights` — the row
@@ -357,6 +375,18 @@ final class ArcSupabase: ObservableObject {
             "updated_at": iso.string(from: .now),
             // nil audience = everyone; the column is nullable for exactly this.
             "audience": flight.sharedWithIds as Any,
+            // What a friend needs to render the journey honestly: which kind it
+            // is, how much the source knows, each end's zone, and the ferry's
+            // ship. Stop ids, booking links and trip ids deliberately do NOT
+            // cross — they identify a booking rather than describe a journey,
+            // and this feed is a trimmed subset by design.
+            "mode": flight.modeRaw,
+            "data_tier": flight.dataTierRaw,
+            "departure_tz": flight.departureTZID as Any,
+            "arrival_tz": flight.arrivalTZID as Any,
+            "vessel_name": flight.vesselName as Any,
+            "operator_logo_url": flight.operatorLogoURL as Any,
+            "disruption_note": flight.disruptionNote as Any,
         ]
         let data = try await upsert(
             path: "/rest/v1/shared_flights?on_conflict=user_id,flight_number,scheduled_departure",
@@ -482,6 +512,21 @@ final class ArcSupabase: ObservableObject {
             "seat": flight.seat as Any,
             "notes": flight.notes,
             "updated_at": iso.string(from: .now),
+            // Trains and ferries. Without these a restored trip comes back as a
+            // flight — plane icon, "In Air", and a green "On Time" no ferry
+            // source ever published.
+            "mode": flight.modeRaw,
+            "data_tier": flight.dataTierRaw,
+            "departure_stop_id": flight.departureStopID as Any,
+            "arrival_stop_id": flight.arrivalStopID as Any,
+            "departure_tz": flight.departureTZID as Any,
+            "arrival_tz": flight.arrivalTZID as Any,
+            "vessel_name": flight.vesselName as Any,
+            "vessel_mmsi": flight.vesselMMSI as Any,
+            "operator_logo_url": flight.operatorLogoURL as Any,
+            "disruption_note": flight.disruptionNote as Any,
+            "booking_url": flight.bookingURL as Any,
+            "rail_trip_id": flight.railTripID as Any,
         ]
     }
 

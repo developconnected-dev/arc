@@ -3,8 +3,23 @@ import SwiftUI
 
 /// Presentation helpers used by the flight cards and detail screen.
 extension Flight {
-    var depTimeZone: TimeZone { ReferenceData.shared.timezone(departureIATA) ?? .current }
-    var arrTimeZone: TimeZone { ReferenceData.shared.timezone(arrivalIATA) ?? .current }
+    /// The leg's own stored zone wins over the airport table.
+    ///
+    /// `ReferenceData.timezone` resolves an IATA code against the bundled
+    /// airport database, which is the right answer for a flight and a trap for
+    /// anything else: a station or port code is not an airport code, and some
+    /// derived codes collide with real ones — a ferry leg from Piraeus stamped
+    /// "PIR" would happily inherit a timezone from an airport on another
+    /// continent and be wrong without ever looking wrong. Rail and sea legs
+    /// therefore carry a zone of their own, resolved server-side.
+    private func zone(_ stored: String?, _ code: String) -> TimeZone {
+        if let stored, let z = TimeZone(identifier: stored) { return z }
+        if mode == .air, let z = ReferenceData.shared.timezone(code) { return z }
+        return .current
+    }
+
+    var depTimeZone: TimeZone { zone(departureTZID, departureIATA) }
+    var arrTimeZone: TimeZone { zone(arrivalTZID, arrivalIATA) }
 
     private func hhmm(_ date: Date, _ tz: TimeZone) -> String {
         let f = DateFormatter()
@@ -18,12 +33,21 @@ extension Flight {
     var arrTimeLocal: String { hhmm(scheduledArrival, arrTimeZone) }
 
     /// Airline IATA (first 2 chars of the flight number).
-    var airlineCode: String { String(flightNumber.prefix(2)) }
+    ///
+    /// Air only. "ICE 373" would yield "IC" and "BLUE STAR DELOS" would yield
+    /// "BL" — both plausible-looking airline codes that would pull an unrelated
+    /// carrier's logo onto a train or a ferry.
+    var airlineCode: String { mode == .air ? String(flightNumber.prefix(2)) : "" }
 
     /// "LX1413" → "LX 1413".
     var flightNumberSpaced: String {
-        Self.spaced(flightNumber)
+        // Only flight numbers are code-then-digits; a service name is already
+        // spaced the way its operator writes it.
+        mode == .air ? Self.spaced(flightNumber) : flightNumber
     }
+
+    /// What to call the gate/platform/berth for this leg.
+    var boardingPointLabel: String { mode.boardingPointLabel }
 
     static func spaced(_ number: String) -> String {
         let code = number.prefix(2)
@@ -87,7 +111,7 @@ extension Flight {
         return dt > 0 && dt < 36 * 3600
     }
 
-    var isDelayed: Bool { delayMinutes > 0 || status == .cancelled }
+    var isDelayed: Bool { (reportsPunctuality && delayMinutes > 0) || status == .cancelled }
 
     /// True for 30 minutes after landing — kept visible in My Flights during
     /// this grace period (arrival gate, baggage claim) instead of moving
@@ -98,9 +122,26 @@ extension Flight {
         return sinceLanding >= 0 && sinceLanding <= 30 * 60
     }
 
+    /// Has the operator actually told us this leg is running to time?
+    ///
+    /// Only a `.live` source ever says so. A ferry timetable is a plan, not a
+    /// report, and no Mediterranean operator publishes a per-sailing revised
+    /// time — so painting a sailing green would be Arc asserting something
+    /// nobody told it. Cancellation stays loud in every tier, because a
+    /// disruption notice IS a report.
+    var reportsPunctuality: Bool {
+        dataTier.reportsPunctuality || status == .cancelled
+    }
+
     /// Green when on-time/near, red when delayed/cancelled/diverted, gray when far-off.
     var accentColor: Color {
-        if status == .cancelled || status == .diverted || delayMinutes > 15 { return ArcTheme.late }
+        if status == .cancelled || status == .diverted { return ArcTheme.late }
+        guard reportsPunctuality else {
+            // A timetable-only leg is never green. The operator's own notice is
+            // the one thing worth colouring, and it's a warning, not a delay.
+            return disruptionNote != nil ? .orange : Color(.secondaryLabel)
+        }
+        if delayMinutes > 15 { return ArcTheme.late }
         if delayMinutes > 0 { return ArcTheme.late }
         if isSoon || isActive || status == .landed { return ArcTheme.onTime }
         return Color(.secondaryLabel)
@@ -109,12 +150,22 @@ extension Flight {
     var statusText: String {
         switch status {
         case .cancelled: return "Cancelled"
-        case .landed: return "Landed"
-        case .active: return delayMinutes > 0 ? "In Air • \(delayMinutes)m late" : "In Air"
+        case .landed: return mode == .air ? "Landed" : "Arrived"
+        case .active:
+            let moving = mode == .air ? "In Air" : "En Route"
+            guard reportsPunctuality, delayMinutes > 0 else { return moving }
+            return "\(moving) • \(delayMinutes)m late"
         case .diverted: return "Diverted"
         case .boarding: return "Boarding"
-        case .gateClosed: return "Gate Closed"
-        default: return delayMinutes > 0 ? "Delayed \(delayMinutes)m" : "On Time"
+        case .gateClosed: return mode == .air ? "Gate Closed" : "Departing"
+        default:
+            // Nothing published a revised time, so say where the time came from
+            // rather than claiming it is being kept to.
+            guard reportsPunctuality else {
+                if disruptionNote != nil { return "Check Operator Notice" }
+                return dataTier.qualifier ?? "Scheduled"
+            }
+            return delayMinutes > 0 ? "Delayed \(delayMinutes)m" : "On Time"
         }
     }
 
@@ -127,7 +178,9 @@ extension Flight {
         // Arc's own knock-on prediction — only shown while it says meaningfully
         // more than the airline's official number (showsPrediction gates that).
         if showsPrediction { return "Predicted +\(predictedDelayMinutes)m" }
-        if isSoon { return "Departs \(statusText)" }
+        // "Departs On Time" reads; "Departs Timetable" does not. Where the
+        // status names the SOURCE rather than a punctuality, it stands alone.
+        if isSoon { return reportsPunctuality ? "Departs \(statusText)" : statusText }
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_GB")
         f.dateFormat = "EEE, d MMM"
@@ -145,8 +198,25 @@ extension Flight {
 
     // MARK: - Detail screen helpers
 
-    var departureAirportName: String { ReferenceData.shared.airport(departureIATA)?.name ?? departureCity }
-    var arrivalAirportName: String { ReferenceData.shared.airport(arrivalIATA)?.name ?? arrivalCity }
+    /// The full name of each endpoint.
+    ///
+    /// Air only for the table lookup, and this is the sharpest example of why:
+    /// the port code for Piraeus is PIR, which is also Pierre Regional Airport
+    /// in South Dakota — so a Greek sailing announced itself as departing from
+    /// Pierre. Codes collide across the three networks constantly, and a wrong
+    /// name that looks authoritative is worse than a plain one.
+    var departureAirportName: String {
+        (mode == .air ? ReferenceData.shared.airport(departureIATA)?.name : nil) ?? departureCity
+    }
+    var arrivalAirportName: String {
+        (mode == .air ? ReferenceData.shared.airport(arrivalIATA)?.name : nil) ?? arrivalCity
+    }
+
+    /// Is there a real distance to show? Ferry ports carry no coordinates from
+    /// the provider, and "0 km" is a false statement rather than a missing one.
+    var hasRoute: Bool {
+        !(departureLat == 0 && departureLon == 0) && !(arrivalLat == 0 && arrivalLon == 0)
+    }
 
     var headerDateText: String {
         let f = DateFormatter()
@@ -192,13 +262,16 @@ extension Flight {
     /// Banner headline: "Gate Departure in 1h 38m", "Landing in 6h 43m", etc.
     var bannerHeadline: String {
         switch status {
-        case .cancelled: return "Flight Cancelled"
-        case .landed: return "Landed"
+        case .cancelled: return mode == .air ? "Flight Cancelled" : "Cancelled"
+        case .landed: return mode.arrivedVerb
         case .active:
-            if let t = compactUntil(effectiveArrival) { return "Landing in \(t)" }
+            if let t = compactUntil(effectiveArrival) { return "\(mode.arrivingVerb) in \(t)" }
             return "Arriving"
         default:
-            if let t = compactUntil(effectiveDeparture) { return "Gate Departure in \(t)" }
+            // "Gate Departure" names a gate a ferry doesn't have; a berth is not
+            // where a sailing's clock starts either.
+            let what = mode == .air ? "Gate Departure" : "Departure"
+            if let t = compactUntil(effectiveDeparture) { return "\(what) in \(t)" }
             return "Departing"
         }
     }
@@ -206,11 +279,19 @@ extension Flight {
     var bannerColor: Color {
         if status == .cancelled { return ArcTheme.late }
         if isDelayed { return ArcTheme.late }
+        // Green is the app saying "this is running to plan". A timetable has no
+        // opinion on that, so a sailing gets the neutral treatment rather than
+        // a reassurance nobody issued.
+        guard reportsPunctuality else { return disruptionNote != nil ? .orange : Color(.secondaryLabel) }
         return ArcTheme.onTime
     }
 
     /// "On Time", "1h 2m Late", etc. for an endpoint given its delta.
     private func deltaLabel(effective: Date, scheduled: Date) -> String {
+        // Without a revised time there is no delta to describe, and "On Time"
+        // would be a claim about punctuality the source never made. Name where
+        // the time came from instead.
+        guard reportsPunctuality else { return dataTier.qualifier ?? "Scheduled" }
         let mins = Int(effective.timeIntervalSince(scheduled) / 60)
         if mins <= -1 {
             let e = abs(mins), h = e / 60, m = e % 60
@@ -262,9 +343,11 @@ extension Flight {
         guard crossesDeviceTimezone else { return nil }
         let device = TimeZone.current.secondsFromGMT(for: scheduledDeparture)
         let delta = (depTimeZone.secondsFromGMT(for: scheduledDeparture) - device) / 3600
-        guard delta != 0 else { return "Times shown in each airport's local time" }
+        // "airport" is wrong for two of the three modes.
+        let place = mode == .air ? "airport" : (mode == .rail ? "station" : "port")
+        guard delta != 0 else { return "Times shown in each \(place)'s local time" }
         let sign = delta > 0 ? "+" : "−"
-        return "Times in each airport's local time · \(departureIATA) is \(sign)\(abs(delta))h from you"
+        return "Times in each \(place)'s local time · \(departureIATA) is \(sign)\(abs(delta))h from you"
     }
 
     var timezoneDeltaHours: Int {

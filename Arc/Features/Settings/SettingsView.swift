@@ -32,6 +32,11 @@ struct SettingsView: View {
     @AppStorage("notifyDepartureReminder") private var notifyDepartureReminder = true
     @AppStorage("trackingInterval") private var trackingInterval = 60
 
+    /// Kept identical to FlightAPIClient's fallback, so "reset" really restores
+    /// the shipping backend rather than a second, drifting copy of the URL.
+    static let defaultEndpoint = "https://arc-backend.owncalai.workers.dev"
+    @AppStorage("apiEndpoint") private var apiEndpoint = SettingsView.defaultEndpoint
+
     var body: some View {
         NavigationStack {
             List {
@@ -220,11 +225,30 @@ struct SettingsView: View {
                     HStack {
                         Text("Data source")
                         Spacer()
-                        Text("AeroDataBox + OpenSky")
+                        Text("AeroDataBox · Transitous · Ferryhopper")
                             .foregroundStyle(ArcColor.textMuted)
+                            .multilineTextAlignment(.trailing)
                     }
                 } header: {
                     Text("About")
+                }
+
+                // Backend — so a local `wrangler dev` can be tested against
+                // before anything is deployed.
+                Section {
+                    TextField("https://…", text: $apiEndpoint)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .font(.system(size: 14, design: .monospaced))
+                    if apiEndpoint != Self.defaultEndpoint {
+                        Button("Reset to default") { apiEndpoint = Self.defaultEndpoint }
+                            .font(.system(size: 14))
+                    }
+                } header: {
+                    Text("Backend")
+                } footer: {
+                    Text("Point Arc at a local worker while testing — `http://localhost:8799` when `wrangler dev` is running. Takes effect on the next search.")
                 }
 
                 // Data

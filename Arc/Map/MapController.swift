@@ -147,9 +147,17 @@ final class MapController {
     /// Frame the camera on a single flight's route (detail sheet at medium
     /// covers the lower half — the arc goes above it).
     func focus(on flight: Flight) {
-        frameInUpperHalf(GeoMath.greatCircle(
+        // Frame what will actually be DRAWN. A routed leg can bulge far outside
+        // the arc between its endpoints — an ICE from München to Hamburg reaches
+        // Berlin, 2° east of either — so framing the arc would crop the very
+        // line the user opened the sheet to look at.
+        let routed = flight.routePath.map {
+            CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
+        }
+        let path = routed.count >= 3 ? routed : GeoMath.greatCircle(
             from: .init(latitude: flight.departureLat, longitude: flight.departureLon),
-            to: .init(latitude: flight.arrivalLat, longitude: flight.arrivalLon)), padding: 1.3)
+            to: .init(latitude: flight.arrivalLat, longitude: flight.arrivalLon))
+        frameInUpperHalf(path, padding: 1.3)
     }
 
     /// Frame `coords` in the UPPER half of the screen — for content shown

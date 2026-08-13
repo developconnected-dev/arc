@@ -697,7 +697,9 @@ struct FriendFlightRow: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
-                    AirlineLogoView(iata: String(flight.flight_number.prefix(2)), size: 18)
+                    TripLogoView(mode: flight.tripMode,
+                                 iata: flight.tripMode == .air ? String(flight.flight_number.prefix(2)) : "",
+                                 logoURL: flight.operator_logo_url, size: 18)
                     Text(flight.flight_number)
                         .font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
                     Spacer(minLength: 8)
@@ -725,33 +727,46 @@ struct FriendFlightRow: View {
     }
 
     private func statusMini(at now: Date) -> String {
-        if airborne { return "IN AIR" }
-        if flight.status == "landed" { return "LANDED" }
+        let mode = flight.tripMode
+        if airborne { return mode.inTransitShort }
+        if flight.status == "landed" { return mode.arrivedShort }
         if let dep = FriendFlightMath.departure(flight), dep > now {
             let mins = Int(dep.timeIntervalSince(now) / 60)
             if mins >= 1440 { return "IN \(mins / 1440)D" }
             return mins >= 60 ? "IN \(mins / 60)H" : "IN \(mins)M"
         }
-        return "LANDED"
+        return mode.arrivedShort
     }
 
     /// Only facts we actually have. The old line invented a "True Curb ETA
     /// +35m" constant for every landed flight — fabricated intelligence.
     private func contextLine(at now: Date) -> String {
+        let mode = flight.tripMode
         if airborne, let arr = FriendFlightMath.arrival(flight) {
-            return "Landing in \(FriendFlightMath.hmLower(Int(arr.timeIntervalSince(now) / 60)))"
+            return "\(mode.arrivingVerb) in \(FriendFlightMath.hmLower(Int(arr.timeIntervalSince(now) / 60)))"
         }
         if flight.status == "landed" || (FriendFlightMath.departure(flight).map { $0 <= now } ?? false) {
             if let arr = FriendFlightMath.arrival(flight), arr <= now {
-                return "Landed \(FriendFlightMath.hmLower(Int(now.timeIntervalSince(arr) / 60))) ago"
+                return "\(mode.arrivedVerb) \(FriendFlightMath.hmLower(Int(now.timeIntervalSince(arr) / 60))) ago"
             }
-            return "Landed"
+            return mode.arrivedVerb
+        }
+        // Punctuality only where somebody actually reported it. A friend's ferry
+        // has a timetable and no revised time, so "On Time" would be this app
+        // inventing a fact about someone else's journey — and an operator notice
+        // is the one thing a sailing genuinely does tell us.
+        guard flight.tier.reportsPunctuality else {
+            if flight.disruption_note != nil { return "Operator notice" }
+            return flight.tier.qualifier ?? "Scheduled"
         }
         if flight.delay_minutes > 0 { return "Departs \(flight.delay_minutes)m late" }
         return "On Time"
     }
 
     private var contextColor: Color {
+        if !flight.tier.reportsPunctuality {
+            return flight.disruption_note != nil ? .orange : Color(.secondaryLabel)
+        }
         if flight.delay_minutes > 0 && !airborne && flight.status != "landed" { return ArcTheme.late }
         if airborne || flight.status != "landed" { return ArcTheme.onTime }
         return Color(.secondaryLabel)

@@ -16,7 +16,8 @@ struct FlightRowCard: View {
                 // airline logo + number ........ status/date
                 // airline logo + number + companions ........ status/date
                 HStack(spacing: 8) {
-                    AirlineLogoView(iata: flight.airlineCode, size: 20)
+                    TripLogoView(mode: flight.mode, iata: flight.airlineCode,
+                                 logoURL: flight.operatorLogoURL, size: 20)
                     // A codeshare shows the booked number alongside the one
                     // that flies. This line is the tightest in the app, so it
                     // degrades rather than pushing the status chip off the
@@ -117,7 +118,7 @@ struct FlightRowCard: View {
                     .foregroundStyle(.secondary)
                     .tracking(0.5)
             } else if flight.isActive {
-                Image(systemName: "airplane")
+                Image(systemName: flight.mode.symbol)
                     .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(ArcTheme.action)
                     .symbolEffect(.pulse, options: .repeating, isActive: true)
@@ -176,7 +177,13 @@ struct FlightRowCard: View {
         // Flighty's chips: green when things are fine, red when late — for
         // every flight, not just imminent ones. IATA stays neutral; the
         // circle and the (effective) time carry the color.
-        let tint = flight.isDelayed ? ArcTheme.late : ArcTheme.onTime
+        //
+        // Green is a claim, though, and a ferry timetable makes no such claim.
+        // Colouring a sailing green says the operator confirmed it is running to
+        // time when nobody published anything of the sort, so a timetable-only
+        // leg gets a neutral chip and lets its times speak for themselves.
+        let tint = flight.isDelayed ? ArcTheme.late
+            : (flight.reportsPunctuality ? ArcTheme.onTime : Color(.secondaryLabel))
         return HStack(spacing: 4) {
             Image(systemName: arrow)
                 .font(.system(size: 9, weight: .bold))

@@ -11,6 +11,7 @@
 		055E0F22DAEA1DCEC41CEE5F /* SmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8011F1F9596F27743C731E2F /* SmokeTests.swift */; };
 		05ED885E317014CE129D89E7 /* ArcRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A54EAE7163E5314C68F828C /* ArcRootView.swift */; };
 		066B813B251042A5C7326EA9 /* ArcMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D318093F38973AB568D94123 /* ArcMapView.swift */; };
+		08856F19B11FB2609AFA1106 /* TripModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99C658BC80584432FD6E1A9E /* TripModeTests.swift */; };
 		0966F06D128CF6A589B4C579 /* FlightQueryParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8B050595CEBC559BB3F8B48 /* FlightQueryParserTests.swift */; };
 		0A1C083CFAAD25DE604695CB /* FriendsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56B017439A4B961EDCDB7E05 /* FriendsStore.swift */; };
 		0F5F444E06F4497CAB4F095F /* TextHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2D08589F3ED37C33758DAC5 /* TextHelpers.swift */; };
@@ -83,6 +84,7 @@
 		B25EC52E0FA211AB82FC6644 /* AirlineBranding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E523F671AB6E8AFA8FCF1C3 /* AirlineBranding.swift */; };
 		B646A862A5FB908BF520D1E8 /* MapController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD77AF2CE7584E492AA0A637 /* MapController.swift */; };
 		BDA9D40E00E8F38131B3C8FD /* AirportStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9371C57F0DE1D1A4B88E3 /* AirportStatusView.swift */; };
+		C0DE555A6BBA8CA7E40648A8 /* TripLogoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81A83E908E4D238FB3AB6A45 /* TripLogoView.swift */; };
 		C1A749BDDC82ED06F27F8715 /* DelayRiskTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F70B4249290027FDAFA9D021 /* DelayRiskTests.swift */; };
 		C3B05E522F64F7A73BDB3F5F /* ScheduleBackfill.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB709548B711E7098E93A102 /* ScheduleBackfill.swift */; };
 		C870B531E4885665A67DA68F /* PlanePositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B48F84455243D0E4149FB369 /* PlanePositionTests.swift */; };
@@ -90,6 +92,7 @@
 		C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6203F2E6D1096F29FA5083FC /* ArcApp.swift */; };
 		C95804ADD76EDEB2671A5121 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */; };
 		CAD442F2201C5E0593480795 /* GeoMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CCB5157053AA1F3BD9AF495 /* GeoMath.swift */; };
+		CD4590F2CEF47C8216DF3236 /* TripMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6ED9A7F8DF388120369B521 /* TripMode.swift */; };
 		CE8EDCF06AF9286001FAB953 /* airports.json in Resources */ = {isa = PBXBuildFile; fileRef = 3104AD04269DDBC745E354F1 /* airports.json */; };
 		CF9EC77C1A77F199DAD62E77 /* BottomSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85FA6BAFEA7DEBB5CB2DB08F /* BottomSheet.swift */; };
 		D262DB5DCAC33D8852BB44F0 /* ConnectionPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1301041A06C6716593057B /* ConnectionPlanner.swift */; };
@@ -184,7 +187,7 @@
 		56B017439A4B961EDCDB7E05 /* FriendsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsStore.swift; sourceTree = "<group>"; };
 		5CCB5157053AA1F3BD9AF495 /* GeoMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeoMath.swift; sourceTree = "<group>"; };
 		5CD183275F16AE2660B43277 /* AircraftSilhouette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AircraftSilhouette.swift; sourceTree = "<group>"; };
-		5DFE5890F673E6E56FF7EAEF /* Arc.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Arc.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5DFE5890F673E6E56FF7EAEF /* Arc.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Arc.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5EB4B844E836C4A35AC54D33 /* ShareFlightSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareFlightSheet.swift; sourceTree = "<group>"; };
 		6203F2E6D1096F29FA5083FC /* ArcApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcApp.swift; sourceTree = "<group>"; };
 		64047F33627992F4D8030E71 /* FlightDisplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightDisplayTests.swift; sourceTree = "<group>"; };
@@ -196,8 +199,9 @@
 		7219FA5EF2671212E6AFBC29 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		734A69EC4EB99125C060E4F5 /* FlightDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightDetailView.swift; sourceTree = "<group>"; };
 		78C36DE016E979779A485A54 /* DemoSeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoSeed.swift; sourceTree = "<group>"; };
-		7EC116B53681F7234E0DDDC9 /* ArcTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ArcTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7EC116B53681F7234E0DDDC9 /* ArcTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ArcTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8011F1F9596F27743C731E2F /* SmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeTests.swift; sourceTree = "<group>"; };
+		81A83E908E4D238FB3AB6A45 /* TripLogoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripLogoView.swift; sourceTree = "<group>"; };
 		8296407C7B6624104AE2703D /* BrandingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandingTests.swift; sourceTree = "<group>"; };
 		8483E3B4C6E1B44F201F2AAD /* FlightDetailSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightDetailSections.swift; sourceTree = "<group>"; };
 		858108E79DAC8F038B9E97E4 /* ManageFriendsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManageFriendsSheet.swift; sourceTree = "<group>"; };
@@ -207,10 +211,11 @@
 		8B5B63F833E1CB9C679CD6C1 /* SupabaseClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseClient.swift; sourceTree = "<group>"; };
 		8F99ECA03255BFC524189A60 /* Flight+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Flight+Display.swift"; sourceTree = "<group>"; };
 		98164F646EF99E31FD3731AD /* ArcTabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcTabBar.swift; sourceTree = "<group>"; };
+		99C658BC80584432FD6E1A9E /* TripModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripModeTests.swift; sourceTree = "<group>"; };
 		A136200E180C33472B503DE3 /* ReferenceDataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceDataTests.swift; sourceTree = "<group>"; };
 		A2D08589F3ED37C33758DAC5 /* TextHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextHelpers.swift; sourceTree = "<group>"; };
 		A60AED5E6E1620F00029D627 /* FriendGroupsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendGroupsTests.swift; sourceTree = "<group>"; };
-		A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ArcWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ArcWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A904E8731146A7FB8744B074 /* FlightExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightExporter.swift; sourceTree = "<group>"; };
 		A99FE65B13FFE0D0203987D5 /* MyFlightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyFlightsView.swift; sourceTree = "<group>"; };
 		AEC9695158002B9A459B301E /* SunSide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SunSide.swift; sourceTree = "<group>"; };
@@ -232,6 +237,7 @@
 		DD91C1A4FD9CF312542C0F91 /* FriendAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendAlerts.swift; sourceTree = "<group>"; };
 		DED11A1E25ADE83A8C977857 /* LiveActivityAvatarStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityAvatarStore.swift; sourceTree = "<group>"; };
 		E21CAF83A7006D3DEE031E7A /* SupabaseSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseSyncTests.swift; sourceTree = "<group>"; };
+		E6ED9A7F8DF388120369B521 /* TripMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripMode.swift; sourceTree = "<group>"; };
 		E909886CA15B1B79B6D631A0 /* WidgetSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSync.swift; sourceTree = "<group>"; };
 		ED3BBC117AA0A74224DAF8AB /* WidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetData.swift; sourceTree = "<group>"; };
 		F70B4249290027FDAFA9D021 /* DelayRiskTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelayRiskTests.swift; sourceTree = "<group>"; };
@@ -388,6 +394,7 @@
 				210826009A37E90654E69671 /* Flight.swift */,
 				8F99ECA03255BFC524189A60 /* Flight+Display.swift */,
 				3656C3156166F8E024EE5B7D /* ReferenceModels.swift */,
+				E6ED9A7F8DF388120369B521 /* TripMode.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -449,6 +456,7 @@
 				85FA6BAFEA7DEBB5CB2DB08F /* BottomSheet.swift */,
 				3B473AA396AFB87F8FA33DBD /* FriendAvatar.swift */,
 				4CDBA155BE116022B7E2F90F /* MapControls.swift */,
+				81A83E908E4D238FB3AB6A45 /* TripLogoView.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -502,6 +510,7 @@
 				2AD3936B9A068A6D1B734331 /* SupabaseErrorTests.swift */,
 				E21CAF83A7006D3DEE031E7A /* SupabaseSyncTests.swift */,
 				3BF7D3153A1277104EAE2B7C /* TaxiCameraTests.swift */,
+				99C658BC80584432FD6E1A9E /* TripModeTests.swift */,
 			);
 			path = ArcTests;
 			sourceTree = "<group>";
@@ -571,7 +580,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2660;
+				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					670DE7EC6854CC229143633E = {
 						ProvisioningStyle = Automatic;
@@ -656,6 +665,7 @@
 				1003697FBC6E177FB06D4DC0 /* SupabaseErrorTests.swift in Sources */,
 				AC72B4ED862C05DA412F6850 /* SupabaseSyncTests.swift in Sources */,
 				8F71B31BFA1A05112FD005B3 /* TaxiCameraTests.swift in Sources */,
+				08856F19B11FB2609AFA1106 /* TripModeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -726,6 +736,8 @@
 				78067EB8469F38A3B174A4DE /* SunSide.swift in Sources */,
 				8ED498F91B66740B412D0611 /* SupabaseClient.swift in Sources */,
 				0F5F444E06F4497CAB4F095F /* TextHelpers.swift in Sources */,
+				C0DE555A6BBA8CA7E40648A8 /* TripLogoView.swift in Sources */,
+				CD4590F2CEF47C8216DF3236 /* TripMode.swift in Sources */,
 				9C4509B5E588A11B545D2021 /* WidgetData.swift in Sources */,
 				E64226C8F2F29728DFB84855 /* WidgetSync.swift in Sources */,
 			);
@@ -755,7 +767,6 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = GQZHJ59F4R;
 				INFOPLIST_FILE = Arc/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -806,7 +817,6 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -820,7 +830,6 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
@@ -835,7 +844,6 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = GQZHJ59F4R;
 				INFOPLIST_FILE = Arc/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -854,7 +862,6 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -873,7 +880,6 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -894,7 +900,6 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = GQZHJ59F4R;
 				INFOPLIST_FILE = ArcWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -946,7 +951,6 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -967,7 +971,6 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -981,7 +984,6 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = GQZHJ59F4R;
 				INFOPLIST_FILE = ArcWidget/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

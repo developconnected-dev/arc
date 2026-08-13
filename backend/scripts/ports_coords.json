@@ -1,0 +1,2629 @@
+{
+ "MILOS": {
+  "lat": 36.72346,
+  "lon": 24.44488
+ },
+ "AEGIALI": null,
+ "AEGINA (ALL PORTS)": {
+  "lat": 37.74495,
+  "lon": 23.42538
+ },
+ "AEGINA": {
+  "lat": 37.74495,
+  "lon": 23.42538
+ },
+ "AGATHONISI": null,
+ "AG. KIRIAKI": null,
+ "AG.MARINA (AEGINA)": {
+  "lat": 37.15825,
+  "lon": 26.85263
+ },
+ "AG.MARINA (LEROS)": {
+  "lat": 37.15825,
+  "lon": 26.85263
+ },
+ "AGIOKAMPOS": {
+  "lat": 39.70037,
+  "lon": 22.87765,
+  "approx": true
+ },
+ "AG. EFSTRATIOS": {
+  "lat": 39.54052,
+  "lon": 24.98617
+ },
+ "AG. KIRIKOS": null,
+ "AG. KONSTANTINOS": null,
+ "AG. NIKOLAOS": {
+  "lat": 39.19791,
+  "lon": 20.18699
+ },
+ "AG. NIKOLAOS (ZAKYNTHOS)": {
+  "lat": 39.19791,
+  "lon": 20.18699
+ },
+ "AG. STEFANOS": {
+  "lat": 39.7539,
+  "lon": 19.6332
+ },
+ "AGISTRI (ALL PORTS)": {
+  "lat": 37.71368,
+  "lon": 23.34834
+ },
+ "SKOPELOS (AGNONTAS)": {
+  "lat": 39.12217,
+  "lon": 23.72725,
+  "approx": true
+ },
+ "ALEX/POLI": null,
+ "ALMIROPOTAMOS": null,
+ "ALONISSOS": null,
+ "AMMOUDI": {
+  "lat": 36.46039,
+  "lon": 25.3698
+ },
+ "AMMOULIANI": null,
+ "AMORGOS (ALL PORTS)": null,
+ "ANAFI (ALL PORTS)": {
+  "lat": 36.34375,
+  "lon": 25.76874
+ },
+ "ANAFI": {
+  "lat": 36.34375,
+  "lon": 25.76874
+ },
+ "ANDROS": {
+  "lat": 37.83674,
+  "lon": 24.93678,
+  "approx": true
+ },
+ "ANTIKYTHIRA": null,
+ "ANTIPAROS": {
+  "lat": 37.03755,
+  "lon": 25.10013
+ },
+ "ANTIPAROS (ALL PORTS)": {
+  "lat": 37.03755,
+  "lon": 25.10013
+ },
+ "ARGOSTOLI": {
+  "lat": 38.18158,
+  "lon": 20.48918
+ },
+ "ARKITSA": {
+  "lat": 38.75171,
+  "lon": 23.0247
+ },
+ "ARKI": {
+  "lat": 37.38271,
+  "lon": 26.73592,
+  "approx": true
+ },
+ "ASTAKOS": {
+  "lat": 38.53423,
+  "lon": 21.08297
+ },
+ "ASTYPALEA": {
+  "lat": 36.54778,
+  "lon": 26.35528
+ },
+ "ATHENS (ALL PORTS)": null,
+ "CHANIA": {
+  "lat": 35.51208,
+  "lon": 24.01915,
+  "approx": true
+ },
+ "CHIOS (ALL PORTS)": {
+  "lat": 38.37221,
+  "lon": 26.13774
+ },
+ "CHIOS": {
+  "lat": 38.37221,
+  "lon": 26.13774
+ },
+ "CHRISOMILEA (FOURNOI)": null,
+ "CORFU (ALL PORTS)": {
+  "lat": 39.63171,
+  "lon": 19.90158
+ },
+ "CORFU": {
+  "lat": 39.63171,
+  "lon": 19.90158
+ },
+ "CRETE (ALL PORTS)": {
+  "lat": 35.19122,
+  "lon": 25.72036
+ },
+ "DELOS": {
+  "lat": 37.39847,
+  "lon": 25.26469
+ },
+ "DIAFANI": {
+  "lat": 35.75628,
+  "lon": 27.20923,
+  "approx": true
+ },
+ "DONOUSSA": null,
+ "AEDIPSOS": null,
+ "EREIKOUSSA": null,
+ "HERMIONI": null,
+ "EVDILOS": {
+  "lat": 37.63091,
+  "lon": 26.17796,
+  "approx": true
+ },
+ "EVIA (ALL PORTS)": null,
+ "FANEROMENI, SALAMINA": null,
+ "FIRA (SANTORINI)": {
+  "lat": 36.41831,
+  "lon": 25.42761
+ },
+ "FISKARDO (KEFALONIA)": {
+  "lat": 38.46093,
+  "lon": 20.57524,
+  "approx": true
+ },
+ "FOLEGANDROS (ALL PORTS)": {
+  "lat": 36.61436,
+  "lon": 24.95033
+ },
+ "FOLEGANDROS": {
+  "lat": 36.61436,
+  "lon": 24.95033
+ },
+ "FOURNI KORSEON (ALL PORTS)": {
+  "lat": 37.57784,
+  "lon": 26.47895
+ },
+ "FOURNI": {
+  "lat": 37.57784,
+  "lon": 26.47895
+ },
+ "FRIKES (ITHACA)": {
+  "lat": 38.45904,
+  "lon": 20.66498
+ },
+ "GLOSSA": {
+  "lat": 39.17556,
+  "lon": 23.61557,
+  "approx": true
+ },
+ "GLYFA": {
+  "lat": 38.95311,
+  "lon": 22.9666,
+  "approx": true
+ },
+ "GLYKA NERA": {
+  "lat": 37.9867,
+  "lon": 23.84749,
+  "approx": true
+ },
+ "GYTHIO": {
+  "lat": 36.76158,
+  "lon": 22.56595,
+  "approx": true
+ },
+ "CHALKI": {
+  "lat": 39.56835,
+  "lon": 22.53949,
+  "approx": true
+ },
+ "HERAKLIO": null,
+ "HYDRA": {
+  "lat": 37.35064,
+  "lon": 23.4658
+ },
+ "IGOUMENITSA": {
+  "lat": 39.48863,
+  "lon": 20.25958
+ },
+ "IKARIA": null,
+ "IOS (ALL PORTS)": null,
+ "IOS": null,
+ "IRAKLIA": {
+  "lat": 36.8633,
+  "lon": 25.47045
+ },
+ "ITHAKI (ALL PORTS)": null,
+ "KALYMNOS (ALL PORTS)": {
+  "lat": 36.94872,
+  "lon": 26.98726
+ },
+ "KALYMNOS": {
+  "lat": 36.94872,
+  "lon": 26.98726
+ },
+ "SKALA KAMIROU(RHO)": null,
+ "KARDAMENA": {
+  "lat": 36.78239,
+  "lon": 27.14328,
+  "approx": true
+ },
+ "KARLOVASSI": {
+  "lat": 37.79365,
+  "lon": 26.69546,
+  "approx": true
+ },
+ "KARPATHOS (ALL PORTS)": null,
+ "KARPATHOS": {
+  "lat": 35.50658,
+  "lon": 27.21271,
+  "approx": true
+ },
+ "KARISTOS": null,
+ "KASOS": null,
+ "KASTELLORIZO": {
+  "lat": 36.15035,
+  "lon": 29.59095
+ },
+ "KATAPOLA": {
+  "lat": 36.82745,
+  "lon": 25.86273
+ },
+ "KAVALA": {
+  "lat": 40.93339,
+  "lon": 24.40878
+ },
+ "KEA": null,
+ "KEA (ALL PORTS)": null,
+ "KEFALONIA (ALL PORTS)": null,
+ "KOS (KEFALOS)": {
+  "lat": 36.89856,
+  "lon": 27.29045
+ },
+ "KIMOLOS": {
+  "lat": 36.78533,
+  "lon": 24.58058
+ },
+ "KISSAMOS": {
+  "lat": 35.51758,
+  "lon": 23.6374
+ },
+ "KORFOS": {
+  "lat": 36.43848,
+  "lon": 25.35122
+ },
+ "KOS (ALL PORTS)": {
+  "lat": 36.89856,
+  "lon": 27.29045
+ },
+ "KOS": {
+  "lat": 36.89856,
+  "lon": 27.29045
+ },
+ "KOUFONISIA": {
+  "lat": 36.92945,
+  "lon": 25.60072
+ },
+ "KILINI": null,
+ "KYMI": {
+  "lat": 38.63489,
+  "lon": 24.10274,
+  "approx": true
+ },
+ "KYTHIRA": {
+  "lat": 36.27005,
+  "lon": 23.07853
+ },
+ "KYTHNOS": {
+  "lat": 37.39075,
+  "lon": 24.39645
+ },
+ "LAGKADA": {
+  "lat": 40.21191,
+  "lon": 20.8601,
+  "approx": true
+ },
+ "LEROS": {
+  "lat": 37.12781,
+  "lon": 26.84955
+ },
+ "LAVRIO": {
+  "lat": 37.71209,
+  "lon": 24.06301
+ },
+ "LEFKADA (ALL PORTS)": null,
+ "LEFKADA": {
+  "lat": 38.83526,
+  "lon": 20.70966,
+  "approx": true
+ },
+ "LEFKIMMI": {
+  "lat": 39.41393,
+  "lon": 20.09723
+ },
+ "LIPSI": {
+  "lat": 37.2954,
+  "lon": 26.7634
+ },
+ "LIMNOS": null,
+ "LEROS (ALL PORTS)": {
+  "lat": 37.12781,
+  "lon": 26.84955
+ },
+ "LESBOS (ALL PORTS)": null,
+ "LIXURI": null,
+ "LOUTRO CHANION": {
+  "lat": 35.19806,
+  "lon": 24.07992
+ },
+ "MANTOUDI": {
+  "lat": 38.80885,
+  "lon": 23.52434
+ },
+ "MARMARI": {
+  "lat": 36.87497,
+  "lon": 27.14756,
+  "approx": true
+ },
+ "MASTIHARI": null,
+ "MATHRAKI": {
+  "lat": 39.78032,
+  "lon": 19.5198
+ },
+ "MEGANISI": null,
+ "MEGARA, PERAMA": {
+  "lat": 37.96419,
+  "lon": 23.55576
+ },
+ "MESTA (CHIOS)": {
+  "lat": 38.26003,
+  "lon": 25.92269,
+  "approx": true
+ },
+ "METHANA": {
+  "lat": 37.58068,
+  "lon": 23.39142,
+  "approx": true
+ },
+ "METOCHI": {
+  "lat": 37.40619,
+  "lon": 23.41738
+ },
+ "MYKONOS (ALL PORTS)": {
+  "lat": 37.46401,
+  "lon": 25.32474
+ },
+ "MYKONOS": {
+  "lat": 37.46401,
+  "lon": 25.32474
+ },
+ "AGISTRI-MYLI": {
+  "lat": 37.71368,
+  "lon": 23.34834
+ },
+ "MYRTIES (KALYMNOY)": {
+  "lat": 36.99135,
+  "lon": 26.93308,
+  "approx": true
+ },
+ "MITILINI (LESBOS)": null,
+ "NAXOS": {
+  "lat": 37.10619,
+  "lon": 25.37144
+ },
+ "NEAPOLIS": null,
+ "NYDRI (LEFKADA)": {
+  "lat": 38.70695,
+  "lon": 20.70989,
+  "approx": true
+ },
+ "NISYROS": {
+  "lat": 36.6138,
+  "lon": 27.139
+ },
+ "NORTHERN GREECE (ALL PORTS)": null,
+ "OINOUSSES": null,
+ "OTHONOI": null,
+ "PANORMITIS": {
+  "lat": 36.54888,
+  "lon": 27.84543
+ },
+ "PAROS": {
+  "lat": 37.08721,
+  "lon": 25.14935
+ },
+ "PATMOS": {
+  "lat": 37.32383,
+  "lon": 26.54469
+ },
+ "PATMOS (ALL PORTS)": {
+  "lat": 37.32383,
+  "lon": 26.54469
+ },
+ "PATRA": null,
+ "PAXI": null,
+ "PESSADA (KEFALONIA)": {
+  "lat": 38.10734,
+  "lon": 20.58976
+ },
+ "PETRA, LESBOS": null,
+ "PIRAEUS": {
+  "lat": 37.94877,
+  "lon": 23.63722
+ },
+ "ITHAKI (PISAETOS)": null,
+ "PLATANIA": {
+  "lat": 41.0672,
+  "lon": 22.59432,
+  "approx": true
+ },
+ "POLLONIA": {
+  "lat": 36.76444,
+  "lon": 24.52707
+ },
+ "POROS": {
+  "lat": 38.14795,
+  "lon": 20.78309
+ },
+ "POROS (KEFALONIA)": {
+  "lat": 38.14795,
+  "lon": 20.78309
+ },
+ "PORTO HELI (ALL PORTS)": null,
+ "PORTO HELI": null,
+ "POUNTA (PAROS)": {
+  "lat": 37.03814,
+  "lon": 25.10132,
+  "approx": true
+ },
+ "PSARA": {
+  "lat": 38.53903,
+  "lon": 25.56621
+ },
+ "PSERIMOS": null,
+ "PYTHAGORIO": {
+  "lat": 37.69026,
+  "lon": 26.94238,
+  "approx": true
+ },
+ "RAFINA": {
+  "lat": 38.02249,
+  "lon": 24.00962
+ },
+ "RETHIMNO": null,
+ "RODOS (ALL PORTS)": null,
+ "RODOS": {
+  "lat": 36.44372,
+  "lon": 28.22737,
+  "approx": true
+ },
+ "THIRASIA": {
+  "lat": 36.43457,
+  "lon": 25.34483,
+  "approx": true
+ },
+ "SAMI": {
+  "lat": 38.25232,
+  "lon": 20.64594
+ },
+ "SAMOS (ALL PORTS)": {
+  "lat": 37.75747,
+  "lon": 26.97112
+ },
+ "SAMOTHRAKI": {
+  "lat": 40.47428,
+  "lon": 25.4715
+ },
+ "SANTORINI (ALL PORTS)": {
+  "lat": 36.41831,
+  "lon": 25.42761
+ },
+ "THIRA (SANTORINI)": {
+  "lat": 36.3866,
+  "lon": 25.42932
+ },
+ "SCHINOUSSA": {
+  "lat": 36.8705,
+  "lon": 25.51005
+ },
+ "SERIFOS": {
+  "lat": 37.1417,
+  "lon": 24.51892
+ },
+ "SFAKIA": {
+  "lat": 35.1998,
+  "lon": 24.13604
+ },
+ "SIFNOS (ALL PORTS)": null,
+ "SIFNOS": null,
+ "SIGRI": {
+  "lat": 39.21376,
+  "lon": 25.8525
+ },
+ "SIKINOS": {
+  "lat": 36.67455,
+  "lon": 25.1437
+ },
+ "SITIA": {
+  "lat": 35.21219,
+  "lon": 26.11164
+ },
+ "AGISTRI": {
+  "lat": 37.71368,
+  "lon": 23.34834
+ },
+ "SKIATHOS": {
+  "lat": 39.1662,
+  "lon": 23.48889,
+  "approx": true
+ },
+ "SKOPELOS (ALL PORTS)": null,
+ "SKOPELOS": {
+  "lat": 39.12217,
+  "lon": 23.72725,
+  "approx": true
+ },
+ "SKYROS": {
+  "lat": 38.90635,
+  "lon": 24.56604,
+  "approx": true
+ },
+ "SOUVALA": null,
+ "SPETSES (ALL PORTS)": {
+  "lat": 37.26797,
+  "lon": 23.15673
+ },
+ "SPETSES": {
+  "lat": 37.26797,
+  "lon": 23.15673
+ },
+ "SYMI (ALL PORTS)": null,
+ "SYMI": {
+  "lat": 36.61329,
+  "lon": 27.83803,
+  "approx": true
+ },
+ "SYROS": {
+  "lat": 37.4409,
+  "lon": 24.9414
+ },
+ "SYROS (ALL PORTS)": {
+  "lat": 37.4409,
+  "lon": 24.9414
+ },
+ "THIRASIA (ALL PORTS)": null,
+ "THESSALONIKI": {
+  "lat": 40.63523,
+  "lon": 22.93281
+ },
+ "THIMAINA (FOURNOI)": null,
+ "TILOS": {
+  "lat": 36.41719,
+  "lon": 27.38641
+ },
+ "TINOS": {
+  "lat": 37.53783,
+  "lon": 25.16125,
+  "approx": true
+ },
+ "TINOS (ALL PORTS)": null,
+ "TRIKERI": {
+  "lat": 39.10092,
+  "lon": 23.07654,
+  "approx": true
+ },
+ "TRYPITI": {
+  "lat": 40.36396,
+  "lon": 23.91843
+ },
+ "VASSILIKI (LEFKADA)": null,
+ "VATHI (SAMOS)": {
+  "lat": 38.66424,
+  "lon": 20.78113
+ },
+ "VOLISSOS": {
+  "lat": 38.48342,
+  "lon": 25.92668,
+  "approx": true
+ },
+ "VOLOS": {
+  "lat": 39.3572,
+  "lon": 22.94322
+ },
+ "WESTERN GREECE (ALL PORTS)": null,
+ "ZAKYNTHOS (ALL PORTS)": {
+  "lat": 37.77985,
+  "lon": 20.90205
+ },
+ "ZAKYNTHOS": {
+  "lat": 37.77985,
+  "lon": 20.90205
+ },
+ "ABBADIA L.": {
+  "lat": 45.90134,
+  "lon": 9.33112
+ },
+ "ACCIAROLI": {
+  "lat": 40.18007,
+  "lon": 15.02706,
+  "approx": true
+ },
+ "AEOLIAN ISLANDS (ALL PORTS)": null,
+ "AGROPOLI": {
+  "lat": 40.3469,
+  "lon": 14.99655,
+  "approx": true
+ },
+ "ALICUDI": {
+  "lat": 38.53375,
+  "lon": 14.36125
+ },
+ "AMALFI COAST (ALL PORTS)": null,
+ "AMALFI": {
+  "lat": 40.63367,
+  "lon": 14.60261,
+  "approx": true
+ },
+ "ANCONA": {
+  "lat": 43.62023,
+  "lon": 13.50853
+ },
+ "ANZIO": {
+  "lat": 41.44483,
+  "lon": 12.6309
+ },
+ "ARBATAX": null,
+ "ARGEGNO": {
+  "lat": 45.9428,
+  "lon": 9.12854
+ },
+ "ASINARA": {
+  "lat": 40.98628,
+  "lon": 8.23862
+ },
+ "ATRANI": {
+  "lat": 40.63691,
+  "lon": 14.60754,
+  "approx": true
+ },
+ "BARI": {
+  "lat": 41.13731,
+  "lon": 16.86095
+ },
+ "BELLAGIO": {
+  "lat": 45.98738,
+  "lon": 9.2601
+ },
+ "BELLANO": {
+  "lat": 46.04398,
+  "lon": 9.30196
+ },
+ "BLEVIO": {
+  "lat": 45.83948,
+  "lon": 9.1015
+ },
+ "BRIENNO": {
+  "lat": 45.91082,
+  "lon": 9.13181
+ },
+ "BRINDISI": {
+  "lat": 40.63754,
+  "lon": 17.9455,
+  "approx": true
+ },
+ "BURANO, VENICE": {
+  "lat": 45.48758,
+  "lon": 12.4167
+ },
+ "CAGLIARI": {
+  "lat": 39.21109,
+  "lon": 9.11249
+ },
+ "CALASETTA": {
+  "lat": 39.11226,
+  "lon": 8.37319
+ },
+ "CAMPO": {
+  "lat": 45.9668,
+  "lon": 9.18749
+ },
+ "CAPRAIA": null,
+ "CAPRI": {
+  "lat": 40.5493,
+  "lon": 14.24353,
+  "approx": true
+ },
+ "URIO": {
+  "lat": 45.86914,
+  "lon": 9.11913
+ },
+ "CARENO": {
+  "lat": 45.89616,
+  "lon": 9.15348
+ },
+ "CARLOFORTE": {
+  "lat": 39.14445,
+  "lon": 8.30783
+ },
+ "CASAMICCIOLA": {
+  "lat": 40.75105,
+  "lon": 13.90721
+ },
+ "CASTELLAMMARE": {
+  "lat": 38.03191,
+  "lon": 12.88026
+ },
+ "CAVO": {
+  "lat": 42.86185,
+  "lon": 10.41966,
+  "approx": true
+ },
+ "CERNOBBIO": {
+  "lat": 45.83898,
+  "lon": 9.07886
+ },
+ "CESENATICO": {
+  "lat": 44.19993,
+  "lon": 12.39697,
+  "approx": true
+ },
+ "CETARA": {
+  "lat": 40.64821,
+  "lon": 14.70042,
+  "approx": true
+ },
+ "CIVITAVECCHIA": {
+  "lat": 42.09907,
+  "lon": 11.78254
+ },
+ "COLICO": {
+  "lat": 46.13758,
+  "lon": 9.36827
+ },
+ "COLONNO": {
+  "lat": 45.9576,
+  "lon": 9.15557,
+  "approx": true
+ },
+ "COMO": {
+  "lat": 45.81348,
+  "lon": 9.07976
+ },
+ "DERVIO": {
+  "lat": 46.07564,
+  "lon": 9.29788
+ },
+ "DOMASO": {
+  "lat": 46.14951,
+  "lon": 9.3234
+ },
+ "DONGO": {
+  "lat": 46.12253,
+  "lon": 9.28216
+ },
+ "EGADI ISLANDS (ALL PORTS)": null,
+ "ELBA (ALL PORTS)": null,
+ "FAGGETO L.": {
+  "lat": 45.86548,
+  "lon": 9.1498
+ },
+ "FAVIGNANA": {
+  "lat": 37.9314,
+  "lon": 12.32743,
+  "approx": true
+ },
+ "FILICUDI": {
+  "lat": 38.56213,
+  "lon": 14.58157
+ },
+ "FORIO": {
+  "lat": 40.73684,
+  "lon": 13.85814,
+  "approx": true
+ },
+ "FORMIA": {
+  "lat": 41.25613,
+  "lon": 13.61103
+ },
+ "GENOA": {
+  "lat": 44.40726,
+  "lon": 8.93386,
+  "approx": true
+ },
+ "GIANNUTRI": null,
+ "GIGLIO": {
+  "lat": 45.43143,
+  "lon": 12.33264
+ },
+ "GINOSTRA": {
+  "lat": 38.78529,
+  "lon": 15.18924
+ },
+ "GOLFO ARANCI": {
+  "lat": 40.99409,
+  "lon": 9.62345
+ },
+ "GRAVEDONA": {
+  "lat": 46.14596,
+  "lon": 9.30558
+ },
+ "ISCHIA (ALL PORTS)": null,
+ "ISCHIA": {
+  "lat": 40.73421,
+  "lon": 13.94712,
+  "approx": true
+ },
+ "ISOLA C.": {
+  "lat": 45.79502,
+  "lon": 8.39937
+ },
+ "ITALY EAST": null,
+ "ITALY WEST": null,
+ "LA MADDALENA": {
+  "lat": 41.2114,
+  "lon": 9.40576
+ },
+ "LA SPEZIA": {
+  "lat": 44.10258,
+  "lon": 9.82511
+ },
+ "LACCO AMENO": {
+  "lat": 40.75097,
+  "lon": 13.89006,
+  "approx": true
+ },
+ "LAMPEDUSA": {
+  "lat": 35.49715,
+  "lon": 12.60488
+ },
+ "LECCO": {
+  "lat": 45.85565,
+  "lon": 9.38718
+ },
+ "LENNO": {
+  "lat": 45.9742,
+  "lon": 9.20004
+ },
+ "LERICI": {
+  "lat": 44.07361,
+  "lon": 9.90991,
+  "approx": true
+ },
+ "LEVANTO": {
+  "lat": 44.16991,
+  "lon": 9.61204,
+  "approx": true
+ },
+ "LEVANZO": {
+  "lat": 37.98654,
+  "lon": 12.34195
+ },
+ "LEZZENO": {
+  "lat": 45.94687,
+  "lon": 9.19359
+ },
+ "LIERNA": {
+  "lat": 45.95958,
+  "lon": 9.30027
+ },
+ "LIMONTA": {
+  "lat": 45.95648,
+  "lon": 9.27263
+ },
+ "LINOSA": {
+  "lat": 35.85944,
+  "lon": 12.86327,
+  "approx": true
+ },
+ "LIPARI": {
+  "lat": 38.47138,
+  "lon": 14.95569
+ },
+ "LIVORNO": {
+  "lat": 40.99409,
+  "lon": 9.62345
+ },
+ "MAIORI": {
+  "lat": 40.64783,
+  "lon": 14.63505
+ },
+ "MANAROLA": {
+  "lat": 44.10633,
+  "lon": 9.72748,
+  "approx": true
+ },
+ "MANDELLO DEL LARIO": {
+  "lat": 45.91179,
+  "lon": 9.31721
+ },
+ "MANFREDONIA": {
+  "lat": 41.62547,
+  "lon": 15.90959,
+  "approx": true
+ },
+ "MARETTIMO": {
+  "lat": 37.96633,
+  "lon": 12.07612
+ },
+ "CAMEROTA": {
+  "lat": 40.0325,
+  "lon": 15.37276,
+  "approx": true
+ },
+ "CASAL VELINO": {
+  "lat": 40.19091,
+  "lon": 15.10937,
+  "approx": true
+ },
+ "PISCIOTTA": {
+  "lat": 40.1089,
+  "lon": 15.23456,
+  "approx": true
+ },
+ "MARINA DI RAGUSA": {
+  "lat": 36.77941,
+  "lon": 14.54797
+ },
+ "MARSALA": {
+  "lat": 37.79792,
+  "lon": 12.43421,
+  "approx": true
+ },
+ "MENAGGIO": {
+  "lat": 46.01733,
+  "lon": 9.23725
+ },
+ "MESSINA": {
+  "lat": 38.19669,
+  "lon": 15.56068
+ },
+ "MESSINA SAN FRANCESCO": {
+  "lat": 38.19669,
+  "lon": 15.56068
+ },
+ "MESSINA (ALL PORTS)": {
+  "lat": 38.19669,
+  "lon": 15.56068
+ },
+ "MILAZZO": {
+  "lat": 38.21513,
+  "lon": 15.24898
+ },
+ "MINORI": {
+  "lat": 40.64835,
+  "lon": 14.62714
+ },
+ "MOLTRASIO": {
+  "lat": 45.86001,
+  "lon": 9.10226
+ },
+ "MONTE DI PROCIDA": {
+  "lat": 40.76593,
+  "lon": 14.02639
+ },
+ "MONTEROSSO": {
+  "lat": 45.36534,
+  "lon": 11.76244,
+  "approx": true
+ },
+ "MURANO, VENICE": {
+  "lat": 45.45263,
+  "lon": 12.35462
+ },
+ "MUSSO": {
+  "lat": 46.11388,
+  "lon": 9.27736
+ },
+ "NAPLES (ALL PORTS)": {
+  "lat": 40.83819,
+  "lon": 14.26022
+ },
+ "BEVERELLO (NAPLES)": {
+  "lat": 40.83735,
+  "lon": 14.25475
+ },
+ "NAPLES": {
+  "lat": 40.83819,
+  "lon": 14.26022
+ },
+ "MERGELLINA (NAPLES)": null,
+ "NAPLES AIRPORT": {
+  "lat": 40.83819,
+  "lon": 14.26022
+ },
+ "NESSO": {
+  "lat": 45.91138,
+  "lon": 9.15414
+ },
+ "OLBIA": null,
+ "ONNO": {
+  "lat": 45.91215,
+  "lon": 9.29424
+ },
+ "PALAU": {
+  "lat": 41.18122,
+  "lon": 9.3856
+ },
+ "PALERMO": {
+  "lat": 38.12802,
+  "lon": 13.36376
+ },
+ "PALINURO": {
+  "lat": 40.03208,
+  "lon": 15.27655
+ },
+ "PANAREA": {
+  "lat": 38.63802,
+  "lon": 15.0782
+ },
+ "PANTELLERIA": {
+  "lat": 36.83146,
+  "lon": 11.94504,
+  "approx": true
+ },
+ "PESARO": {
+  "lat": 43.92513,
+  "lon": 12.90656
+ },
+ "PESCHICI": {
+  "lat": 41.94693,
+  "lon": 16.01479,
+  "approx": true
+ },
+ "PIANELLO": {
+  "lat": 46.10066,
+  "lon": 9.27829
+ },
+ "PIANO DI SORRENTO": {
+  "lat": 40.63296,
+  "lon": 14.41131,
+  "approx": true
+ },
+ "PIANOSA": {
+  "lat": 42.58726,
+  "lon": 10.09855,
+  "approx": true
+ },
+ "PIOMBINO": {
+  "lat": 42.92992,
+  "lon": 10.54778
+ },
+ "PIONA": {
+  "lat": 46.12342,
+  "lon": 9.32851
+ },
+ "POGNANA L.": {
+  "lat": 45.87836,
+  "lon": 9.15592
+ },
+ "PONTINE ISLANDS (ALL PORTS)": null,
+ "PONZA": {
+  "lat": 40.89324,
+  "lon": 12.96306,
+  "approx": true
+ },
+ "PORTICI": {
+  "lat": 40.81897,
+  "lon": 14.33875,
+  "approx": true
+ },
+ "BAIA (BACOLI)": {
+  "lat": 41.3004,
+  "lon": 14.25132,
+  "approx": true
+ },
+ "PORTO EMPEDOCLE": {
+  "lat": 37.28205,
+  "lon": 13.52718
+ },
+ "PORTO S. STEFANO": {
+  "lat": 42.4365,
+  "lon": 11.12149
+ },
+ "PORTO TORRES": {
+  "lat": 40.83888,
+  "lon": 8.37708
+ },
+ "PORTO VENERE": {
+  "lat": 44.05066,
+  "lon": 9.83446,
+  "approx": true
+ },
+ "PORTOFERRAIO": {
+  "lat": 42.81415,
+  "lon": 10.33103,
+  "approx": true
+ },
+ "PORTOVESME": {
+  "lat": 39.19865,
+  "lon": 8.39102
+ },
+ "POSITANO": {
+  "lat": 40.62866,
+  "lon": 14.4855,
+  "approx": true
+ },
+ "POZZALLO": {
+  "lat": 36.71653,
+  "lon": 14.83056
+ },
+ "POZZUOLI": {
+  "lat": 40.82371,
+  "lon": 14.11793
+ },
+ "PRAIANO": {
+  "lat": 40.61111,
+  "lon": 14.53134,
+  "approx": true
+ },
+ "PROCIDA": {
+  "lat": 40.76593,
+  "lon": 14.02639
+ },
+ "PUNTA SABBIONI": {
+  "lat": 45.44763,
+  "lon": 12.42466
+ },
+ "REGGIO CALABRIA": {
+  "lat": 38.12165,
+  "lon": 15.64884
+ },
+ "RINELLA": {
+  "lat": 38.54724,
+  "lon": 14.82905
+ },
+ "RIO MARINA": {
+  "lat": 38.55551,
+  "lon": 14.87187
+ },
+ "RIOMAGGIORE": {
+  "lat": 44.09776,
+  "lon": 9.73776
+ },
+ "RODI GARGANICO": {
+  "lat": 41.93312,
+  "lon": 15.89052
+ },
+ "SALA C.": {
+  "lat": 45.96366,
+  "lon": 9.16743
+ },
+ "SALERNO (ALL PORTS)": {
+  "lat": 40.6719,
+  "lon": 14.76681
+ },
+ "SALERNO MOLO CONCORDIA": {
+  "lat": 40.6719,
+  "lon": 14.76681
+ },
+ "SALERNO MOLO MANFREDI": {
+  "lat": 40.6719,
+  "lon": 14.76681
+ },
+ "SALERNO MOLO PONENTE": {
+  "lat": 40.6719,
+  "lon": 14.76681
+ },
+ "S. GIOVANNI": {
+  "lat": 38.21626,
+  "lon": 15.63331
+ },
+ "SAN MARCO DI CASTELLABATE": {
+  "lat": 45.63416,
+  "lon": 13.77086
+ },
+ "SAN NICOLA": {
+  "lat": 38.01628,
+  "lon": 13.61518
+ },
+ "S.ANGELO": {
+  "lat": 41.90176,
+  "lon": 12.46815
+ },
+ "SANTA MARINA SALINA": {
+  "lat": 38.55784,
+  "lon": 14.87273
+ },
+ "S.T. GALLURA": {
+  "lat": 41.24722,
+  "lon": 9.19748
+ },
+ "SAPRI": {
+  "lat": 40.06379,
+  "lon": 15.62825
+ },
+ "SARDINIA (ALL PORTS)": {
+  "lat": 40.99429,
+  "lon": 9.62217
+ },
+ "SAVONA": {
+  "lat": 44.26451,
+  "lon": 8.44617
+ },
+ "SEIANO": {
+  "lat": 40.65666,
+  "lon": 14.4217,
+  "approx": true
+ },
+ "SICILY (ALL PORTS)": null,
+ "SORRENTO": {
+  "lat": 40.62491,
+  "lon": 14.37484,
+  "approx": true
+ },
+ "STROMBOLI (ALL PORTS)": {
+  "lat": 38.79752,
+  "lon": 15.23992
+ },
+ "STROMBOLI": {
+  "lat": 38.79752,
+  "lon": 15.23992
+ },
+ "TAVERNOLA": {
+  "lat": 45.83089,
+  "lon": 9.07254
+ },
+ "TERMINI IMERESE": {
+  "lat": 37.9846,
+  "lon": 13.70904
+ },
+ "TERMOLI": {
+  "lat": 42.0022,
+  "lon": 15.00665
+ },
+ "TERRACINA (ALL PORTS)": null,
+ "TERRACINA": {
+  "lat": 41.28712,
+  "lon": 13.2492,
+  "approx": true
+ },
+ "TORCELLO, VENICE": {
+  "lat": 45.49506,
+  "lon": 12.4122
+ },
+ "TORNO": {
+  "lat": 45.8566,
+  "lon": 9.11296
+ },
+ "TORRE ANNUNZIATA": {
+  "lat": 40.75252,
+  "lon": 14.455,
+  "approx": true
+ },
+ "TORRE DEL GRECO": {
+  "lat": 40.78792,
+  "lon": 14.36828,
+  "approx": true
+ },
+ "TORREGAVETA": {
+  "lat": 40.81112,
+  "lon": 14.0477,
+  "approx": true
+ },
+ "TRAPANI": {
+  "lat": 38.01297,
+  "lon": 12.51832
+ },
+ "TREMEZZO": {
+  "lat": 45.98275,
+  "lon": 9.22529
+ },
+ "TREMITI": {
+  "lat": 42.0049,
+  "lon": 15.00296
+ },
+ "TREMITI ISLANDS (ALL PORTS)": {
+  "lat": 42.0049,
+  "lon": 15.00296
+ },
+ "TRIESTE": {
+  "lat": 45.64878,
+  "lon": 13.76363
+ },
+ "USTICA": {
+  "lat": 38.71729,
+  "lon": 13.1875
+ },
+ "VALMADRERA": {
+  "lat": 45.85877,
+  "lon": 9.3683
+ },
+ "VARENNA": {
+  "lat": 46.01383,
+  "lon": 9.28267
+ },
+ "VASSENA": {
+  "lat": 45.93071,
+  "lon": 9.28515
+ },
+ "VENICE": {
+  "lat": 45.42492,
+  "lon": 12.25621
+ },
+ "VENICE (ALL PORTS)": {
+  "lat": 45.42492,
+  "lon": 12.25621
+ },
+ "SAN MARCO, VENICE": {
+  "lat": 45.63416,
+  "lon": 13.77086
+ },
+ "SANTA LUCIA (PIAZZALE ROMA), VENICE": {
+  "lat": 45.41749,
+  "lon": 12.36771
+ },
+ "VENTOTENE": {
+  "lat": 40.79903,
+  "lon": 13.43313
+ },
+ "VERNAZZA": {
+  "lat": 44.13494,
+  "lon": 9.68278,
+  "approx": true
+ },
+ "VIBO VALENTIA": {
+  "lat": 38.71716,
+  "lon": 16.12279
+ },
+ "VIESTE": {
+  "lat": 41.88276,
+  "lon": 16.17918,
+  "approx": true
+ },
+ "VIETRI SUL MARE": {
+  "lat": 45.33273,
+  "lon": 12.31694
+ },
+ "VILLA CARLOTTA": {
+  "lat": 45.98539,
+  "lon": 9.23062
+ },
+ "VILLA SAN GIOVANNI": {
+  "lat": 38.2196,
+  "lon": 15.63069
+ },
+ "VULCANO": {
+  "lat": 38.41526,
+  "lon": 14.96082
+ },
+ "AGAETE": {
+  "lat": 28.10085,
+  "lon": -15.70235,
+  "approx": true
+ },
+ "ALCUDIA": {
+  "lat": 39.83553,
+  "lon": 3.14119
+ },
+ "ALGECIRAS": {
+  "lat": 36.12983,
+  "lon": -5.44001
+ },
+ "ALICANTE": {
+  "lat": 38.34205,
+  "lon": -0.48482
+ },
+ "ALMERIA": {
+  "lat": 36.83564,
+  "lon": -2.48164
+ },
+ "ARRECIFE": {
+  "lat": 28.97155,
+  "lon": -13.52643
+ },
+ "BARCELONA": {
+  "lat": 41.37225,
+  "lon": 2.17753
+ },
+ "BILBAO": {
+  "lat": 43.34669,
+  "lon": -3.05266
+ },
+ "CADIZ": {
+  "lat": 36.53082,
+  "lon": -6.28976
+ },
+ "CEUTA": {
+  "lat": 35.89365,
+  "lon": -5.3207
+ },
+ "CIUTADELLA": {
+  "lat": 39.98843,
+  "lon": 3.82857
+ },
+ "CORRALEJO": {
+  "lat": 28.74045,
+  "lon": -13.86247
+ },
+ "DENIA": {
+  "lat": 38.8443,
+  "lon": 0.11408
+ },
+ "EL HIERRO (VALVERDE)": {
+  "lat": 27.78261,
+  "lon": -17.9011
+ },
+ "FIGUERETAS": null,
+ "FORMENTERA": {
+  "lat": 38.73457,
+  "lon": 1.41768
+ },
+ "FUERTEVENTURA (ALL PORTS)": null,
+ "GRAN CANARIA (ALL PORTS)": {
+  "lat": 28.12645,
+  "lon": -15.4258
+ },
+ "HUELVA": {
+  "lat": 37.14883,
+  "lon": -6.87654
+ },
+ "IBIZA": {
+  "lat": 38.90778,
+  "lon": 1.45172
+ },
+ "IBIZA (ALL PORTS)": {
+  "lat": 38.90778,
+  "lon": 1.45172
+ },
+ "ISLA DE LOBOS": {
+  "lat": 28.74069,
+  "lon": -13.8636
+ },
+ "JÁVEA": {
+  "lat": 38.79399,
+  "lon": 0.1867
+ },
+ "LA GOMERA (ALL PORTS)": {
+  "lat": 28.08862,
+  "lon": -17.10856
+ },
+ "LA GRACIOSA": {
+  "lat": 29.22362,
+  "lon": -13.45231
+ },
+ "LANZAROTE (ALL PORTS)": null,
+ "LAS PALMAS GC": {
+  "lat": 28.12163,
+  "lon": -15.40589
+ },
+ "LOS CRISTIANOS": {
+  "lat": 28.04795,
+  "lon": -16.71835
+ },
+ "MAHON": null,
+ "MALAGA": {
+  "lat": 36.71587,
+  "lon": -4.41872
+ },
+ "MALLORCA (ALL PORTS)": null,
+ "MELILLA": {
+  "lat": 35.29142,
+  "lon": -2.93121
+ },
+ "MENORCA (ALL PORTS)": {
+  "lat": 39.89466,
+  "lon": 4.25876
+ },
+ "MORRO JABLE": {
+  "lat": 28.04862,
+  "lon": -14.36243
+ },
+ "MOTRIL": {
+  "lat": 36.72293,
+  "lon": -3.52293
+ },
+ "ORZOLA": null,
+ "PALMA DE MALLORCA": {
+  "lat": 39.54756,
+  "lon": 2.63455
+ },
+ "PLATJA D'EN BOSSA": {
+  "lat": 38.89617,
+  "lon": 1.41549
+ },
+ "PLAYA BLANCA": {
+  "lat": 28.85814,
+  "lon": -13.83465
+ },
+ "PLAYA SANTIAGO": {
+  "lat": 28.85732,
+  "lon": -13.8348
+ },
+ "PUERTO CALERO": null,
+ "PUERTO DEL CARMEN": {
+  "lat": 28.92044,
+  "lon": -13.65068,
+  "approx": true
+ },
+ "PTO. ROSARIO": {
+  "lat": 28.49548,
+  "lon": -13.85583
+ },
+ "SAN SEBASTIAN DE LA GOMERA": {
+  "lat": 28.08614,
+  "lon": -17.10962
+ },
+ "SANTA CRUZ DE LA PALMA": {
+  "lat": 28.67061,
+  "lon": -17.7655
+ },
+ "SANTA CRUZ DE TENERIFE": {
+  "lat": 28.46949,
+  "lon": -16.24618
+ },
+ "SANTANDER": {
+  "lat": 43.45895,
+  "lon": -3.80561
+ },
+ "SPAIN (ALL PORTS)": null,
+ "TARIFA": {
+  "lat": 36.01088,
+  "lon": -5.60252
+ },
+ "TENERIFE (ALL PORTS)": {
+  "lat": 28.4793,
+  "lon": -16.23646
+ },
+ "VALENCIA": {
+  "lat": 39.46971,
+  "lon": -0.37634,
+  "approx": true
+ },
+ "VALLE GRAN REY": {
+  "lat": 28.12645,
+  "lon": -15.4258
+ },
+ "BAŠKA": {
+  "lat": 44.96906,
+  "lon": 14.76253
+ },
+ "BOL": {
+  "lat": 43.26052,
+  "lon": 16.65202,
+  "approx": true
+ },
+ "BRAC (ALL PORTS)": null,
+ "BRSANJ": {
+  "lat": 44.02419,
+  "lon": 15.14649
+ },
+ "CAVTAT": {
+  "lat": 42.5819,
+  "lon": 18.21661
+ },
+ "CRIKVENICA": {
+  "lat": 45.1737,
+  "lon": 14.69279,
+  "approx": true
+ },
+ "CROATIA (ALL PORTS)": null,
+ "DUBROVNIK": {
+  "lat": 42.65788,
+  "lon": 18.08574
+ },
+ "HVAR (ALL PORTS)": {
+  "lat": 43.16174,
+  "lon": 16.39281
+ },
+ "HVAR": {
+  "lat": 43.16174,
+  "lon": 16.39281
+ },
+ "VIRA PIER (HVAR)": {
+  "lat": 43.19066,
+  "lon": 16.42782
+ },
+ "ILOVIK": {
+  "lat": 44.46178,
+  "lon": 14.54909
+ },
+ "JELSA": {
+  "lat": 43.16201,
+  "lon": 16.69545
+ },
+ "KOLOCEP": {
+  "lat": 42.67981,
+  "lon": 18.00457
+ },
+ "KORCULA": {
+  "lat": 42.95288,
+  "lon": 17.15004
+ },
+ "KORCULA (ALL PORTS)": {
+  "lat": 42.95288,
+  "lon": 17.15004
+ },
+ "KRALJEVICA": {
+  "lat": 45.27413,
+  "lon": 14.56887,
+  "approx": true
+ },
+ "LOPAR (RAB)": {
+  "lat": 44.83777,
+  "lon": 14.72139
+ },
+ "LOSINJ": {
+  "lat": 44.53807,
+  "lon": 14.46363
+ },
+ "MAKARSKA": {
+  "lat": 43.29398,
+  "lon": 17.02024,
+  "approx": true
+ },
+ "MALI IZ": {
+  "lat": 42.7827,
+  "lon": 17.35172
+ },
+ "MILNA": {
+  "lat": 43.3287,
+  "lon": 16.44043
+ },
+ "MLINI": {
+  "lat": 42.62194,
+  "lon": 18.20531
+ },
+ "MLJET (ALL PORTS)": null,
+ "MOLAT (ALL PORTS)": {
+  "lat": 44.21236,
+  "lon": 14.87178
+ },
+ "NOVALJA": {
+  "lat": 44.55558,
+  "lon": 14.88253
+ },
+ "OLIB": {
+  "lat": 44.38027,
+  "lon": 14.77538
+ },
+ "OREBIC": {
+  "lat": 42.97691,
+  "lon": 17.18324,
+  "approx": true
+ },
+ "PLOCE": {
+  "lat": 43.05062,
+  "lon": 17.43314
+ },
+ "POLACE": {
+  "lat": 42.78547,
+  "lon": 17.37788,
+  "approx": true
+ },
+ "POMENA": {
+  "lat": 42.78882,
+  "lon": 17.34256
+ },
+ "POREC": {
+  "lat": 45.2253,
+  "lon": 13.59456
+ },
+ "PREMUDA": {
+  "lat": 44.33719,
+  "lon": 14.59283
+ },
+ "PRIGRADICA": {
+  "lat": 42.9655,
+  "lon": 16.80763,
+  "approx": true
+ },
+ "PULA": {
+  "lat": 44.87468,
+  "lon": 13.84789
+ },
+ "RAB": {
+  "lat": 44.75352,
+  "lon": 14.76325
+ },
+ "RAVA": {
+  "lat": 44.02301,
+  "lon": 15.05946
+ },
+ "ROGAC": {
+  "lat": 43.39723,
+  "lon": 16.30062
+ },
+ "ROVINJ": {
+  "lat": 45.08074,
+  "lon": 13.64173,
+  "approx": true
+ },
+ "SALI": {
+  "lat": 43.93697,
+  "lon": 15.16733
+ },
+ "SENJ": {
+  "lat": 44.99015,
+  "lon": 14.90212,
+  "approx": true
+ },
+ "SILBA": {
+  "lat": 44.37354,
+  "lon": 14.6916
+ },
+ "SIPANSKA LUKA": {
+  "lat": 42.72906,
+  "lon": 17.8605
+ },
+ "SOBRA": {
+  "lat": 42.73928,
+  "lon": 17.6211
+ },
+ "SPLIT": {
+  "lat": 43.51164,
+  "lon": 16.43997,
+  "approx": true
+ },
+ "SPLIT AIRPORT": null,
+ "SUCURAJ": {
+  "lat": 43.12549,
+  "lon": 17.18741
+ },
+ "SUPETAR": {
+  "lat": 43.38588,
+  "lon": 16.55487
+ },
+ "SUSAK": {
+  "lat": 44.51253,
+  "lon": 14.31132
+ },
+ "SUTIVAN": {
+  "lat": 43.3848,
+  "lon": 16.47932,
+  "approx": true
+ },
+ "TOVARNELE": {
+  "lat": 44.69229,
+  "lon": 14.73561
+ },
+ "UBLE": {
+  "lat": 42.74535,
+  "lon": 16.82463
+ },
+ "UMAG": {
+  "lat": 45.43236,
+  "lon": 13.52241,
+  "approx": true
+ },
+ "UNIJE": {
+  "lat": 44.63617,
+  "lon": 14.24626
+ },
+ "VELA LUKA (KORCULA)": {
+  "lat": 42.9597,
+  "lon": 16.70594
+ },
+ "VELI IZ": {
+  "lat": 44.05159,
+  "lon": 15.10983
+ },
+ "VIS": {
+  "lat": 43.06159,
+  "lon": 16.18409
+ },
+ "ZADAR": {
+  "lat": 44.11763,
+  "lon": 15.22587
+ },
+ "ZAGLAV": {
+  "lat": 43.94949,
+  "lon": 15.14421
+ },
+ "ALIAGA": {
+  "lat": 38.81769,
+  "lon": 26.94427
+ },
+ "ALSANCAK": {
+  "lat": 38.439,
+  "lon": 27.14064
+ },
+ "ARMUTLU": {
+  "lat": 40.50889,
+  "lon": 28.83796
+ },
+ "ARMUTLU TATIL KOYU": {
+  "lat": 40.51731,
+  "lon": 28.78977
+ },
+ "IHLAS (ARMUTLU)": {
+  "lat": 40.51731,
+  "lon": 28.78977
+ },
+ "AVCILAR": {
+  "lat": 40.97113,
+  "lon": 28.71793
+ },
+ "AVSA": {
+  "lat": 40.50686,
+  "lon": 27.49648,
+  "approx": true
+ },
+ "AYVALIK": {
+  "lat": 39.32837,
+  "lon": 26.69594
+ },
+ "BALIKLI": {
+  "lat": 39.84084,
+  "lon": 40.00711,
+  "approx": true
+ },
+ "BANDIRMA": {
+  "lat": 40.3516,
+  "lon": 27.96388
+ },
+ "BESIKTAS": {
+  "lat": 41.04131,
+  "lon": 29.00778
+ },
+ "BODRUM": {
+  "lat": 37.03351,
+  "lon": 27.42664
+ },
+ "BODRUM (ALL PORTS)": {
+  "lat": 37.03351,
+  "lon": 27.42664
+ },
+ "BOSTANCI": {
+  "lat": 40.95184,
+  "lon": 29.09283
+ },
+ "BOSTANLI": {
+  "lat": 38.45211,
+  "lon": 27.09772
+ },
+ "BURGAZADA": {
+  "lat": 40.88108,
+  "lon": 29.0708
+ },
+ "BURSA": {
+  "lat": 40.37398,
+  "lon": 28.88904
+ },
+ "BUYUKADA": {
+  "lat": 40.87473,
+  "lon": 29.12556
+ },
+ "CANAKKALE": {
+  "lat": 40.15112,
+  "lon": 26.402
+ },
+ "CESME": {
+  "lat": 38.32478,
+  "lon": 26.29615
+ },
+ "CINARCIK": {
+  "lat": 40.6434,
+  "lon": 29.1193,
+  "approx": true
+ },
+ "DIKILI": {
+  "lat": 39.07049,
+  "lon": 26.88646
+ },
+ "ECEABAT": {
+  "lat": 40.18407,
+  "lon": 26.3602
+ },
+ "EKINLIK": {
+  "lat": 40.87744,
+  "lon": 42.20674,
+  "approx": true
+ },
+ "ERDEK": {
+  "lat": 40.39744,
+  "lon": 27.79099,
+  "approx": true
+ },
+ "FETHIYE": {
+  "lat": 36.62285,
+  "lon": 29.10515
+ },
+ "GELIBOLU": {
+  "lat": 40.4051,
+  "lon": 26.66922
+ },
+ "GEYIKLI": {
+  "lat": 39.81974,
+  "lon": 26.16054
+ },
+ "GOZTEPE": {
+  "lat": 38.39967,
+  "lon": 27.08348
+ },
+ "HEYBELIADA": {
+  "lat": 40.87802,
+  "lon": 29.10066
+ },
+ "GOKCEADA": {
+  "lat": 40.20039,
+  "lon": 25.90846,
+  "approx": true
+ },
+ "IZMIR (ALL PORTS)": {
+  "lat": 38.44551,
+  "lon": 27.14701
+ },
+ "KABATAS": {
+  "lat": 41.03546,
+  "lon": 28.99425
+ },
+ "KABATEPE": {
+  "lat": 40.20061,
+  "lon": 26.26811
+ },
+ "KADIKOY": {
+  "lat": 40.99306,
+  "lon": 29.02253
+ },
+ "KARANTINA": {
+  "lat": 38.40859,
+  "lon": 27.10632
+ },
+ "KARSIYAKA": {
+  "lat": 38.45494,
+  "lon": 27.12042
+ },
+ "KAS": {
+  "lat": 36.19938,
+  "lon": 29.64134,
+  "approx": true
+ },
+ "KEPEZ": {
+  "lat": 36.91763,
+  "lon": 30.71499,
+  "approx": true
+ },
+ "KILITBAHIR": {
+  "lat": 40.15071,
+  "lon": 26.37921
+ },
+ "KINALIADA": {
+  "lat": 40.90951,
+  "lon": 29.05582
+ },
+ "ESENKOY": {
+  "lat": 40.61865,
+  "lon": 28.9535
+ },
+ "KONAK": {
+  "lat": 38.41878,
+  "lon": 27.12513
+ },
+ "KUMLA": {
+  "lat": 36.95107,
+  "lon": 37.99091,
+  "approx": true
+ },
+ "KUSADASI": {
+  "lat": 37.86374,
+  "lon": 27.25483
+ },
+ "LAPSEKI": {
+  "lat": 40.34799,
+  "lon": 26.68413
+ },
+ "MARMARA ADASI": {
+  "lat": 40.58439,
+  "lon": 27.56084
+ },
+ "MARMARIS": {
+  "lat": 36.84856,
+  "lon": 28.28165
+ },
+ "MORDOGAN": {
+  "lat": 38.51811,
+  "lon": 26.62737
+ },
+ "MUDANYA (BURSA)": {
+  "lat": 40.37418,
+  "lon": 28.88919
+ },
+ "NARLI": {
+  "lat": 40.47295,
+  "lon": 27.6895
+ },
+ "PASAPORT": {
+  "lat": 38.42876,
+  "lon": 27.13234
+ },
+ "PENDIK": {
+  "lat": 40.87461,
+  "lon": 29.23636
+ },
+ "SEFERIHISAR": {
+  "lat": 38.19534,
+  "lon": 26.78122
+ },
+ "EMINONU / SIRKECI (INSTANBUL)": {
+  "lat": 41.01758,
+  "lon": 28.97518
+ },
+ "BOZCAADA": {
+  "lat": 39.83462,
+  "lon": 26.07393
+ },
+ "TURGUTREIS": {
+  "lat": 36.99916,
+  "lon": 27.25679
+ },
+ "TURKEY (ALL PORTS)": null,
+ "UCKUYULAR": {
+  "lat": 38.40579,
+  "lon": 27.07019
+ },
+ "URLA": {
+  "lat": 38.36398,
+  "lon": 26.77202
+ },
+ "YALOVA": {
+  "lat": 40.65969,
+  "lon": 29.27865
+ },
+ "YENIKAPI": {
+  "lat": 41.00214,
+  "lon": 28.95638
+ },
+ "BELLE-ÎLE (THE PALACE)": null,
+ "AJACCIO": {
+  "lat": 41.92193,
+  "lon": 8.74112
+ },
+ "SANGUINAIRES": null,
+ "AUDIERNE": null,
+ "CARTERET": null,
+ "BASTIA": null,
+ "BONIFACIO": null,
+ "BREST": null,
+ "CAEN": null,
+ "CALAIS": {
+  "lat": 50.96747,
+  "lon": 1.85051
+ },
+ "CAMARET": null,
+ "CHERBOURG": {
+  "lat": 49.64664,
+  "lon": -1.61157
+ },
+ "CORSICA (ALL PORTS)": {
+  "lat": 43.40044,
+  "lon": 3.70381
+ },
+ "DIELETTE": null,
+ "DIEPPE": {
+  "lat": 49.93481,
+  "lon": 1.0919
+ },
+ "DUNKIRK": {
+  "lat": 51.02055,
+  "lon": 2.19215
+ },
+ "GRANVILLE": null,
+ "GROIX": {
+  "lat": 47.64425,
+  "lon": -3.44662
+ },
+ "HOEDIC": null,
+ "HOUAT": null,
+ "SEIN": null,
+ "MOLENE": {
+  "lat": 48.39774,
+  "lon": -4.95485
+ },
+ "ILE ROUSSE": {
+  "lat": 42.64165,
+  "lon": 8.93817
+ },
+ "LE CONQUET": {
+  "lat": 48.72508,
+  "lon": -3.57829
+ },
+ "LE HAVRE": {
+  "lat": 48.72508,
+  "lon": -3.57829
+ },
+ "LORIENT": {
+  "lat": 47.74094,
+  "lon": -3.35057
+ },
+ "MARSEILLE": {
+  "lat": 43.34303,
+  "lon": 5.33281
+ },
+ "NICE": {
+  "lat": 43.69302,
+  "lon": 7.28494
+ },
+ "FRANCE NORTH (ALL PORTS)": {
+  "lat": 14.6027,
+  "lon": -61.06498
+ },
+ "PORTICCIO": null,
+ "PORTO VECCHIO": null,
+ "PROPRIANO": {
+  "lat": 41.67713,
+  "lon": 8.89854
+ },
+ "QUIBERON": null,
+ "ROSCOFF": null,
+ "SAINT-MALO": {
+  "lat": 47.33954,
+  "lon": 2.86383
+ },
+ "BELLE-ÎLE ( SAUZON)": null,
+ "SETE": null,
+ "FRANCE SOUTH (ALL PORTS)": {
+  "lat": 14.6027,
+  "lon": -61.06498
+ },
+ "ST. BARTH": null,
+ "TOULON": {
+  "lat": 43.12006,
+  "lon": 5.93075
+ },
+ "OUESSANT": null,
+ "CALHETA": {
+  "lat": 38.60026,
+  "lon": -28.01022
+ },
+ "VILA DO CORVO": {
+  "lat": 39.67191,
+  "lon": -31.10993
+ },
+ "HORTA": {
+  "lat": 38.54077,
+  "lon": -28.62089
+ },
+ "FUNCHAL": {
+  "lat": 32.64139,
+  "lon": -16.91666
+ },
+ "PRAIA": {
+  "lat": 38.71135,
+  "lon": -27.05246
+ },
+ "MADALENA": {
+  "lat": 38.53521,
+  "lon": -28.53008
+ },
+ "PICO (ALL PORTS)": {
+  "lat": 38.39735,
+  "lon": -28.25554
+ },
+ "PORTO SANTO": {
+  "lat": 33.05895,
+  "lon": -16.31142
+ },
+ "PRAIA DA VITORIA": {
+  "lat": 38.71135,
+  "lon": -27.05246
+ },
+ "SANTA CRUZ DAS FLORES": {
+  "lat": 39.45141,
+  "lon": -31.12595
+ },
+ "SAO JORGE (ALL PORTS)": null,
+ "SAO ROQUE DO PICO": {
+  "lat": 38.53131,
+  "lon": -28.32103
+ },
+ "TERCEIRA (ALL PORTS)": null,
+ "VELAS": {
+  "lat": 38.67896,
+  "lon": -28.2036
+ },
+ "BUGIBBA": {
+  "lat": 35.95208,
+  "lon": 14.40899
+ },
+ "COSPICUA": {
+  "lat": 35.88409,
+  "lon": 14.51985
+ },
+ "GOZO": {
+  "lat": 35.9082,
+  "lon": 14.50612
+ },
+ "MALTA (ALL PORTS)": {
+  "lat": 35.88833,
+  "lon": 14.50709
+ },
+ "SLIEMA": {
+  "lat": 35.90845,
+  "lon": 14.50516
+ },
+ "VALLETTA": {
+  "lat": 35.89187,
+  "lon": 14.51006
+ },
+ "ALBANIA (ALL PORTS)": null,
+ "DURRES": {
+  "lat": 41.31433,
+  "lon": 19.45541
+ },
+ "AG. SARANTA": null,
+ "VLORA": {
+  "lat": 40.45266,
+  "lon": 19.48199
+ },
+ "BAR": {
+  "lat": 42.09797,
+  "lon": 19.09545,
+  "approx": true
+ },
+ "BUDVA": {
+  "lat": 42.28857,
+  "lon": 18.84195,
+  "approx": true
+ },
+ "KOTOR": {
+  "lat": 42.42492,
+  "lon": 18.77133,
+  "approx": true
+ },
+ "MONTENEGRO (ALL PORTS)": null,
+ "PIRAN": {
+  "lat": 45.52647,
+  "lon": 13.56666
+ },
+ "SLOVENIA (ALL PORTS)": null,
+ "AL HOCEIMA": {
+  "lat": 35.24636,
+  "lon": -3.92343
+ },
+ "MOROCCO (ALL PORTS)": null,
+ "NADOR": {
+  "lat": 35.27107,
+  "lon": -2.91887
+ },
+ "TANGER MED": {
+  "lat": 35.79033,
+  "lon": -5.80394
+ },
+ "TANGIER VILLE": {
+  "lat": 35.79033,
+  "lon": -5.80394
+ },
+ "TUNIS": {
+  "lat": 36.80021,
+  "lon": 10.18578,
+  "approx": true
+ },
+ "TUNISIA (ALL PORTS)": null,
+ "ZARZIS": {
+  "lat": 33.50368,
+  "lon": 11.10972,
+  "approx": true
+ },
+ "ALGERIA (ALL PORTS)": null,
+ "ALGIER": null,
+ "BEJAIA": {
+  "lat": 36.75046,
+  "lon": 5.08538
+ },
+ "GHAZAOUET": {
+  "lat": 35.10274,
+  "lon": -1.85862
+ },
+ "MOSTAGANEM": {
+  "lat": 35.93686,
+  "lon": 0.07947
+ },
+ "ORAN": {
+  "lat": 35.70944,
+  "lon": -0.6452
+ },
+ "NUWEIBA": null,
+ "TABA": {
+  "lat": 29.49282,
+  "lon": 34.89237,
+  "approx": true
+ },
+ "GIBRALTAR": null,
+ "BELFAST": {
+  "lat": 54.62568,
+  "lon": -5.88435
+ },
+ "CAIRNRYAN": {
+  "lat": 54.98505,
+  "lon": -5.03481
+ },
+ "DOVER (ALL PORTS)": {
+  "lat": 51.12742,
+  "lon": 1.33069
+ },
+ "DOVER": {
+  "lat": 51.12742,
+  "lon": 1.33069
+ },
+ "EAST COWES": {
+  "lat": 51.80439,
+  "lon": 1.02353
+ },
+ "FISHBOURNE": {
+  "lat": 50.73435,
+  "lon": -1.21341
+ },
+ "FISHGUARD": {
+  "lat": 52.00992,
+  "lon": -4.98596
+ },
+ "HARWICH": {
+  "lat": 51.94754,
+  "lon": 1.25662
+ },
+ "HERM": null,
+ "HOLYHEAD": {
+  "lat": 53.31269,
+  "lon": -4.6216
+ },
+ "HULL": {
+  "lat": 53.74192,
+  "lon": -0.27878
+ },
+ "ISLE OF WIGHT": {
+  "lat": 53.41188,
+  "lon": -3.00226
+ },
+ "LARNE": {
+  "lat": 54.85085,
+  "lon": -5.81831,
+  "approx": true
+ },
+ "LIVERPOOL": {
+  "lat": 53.40457,
+  "lon": -2.99836
+ },
+ "LYMINGTON": {
+  "lat": 50.75838,
+  "lon": -1.54269,
+  "approx": true
+ },
+ "NEWCASTLE": {
+  "lat": 54.99195,
+  "lon": -1.44989
+ },
+ "NEWHAVEN": {
+  "lat": 50.78836,
+  "lon": 0.05556
+ },
+ "PEMBROKE": {
+  "lat": 51.69828,
+  "lon": -4.95306
+ },
+ "PLYMOUTH": {
+  "lat": 50.36513,
+  "lon": -4.15782
+ },
+ "POOLE": {
+  "lat": 50.70891,
+  "lon": -1.99137
+ },
+ "PORTSMOUTH": {
+  "lat": 50.7967,
+  "lon": -1.10878
+ },
+ "RYDE": {
+  "lat": 50.73899,
+  "lon": -1.16041
+ },
+ "SOUTHAMPTON": {
+  "lat": 50.90253,
+  "lon": -1.40419,
+  "approx": true
+ },
+ "UNITED KINGDOM (ALL PORTS)": null,
+ "WEST COWES": {
+  "lat": 57.67009,
+  "lon": -2.49904
+ },
+ "YARMOUTH, ISLE OF WIGHT": {
+  "lat": 50.70644,
+  "lon": -1.50051
+ },
+ "ARRANMORE": null,
+ "BURTONPORT": {
+  "lat": 54.98119,
+  "lon": -8.42254,
+  "approx": true
+ },
+ "CLARE ISLAND": null,
+ "CORK": {
+  "lat": 51.89851,
+  "lon": -8.47264,
+  "approx": true
+ },
+ "DUBLIN": {
+  "lat": 53.34938,
+  "lon": -6.26056,
+  "approx": true
+ },
+ "IRELAND (ALL PORTS)": null,
+ "ROONAGH": null,
+ "ROSSLARE": {
+  "lat": 52.24973,
+  "lon": -6.34012,
+  "approx": true
+ },
+ "AMSTERDAM": {
+  "lat": 52.40394,
+  "lon": 4.88603
+ },
+ "HOEK VAN HOLLAND": {
+  "lat": 51.97705,
+  "lon": 4.12519
+ },
+ "NETHERLANDS (ALL PORTS)": null,
+ "ROTTERDAM": {
+  "lat": 51.94496,
+  "lon": 4.13156
+ },
+ "SINT MAARTEN": {
+  "lat": 18.04625,
+  "lon": -63.11246
+ },
+ "GERMANY (ALL PORTS)": null,
+ "KIEL": {
+  "lat": 54.3168,
+  "lon": 10.13917
+ },
+ "ROSTOCK": {
+  "lat": 54.14459,
+  "lon": 12.09767
+ },
+ "TRAVEMUNDE": {
+  "lat": 53.95567,
+  "lon": 10.86739
+ },
+ "DENMARK (ALL PORTS)": null,
+ "FREDERIKSHAVN": {
+  "lat": 57.43522,
+  "lon": 10.54024
+ },
+ "GRENAA": {
+  "lat": 56.40975,
+  "lon": 10.92732
+ },
+ "HIRTSHALS": {
+  "lat": 57.59485,
+  "lon": 9.97957
+ },
+ "GOTHENBURG": {
+  "lat": 57.70269,
+  "lon": 11.85823
+ },
+ "HALMSTAD": {
+  "lat": 56.67398,
+  "lon": 12.85748,
+  "approx": true
+ },
+ "KAPELLSKAR": {
+  "lat": 59.71806,
+  "lon": 19.07105
+ },
+ "KARLSHAMN": {
+  "lat": 56.17017,
+  "lon": 14.86313,
+  "approx": true
+ },
+ "KARLSKRONA": {
+  "lat": 56.16605,
+  "lon": 15.62976
+ },
+ "MALMO": {
+  "lat": 55.60529,
+  "lon": 13.00016,
+  "approx": true
+ },
+ "NYNASHAMN": {
+  "lat": 58.90102,
+  "lon": 17.95306
+ },
+ "STOCKHOLM (ALL PORTS)": {
+  "lat": 59.31678,
+  "lon": 18.09587
+ },
+ "STOCKHOLM (STADSGÅRDEN)": {
+  "lat": 59.31678,
+  "lon": 18.09587
+ },
+ "STOCKHOLM (VÄRTAHAMMEN)": {
+  "lat": 59.31678,
+  "lon": 18.09587
+ },
+ "STROMSTAD": {
+  "lat": 58.93346,
+  "lon": 11.16969
+ },
+ "SWEEDEN (ALL PORTS)": null,
+ "TRELLEBORG": {
+  "lat": 55.37592,
+  "lon": 13.14615,
+  "approx": true
+ },
+ "UMEA": {
+  "lat": 63.82566,
+  "lon": 20.26307,
+  "approx": true
+ },
+ "VISBY": {
+  "lat": 57.63468,
+  "lon": 18.27941
+ },
+ "BERGEN": {
+  "lat": 60.39166,
+  "lon": 5.30657
+ },
+ "KRISTIANSAND": {
+  "lat": 58.14407,
+  "lon": 7.98528
+ },
+ "LARVIK": {
+  "lat": 59.04161,
+  "lon": 10.04477
+ },
+ "NORWAY (ALL PORTS)": null,
+ "OSLO": {
+  "lat": 59.90247,
+  "lon": 10.74362
+ },
+ "SANDEFJORD": {
+  "lat": 59.12641,
+  "lon": 10.22732
+ },
+ "STAVANGER": {
+  "lat": 58.91989,
+  "lon": 5.58359
+ },
+ "ALAND ISLANDS": null,
+ "FINLAND (ALL PORTS)": null,
+ "HANKO": {
+  "lat": 59.82478,
+  "lon": 22.96789,
+  "approx": true
+ },
+ "HELSINKI (ALL PORTS)": null,
+ "HELSINKI": {
+  "lat": 60.16662,
+  "lon": 24.94354,
+  "approx": true
+ },
+ "HELSINKI - VUOSAARI": null,
+ "LANGNAS": {
+  "lat": 59.87284,
+  "lon": 22.44886
+ },
+ "MARIEHAMN": {
+  "lat": 60.09225,
+  "lon": 19.92799
+ },
+ "NAANTALI": {
+  "lat": 60.45816,
+  "lon": 22.03555
+ },
+ "TURKU": {
+  "lat": 60.43633,
+  "lon": 22.21909
+ },
+ "VASSA": null,
+ "ESTONIA (ALL PORTS)": null,
+ "PALDISKI": {
+  "lat": 59.33494,
+  "lon": 24.08188
+ },
+ "TALLINN": {
+  "lat": 59.44396,
+  "lon": 24.77005
+ },
+ "LATVIA (ALL PORTS)": null,
+ "LIEPAJA": {
+  "lat": 56.52925,
+  "lon": 20.99835
+ },
+ "VENTSPILS": {
+  "lat": 57.39895,
+  "lon": 21.57194
+ },
+ "KLAIPEDA": {
+  "lat": 55.70651,
+  "lon": 21.12474
+ },
+ "GDYNIA": {
+  "lat": 54.51718,
+  "lon": 18.55294
+ },
+ "POLAND (ALL PORTS)": null,
+ "SWINOUJSCIE": {
+  "lat": 53.9068,
+  "lon": 14.25887
+ }
+}
