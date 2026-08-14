@@ -82,22 +82,19 @@ final class ForegroundNotificationDelegate: NSObject, UNUserNotificationCenterDe
         [.banner, .list, .sound]
     }
 
+    /// Tapping an alert opens the flight it was about. The destination is read
+    /// off `userInfo` here (a dictionary of `Any` can't cross to the main actor)
+    /// and parked, so it survives a cold launch where the root view — and
+    /// SwiftData — aren't ready yet.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
         let info = response.notification.request.content.userInfo
-        var payload: [AnyHashable: Any] = [:]
-        if let id = info[ArcOpenFlightInfo.id] as? String {
-            payload[ArcOpenFlightInfo.id] = id
-        }
-        if let number = info[ArcOpenFlightInfo.number] as? String {
-            payload[ArcOpenFlightInfo.number] = number
-        }
-        guard !payload.isEmpty else { return }
+        guard let destination = ArcDeepLink.destination(fromNotificationUserInfo: info) else { return }
         await MainActor.run {
-            PendingFlightOpen.userInfo = payload
-            NotificationCenter.default.post(name: .arcOpenFlight, object: nil, userInfo: payload)
+            PendingFlightOpen.destination = destination
+            NotificationCenter.default.post(name: .arcOpenFlight, object: nil)
         }
     }
 }

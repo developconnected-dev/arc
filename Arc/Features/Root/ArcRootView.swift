@@ -69,6 +69,8 @@ struct ArcRootView: View {
             refitMapForCurrentData()
             openDetailIfPending()
             bootstrapTrackingAndWidgets()
+            // A tap that arrived before SwiftData had loaded gets its flight now.
+            drainPendingOpen()
         }
         .onChange(of: tab) { _, newTab in
             updateCameraForTab(newTab)
@@ -114,27 +116,10 @@ struct ArcRootView: View {
         }
         .onOpenURL { url in
             guard let dest = ArcDeepLink.parse(url) else { return }
-            switch dest {
-            case .directions(let iata, let terminal):
-                guard let airport = ReferenceData.shared.airport(iata) else { return }
-                let item = MKMapItem(
-                    location: CLLocation(latitude: airport.lat, longitude: airport.lon),
-                    address: nil)
-                item.name = terminal.map { "\(airport.name) · Terminal \($0)" } ?? airport.name
-                item.openInMaps(launchOptions:
-                    [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
-            case .friend(let code):
-                FriendsStore.shared.pendingInviteCode = code
-                tab = .friends
-                Task { await FriendsStore.shared.redeemPendingIfPossible() }
-            case .flight(let id):
-                openFlight(id: id)
-            case .flightIdentity(let number, let dep, let arr):
-                openFlight(number: number, dep: dep, arr: arr)
-            }
+            open(dest)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .arcOpenFlight)) { note in
-            openFlight(from: note.userInfo)
+        .onReceive(NotificationCenter.default.publisher(for: .arcOpenFlight)) { _ in
+            drainPendingOpen()
         }
         .onChange(of: detailFlight?.id) { _, _ in
             if let f = detailFlight { controller.focus(on: f) }
@@ -151,7 +136,7 @@ struct ArcRootView: View {
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 refreshClipboardOffer()
-                openFlight(from: PendingFlightOpen.userInfo)
+                drainPendingOpen()
             }
         }
         // Fetch advisories only once the layer is actually switched on, and only
@@ -169,7 +154,7 @@ struct ArcRootView: View {
             bootstrapTrackingAndWidgets()
             refreshClipboardOffer()
             if ProcessInfo.processInfo.arguments.contains("-openAdd") { showAdd = true }
-            openFlight(from: PendingFlightOpen.userInfo)
+            drainPendingOpen()
         }
     }
 
@@ -375,42 +360,78 @@ struct ArcRootView: View {
         return (f.string(from: NSNumber(value: meters)) ?? "\(Int(meters))") + " m"
     }
 
-    private func openFlight(from userInfo: [AnyHashable: Any]?) {
-        guard let userInfo else { return }
-        PendingFlightOpen.userInfo = nil
-        if let raw = userInfo[ArcOpenFlightInfo.id] as? String,
-           let id = UUID(uuidString: raw) {
-            openFlight(id: id)
-        } else if let number = userInfo[ArcOpenFlightInfo.number] as? String,
-                  let dep = userInfo[ArcOpenFlightInfo.dep] as? String,
-                  let arr = userInfo[ArcOpenFlightInfo.arr] as? String {
-            openFlight(number: number, dep: dep, arr: arr)
+    /// A tap that arrived while SwiftData was still loading is retried rather
+    /// than dropped; anything the store genuinely doesn't have is discarded, so
+    /// a deleted flight can't hijack a later launch.
+    private func drainPendingOpen() {
+        guard let dest = PendingFlightOpen.destination else { return }
+        if open(dest) { PendingFlightOpen.destination = nil }
+    }
+
+    /// Routes one destination, whether it came from an `arc://` URL or a tapped
+    /// notification. Returns false only when a flight was asked for and the
+    /// store hasn't loaded yet — the caller keeps it pending.
+    @discardableResult
+    private func open(_ dest: ArcDeepLink.Destination) -> Bool {
+        switch dest {
+        case .directions(let iata, let terminal):
+            guard let airport = ReferenceData.shared.airport(iata) else { return true }
+            let item = MKMapItem(
+                location: CLLocation(latitude: airport.lat, longitude: airport.lon),
+                address: nil)
+            item.name = terminal.map { "\(airport.name) · Terminal \($0)" } ?? airport.name
+            item.openInMaps(launchOptions:
+                [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
+            return true
+        case .friend(let code):
+            FriendsStore.shared.pendingInviteCode = code
+            tab = .friends
+            Task { await FriendsStore.shared.redeemPendingIfPossible() }
+            return true
+        case .flight(let id):
+            return show(allFlights.first { $0.id == id })
+        case .flightIdentity(let number, let dep, let arr):
+            let norm = Self.normalizedNumber(number)
+            let sameNumber = allFlights.filter { Self.normalizedNumber($0.flightNumber) == norm }
+            let onRoute = sameNumber.filter {
+                $0.departureIATA.caseInsensitiveCompare(dep) == .orderedSame
+                    && $0.arrivalIATA.caseInsensitiveCompare(arr) == .orderedSame
+            }
+            return show(mostRelevant(onRoute) ?? mostRelevant(sameNumber))
         }
     }
 
-    private func openFlight(id: UUID) {
-        showAdd = false
-        tab = .myFlights
-        if let match = allFlights.first(where: { $0.id == id }) {
-            detailFlight = match
-        }
+    /// Which instance a tap meant: a number like "LX14" names a flight that
+    /// flies every day, so prefer the one in the air, then the next to leave,
+    /// and only then the most recent one flown.
+    private func mostRelevant(_ flights: [Flight]) -> Flight? {
+        if let active = flights.first(where: { $0.isActive }) { return active }
+        if let next = flights.filter({ $0.isUpcoming })
+            .min(by: { $0.effectiveDeparture < $1.effectiveDeparture }) { return next }
+        return flights.max(by: { $0.scheduledDeparture < $1.scheduledDeparture })
     }
 
-    private func openFlight(number: String, dep: String, arr: String) {
-        showAdd = false
-        let norm = number.replacingOccurrences(of: " ", with: "").uppercased()
-        if let match = allFlights.first(where: {
-            $0.flightNumber.replacingOccurrences(of: " ", with: "").uppercased() == norm
-                && $0.departureIATA.uppercased() == dep.uppercased()
-                && $0.arrivalIATA.uppercased() == arr.uppercased()
-        }) ?? allFlights.first(where: {
-            $0.flightNumber.replacingOccurrences(of: " ", with: "").uppercased() == norm
-        }) {
-            tab = .myFlights
-            detailFlight = match
-            return
-        }
+    private static func normalizedNumber(_ raw: String) -> String {
+        raw.replacingOccurrences(of: " ", with: "").uppercased()
+    }
+
+    /// Presents a flight's detail. Never opens a second sheet on top of Add —
+    /// that silently does nothing in SwiftUI — it queues behind its dismissal
+    /// instead, the same path a freshly added flight takes.
+    private func show(_ flight: Flight?) -> Bool {
         tab = .myFlights
+        guard let flight else {
+            // Nothing matched: real miss once flights exist, otherwise the
+            // store simply hasn't loaded and the caller should retry.
+            return !allFlights.isEmpty
+        }
+        if showAdd {
+            pendingDetailAfterAdd = flight
+            showAdd = false
+        } else {
+            detailFlight = flight
+        }
+        return true
     }
 
     private func openDetailIfPending() {

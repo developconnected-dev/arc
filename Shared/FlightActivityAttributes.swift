@@ -56,7 +56,7 @@ struct FlightActivityAttributes: ActivityAttributes {
 enum ArcDeepLink {
     static let scheme = "arc"
 
-    enum Destination: Equatable {
+    enum Destination: Equatable, Sendable {
         case flight(id: UUID)
         case flightIdentity(number: String, dep: String, arr: String)
         case directions(iata: String, terminal: String?)
@@ -93,35 +93,51 @@ enum ArcDeepLink {
                       arr: attributes.arrivalIATA)
     }
 
+    /// Everything goes through `URLComponents`: the host of a custom-scheme URL
+    /// is the first segment, and splitting `path` keeps `arc://flight/<uuid>`
+    /// (one path segment) cleanly apart from `arc://flight?number=…` (none) —
+    /// `lastPathComponent` returns the host for the second form on some
+    /// platforms, which made the two indistinguishable.
     static func parse(_ url: URL) -> Destination? {
-        guard url.scheme == scheme else { return nil }
-        switch url.host() {
+        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              comps.scheme?.lowercased() == scheme
+        else { return nil }
+        let parts = comps.path.split(separator: "/").map(String.init)
+        func query(_ name: String) -> String? {
+            comps.queryItems?.first(where: { $0.name == name })?.value
+        }
+        switch comps.host?.lowercased() {
         case "flight":
-            let path = url.lastPathComponent
-            if path.lowercased() != "flight", let id = UUID(uuidString: path) {
+            if let first = parts.first, let id = UUID(uuidString: first) {
                 return .flight(id: id)
             }
-            let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
-            func item(_ name: String) -> String? {
-                items?.first(where: { $0.name == name })?.value
-            }
-            if let number = item("number"), let dep = item("dep"), let arr = item("arr") {
+            if let number = query("number"), let dep = query("dep"), let arr = query("arr") {
                 return .flightIdentity(number: number, dep: dep, arr: arr)
             }
             return nil
         case "directions":
-            let iata = url.lastPathComponent.uppercased()
-            guard iata != "DIRECTIONS", !iata.isEmpty else { return nil }
-            let terminal = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                .queryItems?.first(where: { $0.name == "t" })?.value
-            return .directions(iata: iata, terminal: terminal)
+            guard let iata = parts.first?.uppercased(), !iata.isEmpty else { return nil }
+            return .directions(iata: iata, terminal: query("t"))
         case "friend":
-            let code = url.lastPathComponent
-            guard !code.isEmpty, code != "friend" else { return nil }
+            guard let code = parts.first, !code.isEmpty else { return nil }
             return .friend(code: code)
         default:
             return nil
         }
+    }
+
+    /// The same routing, but from a local notification's `userInfo` — so a
+    /// tapped delay alert lands on exactly the flight it was about.
+    static func destination(fromNotificationUserInfo info: [AnyHashable: Any]) -> Destination? {
+        if let raw = info[ArcOpenFlightInfo.id] as? String, let id = UUID(uuidString: raw) {
+            return .flight(id: id)
+        }
+        if let number = info[ArcOpenFlightInfo.number] as? String,
+           let dep = info[ArcOpenFlightInfo.dep] as? String,
+           let arr = info[ArcOpenFlightInfo.arr] as? String {
+            return .flightIdentity(number: number, dep: dep, arr: arr)
+        }
+        return nil
     }
 }
 
@@ -137,8 +153,10 @@ enum ArcOpenFlightInfo {
     static let arr = "arr"
 }
 
-/// Notification taps can fire before `ArcRootView` is subscribed. Stash the
-/// payload so `onAppear` can still open the flight on a cold launch.
+/// A notification tap can be delivered before `ArcRootView` subscribes, and on
+/// a cold launch before SwiftData has any flights to match. The destination
+/// parks here until the root view can actually act on it.
+@MainActor
 enum PendingFlightOpen {
-    static var userInfo: [AnyHashable: Any]?
+    static var destination: ArcDeepLink.Destination?
 }
