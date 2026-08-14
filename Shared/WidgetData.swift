@@ -65,14 +65,29 @@ struct WidgetFlight: Identifiable {
         (status == "scheduled" || status == "boarding") && predictedDelayMinutes >= delayMinutes + 10
     }
 
+    /// The trip is off. `phase(at:)` sends these to `.landed` (there is no
+    /// arrival to count down to), so every label and colour has to check this
+    /// FIRST or a cancelled flight reads as "Arriving soon" in green.
+    var isDisrupted: Bool {
+        status == "cancelled" || status == "diverted"
+    }
+
+    /// Big-slot label once a countdown no longer applies.
+    var terminalLabel: String {
+        if status == "cancelled" { return "Cancelled" }
+        if status == "diverted" { return "Diverted" }
+        return status == "landed" ? "Landed" : "Arriving"
+    }
+
     func statusText(phase: Phase) -> String {
+        if status == "cancelled" { return "Cancelled" }
+        if status == "diverted" { return "Diverted" }
         switch phase {
         case .inFlight: return "In Flight"
         case .landed: return status == "landed" ? "Arrived" : "Arriving soon"
         case .upcoming:
             if showsPrediction { return "Arc +\(predictedDelayMinutes)m" }
             if delayMinutes > 0 { return "Delayed \(delayMinutes)m" }
-            if status == "cancelled" { return "Cancelled" }
             return "On Time"
         }
     }
