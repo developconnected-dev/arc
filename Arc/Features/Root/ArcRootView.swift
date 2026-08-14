@@ -25,9 +25,11 @@ struct ArcRootView: View {
     /// keeps this permission-free.
     @State private var offeredPasteChange: Int?
     @State private var dismissedPasteChange: Int?
-    /// Opened after Add Flight dismisses — presenting a second sheet while
-    /// Add is still up is a no-op in SwiftUI.
-    @State private var pendingDetailAfterAdd: Flight?
+    /// A detail screen waiting for the sheet in front of it to go away.
+    /// Presenting a second sheet while one is still up is a no-op in SwiftUI,
+    /// and swapping a presented sheet's item can drop the replacement on the
+    /// floor — so both cases dismiss first and come back through here.
+    @State private var queuedDetail: Flight?
 
 
     /// Test hooks for headless screenshots.
@@ -43,25 +45,25 @@ struct ArcRootView: View {
         // so the modifier chain below stays inside the type checker's budget.)
 
         .sheet(isPresented: $showAdd) {
-            AddFlightView(initialQuery: clipboardQuery ?? addInitialQuery) { added in
-                pendingDetailAfterAdd = added
-            }
+            AddFlightView(initialQuery: clipboardQuery ?? addInitialQuery,
+                          onAdded: { added in queuedDetail = added })
             .presentationDetents([.large])
             .onDisappear {
                 clipboardQuery = nil
-                if let added = pendingDetailAfterAdd {
-                    pendingDetailAfterAdd = nil
-                    detailFlight = added
-                }
+                presentQueuedDetail()
             }
         }
         // Dismissing the flight leaves its ground view too — otherwise the map
         // stayed stuck in terminal mode with a Back button and no flight.
-        .sheet(item: $detailFlight, onDismiss: { controller.clearGateMarker() }) { flight in
+        .sheet(item: $detailFlight,
+               onDismiss: {
+                   controller.clearGateMarker()
+                   presentQueuedDetail()
+               }) { flight in
             FlightDetailView(flight: flight,
                              onShowAtGate: { f in showPlaneAtGate(f) },
                              onShowAirport: { f in showAirportView(f) },
-                             onOpenFlight: { detailFlight = $0 })
+                             onOpenFlight: { other in _ = show(other) })
                 .presentationDetents([.medium, .large], selection: $detailDetent)
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
@@ -426,12 +428,23 @@ struct ArcRootView: View {
             return !allFlights.isEmpty
         }
         if showAdd {
-            pendingDetailAfterAdd = flight
+            queuedDetail = flight
             showAdd = false
+        } else if let current = detailFlight, current.id != flight.id {
+            // Already showing a different flight (a connection's other leg, or
+            // a widget tap while detail was left open): let this one close.
+            queuedDetail = flight
+            detailFlight = nil
         } else {
             detailFlight = flight
         }
         return true
+    }
+
+    private func presentQueuedDetail() {
+        guard let queued = queuedDetail else { return }
+        queuedDetail = nil
+        detailFlight = queued
     }
 
     private func openDetailIfPending() {
