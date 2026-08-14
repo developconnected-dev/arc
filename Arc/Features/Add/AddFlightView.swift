@@ -60,7 +60,8 @@ struct AddFlightView: View {
     enum AirportFieldKind { case from, to }
 
     var initialQuery: String? = nil
-    /// Called after a successful add so the map can fly the new arc.
+    /// The flight that was just added, so the caller can open it once this
+    /// sheet is out of the way.
     var onAdded: ((Flight) -> Void)? = nil
 
     var body: some View {
