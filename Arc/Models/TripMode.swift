@@ -64,6 +64,17 @@ enum TripMode: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// The same state as `inTransitShort`, in the sentence case that lines
+    /// reading as prose need — the widget's status line, for one, where a train
+    /// was being described as "In Flight".
+    var inTransitLabel: String {
+        switch self {
+        case .air: "In Flight"
+        case .rail: "En route"
+        case .sea: "At sea"
+        }
+    }
+
     /// "Landing in 40m" / "Arriving in 40m".
     var arrivingVerb: String {
         switch self {

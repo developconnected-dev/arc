@@ -92,6 +92,7 @@
 		C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6203F2E6D1096F29FA5083FC /* ArcApp.swift */; };
 		C95804ADD76EDEB2671A5121 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */; };
 		CAD442F2201C5E0593480795 /* GeoMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CCB5157053AA1F3BD9AF495 /* GeoMath.swift */; };
+		B7C1D0A54E2F38916AD5C042 /* TripMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6ED9A7F8DF388120369B521 /* TripMode.swift */; };
 		CD4590F2CEF47C8216DF3236 /* TripMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6ED9A7F8DF388120369B521 /* TripMode.swift */; };
 		CE8EDCF06AF9286001FAB953 /* airports.json in Resources */ = {isa = PBXBuildFile; fileRef = 3104AD04269DDBC745E354F1 /* airports.json */; };
 		CF9EC77C1A77F199DAD62E77 /* BottomSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85FA6BAFEA7DEBB5CB2DB08F /* BottomSheet.swift */; };
@@ -635,6 +636,7 @@
 				633BC7BECD1E5940F2E2254D /* IntelligenceVoice.swift in Sources */,
 				D9F9CD2DDF8F9F47C6B5DEF1 /* MinuteTimer.swift in Sources */,
 				FD48EDF02229BF53B07CF93B /* NextFlightWidget.swift in Sources */,
+				B7C1D0A54E2F38916AD5C042 /* TripMode.swift in Sources */,
 				8F183C5AACBAEDC17407ABD8 /* WidgetData.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

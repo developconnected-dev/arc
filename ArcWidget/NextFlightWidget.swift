@@ -95,7 +95,8 @@ struct NextFlightSmallView: View {
                           : phase == .landed ? "checkmark" : "arrow.right")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(flight.isDisrupted ? .red
-                                         : phase == .landed ? .green : .secondary)
+                                         : phase == .landed && flight.reportsPunctuality
+                                             ? .green : .secondary)
                     Text(flight.arrivalIATA)
                         .font(.system(size: 15, weight: .heavy))
                 }
@@ -114,7 +115,7 @@ struct NextFlightSmallView: View {
                         currentValueLabel: { EmptyView() }
                     )
                     .progressViewStyle(.linear)
-                    .tint(.green)
+                    .tint(flight.reportsPunctuality ? .green : .secondary)
                 }
 
                 Spacer()
@@ -135,9 +136,11 @@ struct NextFlightSmallView: View {
                     }
                 }
 
-                // Gate
+                // Where to stand. Trains have platforms and ferries have berths,
+                // so the word comes from the mode — a train "Gate 7" is the kind
+                // of small wrongness that makes the widget feel foreign.
                 if let gate = flight.departureGate, phase == .upcoming, !flight.isDisrupted {
-                    Text("Gate \(gate)")
+                    Text("\(flight.mode.boardingPointLabel) \(gate)")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(statusColor(flight, phase: phase))
                 }
@@ -149,7 +152,9 @@ struct NextFlightSmallView: View {
                 Image(systemName: "airplane")
                     .font(.system(size: 28))
                     .foregroundStyle(.tertiary)
-                Text("No flights")
+                // "Trips", not "flights": Arc tracks trains and ferries too, and
+                // an empty widget is exactly where it shouldn't narrow itself.
+                Text("No trips")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
@@ -159,6 +164,9 @@ struct NextFlightSmallView: View {
 
     private func countdownColor(_ flight: WidgetFlight, phase: WidgetFlight.Phase) -> Color {
         if flight.isDisrupted { return .red }
+        // Green is the widget saying "this is running to plan". A timetable
+        // never said that, so a timetable-only leg stays neutral.
+        if !flight.reportsPunctuality { return .secondary }
         if phase != .upcoming { return .green }
         if flight.showsPrediction || flight.delayMinutes > 0 { return .orange }
         let hours = flight.timeUntilDeparture / 3600
@@ -168,6 +176,7 @@ struct NextFlightSmallView: View {
 
     private func statusColor(_ flight: WidgetFlight, phase: WidgetFlight.Phase) -> Color {
         if flight.isDisrupted { return .red }
+        if !flight.reportsPunctuality { return .secondary }
         if phase != .upcoming { return .green }
         if flight.showsPrediction || flight.delayMinutes > 0 { return .orange }
         return .green
@@ -202,10 +211,10 @@ struct NextFlightMediumView: View {
                     .font(.system(size: 32))
                     .foregroundStyle(.tertiary)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("No upcoming flights")
+                    Text("No upcoming trips")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.secondary)
-                    Text("Add a flight in Arc")
+                    Text("Add a trip in Arc")
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                 }
@@ -279,7 +288,7 @@ struct NextFlightMediumView: View {
                         currentValueLabel: { EmptyView() }
                     )
                     .progressViewStyle(.linear)
-                    .tint(.green)
+                    .tint(flight.reportsPunctuality ? .green : .secondary)
                     .frame(width: 50)
                 }
                 // Lateness and gate are different questions, so a gate no
@@ -291,12 +300,22 @@ struct NextFlightMediumView: View {
                     Text("+\(flight.delayMinutes)m")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(.orange)
+                } else if !flight.isDisrupted, let qualifier = flight.dataTier.qualifier,
+                          phase == .upcoming {
+                    // This row has no status line, so without naming the source
+                    // a timetable-only leg is indistinguishable from a tracked
+                    // one — it just silently never shows a delay.
+                    Text(qualifier)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
                 }
-                // A departure gate is only news before departure.
+                // A departure point is only news before departure.
                 if let gate = flight.departureGate, phase == .upcoming, !flight.isDisrupted {
-                    Text("Gate \(gate)")
+                    Text("\(flight.mode.boardingPointLabel) \(gate)")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(flight.showsPrediction || flight.delayMinutes > 0 ? .orange : .green)
+                        .foregroundStyle(!flight.reportsPunctuality ? .secondary
+                                         : flight.showsPrediction || flight.delayMinutes > 0
+                                             ? .orange : .green)
                 }
             }
         }
@@ -304,6 +323,7 @@ struct NextFlightMediumView: View {
 
     private func countdownColor(_ flight: WidgetFlight, phase: WidgetFlight.Phase) -> Color {
         if flight.isDisrupted { return .red }
+        if !flight.reportsPunctuality { return .secondary }
         if phase != .upcoming { return .green }
         return (flight.showsPrediction || flight.delayMinutes > 0) ? .orange : .primary
     }

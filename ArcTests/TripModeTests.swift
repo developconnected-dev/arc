@@ -147,6 +147,54 @@ final class TripModeTests: XCTestCase {
         XCTAssertEqual(flight.depTimeZone.identifier, "Europe/Zurich")
     }
 
+    // MARK: - The widget must not be more confident than the app
+
+    func testTimetableLegReachesTheWidgetWithoutAPunctualityClaim() {
+        // The app already refuses to paint this leg green; the widget was still
+        // doing it, because the snapshot didn't carry the tier at all.
+        let ferry = leg(.sea, tier: .scheduled, number: "BLUE STAR DELOS")
+        let snapshot = WidgetFlight(ferry)
+        XCTAssertEqual(snapshot.dataTier, .scheduled)
+        XCTAssertFalse(snapshot.reportsPunctuality)
+        XCTAssertEqual(snapshot.statusText(phase: .upcoming), "Timetable")
+    }
+
+    func testAStrayDelayIsNotSyncedForALegThatReportsNone() {
+        let ferry = leg(.sea, tier: .scheduled, delay: 25)
+        XCTAssertEqual(WidgetFlight(ferry).delayMinutes, 0,
+                       "a delay nobody published must not shift the widget countdown")
+    }
+
+    func testTrainIsNotDescribedAsAFlightInTheWidget() {
+        let train = leg(.rail, tier: .live)
+        train.status = .active
+        let snapshot = WidgetFlight(train)
+        XCTAssertEqual(snapshot.mode, .rail)
+        XCTAssertEqual(snapshot.statusText(phase: .inFlight), "En route")
+        XCTAssertEqual(snapshot.mode.boardingPointLabel, "Platform")
+        train.status = .landed
+        XCTAssertEqual(WidgetFlight(train).terminalLabel, "Arrived")
+    }
+
+    func testFlightSnapshotIsUnchanged() {
+        let flight = leg(.air, tier: .live, number: "LX14", delay: 20)
+        let snapshot = WidgetFlight(flight)
+        XCTAssertTrue(snapshot.reportsPunctuality)
+        XCTAssertEqual(snapshot.delayMinutes, 20)
+        XCTAssertEqual(snapshot.statusText(phase: .upcoming), "Delayed 20m")
+        XCTAssertEqual(snapshot.statusText(phase: .inFlight), "In Flight")
+    }
+
+    func testCancelledSailingStillEarnsItsRedInTheWidget() {
+        let ferry = leg(.sea, tier: .scheduled)
+        ferry.status = .cancelled
+        let snapshot = WidgetFlight(ferry)
+        XCTAssertTrue(snapshot.isDisrupted)
+        XCTAssertTrue(snapshot.reportsPunctuality,
+                      "a cancellation is reported, so the colour is earned")
+        XCTAssertEqual(snapshot.terminalLabel, "Cancelled")
+    }
+
     // MARK: - Migration safety
 
     func testAnExistingFlightMigratesAsAFlight() {

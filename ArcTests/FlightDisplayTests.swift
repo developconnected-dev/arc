@@ -424,4 +424,30 @@ final class WidgetFlightTests: XCTestCase {
         XCTAssertFalse(decoded.showsPrediction)
         XCTAssertEqual(decoded.flightNumber, "LX1413")
     }
+
+    /// A snapshot that fails to decode isn't a missing field — it's a blank
+    /// widget the user can't fix, so every added key needs this.
+    func testDecodesSnapshotWrittenBeforeModeAndTierExisted() throws {
+        let data = try JSONEncoder().encode(widgetFlight(status: "scheduled", depOffset: 3600))
+        var obj = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        obj.removeValue(forKey: "mode")
+        obj.removeValue(forKey: "dataTier")
+        let stripped = try JSONSerialization.data(withJSONObject: obj)
+        let decoded = try JSONDecoder().decode(WidgetFlight.self, from: stripped)
+        XCTAssertEqual(decoded.mode, .air)
+        XCTAssertEqual(decoded.dataTier, .live)
+        XCTAssertTrue(decoded.reportsPunctuality)
+        XCTAssertEqual(decoded.statusText(phase: .upcoming), "On Time")
+    }
+
+    func testModeAndTierSurviveTheRoundTrip() throws {
+        var sailing = widgetFlight(status: "scheduled", depOffset: 3600)
+        sailing.mode = .sea
+        sailing.dataTier = .scheduled
+        let decoded = try JSONDecoder().decode(
+            WidgetFlight.self, from: JSONEncoder().encode(sailing))
+        XCTAssertEqual(decoded.mode, .sea)
+        XCTAssertEqual(decoded.dataTier, .scheduled)
+        XCTAssertEqual(decoded.statusText(phase: .upcoming), "Timetable")
+    }
 }
