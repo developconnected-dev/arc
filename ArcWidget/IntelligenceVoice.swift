@@ -55,3 +55,28 @@ struct IntelligenceShimmerText: View {
         }
     }
 }
+
+/// "✦ Arc +32m" at widget scale — the home-screen counterpart of the app's
+/// `SmartLabel` (that badge lives in ArcTheme, app-target only). Sparkles plus
+/// the intelligence gradient and nothing else: a number Arc inferred itself
+/// never wears a status dot, because the dot is how the widget quotes the
+/// airline. Static, unlike the shimmer above — a home-screen widget gets one
+/// render per timeline entry, and there is no pending state for a sweep to
+/// travel across.
+struct IntelligenceBadge: View {
+    let text: String
+    var size: CGFloat = 10
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "sparkles")
+                .font(.system(size: size - 1, weight: .semibold))
+                .accessibilityHidden(true)
+            Text(text)
+                .font(.system(size: size, weight: .bold))
+        }
+        .foregroundStyle(IntelligenceShimmerText.gradient)
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+    }
+}

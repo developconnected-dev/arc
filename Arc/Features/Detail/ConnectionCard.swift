@@ -7,6 +7,7 @@ import SwiftData
 struct ConnectionCard: View {
     let plan: ConnectionPlanner.Plan
     let currentFlightID: UUID
+    var onSelectOther: ((Flight) -> Void)? = nil
     @Query private var allFlights: [Flight]
 
     /// The same plan re-run once the measurable parts have been measured —
@@ -48,15 +49,41 @@ struct ConnectionCard: View {
         }
     }
 
+    private func heading(showsChevron: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Connection in \(shown.inbound.arrivalCity)")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(.primary)
+            HStack(spacing: 4) {
+                Text("\(otherLegLabel): \(otherLeg.flightNumberSpaced) · \(otherLeg.departureIATA) → \(otherLeg.arrivalIATA)")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                if showsChevron {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Connection in \(shown.inbound.arrivalCity)")
-                        .font(.system(size: 17, weight: .bold))
-                    Text("\(otherLegLabel): \(otherLeg.flightNumberSpaced) · \(otherLeg.departureIATA) → \(otherLeg.arrivalIATA)")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
+                // The chevron is only drawn where the tap goes somewhere — a
+                // friend's flight detail passes no handler, and a disabled
+                // button under a chevron is the dead affordance this card is
+                // meant to be free of.
+                if let onSelectOther {
+                    Button {
+                        onSelectOther(otherLeg)
+                    } label: {
+                        heading(showsChevron: true)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens \(otherLeg.flightNumberSpaced)")
+                } else {
+                    heading(showsChevron: false)
                 }
                 Spacer()
                 Text(shown.risk.rawValue)

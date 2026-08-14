@@ -60,6 +60,9 @@ struct AddFlightView: View {
     enum AirportFieldKind { case from, to }
 
     var initialQuery: String? = nil
+    /// The flight that was just added, so the caller can open it once this
+    /// sheet is out of the way.
+    var onAdded: ((Flight) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1019,6 +1022,7 @@ struct AddFlightView: View {
             try modelContext.save()
             if manualStatus == .scheduled { ArcNotifications.scheduleDepartureReminder(for: f) }
             syncToCloud(f)
+            onAdded?(f)
             dismiss()
         } catch {
             modelContext.delete(f)
@@ -1370,6 +1374,7 @@ struct AddFlightView: View {
             ArcNotifications.scheduleDepartureReminder(for: f)
             syncToCloud(f)
             isAdding = false
+            onAdded?(f)
             dismiss()
         } catch {
             modelContext.delete(f)

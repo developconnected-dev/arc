@@ -122,6 +122,18 @@ extension Flight {
         return sinceLanding >= 0 && sinceLanding <= 30 * 60
     }
 
+    /// Lock-screen smart line when the Worker hasn't pushed one. Mirrors the
+    /// in-app prediction, clipped to the Live Activity's ~70 character budget.
+    var liveActivityInsight: String? {
+        guard showsPrediction else { return nil }
+        let head = "Arc predicts +\(predictedDelayMinutes)m"
+        guard let reason = predictionReason, !reason.isEmpty else { return head }
+        let room = 70 - head.count - 3
+        guard room > 8 else { return head }
+        if reason.count <= room { return "\(head) — \(reason)" }
+        return "\(head) — \(reason.prefix(room - 1))…"
+    }
+
     /// Has the operator actually told us this leg is running to time?
     ///
     /// Only a `.live` source ever says so. A ferry timetable is a plan, not a

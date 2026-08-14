@@ -30,7 +30,6 @@ struct SettingsView: View {
     @AppStorage("notifyDelays") private var notifyDelays = true
     @AppStorage("notifyLanding") private var notifyLanding = true
     @AppStorage("notifyDepartureReminder") private var notifyDepartureReminder = true
-    @AppStorage("trackingInterval") private var trackingInterval = 60
 
     /// Kept identical to FlightAPIClient's fallback, so "reset" really restores
     /// the shipping backend rather than a second, drifting copy of the URL.
@@ -182,16 +181,14 @@ struct SettingsView: View {
 
                 // Tracking
                 Section {
-                    Picker("Update interval", selection: $trackingInterval) {
-                        Text("30 seconds").tag(30)
-                        Text("1 minute").tag(60)
-                        Text("2 minutes").tag(120)
-                        Text("5 minutes").tag(300)
+                    LabeledContent("Cadence") {
+                        Text("Near departure & landing")
+                            .foregroundStyle(.secondary)
                     }
                 } header: {
                     Text("Live Tracking")
                 } footer: {
-                    Text("How often Arc checks for flight updates. Shorter intervals use more battery and API calls.")
+                    Text("Arc checks every few minutes around departure, landing, and just after, and every 30 minutes the rest of the day. A flat 30-second poll burned the monthly data quota on a single long-haul.")
                 }
 
                 // Account
@@ -219,7 +216,7 @@ struct SettingsView: View {
                     HStack {
                         Text("Version")
                         Spacer()
-                        Text("0.1.0")
+                        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0")
                             .foregroundStyle(ArcColor.textMuted)
                     }
                     HStack {

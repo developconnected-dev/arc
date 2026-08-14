@@ -65,14 +65,20 @@ struct NextFlightSmallView: View {
                 // it keeps ticking on the lock/home screen with no app process
                 // running, unlike the old pre-rendered countdownText string.
                 Group {
-                    switch phase {
-                    // .relative is minute-precision (no seconds column) and
-                    // the one live style every render path supports. The
-                    // landed timeline entry retires the in-flight countdown
-                    // before it could start counting up past the ETA.
-                    case .inFlight: Text(flight.effectiveArrival, style: .relative)
-                    case .upcoming: Text(flight.effectiveDeparture, style: .relative)
-                    case .landed: Text(flight.status == "landed" ? "Landed" : "Arriving")
+                    // A cancelled trip has no countdown to run, whatever the
+                    // clock says — it says so instead.
+                    if flight.isDisrupted {
+                        Text(flight.terminalLabel)
+                    } else {
+                        switch phase {
+                        // .relative is minute-precision (no seconds column) and
+                        // the one live style every render path supports. The
+                        // landed timeline entry retires the in-flight countdown
+                        // before it could start counting up past the ETA.
+                        case .inFlight: Text(flight.effectiveArrival, style: .relative)
+                        case .upcoming: Text(flight.effectiveDeparture, style: .relative)
+                        case .landed: Text(flight.terminalLabel)
+                        }
                     }
                 }
                 .font(.system(size: 22, weight: .heavy).monospacedDigit())
@@ -80,13 +86,16 @@ struct NextFlightSmallView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
 
-                // Route
+                // Route. A cancelled trip reached no arrival, so it must never
+                // wear the green tick that means "you got there".
                 HStack(spacing: 4) {
                     Text(flight.departureIATA)
                         .font(.system(size: 15, weight: .heavy))
-                    Image(systemName: phase == .landed ? "checkmark" : "arrow.right")
+                    Image(systemName: flight.isDisrupted ? "xmark"
+                          : phase == .landed ? "checkmark" : "arrow.right")
                         .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(phase == .landed ? .green : .secondary)
+                        .foregroundStyle(flight.isDisrupted ? .red
+                                         : phase == .landed ? .green : .secondary)
                     Text(flight.arrivalIATA)
                         .font(.system(size: 15, weight: .heavy))
                 }
@@ -110,24 +119,31 @@ struct NextFlightSmallView: View {
 
                 Spacer()
 
-                // Status
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(statusColor(flight, phase: phase))
-                        .frame(width: 6, height: 6)
-                    Text(statusText(flight, phase: phase))
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                // Status. Arc's own prediction wears Arc's mark instead of a
+                // status dot — the dot is how the widget quotes the airline,
+                // and this number is not the airline's.
+                if flight.showsPrediction, phase == .upcoming {
+                    IntelligenceBadge(text: "Arc +\(flight.predictedDelayMinutes)m", size: 11)
+                } else {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(statusColor(flight, phase: phase))
+                            .frame(width: 6, height: 6)
+                        Text(flight.statusText(phase: phase))
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 // Gate
-                if let gate = flight.departureGate, phase == .upcoming {
+                if let gate = flight.departureGate, phase == .upcoming, !flight.isDisrupted {
                     Text("Gate \(gate)")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(statusColor(flight, phase: phase))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .widgetURL(ArcDeepLink.flight(widget: flight))
         } else {
             VStack(spacing: 8) {
                 Image(systemName: "airplane")
@@ -142,29 +158,19 @@ struct NextFlightSmallView: View {
     }
 
     private func countdownColor(_ flight: WidgetFlight, phase: WidgetFlight.Phase) -> Color {
+        if flight.isDisrupted { return .red }
         if phase != .upcoming { return .green }
-        if flight.delayMinutes > 0 { return .orange }
+        if flight.showsPrediction || flight.delayMinutes > 0 { return .orange }
         let hours = flight.timeUntilDeparture / 3600
         if hours < 2 { return .orange }
         return .primary
     }
 
     private func statusColor(_ flight: WidgetFlight, phase: WidgetFlight.Phase) -> Color {
+        if flight.isDisrupted { return .red }
         if phase != .upcoming { return .green }
-        if flight.delayMinutes > 0 { return .orange }
-        if flight.status == "cancelled" { return .red }
+        if flight.showsPrediction || flight.delayMinutes > 0 { return .orange }
         return .green
-    }
-
-    private func statusText(_ flight: WidgetFlight, phase: WidgetFlight.Phase) -> String {
-        switch phase {
-        case .inFlight: return "In Flight"
-        case .landed: return flight.status == "landed" ? "Arrived" : "Arriving soon"
-        case .upcoming:
-            if flight.delayMinutes > 0 { return "Delayed \(flight.delayMinutes)m" }
-            if flight.status == "cancelled" { return "Cancelled" }
-            return "On Time"
-        }
     }
 }
 
@@ -172,8 +178,21 @@ struct NextFlightSmallView: View {
 
 struct NextFlightMediumView: View {
     let entry: NextFlightEntry
+    /// Same set the small widget draws from, so the two never disagree about
+    /// what "your flights" are: live legs first, then one that landed within
+    /// the last 30 minutes (its belt and arrival gate still matter).
     private var flights: [WidgetFlight] {
-        WidgetData.loadFlights().filter { $0.isUpcoming || $0.isActive }.prefix(3).map { $0 }
+        let all = WidgetData.loadFlights()
+        let live = all.filter { $0.isUpcoming || $0.isActive }
+        // A flight past its ETA is still stored as `active` until the app next
+        // runs, so it lands in BOTH sets — dedupe by id, or ForEach gets two
+        // rows claiming the same identity.
+        let justLanded = all.filter {
+            $0.phase(at: entry.date) == .landed
+                && entry.date < $0.effectiveArrival.addingTimeInterval(30 * 60)
+        }
+        var seen = Set<String>()
+        return (live + justLanded).filter { seen.insert($0.id).inserted }.prefix(3).map { $0 }
     }
 
     var body: some View {
@@ -199,7 +218,9 @@ struct NextFlightMediumView: View {
                     if idx > 0 {
                         Divider().padding(.vertical, 2)
                     }
-                    flightRow(flight)
+                    Link(destination: ArcDeepLink.flight(widget: flight)) {
+                        flightRow(flight)
+                    }
                 }
                 if flights.count < 3 { Spacer() }
             }
@@ -212,15 +233,18 @@ struct NextFlightMediumView: View {
         HStack(spacing: 10) {
             // Countdown — live .relative text: minute precision, no seconds
             Group {
-                switch phase {
-                case .inFlight: Text(flight.effectiveArrival, style: .relative)
-                case .upcoming: Text(flight.effectiveDeparture, style: .relative)
-                case .landed: Text(flight.status == "landed" ? "Landed" : "Arriving")
+                if flight.isDisrupted {
+                    Text(flight.terminalLabel)
+                } else {
+                    switch phase {
+                    case .inFlight: Text(flight.effectiveArrival, style: .relative)
+                    case .upcoming: Text(flight.effectiveDeparture, style: .relative)
+                    case .landed: Text(flight.terminalLabel)
+                    }
                 }
             }
             .font(.system(size: 12, weight: .heavy).monospacedDigit())
-            .foregroundStyle(phase != .upcoming ? Color.green :
-                                flight.delayMinutes > 0 ? .orange : .primary)
+            .foregroundStyle(countdownColor(flight, phase: phase))
             .lineLimit(1)
             .minimumScaleFactor(0.6)
             .frame(width: 62, alignment: .leading)
@@ -258,17 +282,30 @@ struct NextFlightMediumView: View {
                     .tint(.green)
                     .frame(width: 50)
                 }
-                if let gate = flight.departureGate {
-                    Text("Gate \(gate)")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(flight.delayMinutes > 0 ? .orange : .green)
-                } else if flight.delayMinutes > 0 {
+                // Lateness and gate are different questions, so a gate no
+                // longer suppresses the delay: gates get assigned right around
+                // the time a knock-on prediction matters most.
+                if flight.showsPrediction, phase == .upcoming {
+                    IntelligenceBadge(text: "Arc +\(flight.predictedDelayMinutes)m")
+                } else if flight.delayMinutes > 0, !flight.isDisrupted {
                     Text("+\(flight.delayMinutes)m")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(.orange)
                 }
+                // A departure gate is only news before departure.
+                if let gate = flight.departureGate, phase == .upcoming, !flight.isDisrupted {
+                    Text("Gate \(gate)")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(flight.showsPrediction || flight.delayMinutes > 0 ? .orange : .green)
+                }
             }
         }
+    }
+
+    private func countdownColor(_ flight: WidgetFlight, phase: WidgetFlight.Phase) -> Color {
+        if flight.isDisrupted { return .red }
+        if phase != .upcoming { return .green }
+        return (flight.showsPrediction || flight.delayMinutes > 0) ? .orange : .primary
     }
 }
 
