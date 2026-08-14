@@ -6,7 +6,15 @@ enum WidgetSync {
 
     static func sync(flights: [Flight]) {
         let widgetFlights = flights
-            .filter { $0.isUpcoming || $0.isActive || $0.isRecentlyLanded }
+            .filter {
+                // A cancelled or diverted trip is none of upcoming/active/landed,
+                // so it used to simply vanish from the widget — leaving a
+                // countdown to a flight that isn't happening as the last thing
+                // the user saw. Keep it until its scheduled arrival passes.
+                $0.isUpcoming || $0.isActive || $0.isRecentlyLanded
+                    || ((($0.status == .cancelled) || ($0.status == .diverted))
+                        && $0.scheduledArrival > Date.now.addingTimeInterval(-30 * 60))
+            }
             .sorted { $0.scheduledDeparture < $1.scheduledDeparture }
             .prefix(5)
             .map { flight in

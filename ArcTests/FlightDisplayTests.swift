@@ -99,20 +99,27 @@ final class FlightDisplayTests: XCTestCase {
     func testLiveActivityInsightIncludesMinutesAndReason() {
         let f = makeFlight()
         f.predictedDelayMinutes = 32
-        f.predictionReason = "Inbound aircraft lands too late for a 30-min turnaround"
-        XCTAssertEqual(
-            f.liveActivityInsight,
-            "Arc predicts +32m — Inbound aircraft lands too late for a 30-min turnaround")
+        f.predictionReason = "Inbound is 42m late"
+        XCTAssertEqual(f.liveActivityInsight, "Arc predicts +32m — Inbound is 42m late")
     }
 
-    func testLiveActivityInsightTruncatesLongReasonToSeventyChars() {
+    /// The reason InboundMonitor actually writes is longer than the Live
+    /// Activity's ~70 character budget, so the real-world path is the truncating
+    /// one — it must still end cleanly rather than being clipped by the OS.
+    func testLiveActivityInsightTruncatesTheReasonArcActuallyWrites() throws {
+        let f = makeFlight()
+        f.predictedDelayMinutes = 32
+        f.predictionReason = "Inbound aircraft lands too late for a 30-min turnaround"
+        let s = try XCTUnwrap(f.liveActivityInsight)
+        XCTAssertEqual(s.count, 70)
+        XCTAssertTrue(s.hasPrefix("Arc predicts +32m — Inbound aircraft lands"))
+        XCTAssertTrue(s.hasSuffix("…"))
+    }
+
+    func testLiveActivityInsightFallsBackToTheNumberAloneWhenThereIsNoReason() {
         let f = makeFlight()
         f.predictedDelayMinutes = 45
-        f.predictionReason = String(repeating: "x", count: 200)
-        let s = try XCTUnwrap(f.liveActivityInsight)
-        XCTAssertLessThanOrEqual(s.count, 70)
-        XCTAssertTrue(s.hasPrefix("Arc predicts +45m — "))
-        XCTAssertTrue(s.hasSuffix("…"))
+        XCTAssertEqual(f.liveActivityInsight, "Arc predicts +45m")
     }
 
     func testDepartureReminderUsesEffectiveDeparture() {
@@ -368,6 +375,42 @@ final class WidgetFlightTests: XCTestCase {
         f.predictedDelayMinutes = 25
         XCTAssertEqual(f.statusText(phase: .upcoming), "Delayed 20m")
         XCTAssertFalse(f.showsPrediction)
+    }
+
+    /// Regression: `phase(at:)` routes a cancelled flight to `.landed` (there is
+    /// no arrival to count down to), so every label had to be taught about it —
+    /// the widget used to tell you a cancelled flight was "Arriving soon".
+    func testCancelledFlightNeverReadsAsArriving() {
+        let f = widgetFlight(status: "cancelled", depOffset: 3600)
+        XCTAssertEqual(f.phase(at: .now), .landed)
+        XCTAssertTrue(f.isDisrupted)
+        XCTAssertEqual(f.statusText(phase: f.phase(at: .now)), "Cancelled")
+        XCTAssertEqual(f.terminalLabel, "Cancelled")
+    }
+
+    func testDivertedFlightSaysSo() {
+        let f = widgetFlight(status: "diverted", depOffset: -3600)
+        XCTAssertEqual(f.statusText(phase: f.phase(at: .now)), "Diverted")
+        XCTAssertEqual(f.terminalLabel, "Diverted")
+    }
+
+    /// The medium widget builds its rows from "live" plus "just landed". Those
+    /// sets overlap — the stored status only changes when the app runs — so the
+    /// rows must be deduped by id or ForEach gets two rows claiming one identity.
+    func testLiveAndJustLandedRowSetsOverlap() {
+        let overdue = widgetFlight(status: "active", depOffset: -5 * 3600)
+        XCTAssertTrue(overdue.isActive)
+        XCTAssertEqual(overdue.phase(at: .now), .landed)
+
+        let stale = widgetFlight(status: "scheduled", depOffset: -6 * 3600)
+        XCTAssertTrue(stale.isUpcoming)
+        XCTAssertEqual(stale.phase(at: .now), .landed)
+    }
+
+    func testTerminalLabelDistinguishesLandedFromStillArriving() {
+        XCTAssertEqual(widgetFlight(status: "landed", depOffset: -3600).terminalLabel, "Landed")
+        XCTAssertEqual(widgetFlight(status: "active", depOffset: -3600).terminalLabel, "Arriving")
+        XCTAssertFalse(widgetFlight(status: "active", depOffset: -3600).isDisrupted)
     }
 
     func testDecodesSnapshotWrittenBeforePredictedDelayMinutesExisted() throws {
