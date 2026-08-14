@@ -48,9 +48,8 @@ struct FlightDetailView: View {
                         DelayRiskCard(flight: flight)
                     }
                     if let plan = connection {
-                        ConnectionCard(plan: plan, currentFlightID: flight.id) { other in
-                            onOpenFlight?(other)
-                        }
+                        ConnectionCard(plan: plan, currentFlightID: flight.id,
+                                       onSelectOther: onOpenFlight)
                     }
                     // Only when the airline has actually assigned a belt. The
                     // old fallback invented "7 (Belt Confirmed)" for any landed
@@ -91,8 +90,16 @@ struct FlightDetailView: View {
             .onAppear {
                 let args = ProcessInfo.processInfo.arguments
                 let target = args.contains("-detailBottom") ? "bottom" : args.contains("-detailPlane") ? "plane" : nil
-                if let target { pendingScroll = target }
+                if let target {
+                    // Long delay on purpose: at launch this whole screen is
+                    // still laying out, and scrollTo before that is a no-op.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        withAnimation { proxy.scrollTo(target, anchor: target == "plane" ? .top : .bottom) }
+                    }
+                }
             }
+            // A tap, by contrast, happens long after layout — one frame is
+            // enough, and waiting any longer just feels unresponsive.
             .onChange(of: pendingScroll) { _, target in
                 guard let target else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
@@ -193,16 +200,24 @@ struct FlightDetailView: View {
                 .background(Color(uiColor: .systemBackground).opacity(0.6), in: Capsule())
             }
             if let inbound = inboundLine {
-                Button {
-                    pendingScroll = "plane"
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(inbound).font(.system(size: 14)).foregroundStyle(.secondary)
-                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
+                // The chevron promises a jump to "Where's My Plane?" — which
+                // only exists for your own air legs. Without that section to
+                // scroll to it's a dead affordance, so it isn't drawn at all
+                // rather than drawn and disabled.
+                if isOwnFlight, flight.mode == .air {
+                    Button {
+                        pendingScroll = "plane"
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(inbound).font(.system(size: 14)).foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
+                        }
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Shows this aircraft's day")
+                } else {
+                    Text(inbound).font(.system(size: 14)).foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
-                .disabled(!isOwnFlight || flight.mode != .air)
             }
             // Airborne: the widget's system-animated progress bar lives INSIDE
             // the banner — one card says everything, instead of a second card
