@@ -106,7 +106,7 @@ final class Flight {
     // Aircraft
     var aircraftType: String?            // e.g. "Airbus A340-300"
     var aircraftRegistration: String?    // e.g. "HB-JMB"
-    var aircraftICAO24: String?          // For OpenSky tracking
+    var aircraftICAO24: String?          // The tail's ADS-B transponder address
 
     // MARK: - Vessel (sea)
 
@@ -170,7 +170,7 @@ final class Flight {
     var inboundArrivalTime: Date?      // when that leg landed / is expected to land
     var inboundChecked: Bool = false   // did we ever get a real answer from the API
 
-    // Live position (from OpenSky)
+    // Live position (ADS-B)
     var liveLat: Double?
     var liveLon: Double?
     var liveAltitude: Double?            // meters

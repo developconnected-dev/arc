@@ -95,13 +95,14 @@ final class FlightTracker: ObservableObject {
 
                     await LiveActivityManager.shared.updateActivity(for: flight)
 
-                    // Live position: only for active flights. OpenSky is "free"
-                    // but NOT unmetered — anonymous access gets ~400 requests/day,
-                    // and it's shared per source IP (worse through the Worker's
-                    // shared Cloudflare egress). At 60s a single long-haul burns
-                    // the whole budget mid-flight and positions silently freeze
-                    // at the 429s. 3-minute polling keeps an 8h flight at ~160
-                    // requests and still moves the plane visibly.
+                    // Live position: only while airborne, and at 3-minute cadence.
+                    // The feed behind /position is free and unauthenticated
+                    // (airplanes.live, after OpenSky started refusing
+                    // Cloudflare's egress IPs), which is a reason to be modest
+                    // rather than a licence: at 60s a single long-haul is ~480
+                    // requests, and 3 minutes keeps an 8h flight near 160 while
+                    // still moving the plane visibly.
+                    //
                     // Dispatch on the leg's own position source rather than on
                     // whichever id happens to be set: a ferry's MMSI is nine
                     // digits where an ICAO24 is six hex, so handing one to the
