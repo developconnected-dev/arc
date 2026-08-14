@@ -414,7 +414,7 @@ actor FlightAPIClient {
         return (try? JSONDecoder().decode([FlightSearchResult].self, from: data)) ?? []
     }
 
-    // MARK: - Live Position (OpenSky)
+    // MARK: - Live Position (ADS-B, via the Worker's /position)
 
     struct LivePosition: Codable, Sendable {
         let icao24: String

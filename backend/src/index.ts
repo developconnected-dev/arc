@@ -9,14 +9,16 @@ interface Env {
   RAPIDAPI_KEY: string;          // AeroDataBox key (RapidAPI). Set via `wrangler secret put RAPIDAPI_KEY`.
   AIRLABS_KEY?: string;          // AirLabs fallback (free 1k/mo). Set via `wrangler secret put AIRLABS_KEY`.
   AVIATIONSTACK_API_KEY?: string; // legacy fallback (optional)
+  // Server-side Supabase access. The service-role key is the only one used:
+  // every table this Worker touches is closed to anon.
   SUPABASE_URL: string;
-  SUPABASE_ANON_KEY: string;
-  // Remote Live Activity pushes — all four required before the cron does anything:
-  SUPABASE_SERVICE_KEY?: string; // service-role key (token table has no anon access)
+  SUPABASE_SERVICE_KEY?: string;
+  // Remote Live Activity pushes — SUPABASE_SERVICE_KEY and all three APNS_*
+  // required before the cron does anything:
   APNS_TEAM_ID?: string;         // Apple Developer Team ID
   APNS_KEY_ID?: string;          // APNs auth key ID
   APNS_P8?: string;              // full .p8 file contents
-  AI_API_KEY?: string;           // OpenAI / LLM API key for AI booking email parsing
+  AI_API_KEY?: string;           // Anthropic API key — booking-text parsing (claude-haiku-4-5)
 }
 
 const APP_BUNDLE_ID = "com.arc.flighttracker";
