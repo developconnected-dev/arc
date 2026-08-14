@@ -91,6 +91,42 @@ final class FlightDisplayTests: XCTestCase {
         XCTAssertEqual(f.cardTopRight, "Landed")
         XCTAssertEqual(f.cardTopRightColor, f.accentColor)
     }
+
+    func testLiveActivityInsightNilWithoutPrediction() {
+        XCTAssertNil(makeFlight().liveActivityInsight)
+    }
+
+    func testLiveActivityInsightIncludesMinutesAndReason() {
+        let f = makeFlight()
+        f.predictedDelayMinutes = 32
+        f.predictionReason = "Inbound aircraft lands too late for a 30-min turnaround"
+        XCTAssertEqual(
+            f.liveActivityInsight,
+            "Arc predicts +32m — Inbound aircraft lands too late for a 30-min turnaround")
+    }
+
+    func testLiveActivityInsightTruncatesLongReasonToSeventyChars() {
+        let f = makeFlight()
+        f.predictedDelayMinutes = 45
+        f.predictionReason = String(repeating: "x", count: 200)
+        let s = try XCTUnwrap(f.liveActivityInsight)
+        XCTAssertLessThanOrEqual(s.count, 70)
+        XCTAssertTrue(s.hasPrefix("Arc predicts +45m — "))
+        XCTAssertTrue(s.hasSuffix("…"))
+    }
+
+    func testDepartureReminderUsesEffectiveDeparture() {
+        let f = makeFlight(delay: 45)
+        let now = f.scheduledDeparture.addingTimeInterval(-5 * 3600)
+        XCTAssertEqual(
+            ArcNotifications.departureReminderDate(for: f, now: now),
+            f.effectiveDeparture.addingTimeInterval(-2 * 3600))
+    }
+
+    func testDepartureReminderSkippedOnceTheWindowHasPassed() {
+        let f = makeFlight(delay: 0)
+        XCTAssertNil(ArcNotifications.departureReminderDate(for: f, now: f.scheduledDeparture))
+    }
 }
 
 final class DateHelpersTests: XCTestCase {
@@ -318,5 +354,31 @@ final class WidgetFlightTests: XCTestCase {
     func testPhaseTrustsExplicitLandedStatus() {
         let f = widgetFlight(status: "landed", depOffset: -3600)
         XCTAssertEqual(f.phase(at: .now), .landed)
+    }
+
+    func testStatusTextShowsArcPredictionWhenAheadOfAirline() {
+        var f = widgetFlight(status: "scheduled", depOffset: 3600)
+        f.predictedDelayMinutes = 32
+        XCTAssertEqual(f.statusText(phase: .upcoming), "Arc +32m")
+        XCTAssertTrue(f.showsPrediction)
+    }
+
+    func testStatusTextKeepsAirlineDelayWhenPredictionIsNotMeaningfullyAhead() {
+        var f = widgetFlight(status: "scheduled", depOffset: 3600, delay: 20)
+        f.predictedDelayMinutes = 25
+        XCTAssertEqual(f.statusText(phase: .upcoming), "Delayed 20m")
+        XCTAssertFalse(f.showsPrediction)
+    }
+
+    func testDecodesSnapshotWrittenBeforePredictedDelayMinutesExisted() throws {
+        let original = widgetFlight(status: "scheduled", depOffset: 3600)
+        let data = try JSONEncoder().encode(original)
+        var obj = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        obj.removeValue(forKey: "predictedDelayMinutes")
+        let stripped = try JSONSerialization.data(withJSONObject: obj)
+        let decoded = try JSONDecoder().decode(WidgetFlight.self, from: stripped)
+        XCTAssertEqual(decoded.predictedDelayMinutes, 0)
+        XCTAssertFalse(decoded.showsPrediction)
+        XCTAssertEqual(decoded.flightNumber, "LX1413")
     }
 }

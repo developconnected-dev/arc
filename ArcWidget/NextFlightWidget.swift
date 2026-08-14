@@ -115,7 +115,7 @@ struct NextFlightSmallView: View {
                     Circle()
                         .fill(statusColor(flight, phase: phase))
                         .frame(width: 6, height: 6)
-                    Text(statusText(flight, phase: phase))
+                    Text(flight.statusText(phase: phase))
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
@@ -128,6 +128,7 @@ struct NextFlightSmallView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .widgetURL(ArcDeepLink.flight(widget: flight))
         } else {
             VStack(spacing: 8) {
                 Image(systemName: "airplane")
@@ -143,7 +144,7 @@ struct NextFlightSmallView: View {
 
     private func countdownColor(_ flight: WidgetFlight, phase: WidgetFlight.Phase) -> Color {
         if phase != .upcoming { return .green }
-        if flight.delayMinutes > 0 { return .orange }
+        if flight.showsPrediction || flight.delayMinutes > 0 { return .orange }
         let hours = flight.timeUntilDeparture / 3600
         if hours < 2 { return .orange }
         return .primary
@@ -151,20 +152,9 @@ struct NextFlightSmallView: View {
 
     private func statusColor(_ flight: WidgetFlight, phase: WidgetFlight.Phase) -> Color {
         if phase != .upcoming { return .green }
-        if flight.delayMinutes > 0 { return .orange }
+        if flight.showsPrediction || flight.delayMinutes > 0 { return .orange }
         if flight.status == "cancelled" { return .red }
         return .green
-    }
-
-    private func statusText(_ flight: WidgetFlight, phase: WidgetFlight.Phase) -> String {
-        switch phase {
-        case .inFlight: return "In Flight"
-        case .landed: return flight.status == "landed" ? "Arrived" : "Arriving soon"
-        case .upcoming:
-            if flight.delayMinutes > 0 { return "Delayed \(flight.delayMinutes)m" }
-            if flight.status == "cancelled" { return "Cancelled" }
-            return "On Time"
-        }
     }
 }
 
@@ -199,7 +189,9 @@ struct NextFlightMediumView: View {
                     if idx > 0 {
                         Divider().padding(.vertical, 2)
                     }
-                    flightRow(flight)
+                    Link(destination: ArcDeepLink.flight(widget: flight)) {
+                        flightRow(flight)
+                    }
                 }
                 if flights.count < 3 { Spacer() }
             }
@@ -220,7 +212,7 @@ struct NextFlightMediumView: View {
             }
             .font(.system(size: 12, weight: .heavy).monospacedDigit())
             .foregroundStyle(phase != .upcoming ? Color.green :
-                                flight.delayMinutes > 0 ? .orange : .primary)
+                                (flight.showsPrediction || flight.delayMinutes > 0) ? .orange : .primary)
             .lineLimit(1)
             .minimumScaleFactor(0.6)
             .frame(width: 62, alignment: .leading)
@@ -261,7 +253,11 @@ struct NextFlightMediumView: View {
                 if let gate = flight.departureGate {
                     Text("Gate \(gate)")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(flight.delayMinutes > 0 ? .orange : .green)
+                        .foregroundStyle(flight.showsPrediction || flight.delayMinutes > 0 ? .orange : .green)
+                } else if flight.showsPrediction {
+                    Text("Arc +\(flight.predictedDelayMinutes)m")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.orange)
                 } else if flight.delayMinutes > 0 {
                     Text("+\(flight.delayMinutes)m")
                         .font(.system(size: 10, weight: .bold))

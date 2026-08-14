@@ -6,7 +6,7 @@ enum WidgetSync {
 
     static func sync(flights: [Flight]) {
         let widgetFlights = flights
-            .filter { $0.isUpcoming || $0.isActive }
+            .filter { $0.isUpcoming || $0.isActive || $0.isRecentlyLanded }
             .sorted { $0.scheduledDeparture < $1.scheduledDeparture }
             .prefix(5)
             .map { flight in
@@ -23,7 +23,8 @@ enum WidgetSync {
                     status: flight.statusRaw,
                     delayMinutes: flight.delayMinutes,
                     departureGate: flight.departureGate,
-                    progress: flight.progress
+                    progress: flight.progress,
+                    predictedDelayMinutes: flight.showsPrediction ? flight.predictedDelayMinutes : 0
                 )
             }
 

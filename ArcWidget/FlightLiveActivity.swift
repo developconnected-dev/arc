@@ -7,6 +7,8 @@ struct FlightLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: FlightActivityAttributes.self) { context in
             lockScreenView(context: context)
+                // Tap the card (not the Directions pill) → that flight.
+                .widgetURL(ArcDeepLink.url(for: context.attributes))
                 // Without a tint iOS falls back to its default dark material,
                 // so the card was dark even for light-mode users. The tint is
                 // trait-resolved: near-opaque WHITE in light (translucent

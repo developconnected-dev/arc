@@ -60,6 +60,8 @@ struct AddFlightView: View {
     enum AirportFieldKind { case from, to }
 
     var initialQuery: String? = nil
+    /// Called after a successful add so the map can fly the new arc.
+    var onAdded: ((Flight) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1019,6 +1021,7 @@ struct AddFlightView: View {
             try modelContext.save()
             if manualStatus == .scheduled { ArcNotifications.scheduleDepartureReminder(for: f) }
             syncToCloud(f)
+            onAdded?(f)
             dismiss()
         } catch {
             modelContext.delete(f)
@@ -1370,6 +1373,7 @@ struct AddFlightView: View {
             ArcNotifications.scheduleDepartureReminder(for: f)
             syncToCloud(f)
             isAdding = false
+            onAdded?(f)
             dismiss()
         } catch {
             modelContext.delete(f)

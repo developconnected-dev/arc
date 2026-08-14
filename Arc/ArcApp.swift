@@ -81,4 +81,23 @@ final class ForegroundNotificationDelegate: NSObject, UNUserNotificationCenterDe
     ) async -> UNNotificationPresentationOptions {
         [.banner, .list, .sound]
     }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        let info = response.notification.request.content.userInfo
+        var payload: [AnyHashable: Any] = [:]
+        if let id = info[ArcOpenFlightInfo.id] as? String {
+            payload[ArcOpenFlightInfo.id] = id
+        }
+        if let number = info[ArcOpenFlightInfo.number] as? String {
+            payload[ArcOpenFlightInfo.number] = number
+        }
+        guard !payload.isEmpty else { return }
+        await MainActor.run {
+            PendingFlightOpen.userInfo = payload
+            NotificationCenter.default.post(name: .arcOpenFlight, object: nil, userInfo: payload)
+        }
+    }
 }
