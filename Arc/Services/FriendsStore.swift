@@ -36,6 +36,10 @@ final class FriendsStore {
         let airportIATA: String
         let timeWindow: String
         let isToday: Bool
+        /// The user's own flight this overlap was detected against — the tap
+        /// destination for the notification. Without it, "Anna is at ZRH too"
+        /// opened the app to whatever was last on screen.
+        let myFlightId: UUID
 
         static func == (a: Self, b: Self) -> Bool {
             a.friend.id == b.friend.id && a.airportIATA == b.airportIATA
@@ -109,7 +113,7 @@ final class FriendsStore {
                         fmt.dateFormat = "HH:mm"
                         let win = "\(fmt.string(from: s)) - \(fmt.string(from: e))"
                         let isToday = Calendar.current.isDateInToday(s)
-                        let overlap = AirportOverlap(friend: entry.user, airportIATA: airport, timeWindow: win, isToday: isToday)
+                        let overlap = AirportOverlap(friend: entry.user, airportIATA: airport, timeWindow: win, isToday: isToday, myFlightId: myFlight.id)
                         if !found.contains(where: { $0 == overlap }) {
                             found.append(overlap)
                         }
@@ -196,6 +200,9 @@ final class FriendsStore {
         let showsBubble: Bool
         let chipText: String
         let chipKind: FriendFlightMath.ChipKind
+        /// The leg's vehicle glyph — a friend AT SEA gets a ferry on their
+        /// chip, not an airplane.
+        let symbol: String
     }
 
     /// Bumped once a minute while the Friends tab is visible — SwiftUI only
@@ -236,7 +243,8 @@ final class FriendsStore {
                 avatarURL: item.user.avatar_url,
                 showsBubble: bubbleOwners.insert(item.user.id).inserted,
                 chipText: chip.text,
-                chipKind: chip.kind)
+                chipKind: chip.kind,
+                symbol: f.tripMode.symbol)
         }
     }
 

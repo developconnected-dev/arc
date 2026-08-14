@@ -161,7 +161,8 @@ struct ShareTicketView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center) {
                 HStack(spacing: 8) {
-                    AirlineLogoView(iata: flight.airlineCode, size: 24)
+                    TripLogoView(mode: flight.mode, iata: flight.airlineCode,
+                                 logoURL: flight.operatorLogoURL, size: 24)
                     Text(flight.flightNumberSpaced)
                         .font(.system(size: 15, weight: .heavy))
                         .foregroundStyle(.white)
@@ -192,7 +193,7 @@ struct ShareTicketView: View {
                 }
                 Spacer()
                 VStack(spacing: 3) {
-                    Image(systemName: "airplane")
+                    Image(systemName: flight.mode.symbol)
                         .font(.system(size: 13, weight: .bold)).foregroundStyle(accent)
                     Text(flight.durationFormatted)
                         .font(.system(size: 11, weight: .semibold)).foregroundStyle(dim)

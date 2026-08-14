@@ -84,6 +84,17 @@ enum TripMode: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// Title case for list rows and widget status lines — one register for
+    /// every surface, so a ferry can't read "En Route" in the list and
+    /// "At sea" in the widget at the same time.
+    var inTransitTitle: String {
+        switch self {
+        case .air: "In Air"
+        case .rail: "En Route"
+        case .sea: "At Sea"
+        }
+    }
+
     /// The same state as `inTransitShort`, in the sentence case that lines
     /// reading as prose need — the widget's status line, for one, where a train
     /// was being described as "In Flight".

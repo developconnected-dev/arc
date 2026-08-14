@@ -44,7 +44,9 @@ struct FlightDetailView: View {
                     // context (people, good-to-know, aircraft) → records.
                     header
                     statusBanner
-                    if !flight.isCompleted {
+                    // METAR / airport-history reasoning — meaningless for a
+                    // train or ferry, so air only.
+                    if !flight.isCompleted, flight.mode == .air {
                         DelayRiskCard(flight: flight)
                     }
                     if let plan = connection {
@@ -59,7 +61,10 @@ struct FlightDetailView: View {
                     }
                     endpointsCard
                     mapActionsRow
-                    if !flight.isCompleted {
+                    // Overlaps match on airport IATA — a rail leg's "BER" is
+                    // Berlin Hbf, and matching it against friends at Berlin
+                    // Brandenburg would invent a meetup. Air only.
+                    if !flight.isCompleted, flight.mode == .air {
                         AirportOverlapRow(flight: flight)
                     }
                     if !companions.isEmpty {

@@ -23,6 +23,11 @@ struct FlightActivityAttributes: ActivityAttributes {
     /// Optional: push-to-start from the Worker doesn't know it, and those
     /// activities fall back to number + route.
     var flightId: String? = nil
+    /// Raw `TripMode`, optional so activities started before the field existed
+    /// (and pushes from an older Worker) still decode. Absent = air.
+    var modeRaw: String? = nil
+
+    var mode: TripMode { TripMode(rawValue: modeRaw ?? "") ?? .air }
 
     struct ContentState: Codable, Hashable {
         let status: String

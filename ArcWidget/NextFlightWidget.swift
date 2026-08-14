@@ -258,8 +258,10 @@ struct NextFlightMediumView: View {
             .font(.system(size: 12, weight: .heavy).monospacedDigit())
             .foregroundStyle(countdownColor(flight, phase: phase))
             .lineLimit(1)
-            .minimumScaleFactor(0.6)
-            .frame(width: 62, alignment: .leading)
+            // "54 min, 12 secs" is the longest .relative renders (a two-unit
+            // sub-hour countdown) — 62pt truncated it to "54 min, 12 se…".
+            .minimumScaleFactor(0.5)
+            .frame(width: 72, alignment: .leading)
 
             // Route
             VStack(alignment: .leading, spacing: 1) {
@@ -316,7 +318,7 @@ struct NextFlightMediumView: View {
                 if let gate = flight.departureGate, phase == .upcoming, !flight.isDisrupted {
                     Text("\(flight.mode.boardingPointLabel) \(gate)")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(!flight.reportsPunctuality ? .secondary
+                        .foregroundStyle(!flight.reportsPunctuality ? Color.secondary
                                          : flight.showsPrediction || flight.delayMinutes > 0
                                              ? .orange : .green)
                 }

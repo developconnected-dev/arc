@@ -440,6 +440,69 @@ export function mapFerryItinerary(
   });
 }
 
+/// The operator's notice that concerns THIS sailing, or null. Ferryhopper's
+/// disruption feed is country-wide prose with no sailing key, so relevance is
+/// textual: a notice counts when it names the vessel, the operator, or either
+/// port. Anything broader would stamp every sailing in Greece with every
+/// Greek notice; anything narrower would drop notices phrased by route.
+export function disruptionNoteFor(
+  sailing: Record<string, any>,
+  disruptions: unknown[],
+): string | null {
+  const text = (d: any): string => {
+    if (typeof d === "string") return d;
+    const parts = [d?.title, d?.message, d?.description, d?.note, d?.text]
+      .filter((v: unknown) => typeof v === "string" && v.length > 0);
+    return parts.length ? parts.join(" — ") : JSON.stringify(d ?? "");
+  };
+  const needles = [
+    sailing["flight_number"], sailing["airline_name"],
+    sailing["dep_city"], sailing["arr_city"],
+  ].map(v => String(v ?? "").trim().toUpperCase()).filter(v => v.length >= 3);
+  if (!needles.length) return null;
+  const hits = (disruptions ?? []).map(text).filter(t => {
+    const up = t.toUpperCase();
+    return needles.some(n => up.includes(n));
+  });
+  // One field on the wire; cap so a pathological feed can't bloat rows.
+  return hits.length ? hits.join(" · ").slice(0, 500) : null;
+}
+
+/// Ferryhopper's disruption endpoint takes an ISO country code; the bundled
+/// port table stores full country names. Only countries that appear in that
+/// table are listed — an unknown name returns null and the lookup is skipped.
+const COUNTRY_ISO: Record<string, string> = {
+  "ALBANIA": "AL", "ALGERIA": "DZ", "ANGUILLA": "AI", "ANTIGUA AND BARBUDA": "AG",
+  "ARGENTINA": "AR", "AUSTRALIA": "AU", "AUSTRIA": "AT", "BELIZE": "BZ",
+  "BERMUDA": "BM", "BONAIRE, ST EUSTATIUS AND SABA": "BQ", "BRAZIL": "BR",
+  "BRITISH VIRGIN ISLANDS": "VG", "CAMBODIA": "KH", "CANADA": "CA",
+  "CAPE VERDE ISLANDS": "CV", "CAYMAN ISLANDS": "KY", "CHINA": "CN",
+  "COLOMBIA": "CO", "COMOROS": "KM", "COSTA RICA": "CR", "CROATIA": "HR",
+  "DENMARK": "DK", "DOMINICA": "DM", "DOMINICAN REPUBLIC": "DO",
+  "ECUADOR": "EC", "EGYPT": "EG", "ESTONIA": "EE", "FIJI": "FJ",
+  "FINLAND": "FI", "FRANCE": "FR", "FRENCH POLYNESIA": "PF", "GERMANY": "DE",
+  "GIBRALTAR": "GI", "GREECE": "GR", "GUADELOUPE": "GP", "GUATEMALA": "GT",
+  "GUERNSEY": "GG", "GUINEA": "GN", "HONDURAS": "HN", "HONG KONG, CHINA": "HK",
+  "INDIA": "IN", "INDONESIA": "ID", "IRELAND": "IE", "ITALY": "IT",
+  "JAPAN": "JP", "JERSEY": "JE", "JORDAN": "JO", "LATVIA": "LV",
+  "LITHUANIA": "LT", "MACAU, CHINA": "MO", "MALAYSIA": "MY", "MALTA": "MT",
+  "MARTINIQUE": "MQ", "MAYOTTE": "YT", "MEXICO": "MX", "MONTENEGRO": "ME",
+  "MOROCCO": "MA", "NETHERLANDS": "NL", "NEW CALEDONIA": "NC",
+  "NEW ZEALAND": "NZ", "NICARAGUA": "NI", "NORWAY": "NO", "PANAMA": "PA",
+  "PHILIPPINES": "PH", "POLAND": "PL", "PORTUGAL": "PT", "PUERTO RICO": "PR",
+  "SAINT KITTS AND NEVIS": "KN", "SAINT LUCIA": "LC", "SAINT MARTIN": "MF",
+  "SEYCHELLES": "SC", "SIERRA LEONE": "SL", "SINGAPORE": "SG",
+  "SLOVAKIA": "SK", "SLOVENIA": "SI", "SPAIN": "ES", "SRI LANKA": "LK",
+  "SWEDEN": "SE", "TANZANIA": "TZ", "THAILAND": "TH", "THE BAHAMAS": "BS",
+  "TUNISIA": "TN", "TURKEY": "TR", "U.S. VIRGIN ISLANDS": "VI",
+  "UNITED KINGDOM (UK)": "GB", "UNITED STATES (USA)": "US", "URUGUAY": "UY",
+  "VENEZUELA": "VE", "VIETNAM": "VN",
+};
+
+export function isoCountryCode(countryName: unknown): string | null {
+  return COUNTRY_ISO[String(countryName ?? "").trim().toUpperCase()] ?? null;
+}
+
 /// Which live-position source, if any, can track this leg.
 ///
 /// Guards a real hazard rather than being decorative. `aircraft_icao24` feeds

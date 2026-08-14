@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   zonedNaiveToUTC, displayCode, dedupeStopTimes, mapRailTrip,
   railServiceKey, matchesService, mapFerryItinerary, positionSourceFor,
+  disruptionNoteFor, isoCountryCode,
 } from "../src/transit.ts";
 
 // ── ferry time zones ──────────────────────────────────────────────────────
@@ -412,4 +413,38 @@ test("a ferry never claims a routed path", () => {
   // between ports — and the leg must not pretend otherwise.
   const [leg] = mapFerryItinerary(blueStar, zoneFor);
   assert.equal(leg.route_path, null);
+});
+
+// ── ferry disruptions ─────────────────────────────────────────────────────
+
+test("a notice naming the vessel attaches to the sailing", () => {
+  const sailing = { flight_number: "BLUE STAR DELOS", airline_name: "Blue Star Ferries",
+                    dep_city: "Piraeus", arr_city: "Thira (Santorini)" };
+  const note = disruptionNoteFor(sailing, [
+    { title: "Sailings of Blue Star Delos delayed due to weather" },
+    { title: "Port of Rafina closed to traffic" },
+  ]);
+  assert.equal(note, "Sailings of Blue Star Delos delayed due to weather");
+});
+
+test("a notice naming either port attaches; unrelated notices do not", () => {
+  const sailing = { flight_number: "CHAMPION JET 2", airline_name: "SeaJets",
+                    dep_city: "Piraeus", arr_city: "Mykonos" };
+  const note = disruptionNoteFor(sailing, [
+    { message: "Departures from Piraeus suspended until 14:00" },
+    { message: "Corfu routes operate normally" },
+  ]);
+  assert.equal(note, "Departures from Piraeus suspended until 14:00");
+});
+
+test("no relevant notice means null, not an empty string", () => {
+  const sailing = { flight_number: "X", airline_name: "Y", dep_city: "Naxos", arr_city: "Paros" };
+  assert.equal(disruptionNoteFor(sailing, [{ title: "Rhodes port works" }]), null);
+  assert.equal(disruptionNoteFor(sailing, []), null);
+});
+
+test("country names from the port table resolve to ISO codes", () => {
+  assert.equal(isoCountryCode("Greece"), "GR");
+  assert.equal(isoCountryCode("United Kingdom (UK)"), "GB");
+  assert.equal(isoCountryCode("Atlantis"), null);
 });

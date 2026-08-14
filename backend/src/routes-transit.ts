@@ -7,6 +7,7 @@
 import ports from "./ports.json";
 import {
   dedupeStopTimes, mapRailTrip, mapFerryItinerary, railServiceKey, matchesService,
+  disruptionNoteFor, isoCountryCode,
   type TripMode,
 } from "./transit.ts";
 import { classifyQuery, modesToQuery } from "./classify.ts";
@@ -37,6 +38,10 @@ const zoneForPort = (name: string) => PORT_TZ.get(String(name ?? "").toUpperCase
 /// Port name → the operator's own code, which is what a ticket prints.
 const PORT_CODE = new Map(PORTS.map(p => [p.name.toUpperCase(), p.code ?? ""]));
 const codeForPort = (name: string) => PORT_CODE.get(String(name ?? "").toUpperCase()) ?? "";
+
+/// Port name → country name, for the disruption feed's country parameter.
+const PORT_COUNTRY = new Map(PORTS.map(p => [p.name.toUpperCase(), p.country ?? ""]));
+const countryForPort = (name: string) => PORT_COUNTRY.get(String(name ?? "").toUpperCase()) ?? "";
 
 /// Port name → position. Ferryhopper publishes none, so this is the only source
 /// a sailing has for the map.
@@ -293,7 +298,32 @@ export async function handleTransit(
           departureLocation: from, arrivalLocation: to, date,
         });
         const itineraries = result?.structuredContent?.foundDirectItinerariesForTrip ?? [];
-        return (itineraries as any[]).flatMap(it => mapFerryItinerary(it, zoneForPort, codeForPort, coordForPort));
+        const sailings = (itineraries as any[]).flatMap(it => mapFerryItinerary(it, zoneForPort, codeForPort, coordForPort));
+
+        // Disruption notices are the ONLY change signal a sailing has (there
+        // is no per-sailing delay anywhere in the free data), so a search that
+        // doesn't carry them ships silence. One country-wide fetch per side,
+        // best-effort: a notice failure must never sink the search itself.
+        try {
+          const countries = [...new Set(
+            sailings.flatMap(s => [s["dep_city"], s["arr_city"]])
+              .map(n => isoCountryCode(countryForPort(String(n ?? ""))))
+              .filter((c): c is string => !!c)
+          )].slice(0, 2);
+          if (countries.length) {
+            const notices = (await Promise.all(countries.map(c =>
+              mcpCall("get_disruptions", { tripDate: date, country: c })
+                .then(r => (r?.structuredContent?.disruptions ?? []) as unknown[])
+                .catch(() => [] as unknown[])
+            ))).flat();
+            if (notices.length) {
+              for (const s of sailings) {
+                s["disruption_note"] = disruptionNoteFor(s, notices);
+              }
+            }
+          }
+        } catch { /* best-effort */ }
+        return sailings;
       }, cors);
     }
 

@@ -124,7 +124,7 @@ struct PassportView: View {
     }
 
     private var passportShareText: String {
-        "My Arc passport: \(stats.flights) flights · \(stats.distanceFormatted) · \(stats.airports) airports · \(stats.flightTimeFormatted) in the air"
+        "My Arc passport: \(stats.flights) trips · \(stats.distanceFormatted) · \(stats.airports) airports · \(stats.flightTimeFormatted) travelling"
     }
 
     private var header: some View {
@@ -176,7 +176,7 @@ struct PassportView: View {
                 Text("PASSPORT · PASS · PASAPORTE")
                     .font(.system(size: 12, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
                 HStack(alignment: .top, spacing: 20) {
-                    statBlock("FLIGHTS", "\(stats.flights)", sub: "\(stats.longHaul) Long Haul")
+                    statBlock("TRIPS", "\(stats.flights)", sub: "\(stats.longHaul) Long Haul")
                     statBlock("DISTANCE", stats.distanceFormatted, sub: stats.aroundWorld)
                 }
                 HStack(alignment: .top, spacing: 20) {
