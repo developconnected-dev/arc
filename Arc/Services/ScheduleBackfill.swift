@@ -17,6 +17,11 @@ enum ScheduleBackfill {
     nonisolated static let interval: TimeInterval = 24 * 3600
 
     nonisolated static func isDue(_ flight: Flight, at now: Date) -> Bool {
+        // Only an airline files a schedule this can wait for. A hand-added train
+        // or sailing would be looked up in the airline feed once a day forever,
+        // and the answer would always be no — its provider needs the boarding
+        // stop and a service key, which is a different mechanism entirely.
+        guard flight.mode.hasAirlineSchedule else { return false }
         guard flight.awaitingSchedule else { return false }
         // Once it has departed there's nothing left to pre-fill; the normal
         // tracker owns it from there.

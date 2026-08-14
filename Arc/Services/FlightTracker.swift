@@ -53,7 +53,7 @@ final class FlightTracker: ObservableObject {
                     // final approach, and just-landed. (The old flat 60s
                     // in-flight tier was ~480 API calls per long-haul and
                     // helped kill July's monthly quota.)
-                    let pollInterval: TimeInterval
+                    var pollInterval: TimeInterval
                     if flight.isActive {
                         let minutesToArrival = flight.scheduledArrival
                             .addingTimeInterval(Double(flight.delayMinutes) * 60)
@@ -67,6 +67,15 @@ final class FlightTracker: ObservableObject {
                         pollInterval = 30 * 60      // Within 24 hours: every 30 min
                     } else {
                         continue                    // More than 24h out: skip entirely
+                    }
+
+                    // A timetable has nothing to say minute by minute. Where the
+                    // source never reports a revised time, the only thing that
+                    // can change is a published notice — hours, not minutes — so
+                    // the tight tiers above would just spend quota to be told the
+                    // same thing.
+                    if !flight.reportsPunctuality {
+                        pollInterval = max(pollInterval, 30 * 60)
                     }
 
                     // Check if enough time has passed since last poll
@@ -93,7 +102,13 @@ final class FlightTracker: ObservableObject {
                     // the whole budget mid-flight and positions silently freeze
                     // at the 429s. 3-minute polling keeps an 8h flight at ~160
                     // requests and still moves the plane visibly.
-                    if let icao24 = flight.aircraftICAO24, flight.isActive {
+                    // Dispatch on the leg's own position source rather than on
+                    // whichever id happens to be set: a ferry's MMSI is nine
+                    // digits where an ICAO24 is six hex, so handing one to the
+                    // aircraft lookup returns some other vehicle's position and
+                    // reports no error. (Trains have no free live-position feed,
+                    // and AIS has no endpoint yet, so both simply have none.)
+                    if flight.isActive, case .openSky(let icao24)? = flight.livePositionSource {
                         let lastPos = lastPositionPoll[flight.id] ?? .distantPast
                         if now.timeIntervalSince(lastPos) >= 180 {
                             await updateLivePosition(flight, icao24: icao24)
@@ -106,7 +121,8 @@ final class FlightTracker: ObservableObject {
                     // still lack one, and at most every 10 minutes — it costs a
                     // whole-airport FIDS call, though the backend caches that
                     // per airport-hour so flights landing together share one.
-                    if flight.arrivalGate == nil,
+                    if flight.mode.hasAirportOperations,
+                       flight.arrivalGate == nil,
                        flight.isActive || flight.isRecentlyLanded,
                        let icao = ReferenceData.shared.airport(flight.arrivalIATA)?.icao,
                        !icao.isEmpty {
@@ -126,7 +142,7 @@ final class FlightTracker: ObservableObject {
                     }
 
                     // Inbound check: max once per 15 min (saves API calls)
-                    if flight.isUpcoming && hoursUntilDep <= 6 {
+                    if flight.mode.hasAirportOperations, flight.isUpcoming, hoursUntilDep <= 6 {
                         let lastCheck = lastInboundCheck[flight.id] ?? .distantPast
                         if now.timeIntervalSince(lastCheck) >= 15 * 60 {
                             await InboundMonitor.checkInbound(for: flight)
@@ -215,8 +231,10 @@ final class FlightTracker: ObservableObject {
         // Fetch latest status (gate, terminal, delay, aircraft)
         await updateFlightStatus(flight)
 
-        // Fetch inbound aircraft
-        await InboundMonitor.checkInbound(for: flight)
+        // Fetch inbound aircraft — there is no rotation to chase off air.
+        if flight.mode.hasAirportOperations {
+            await InboundMonitor.checkInbound(for: flight)
+        }
 
         // Security wait isn't stored on the model — the Live Activity update
         // below fetches it itself, so a fetch here was a duplicate API call.
@@ -257,10 +275,14 @@ final class FlightTracker: ObservableObject {
         // Gate-prediction flywheel: record what gates this flight used today.
         // Posted only when the observed set changes (the Worker additionally
         // upserts one row per flight/day, so storage can't grow per-poll).
+        // Air only: the flywheel predicts gates from airport history, and a
+        // platform number filed against a station's display code — which can
+        // collide with a real IATA code — would poison it for a real airport.
         let signature = [flight.departureGate, flight.departureTerminal,
                          flight.arrivalGate, flight.arrivalTerminal]
             .map { $0 ?? "-" }.joined(separator: "|")
-        if signature != "-|-|-|-", observedGateSignature[flight.id] != signature {
+        if flight.mode.hasAirportOperations,
+           signature != "-|-|-|-", observedGateSignature[flight.id] != signature {
             observedGateSignature[flight.id] = signature
             let body: [String: Any] = [
                 "flight_number": flight.flightNumber,
@@ -328,7 +350,23 @@ final class FlightTracker: ObservableObject {
 
     // MARK: - Status Update
 
+    /// One refresh of whatever this leg is.
+    ///
+    /// Every mode used to end up in the airline schedule lookup below, which for
+    /// a saved train meant asking AeroDataBox about "ICE 373" on every poll
+    /// forever: no match, no refresh, and — since a leg is skipped only when it
+    /// is more than 24h out — a wasted request every five minutes for the whole
+    /// day before departure. Trains and sailings are re-found through the
+    /// provider that actually knows them.
     private func updateFlightStatus(_ flight: Flight) async {
+        switch flight.mode {
+        case .air: await refreshAirLeg(flight)
+        case .rail: await refreshRailLeg(flight)
+        case .sea: await refreshSeaLeg(flight)
+        }
+    }
+
+    private func refreshAirLeg(_ flight: Flight) async {
         // ADB's date is the LOCAL departure date at the airport — UTC
         // formatting fetched yesterday's leg for early-morning departures.
         let dateStr = DateHelpers.apiDate(flight.scheduledDeparture, at: flight.departureIATA)
@@ -392,6 +430,124 @@ final class FlightTracker: ObservableObject {
         } catch {
             // Silently skip — will retry next cycle
         }
+    }
+
+    // MARK: - Rail
+
+    /// A train is re-found by its trip id, and when a feed rebuild has renumbered
+    /// that id, by what the ticket says. Both steps are needed: the fast path
+    /// costs one request, and without the fallback a train added weeks ahead
+    /// stops refreshing at exactly the point it starts to matter.
+    private func refreshRailLeg(_ flight: Flight) async {
+        // Both the trip lookup and the board are addressed by the boarding stop's
+        // provider id. A train typed in by hand has none, so there is nothing to
+        // ask — as opposed to the airline feed, which was asked and always said no.
+        guard let stopId = flight.departureStopID, !stopId.isEmpty else { return }
+
+        if let stored = flight.railTripID, await applyRailTrip(stored, to: flight, from: stopId) {
+            return
+        }
+
+        let key = RailServiceKey.make(
+            operatorName: flight.airline, service: flight.flightNumber,
+            boardingStopID: stopId, scheduledDeparture: flight.scheduledDeparture)
+        guard let fresh = await FlightAPIClient.shared.railReresolve(
+            stopId: stopId, key: key, at: flight.scheduledDeparture),
+              fresh != flight.railTripID else { return }
+        flight.railTripID = fresh
+        _ = await applyRailTrip(fresh, to: flight, from: stopId)
+    }
+
+    /// False when the trip id didn't resolve to this journey, which is the signal
+    /// to go back to the departure board for a current one.
+    private func applyRailTrip(_ tripId: String, to flight: Flight, from stopId: String) async -> Bool {
+        do {
+            let legs = try await FlightAPIClient.shared.railTrip(
+                tripId: tripId, from: stopId, to: flight.arrivalStopID)
+            guard let leg = legs.first else { return false }
+            apply(leg, to: flight)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    // MARK: - Sea
+
+    /// Nobody publishes a per-sailing delay, so refreshing a ferry means
+    /// re-reading the crossing's own row in the timetable: its times, the
+    /// operator's notice, and what the source now claims to know. Deriving a
+    /// delay figure here would be Arc inventing one.
+    private func refreshSeaLeg(_ flight: Flight) async {
+        // Ferryhopper resolves port NAMES, which is what these hold for a sailing.
+        guard let from = flight.departureStopID, !from.isEmpty,
+              let to = flight.arrivalStopID, !to.isEmpty else { return }
+        let date = DateHelpers.apiDate(flight.scheduledDeparture, in: flight.depTimeZone)
+        guard let sailings = try? await FlightAPIClient.shared.ferrySearch(
+            from: from, to: to, date: date) else { return }
+
+        // One crossing runs several times a day and often with several vessels,
+        // so the sailing is identified by both — matching on the route alone
+        // would stamp the morning boat's times onto an evening booking.
+        let vessel = flight.vesselName ?? flight.flightNumber
+        let match = sailings.first {
+            $0.flight_number.caseInsensitiveCompare(vessel) == .orderedSame
+                && abs((DateHelpers.parseAPIDate($0.dep_scheduled) ?? .distantPast)
+                    .timeIntervalSince(flight.scheduledDeparture)) < 90 * 60
+        }
+        // No match is not a cancellation. Ferryhopper drops and re-lists
+        // crossings for reasons of its own, and a booking the user holds is
+        // better left as they saved it than declared off on that evidence.
+        guard let match else { return }
+        apply(match, to: flight)
+    }
+
+    // MARK: - Transit refresh
+
+    /// The parts of a rail or sea leg that can legitimately change after it was
+    /// added: whether it is running, its real times, where to stand, and the
+    /// operator's own notice.
+    ///
+    /// What it deliberately leaves alone is identity — stop ids, zones, route
+    /// path, vessel — and the SCHEDULE. A refresh has no business rewriting which
+    /// journey this is, and `scheduledDeparture` in particular is load-bearing
+    /// twice over: it is the minute a train is re-identified by (`RailServiceKey`)
+    /// and the value the departure reminder's notification id is built from, so
+    /// moving it here would break recovery and orphan the reminder. Retiming
+    /// arrives as a delay, which is the honest shape of it anyway.
+    private func apply(_ r: FlightAPIClient.FlightSearchResult, to flight: Flight) {
+        if let actual = r.dep_actual, let parsed = DateHelpers.parseAPIDate(actual) {
+            flight.actualDeparture = parsed
+        }
+        if let actual = r.arr_actual, let parsed = DateHelpers.parseAPIDate(actual) {
+            flight.actualArrival = parsed
+            flight.estimatedArrival = parsed
+        }
+        flight.statusRaw = FlightStatus.heal(
+            rawValue: r.status, scheduledArrival: flight.scheduledArrival).rawValue
+        flight.delayMinutes = r.delay ?? 0
+        // A live train can lose its realtime feed, and then the leg genuinely
+        // knows less than it did — the tier travels with the answer, not with
+        // whatever it was when the trip was added.
+        if let tier = r.data_tier, let parsed = DataTier(rawValue: tier) {
+            flight.dataTier = parsed
+        }
+        // A re-platformed train reuses the gate-change machinery built for
+        // flights, so the "platform changed" alert lights up for free.
+        if let boardingPoint = r.dep_gate, !boardingPoint.isEmpty {
+            if let old = flight.departureGate, old != boardingPoint {
+                flight.previousDepartureGate = old
+            }
+            flight.departureGate = boardingPoint
+        }
+        if let arriving = r.arr_gate, !arriving.isEmpty { flight.arrivalGate = arriving }
+        // Prose, shown verbatim: parsing "reduced service due to weather" into a
+        // delay figure would manufacture a precision nobody stated.
+        if let note = r.disruption_note, !note.isEmpty, note != flight.disruptionNote {
+            flight.disruptionNote = note
+            flight.disruptionSeenAt = .now
+        }
+        flight.lastStatusUpdate = .now
     }
 
     // MARK: - Live Position

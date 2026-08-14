@@ -147,6 +147,62 @@ final class TripModeTests: XCTestCase {
         XCTAssertEqual(flight.depTimeZone.identifier, "Europe/Zurich")
     }
 
+    // MARK: - Tracking the thing that was actually booked
+
+    func testHandAddedTrainIsNotLeftWaitingOnAnAirlineSchedule() {
+        // ScheduleBackfill exists for a flight filed before its schedule was
+        // published. A train's schedule will never appear in an airline feed, so
+        // this asked the same question once a day forever and always got no.
+        let train = leg(.rail, tier: .manual)
+        train.awaitingSchedule = true
+        XCTAssertFalse(ScheduleBackfill.isDue(train, at: .now))
+
+        let ferry = leg(.sea, tier: .manual, number: "BLUE STAR DELOS")
+        ferry.awaitingSchedule = true
+        XCTAssertFalse(ScheduleBackfill.isDue(ferry, at: .now))
+    }
+
+    func testHandAddedFlightStillWaitsForItsSchedule() {
+        let flight = leg(.air, tier: .manual, number: "LX14")
+        flight.awaitingSchedule = true
+        XCTAssertTrue(ScheduleBackfill.isDue(flight, at: .now))
+    }
+
+    /// The Worker builds this key too, and the two must agree exactly or
+    /// `/rail/reresolve` returns null and the train silently stops refreshing.
+    /// The expected string was printed by `railServiceKey()` in
+    /// backend/src/transit.ts for the ICE 373 trip in backend/test/transit.test.ts.
+    func testRailKeyIsByteIdenticalToTheWorkers() {
+        let departure = Date(timeIntervalSince1970: 1_785_919_020)   // 2026-08-05T08:37:00Z
+        XCTAssertEqual(
+            RailServiceKey.make(operatorName: "DB Fernverkehr AG", service: "ICE 373",
+                                boardingStopID: "de-DELFI_de:11000:900003201",
+                                scheduledDeparture: departure),
+            "db fernverkehr ag|ICE373|de-DELFI_de:11000:900003201|2026-08-05T08:37")
+    }
+
+    func testRailKeyIgnoresTheSpacingAFeedHappensToUse() {
+        let departure = Date(timeIntervalSince1970: 1_785_919_020)
+        XCTAssertEqual(
+            RailServiceKey.make(operatorName: " DB Fernverkehr AG ", service: " ICE  373 ",
+                                boardingStopID: " de-DELFI_de:11000:900003201 ",
+                                scheduledDeparture: departure),
+            RailServiceKey.make(operatorName: "DB Fernverkehr AG", service: "ICE 373",
+                                boardingStopID: "de-DELFI_de:11000:900003201",
+                                scheduledDeparture: departure))
+    }
+
+    func testAPortIsDatedInItsOwnZoneNotThroughTheAirportTable() {
+        // 22:40 UTC on the 5th is 01:40 on the 6th in Athens: a sailing asked for
+        // on the wrong date comes back empty, and the leg stops refreshing.
+        let sailing = Date(timeIntervalSince1970: 1_785_969_600)   // 2026-08-05T22:40:00Z
+        XCTAssertEqual(
+            DateHelpers.apiDate(sailing, in: TimeZone(identifier: "Europe/Athens")!),
+            "2026-08-06")
+        XCTAssertEqual(DateHelpers.apiDate(sailing, in: TimeZone(identifier: "UTC")!),
+                       "2026-08-05")
+    }
+
     // MARK: - The widget must not be more confident than the app
 
     func testTimetableLegReachesTheWidgetWithoutAPunctualityClaim() {
