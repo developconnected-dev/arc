@@ -25,6 +25,9 @@ struct ArcRootView: View {
     /// keeps this permission-free.
     @State private var offeredPasteChange: Int?
     @State private var dismissedPasteChange: Int?
+    /// Opened after Add Flight dismisses — presenting a second sheet while
+    /// Add is still up is a no-op in SwiftUI.
+    @State private var pendingDetailAfterAdd: Flight?
 
 
     /// Test hooks for headless screenshots.
@@ -40,16 +43,25 @@ struct ArcRootView: View {
         // so the modifier chain below stays inside the type checker's budget.)
 
         .sheet(isPresented: $showAdd) {
-            AddFlightView(initialQuery: clipboardQuery ?? addInitialQuery)
-                .presentationDetents([.large])
-                .onDisappear { clipboardQuery = nil }
+            AddFlightView(initialQuery: clipboardQuery ?? addInitialQuery) { added in
+                pendingDetailAfterAdd = added
+            }
+            .presentationDetents([.large])
+            .onDisappear {
+                clipboardQuery = nil
+                if let added = pendingDetailAfterAdd {
+                    pendingDetailAfterAdd = nil
+                    detailFlight = added
+                }
+            }
         }
         // Dismissing the flight leaves its ground view too — otherwise the map
         // stayed stuck in terminal mode with a Back button and no flight.
         .sheet(item: $detailFlight, onDismiss: { controller.clearGateMarker() }) { flight in
             FlightDetailView(flight: flight,
                              onShowAtGate: { f in showPlaneAtGate(f) },
-                             onShowAirport: { f in showAirportView(f) })
+                             onShowAirport: { f in showAirportView(f) },
+                             onOpenFlight: { detailFlight = $0 })
                 .presentationDetents([.medium, .large], selection: $detailDetent)
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
@@ -101,30 +113,28 @@ struct ArcRootView: View {
             }
         }
         .onOpenURL { url in
-            guard url.scheme == "arc" else { return }
-            // arc://directions/<IATA>?t=<terminal> — the Live Activity's
-            // "Directions" pill. Hand straight off to Apple Maps with driving
-            // directions to the departure airport; the widget can't do this
-            // itself because it has no coordinate database.
-            if url.host() == "directions" {
-                let iata = url.lastPathComponent.uppercased()
+            guard let dest = ArcDeepLink.parse(url) else { return }
+            switch dest {
+            case .directions(let iata, let terminal):
                 guard let airport = ReferenceData.shared.airport(iata) else { return }
-                let terminal = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                    .queryItems?.first(where: { $0.name == "t" })?.value
                 let item = MKMapItem(
                     location: CLLocation(latitude: airport.lat, longitude: airport.lon),
                     address: nil)
                 item.name = terminal.map { "\(airport.name) · Terminal \($0)" } ?? airport.name
                 item.openInMaps(launchOptions:
                     [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
-                return
+            case .friend(let code):
+                FriendsStore.shared.pendingInviteCode = code
+                tab = .friends
+                Task { await FriendsStore.shared.redeemPendingIfPossible() }
+            case .flight(let id):
+                openFlight(id: id)
+            case .flightIdentity(let number, let dep, let arr):
+                openFlight(number: number, dep: dep, arr: arr)
             }
-            guard url.host() == "friend" else { return }
-            let code = url.lastPathComponent
-            guard !code.isEmpty, code != "friend" else { return }
-            FriendsStore.shared.pendingInviteCode = code
-            tab = .friends
-            Task { await FriendsStore.shared.redeemPendingIfPossible() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .arcOpenFlight)) { note in
+            openFlight(from: note.userInfo)
         }
         .onChange(of: detailFlight?.id) { _, _ in
             if let f = detailFlight { controller.focus(on: f) }
@@ -139,7 +149,10 @@ struct ArcRootView: View {
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active { refreshClipboardOffer() }
+            if newPhase == .active {
+                refreshClipboardOffer()
+                openFlight(from: PendingFlightOpen.userInfo)
+            }
         }
         // Fetch advisories only once the layer is actually switched on, and only
         // when the cached set is stale.
@@ -156,6 +169,7 @@ struct ArcRootView: View {
             bootstrapTrackingAndWidgets()
             refreshClipboardOffer()
             if ProcessInfo.processInfo.arguments.contains("-openAdd") { showAdd = true }
+            openFlight(from: PendingFlightOpen.userInfo)
         }
     }
 
@@ -361,6 +375,44 @@ struct ArcRootView: View {
         return (f.string(from: NSNumber(value: meters)) ?? "\(Int(meters))") + " m"
     }
 
+    private func openFlight(from userInfo: [AnyHashable: Any]?) {
+        guard let userInfo else { return }
+        PendingFlightOpen.userInfo = nil
+        if let raw = userInfo[ArcOpenFlightInfo.id] as? String,
+           let id = UUID(uuidString: raw) {
+            openFlight(id: id)
+        } else if let number = userInfo[ArcOpenFlightInfo.number] as? String,
+                  let dep = userInfo[ArcOpenFlightInfo.dep] as? String,
+                  let arr = userInfo[ArcOpenFlightInfo.arr] as? String {
+            openFlight(number: number, dep: dep, arr: arr)
+        }
+    }
+
+    private func openFlight(id: UUID) {
+        showAdd = false
+        tab = .myFlights
+        if let match = allFlights.first(where: { $0.id == id }) {
+            detailFlight = match
+        }
+    }
+
+    private func openFlight(number: String, dep: String, arr: String) {
+        showAdd = false
+        let norm = number.replacingOccurrences(of: " ", with: "").uppercased()
+        if let match = allFlights.first(where: {
+            $0.flightNumber.replacingOccurrences(of: " ", with: "").uppercased() == norm
+                && $0.departureIATA.uppercased() == dep.uppercased()
+                && $0.arrivalIATA.uppercased() == arr.uppercased()
+        }) ?? allFlights.first(where: {
+            $0.flightNumber.replacingOccurrences(of: " ", with: "").uppercased() == norm
+        }) {
+            tab = .myFlights
+            detailFlight = match
+            return
+        }
+        tab = .myFlights
+    }
+
     private func openDetailIfPending() {
         guard pendingOpenDetail, detailFlight == nil, !allFlights.isEmpty else { return }
         let args = ProcessInfo.processInfo.arguments
@@ -382,7 +434,7 @@ struct ArcRootView: View {
     private var tabs: some View {
         TabView(selection: $tab) {
                 Tab(ArcTab.myFlights.title, systemImage: ArcTab.myFlights.icon, value: ArcTab.myFlights) {
-                    tabSurface { MyFlightsView { detailFlight = $0 } }
+                    tabSurface { MyFlightsView(onSelect: { detailFlight = $0 }, onAdd: { showAdd = true }) }
                 }
                 Tab(ArcTab.friends.title, systemImage: ArcTab.friends.icon, value: ArcTab.friends) {
                     tabSurface { FriendsScreen() }
@@ -482,8 +534,10 @@ struct ArcRootView: View {
                 Image(systemName: "sparkles")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(ArcTheme.brand)
-                // Read on tap, where the tap itself is the consent — no
-                // paste-permission alert, which is what broke this before.
+                Text("Add from clipboard")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ArcTheme.brand)
+                    .lineLimit(1)
                 PasteButton(payloadType: String.self) { strings in
                     handlePasted(strings.first ?? "")
                 }

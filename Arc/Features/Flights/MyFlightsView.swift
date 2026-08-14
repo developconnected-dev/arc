@@ -9,8 +9,10 @@ struct MyFlightsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
     var onSelect: (Flight) -> Void
+    var onAdd: () -> Void = {}
 
     @State private var showSettings = false
+    @State private var shareFlight: Flight?
     @State private var friendsStore = FriendsStore.shared
 
     private var flights: [Flight] {
@@ -38,10 +40,13 @@ struct MyFlightsView: View {
 
             List {
                 if flights.isEmpty {
-                    emptyState.padding(.top, 40)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
+                    Button(action: onAdd) {
+                        emptyState.padding(.top, 40)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
                 } else {
                     // Flat list, one smooth surface. A connection is bound by
                     // omission and a spine: no divider between its legs, and a
@@ -80,9 +85,15 @@ struct MyFlightsView: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .scrollIndicators(.hidden)
+            .refreshable {
+                await FlightTracker.shared.burstUpdate(flights: Array(allFlights), modelContext: modelContext)
+            }
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
+        }
+        .sheet(item: $shareFlight) { flight in
+            ShareFlightSheet(flight: flight)
         }
         .onAppear {
             friendsStore.updateAirportOverlaps(with: Array(allFlights))
@@ -157,8 +168,12 @@ struct MyFlightsView: View {
         HStack(spacing: 12) {
             Text("My Trips").font(ArcTheme.screenTitle)
             Spacer()
-            ShareLink(item: URL(string: "https://arc.flight")!) {
-                circleIcon("square.and.arrow.up")
+            if let next = flights.first {
+                Button { shareFlight = next } label: {
+                    circleIcon("square.and.arrow.up")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Share \(next.flightNumberSpaced)")
             }
             Button { showSettings = true } label: {
                 ProfileButtonIcon(size: 34)
@@ -188,6 +203,10 @@ struct MyFlightsView: View {
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
+            Text("Tap to add a trip")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(ArcTheme.action)
+                .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
     }

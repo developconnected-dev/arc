@@ -10,6 +10,7 @@ struct FlightDetailView: View {
     var isOwnFlight: Bool = true
     var onShowAtGate: ((Flight) -> Void)? = nil
     var onShowAirport: ((Flight) -> Void)? = nil
+    var onOpenFlight: ((Flight) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
@@ -18,6 +19,7 @@ struct FlightDetailView: View {
     @State private var airportSheet: AirportSheetTarget?
     @State private var showShare = false
     @State private var confirmDelete = false
+    @State private var pendingScroll: String?
     @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
 
     private struct AirportSheetTarget: Identifiable { let id: String }
@@ -46,7 +48,9 @@ struct FlightDetailView: View {
                         DelayRiskCard(flight: flight)
                     }
                     if let plan = connection {
-                        ConnectionCard(plan: plan, currentFlightID: flight.id)
+                        ConnectionCard(plan: plan, currentFlightID: flight.id) { other in
+                            onOpenFlight?(other)
+                        }
                     }
                     // Only when the airline has actually assigned a belt. The
                     // old fallback invented "7 (Belt Confirmed)" for any landed
@@ -87,10 +91,13 @@ struct FlightDetailView: View {
             .onAppear {
                 let args = ProcessInfo.processInfo.arguments
                 let target = args.contains("-detailBottom") ? "bottom" : args.contains("-detailPlane") ? "plane" : nil
-                if let target {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                        withAnimation { proxy.scrollTo(target, anchor: target == "plane" ? .top : .bottom) }
-                    }
+                if let target { pendingScroll = target }
+            }
+            .onChange(of: pendingScroll) { _, target in
+                guard let target else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    withAnimation { proxy.scrollTo(target, anchor: target == "plane" ? .top : .bottom) }
+                    pendingScroll = nil
                 }
             }
         }
@@ -175,19 +182,27 @@ struct FlightDetailView: View {
                     Circle()
                         .fill(flight.isDataFresh ? Color.green : Color.orange)
                         .frame(width: 6, height: 6)
-                    Text(flight.dataFreshnessText)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
+                    TimelineView(.periodic(from: .now, by: 60)) { _ in
+                        Text(flight.dataFreshnessText)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(Color(uiColor: .systemBackground).opacity(0.6), in: Capsule())
             }
             if let inbound = inboundLine {
-                HStack(spacing: 4) {
-                    Text(inbound).font(.system(size: 14)).foregroundStyle(.secondary)
-                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
+                Button {
+                    pendingScroll = "plane"
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(inbound).font(.system(size: 14)).foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
+                    }
                 }
+                .buttonStyle(.plain)
+                .disabled(!isOwnFlight || flight.mode != .air)
             }
             // Airborne: the widget's system-animated progress bar lives INSIDE
             // the banner — one card says everything, instead of a second card
@@ -389,7 +404,18 @@ struct FlightDetailView: View {
                     // missing data — so off-air the pill appears only once there
                     // is a real platform or berth to show.
                     if flight.mode == .air || (gate?.isEmpty == false) {
-                        GatePill(arrow: arrow, gate: gate ?? "--")
+                        let pillOpensMap = isOwnFlight && onShowAtGate != nil && flight.mode == .air
+                            && ((isArrival && (flight.isCompleted || flight.isRecentlyLanded))
+                                || (!isArrival && flight.isUpcoming))
+                        if pillOpensMap {
+                            Button { onShowAtGate?(flight) } label: {
+                                GatePill(arrow: arrow, gate: gate ?? "--")
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Show plane at \(gate ?? "gate")")
+                        } else {
+                            GatePill(arrow: arrow, gate: gate ?? "--")
+                        }
                     }
                     if let terminal { Text("Terminal \(terminal)").font(.system(size: 13)).foregroundStyle(.secondary) }
                 }

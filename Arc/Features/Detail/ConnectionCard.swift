@@ -7,6 +7,7 @@ import SwiftData
 struct ConnectionCard: View {
     let plan: ConnectionPlanner.Plan
     let currentFlightID: UUID
+    var onSelectOther: ((Flight) -> Void)? = nil
     @Query private var allFlights: [Flight]
 
     /// The same plan re-run once the measurable parts have been measured —
@@ -51,13 +52,25 @@ struct ConnectionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Connection in \(shown.inbound.arrivalCity)")
-                        .font(.system(size: 17, weight: .bold))
-                    Text("\(otherLegLabel): \(otherLeg.flightNumberSpaced) · \(otherLeg.departureIATA) → \(otherLeg.arrivalIATA)")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
+                Button {
+                    onSelectOther?(otherLeg)
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Connection in \(shown.inbound.arrivalCity)")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(.primary)
+                        HStack(spacing: 4) {
+                            Text("\(otherLegLabel): \(otherLeg.flightNumberSpaced) · \(otherLeg.departureIATA) → \(otherLeg.arrivalIATA)")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
                 }
+                .buttonStyle(.plain)
+                .disabled(onSelectOther == nil)
                 Spacer()
                 Text(shown.risk.rawValue)
                     .font(.system(size: 13, weight: .bold))

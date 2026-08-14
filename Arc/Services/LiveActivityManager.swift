@@ -9,7 +9,7 @@ final class LiveActivityManager {
 
     private var activeActivities: [String: Activity<FlightActivityAttributes>] = [:]
 
-    private func makeState(for flight: Flight) async -> FlightActivityAttributes.ContentState {
+    private func makeState(for flight: Flight, preservingInsight existing: String? = nil) async -> FlightActivityAttributes.ContentState {
         // Use actual departure if available, otherwise adjust scheduled by delay
         let depTime: Date
         if let actual = flight.actualDeparture {
@@ -47,6 +47,9 @@ final class LiveActivityManager {
             // independently (estimatedArrival), so a 20m late departure can
             // still arrive on time — or vice versa.
             arrivalDelayMinutes: Int((arrTime.timeIntervalSince(flight.scheduledArrival) / 60).rounded()),
+            // Local knock-on wins when it's live; otherwise keep a Worker
+            // insight so a 60s local update doesn't wipe the smart line.
+            insight: flight.liveActivityInsight ?? existing,
             departureGate: flight.departureGate,
             departureTerminal: flight.departureTerminal,
             arrivalGate: flight.arrivalGate,
@@ -83,7 +86,8 @@ final class LiveActivityManager {
             aircraftType: flight.aircraftType,
             seat: flight.seat,
             friendName: friendName,
-            friendAvatarFile: friendAvatarFile
+            friendAvatarFile: friendAvatarFile,
+            flightId: friendName == nil ? flight.id.uuidString : nil
         )
 
         let state = await makeState(for: flight)
@@ -144,7 +148,7 @@ final class LiveActivityManager {
         }
         guard let activity = activeActivities[flight.id.uuidString] else { return }
 
-        let state = await makeState(for: flight)
+        let state = await makeState(for: flight, preservingInsight: activity.content.state.insight)
         let content = ActivityContent(state: state, staleDate: Self.staleDate(for: state))
         nonisolated(unsafe) let act = activity
         await act.update(content)
