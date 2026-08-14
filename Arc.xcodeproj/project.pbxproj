@@ -395,7 +395,6 @@
 				210826009A37E90654E69671 /* Flight.swift */,
 				8F99ECA03255BFC524189A60 /* Flight+Display.swift */,
 				3656C3156166F8E024EE5B7D /* ReferenceModels.swift */,
-				E6ED9A7F8DF388120369B521 /* TripMode.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -414,6 +413,7 @@
 			isa = PBXGroup;
 			children = (
 				4B59DFF600FEDEB5C44BEED7 /* FlightActivityAttributes.swift */,
+				E6ED9A7F8DF388120369B521 /* TripMode.swift */,
 				ED3BBC117AA0A74224DAF8AB /* WidgetData.swift */,
 			);
 			path = Shared;
