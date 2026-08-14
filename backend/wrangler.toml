@@ -37,12 +37,15 @@ crons = ["* * * * *"]
 # ── Endpoints ──────────────────────────────────────────────────────────────
 # Air (AeroDataBox unless noted):
 #   GET  /flight?number=LX1413&date=2026-07-20      status for one flight
-#   GET  /search-flights?q=                         freeform search
+#   POST /search-flights  {"q": "..."}              freeform search (POST only)
 #   GET  /inbound?reg=HB-JMB&date=2026-07-20        inbound legs (Where's My Plane)
 #   GET  /arrival-gate?icao=EDDF&flight=LX1413      arrival stand, from airport FIDS
 #   GET  /position?icao24=4b1815                    live position (airplanes.live —
 #                                                   OpenSky rejects Cloudflare egress)
 #   GET  /weather/airport?iata=ZRH, /weather/hazards
+#   GET  /security/:iata                            security wait (Waitport, or a
+#                                                   time-of-day estimate marked so)
+#   GET  /airport/:iata, /gates/:iata               airport info + OSM gate map
 #   POST /gates/observe, POST /gates/store, GET /gates/predict   gate flywheel
 #   POST /parse-booking                             booking text → flight + date
 # Rail (Transitous/MOTIS, no key) and sea (Ferryhopper MCP, no key):
@@ -51,8 +54,11 @@ crons = ["* * * * *"]
 #   GET  /rail/trip?tripId=&from=&to=               one booked service, as a leg
 #   GET  /rail/reresolve?stopId=&key=&time=         recover a renumbered trip id
 #   GET  /ferry/ports?q=, /ferry/search?from=&to=&date=, /ferry/disruptions?country=
+#        (/ferry/search attaches matching country disruption notices itself)
 # Live Activities and everything else:
 #   POST /la/register, /la/unregister               push tokens for the cron
-#   GET  /journey/:code                             shared-journey web page
+#   GET  /s/:code, /s/:code/data                    live share page + its poll feed
+#   GET  /journey/:code                             301 → /s/:code (legacy links)
+#   GET  /f/:code                                   friend-invite landing page
 #   GET  /health                                    which providers are configured,
 #                                                   plus this month's API budget

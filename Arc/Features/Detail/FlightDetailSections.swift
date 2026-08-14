@@ -38,11 +38,37 @@ struct GoodToKnowSection: View {
 
     var body: some View {
         let disrupted = flight.status == .cancelled || flight.status == .diverted
+        let note = flight.disruptionNote?.trimmingCharacters(in: .whitespacesAndNewlines)
         let tip = sunTip
-        if disrupted || flight.timezoneDeltaHours != 0 || tip != nil {
+        if disrupted || note?.isEmpty == false || flight.bookingURL != nil
+            || flight.timezoneDeltaHours != 0 || tip != nil {
             VStack(alignment: .leading, spacing: 12) {
                 sectionTitle("Good to Know")
                 if disrupted { card { disruptionRow } }
+                // The operator's own words — ferry and rail feeds publish prose
+                // notices, not per-leg delay figures, so this note IS the
+                // disruption channel for those modes. Quote it verbatim.
+                if let note, !note.isEmpty { card { operatorNoticeRow(note) } }
+                if let url = flight.bookingURL.flatMap(URL.init(string:)) {
+                    card {
+                        Link(destination: url) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "ticket").foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Manage Booking")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(.primary)
+                                    Text(url.host() ?? "Operator website")
+                                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "arrow.up.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                }
                 if flight.timezoneDeltaHours != 0 {
                     card {
                         HStack(spacing: 10) {
@@ -74,16 +100,36 @@ struct GoodToKnowSection: View {
 
     @ViewBuilder private var disruptionRow: some View {
         let cancelled = flight.status == .cancelled
+        let noun = flight.mode == .air ? "Flight" : "Service"
         HStack(spacing: 10) {
             Image(systemName: cancelled ? "xmark.seal.fill" : "arrow.triangle.turn.up.right.diamond.fill")
                 .foregroundStyle(ArcTheme.late)
             VStack(alignment: .leading, spacing: 2) {
-                Text(cancelled ? "Flight cancelled" : "Flight diverted")
+                Text(cancelled ? "\(noun) cancelled" : "\(noun) diverted")
                     .font(.system(size: 15, weight: .semibold))
                 Text(cancelled
                      ? "\(flight.departureIATA) → \(flight.arrivalIATA) will not operate as scheduled"
-                     : "This flight was routed to a different airport")
+                     : flight.mode == .air
+                         ? "This flight was routed to a different airport"
+                         : "This service was routed to a different \(flight.mode == .sea ? "port" : "station")")
                     .font(.system(size: 13)).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Prose from the operator's own disruption feed, quoted verbatim — Arc
+    /// has no per-leg delay figure for these modes, so editorializing on top
+    /// of the notice would be invention.
+    private func operatorNoticeRow(_ note: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.bubble.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Operator Notice")
+                    .font(.system(size: 15, weight: .semibold))
+                Text(note)
+                    .font(.system(size: 13)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -311,7 +357,7 @@ struct DetailedTimetableSection: View {
                             estimated: flight.arrivalChanged ? flight.effectiveArrTimeLocal : "--")
                     Divider()
                     groupHeader("TOTALS")
-                    plainRow("Air Time", flight.durationFormatted)
+                    plainRow(flight.mode == .air ? "Air Time" : "Travel Time", flight.durationFormatted)
                     if flight.hasRoute { plainRow("Distance", flight.distanceFormatted) }
                     // Calibration in public: once the flight has flown, show
                     // what Arc predicted at departure next to what happened.
@@ -362,6 +408,14 @@ struct AirlineInfoSection: View {
     let flight: Flight
     private var airline: AirlineRef? { ReferenceData.shared.airline(flight.airlineCode) }
     var body: some View {
+        if flight.mode == .air {
+            airlineCard
+        } else if !operatorName.isEmpty || flight.vesselName != nil {
+            operatorCard
+        }
+    }
+
+    private var airlineCard: some View {
         card {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 10) {
@@ -372,6 +426,30 @@ struct AirlineInfoSection: View {
                     infoCol("ATC Callsign", airline?.callsign ?? "—")
                     infoCol("ICAO", airline?.icao ?? flight.airlineICAO)
                     infoCol("IATA", flight.airlineCode)
+                }
+            }
+        }
+    }
+
+    private var operatorName: String { flight.airline }
+
+    /// The rail/sea counterpart: callsigns and IATA codes are aviation
+    /// registry facts with no analogue here — the operator (and for a
+    /// sailing, the vessel) is the whole identity.
+    private var operatorCard: some View {
+        card {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    TripLogoView(mode: flight.mode, logoURL: flight.operatorLogoURL, size: 30)
+                    Text(operatorName.isEmpty ? flight.mode.operatorNoun : operatorName)
+                        .font(.system(size: 20, weight: .bold))
+                }
+                HStack {
+                    infoCol(flight.mode.operatorNoun, operatorName)
+                    if let vessel = flight.vesselName, !vessel.isEmpty {
+                        infoCol("Vessel", vessel)
+                    }
+                    infoCol("Service", flight.flightNumber)
                 }
             }
         }
@@ -392,7 +470,11 @@ struct RouteHistorySection: View {
     @Query private var all: [Flight]
 
     private var onRoute: [Flight] {
-        all.filter { $0.status == .landed && $0.departureIATA == flight.departureIATA && $0.arrivalIATA == flight.arrivalIATA }
+        // Same mode as well as same codes: a rail leg's "BER" is Berlin Hbf,
+        // and mixing it into a BER→MUC flight history would count a train as
+        // a flight on that route.
+        all.filter { $0.status == .landed && $0.mode == flight.mode
+            && $0.departureIATA == flight.departureIATA && $0.arrivalIATA == flight.arrivalIATA }
     }
     /// Punctuality from the user's own completed flights — data no API sells,
     /// and it compounds with every trip the family takes.
@@ -411,9 +493,13 @@ struct RouteHistorySection: View {
                 Text("My History on This Route").font(.system(size: 18, weight: .bold))
                 Text("\(flight.departureIATA) → \(flight.arrivalIATA)").font(.system(size: 13)).foregroundStyle(.secondary)
                 HStack {
-                    stat("Flights", "\(onRoute.count)")
-                    stat("Distance", "\(Int(onRoute.map(\.distanceKm).reduce(0,+))) km")
-                    stat("Flight Time", "\(Int(onRoute.map(\.duration).reduce(0,+)) / 3600)h")
+                    stat(flight.mode == .air ? "Flights" : "Trips", "\(onRoute.count)")
+                    // Legs without coordinates (hand-entered stations, unplotted
+                    // ports) have no distance — "0 km" would be a made-up fact.
+                    let km = Int(onRoute.map(\.distanceKm).reduce(0, +))
+                    if km > 0 { stat("Distance", "\(km) km") }
+                    stat(flight.mode == .air ? "Flight Time" : "Travel Time",
+                         "\(Int(onRoute.map(\.duration).reduce(0,+)) / 3600)h")
                 }
                 if let punctualityLine {
                     HStack(spacing: 6) {

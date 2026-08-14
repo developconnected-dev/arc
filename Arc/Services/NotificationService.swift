@@ -141,7 +141,8 @@ enum ArcNotifications {
         send(
             title: "\(overlap.friend.display_name) is at \(overlap.airportIATA) too",
             body: "You're both there \(overlap.isToday ? "today" : "in the same window") · \(overlap.timeWindow).",
-            id: "overlap-\(overlap.friend.id)-\(overlap.airportIATA)"
+            id: "overlap-\(overlap.friend.id)-\(overlap.airportIATA)",
+            flightId: overlap.myFlightId
         )
     }
 
@@ -188,13 +189,13 @@ enum ArcNotifications {
 
     // MARK: - Private
 
-    private static func send(title: String, body: String, id: String, flight: Flight? = nil) {
+    private static func send(title: String, body: String, id: String, flight: Flight? = nil, flightId: UUID? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
-        if let flight {
-            content.userInfo = [ArcOpenFlightInfo.id: flight.id.uuidString]
+        if let openId = flight?.id ?? flightId {
+            content.userInfo = [ArcOpenFlightInfo.id: openId.uuidString]
         }
 
         let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)

@@ -411,7 +411,12 @@ export default {
         providers: {
           aerodatabox: !!env.RAPIDAPI_KEY,
           airlabs: !!env.AIRLABS_KEY,
-          opensky: true,
+          ai: !!env.AI_API_KEY,
+          supabase: !!env.SUPABASE_SERVICE_KEY,
+          apns: !!(env.APNS_TEAM_ID && env.APNS_KEY_ID && env.APNS_P8),
+          // Keyless public feeds — configured by definition. Named for what
+          // /position actually calls (it left OpenSky for airplanes.live).
+          airplaneslive: true,
           waitport: true,
         },
         budget: budget ? {
@@ -2186,10 +2191,13 @@ async function refreshSharedFlights(env: Env): Promise<void> {
   const to = new Date(now + 4 * 3600_000).toISOString();
   const rows = await sbSelect(env,
     "/shared_flights?select=id,flight_number,departure_iata,arrival_iata,scheduled_departure,scheduled_arrival," +
-    `status,delay_minutes,departure_gate,arrival_gate,baggage_claim,updated_at&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}`
+    `status,delay_minutes,departure_gate,arrival_gate,baggage_claim,updated_at,mode&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}`
   ) as unknown as Record<string, any>[];
 
   const active = rows.filter(r => {
+    // AeroDataBox only answers for air legs; a rail/sea row would burn a
+    // budget-guarded call on a guaranteed miss and crowd flights out of the cap.
+    if (((r.mode as string) ?? "air") !== "air") return false;
     const delayMs = ((r.delay_minutes as number) ?? 0) * 60_000;
     const dep = new Date(r.scheduled_departure).getTime();
     const arr = new Date(r.scheduled_arrival ?? r.scheduled_departure).getTime() + delayMs;
@@ -2500,7 +2508,11 @@ async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[
     const sent: Record<string, number> = startRow.last_state?.sent ?? {};
     let sentChanged = false;
 
-    for (const f of upcoming.filter(u => u["user_id"] === startRow.user_id)) {
+    // Air only: a push-to-start for a train would put plane iconography and
+    // gate copy on a lock screen; the app starts non-air activities itself
+    // with mode-aware attributes.
+    for (const f of upcoming.filter(u => u["user_id"] === startRow.user_id
+        && ((u["mode"] as string) ?? "air") === "air")) {
       const key = `${f.flight_number}-${String(f.scheduled_departure).slice(0, 10)}`;
       // Skip if an update token already exists for this flight (activity is
       // already running) or we already sent a start recently.
@@ -2526,6 +2538,7 @@ async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[
             airline: f.airline ?? "",
             aircraftType: f.aircraft_type ?? null,
             seat: f.seat ?? null,
+            modeRaw: "air",
           },
           "content-state": contentState(f.status ?? "scheduled", depMs, arrMs, f.delay_minutes ?? 0, f.delay_minutes ?? 0, {
             dep_gate: f.departure_gate, dep_terminal: f.departure_terminal,
@@ -2587,6 +2600,11 @@ async function loadSharePayload(env: Env, code: string): Promise<SharePayload | 
     sharer: profs[0]?.display_name || "",
     flight: {
       number: f.flight_number, airline: f.airline, status: f.status,
+      // Post-012 columns, defaulted for rows written before the migration.
+      mode: (f.mode as string) ?? "air",
+      dataTier: (f.data_tier as string) ?? "live",
+      vessel: f.vessel_name ?? null,
+      note: f.disruption_note ?? null,
       delay: f.delay_minutes || 0, aircraft: f.aircraft_type,
       progress: f.progress || 0, updated: f.updated_at,
       live: (f.live_lat != null && f.live_lon != null) ? { lat: f.live_lat, lon: f.live_lon } : null,
@@ -2624,7 +2642,23 @@ function sharePageHTML(code: string, payload: SharePayload | null): string {
 
   const f = payload.flight;
   const sharer = payload.sharer || "Someone";
-  const title = `${escHTML(sharer)} is flying ${escHTML(f.dep.iata)} → ${escHTML(f.arr.iata)}`;
+  // The share page speaks the leg's own vocabulary — migration 012's header
+  // names this exact page as the reason `mode` rides along with the row.
+  const mode = (f.mode as string) ?? "air";
+  const verb = mode === "sea" ? "is sailing" : mode === "rail" ? "is riding" : "is flying";
+  const inTransitLabel = mode === "sea" ? "At sea" : mode === "rail" ? "En route" : "In flight";
+  const arrivedLabel = mode === "air" ? "Landed" : "Arrived";
+  // Only a live tier may claim punctuality; a timetable-only sailing names
+  // its source instead of wearing a green "On time".
+  const punctual = ((f.dataTier as string) ?? "live") === "live";
+  const vehicleSVGPath = mode === "sea"
+    // Simple hull-and-cabin ferry glyph.
+    ? "M4 10h16l-2 6H6l-2-6zm4-4h8v3H8V6zm-1 12c1 .8 2 .8 3 0s2-.8 3 0 2 .8 3 0 2-.8 3 0v2c-1 .8-2 .8-3 0s-2-.8-3 0-2 .8-3 0-2-.8-3 0-2 .8-3 0v-2c1-.8 2-.8 3 0z"
+    : mode === "rail"
+    // Simple tram-front glyph.
+    ? "M7 3h10c1.1 0 2 .9 2 2v9c0 1.1-.9 2-2 2h-1l2 3h-2l-2-3H10l-2 3H6l2-3H7c-1.1 0-2-.9-2-2V5c0-1.1.9-2 2-2zm0 3v4h10V6H7zm1.5 7.5c.83 0 1.5-.67 1.5-1.5S9.33 10.5 8.5 10.5 7 11.17 7 12s.67 1.5 1.5 1.5zm7 0c.83 0 1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5-1.5.67-1.5 1.5.67 1.5 1.5 1.5z"
+    : "M21.5 15.5v-2l-8-5v-5c0-.83-.67-1.5-1.5-1.5S10.5 2.67 10.5 3.5v5l-8 5v2l8-2.5v5.5l-2 1.5v1.5l3.5-1 3.5 1V20l-2-1.5V13l8 2.5z";
+  const title = `${escHTML(sharer)} ${verb} ${escHTML(f.dep.iata)} → ${escHTML(f.arr.iata)}`;
   const desc = `${escHTML(f.airline)} ${escHTML(f.number)} · ${escHTML(f.dep.city)} to ${escHTML(f.arr.city)} · live on Arc`;
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
@@ -2709,7 +2743,7 @@ body{background:#06080f;color:#e8eefc;font-family:-apple-system,system-ui,sans-s
   <div class="route-row">
     <div class="ep"><div class="iata" id="dep-iata"></div><div class="t" id="dep-time"></div><div class="sub" id="dep-sub"></div></div>
     <div class="mid">
-      <svg id="bar-plane" width="20" height="20" viewBox="0 0 24 24" fill="#6fe0ff"><path d="M21.5 15.5v-2l-8-5v-5c0-.83-.67-1.5-1.5-1.5S10.5 2.67 10.5 3.5v5l-8 5v2l8-2.5v5.5l-2 1.5v1.5l3.5-1 3.5 1V20l-2-1.5V13l8 2.5z"/></svg>
+      <svg id="bar-plane" width="20" height="20" viewBox="0 0 24 24" fill="#6fe0ff"><path d="${vehicleSVGPath}"/></svg>
       <div class="bar"><i id="bar-fill"></i></div>
     </div>
     <div class="ep right"><div class="iata" id="arr-iata"></div><div class="t" id="arr-time"></div><div class="sub" id="arr-sub"></div></div>
@@ -2790,7 +2824,7 @@ function apDot(ll,label,side){
 apDot(A,f.dep.iata,'l');apDot(B,f.arr.iata,'r');
 
 var planeIcon=L.divIcon({className:'',iconSize:[26,26],iconAnchor:[13,13],
-  html:'<div class="plane-halo"><svg id="plane-svg" width="26" height="26" viewBox="0 0 24 24" fill="#eaf7ff" style="filter:drop-shadow(0 0 5px rgba(111,224,255,.95))"><path d="M21.5 15.5v-2l-8-5v-5c0-.83-.67-1.5-1.5-1.5S10.5 2.67 10.5 3.5v5l-8 5v2l8-2.5v5.5l-2 1.5v1.5l3.5-1 3.5 1V20l-2-1.5V13l8 2.5z"/></svg></div>'});
+  html:'<div class="plane-halo"><svg id="plane-svg" width="26" height="26" viewBox="0 0 24 24" fill="#eaf7ff" style="filter:drop-shadow(0 0 5px rgba(111,224,255,.95))"><path d="${vehicleSVGPath}"/></svg></div>'});
 var plane=L.marker(PTS[0],{icon:planeIcon,interactive:false}).addTo(map);
 
 function fmtT(ms){
@@ -2806,7 +2840,7 @@ function fmtDur(ms){
 
 function renderStatic(){
   var f=D.flight;
-  document.getElementById('eyebrow').textContent=(D.sharer||'Someone')+' is flying';
+  document.getElementById('eyebrow').textContent=(D.sharer||'Someone')+' ${verb}';
   document.getElementById('title').textContent=(f.dep.city||f.dep.iata)+' to '+(f.arr.city||f.arr.iata);
   document.getElementById('flight-chip').textContent=f.airline+' '+f.number;
   document.getElementById('dep-iata').textContent=f.dep.iata;
@@ -2832,14 +2866,14 @@ function renderStatic(){
 function tick(){
   var f=D.flight,ph=phase(),p=prog();
   var chip=document.getElementById('status-chip'),cl=document.getElementById('count-label'),c=document.getElementById('count');
-  if(ph==='pre'){chip.textContent=f.delay>0?'Delayed':'On time';chip.className='chip '+(f.delay>0?'late':'ok');
+  if(ph==='pre'){chip.textContent=${punctual}?(f.delay>0?'Delayed':'On time'):'Timetable';chip.className='chip '+(${punctual}?(f.delay>0?'late':'ok'):'ghost');
     cl.textContent='Departs in';c.textContent=fmtDur(depT()-Date.now());}
-  else if(ph==='air'){chip.textContent='In flight';chip.className='chip';
-    cl.textContent='Landing in';c.textContent=fmtDur(arrT()-Date.now());}
-  else if(ph==='landing'){chip.textContent='Landing soon';chip.className='chip';
+  else if(ph==='air'){chip.textContent='${inTransitLabel}';chip.className='chip';
+    cl.textContent='${mode === "air" ? "Landing in" : "Arriving in"}';c.textContent=fmtDur(arrT()-Date.now());}
+  else if(ph==='landing'){chip.textContent='${mode === "air" ? "Landing soon" : "Arriving soon"}';chip.className='chip';
     cl.textContent='Arrival';c.textContent='Any moment';}
-  else if(ph==='landed'){chip.textContent='Landed';chip.className='chip ok';
-    cl.textContent='Landed';
+  else if(ph==='landed'){chip.textContent='${arrivedLabel}';chip.className='chip ok';
+    cl.textContent='${arrivedLabel}';
     var ago=Date.now()-arrT();
     c.textContent=ago>0&&ago<6*3600000?Math.max(1,Math.round(ago/60000))+' min ago':fmtT(arrT());}
   else{chip.textContent='Cancelled';chip.className='chip late';cl.textContent='Status';c.textContent='Cancelled';}
@@ -2854,7 +2888,7 @@ function tick(){
   plane.setLatLng(tip);
   var b=bearing(PTS[Math.max(0,idx-1)],PTS[Math.min(N,idx+1)]);
   var svg=document.getElementById('plane-svg');
-  if(svg)svg.style.transform='rotate('+b+'deg)';
+  if(svg&&${mode === "air" ? "true" : "false"})svg.style.transform='rotate('+b+'deg)';
   plane.setOpacity(ph==='pre'?0:1);
   document.getElementById('bar-fill').style.width=(p*100)+'%';
   document.getElementById('bar-plane').style.left=(p*100)+'%';

@@ -28,240 +28,258 @@ struct FlightLiveActivity: Widget {
                 // seat top-right, then the full-width route/path/countdown
                 // stack in the bottom region.
                 DynamicIslandExpandedRegion(.leading) {
-                    if phase == .inFlight {
-                        // The island's rounded corners curve INTO the top of the
-                        // leading/trailing regions — content flush with the top
-                        // edge gets visually clipped by the bezel. Nudge it down
-                        // and inward, clear of the curvature.
-                        HStack(spacing: 4) {
-                            Image(systemName: "airplane")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                            Text(context.attributes.flightNumber)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(.secondary)
+                    Group {
+                        if phase == .inFlight {
+                            // The island's rounded corners curve INTO the top of the
+                            // leading/trailing regions — content flush with the top
+                            // edge gets visually clipped by the bezel. Nudge it down
+                            // and inward, clear of the curvature.
+                            HStack(spacing: 4) {
+                                Image(systemName: context.attributes.mode.symbol)
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                Text(context.attributes.flightNumber)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.top, 6)
+                            .padding(.leading, 4)
+                        } else {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(context.attributes.departureIATA)
+                                    .font(.system(size: 22, weight: .bold))
+                                Text(context.state.departureTime, style: .time)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.top, 4)
                         }
-                        .padding(.top, 6)
-                        .padding(.leading, 4)
-                    } else {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(context.attributes.departureIATA)
-                                .font(.system(size: 22, weight: .bold))
-                            Text(context.state.departureTime, style: .time)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.top, 4)
                     }
+                    .widgetURL(ArcDeepLink.url(for: context.attributes))
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    if phase == .inFlight {
-                        if let friend = context.attributes.friendName, !friend.isEmpty {
-                            HStack(spacing: 4) {
-                                friendAvatar(context.attributes, size: 15)
-                                Text(friend)
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                    Group {
+                        if phase == .inFlight {
+                            if let friend = context.attributes.friendName, !friend.isEmpty {
+                                HStack(spacing: 4) {
+                                    friendAvatar(context.attributes, size: 15)
+                                    Text(friend)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                .padding(.top, 6)
+                                .padding(.trailing, 4)
+                            } else if let seat = context.attributes.seat, !seat.isEmpty {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "carseat.right.fill")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.secondary)
+                                    Text(seat)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.top, 6)
+                                .padding(.trailing, 4)
                             }
-                            .padding(.top, 6)
-                            .padding(.trailing, 4)
-                        } else if let seat = context.attributes.seat, !seat.isEmpty {
-                            HStack(spacing: 3) {
-                                Image(systemName: "carseat.right.fill")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.secondary)
-                                Text(seat)
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(.secondary)
+                        } else {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(context.attributes.arrivalIATA)
+                                    .font(.system(size: 22, weight: .bold))
+                                Text(context.state.arrivalTime, style: .time)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(arrivalDelay(context.state) > 0 ? .orange : .secondary)
                             }
-                            .padding(.top, 6)
-                            .padding(.trailing, 4)
+                            .padding(.top, 4)
                         }
-                    } else {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(context.attributes.arrivalIATA)
-                                .font(.system(size: 22, weight: .bold))
-                            Text(context.state.arrivalTime, style: .time)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(arrivalDelay(context.state) > 0 ? .orange : .secondary)
-                        }
-                        .padding(.top, 4)
                     }
+                    .widgetURL(ArcDeepLink.url(for: context.attributes))
                 }
                 DynamicIslandExpandedRegion(.center) {
                     // Empty — route codes live in leading/trailing (pre-flight)
                     // or the bottom stack (in-flight)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    if phase == .inFlight {
-                        VStack(spacing: 2) {
-                            routeRow(attrs: context.attributes, state: context.state)
-                            HStack {
-                                Text(departureStatusText(context.state))
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(departureStatusColor(context.state))
-                                    .contentTransition(.numericText())
-                                Spacer()
-                                Text(arrivalStatusText(context.state))
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(arrivalStatusColor(context.state))
-                                    .contentTransition(.numericText())
+                    Group {
+                        if phase == .inFlight {
+                            VStack(spacing: 2) {
+                                routeRow(attrs: context.attributes, state: context.state)
+                                HStack {
+                                    Text(departureStatusText(context.state))
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(departureStatusColor(context.state))
+                                        .contentTransition(.numericText())
+                                    Spacer()
+                                    Text(arrivalStatusText(context.state))
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(arrivalStatusColor(context.state))
+                                        .contentTransition(.numericText())
+                                }
+                                FlightPathProgress(state: context.state)
+                                    .frame(height: 18)
+                                arrivalCountdown(attrs: context.attributes, context.state)
                             }
-                            FlightPathProgress(state: context.state)
-                                .frame(height: 18)
-                            arrivalCountdown(context.state)
+                        } else if phase == .landed {
+                            HStack(spacing: 6) {
+                                Image(systemName: isConfirmedLanded(context.state) ? "checkmark.circle.fill" : arrivalSymbol(context.attributes))
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.green)
+                                Text(isConfirmedLanded(context.state) ? context.attributes.mode.arrivedVerb : "\(context.attributes.mode.arrivingVerb) soon")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(.green)
+                                if let belt = context.state.baggageClaim {
+                                    Text("· Belt \(belt)")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                if let terminal = context.state.arrivalTerminal {
+                                    Text("· T\(terminal)")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                gateBadge(context.state.arrivalGate)
+                            }
+                        } else if phase == .departing {
+                            HStack(spacing: 6) {
+                                Image(systemName: departureSymbol(context.attributes))
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(IntelligenceShimmerText.gradient)
+                                IntelligenceShimmerText(
+                                    text: "Departing…",
+                                    font: .system(size: 12, weight: .bold),
+                                    sweep: context.state.departureTime...context.state.departureTime.addingTimeInterval(Self.departureGrace))
+                                Text("awaiting confirmation")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                gateBadge(context.state.departureGate)
+                            }
+                        } else {
+                            HStack {
+                                Image(systemName: "arrow.up.right")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.green)
+                                // Two Texts, not one interpolated Text: a live
+                                // TimeDataSource countdown loses its data source
+                                // inside string interpolation and renders as
+                                // placeholder dashes ("–h ––m").
+                                HStack(spacing: 0) {
+                                    Text("Departs \(context.attributes.mode.boardingPointLabel) in ")
+                                        .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+                                    Text.minuteCountdown(to: context.state.departureTime)
+                                        .font(.system(size: 11, weight: .bold)).foregroundStyle(.primary)
+                                }
+                                Spacer()
+                                gateBadge(context.state.departureGate)
+                            }
+                        }
+                    }
+                    .widgetURL(ArcDeepLink.url(for: context.attributes))
+                }
+            } compactLeading: {
+                Group {
+                    // In-flight: Flighty's little self-filling progress ring with
+                    // the plane in it. ProgressView(timerInterval:) with the
+                    // circular style is system-animated — the ring keeps filling
+                    // with the app dead and no internet, which matters because
+                    // in-flight is exactly when there IS no internet.
+                    if phase == .inFlight {
+                        ZStack {
+                            ProgressView(
+                                timerInterval: progressInterval(context.state),
+                                countsDown: false,
+                                label: { EmptyView() },
+                                currentValueLabel: { EmptyView() }
+                            )
+                            .progressViewStyle(.circular)
+                            .tint(.green)
+                            Image(systemName: context.attributes.mode.symbol)
+                                .font(.system(size: 7, weight: .bold))
+                                .foregroundStyle(.green)
                         }
                     } else if phase == .landed {
-                        HStack(spacing: 6) {
-                            Image(systemName: isConfirmedLanded(context.state) ? "checkmark.circle.fill" : "airplane.arrival")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.green)
-                            Text(isConfirmedLanded(context.state) ? "Landed" : "Landing soon")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(.green)
-                            if let belt = context.state.baggageClaim {
-                                Text("· Belt \(belt)")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(.secondary)
-                            }
-                            if let terminal = context.state.arrivalTerminal {
-                                Text("· T\(terminal)")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            gateBadge(context.state.arrivalGate)
-                        }
+                        Image(systemName: arrivalSymbol(context.attributes))
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.green)
                     } else if phase == .departing {
-                        HStack(spacing: 6) {
-                            Image(systemName: "airplane.departure")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(IntelligenceShimmerText.gradient)
-                            IntelligenceShimmerText(
-                                text: "Departing…",
-                                font: .system(size: 12, weight: .bold),
-                                sweep: context.state.departureTime...context.state.departureTime.addingTimeInterval(Self.departureGrace))
-                            Text("awaiting confirmation")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            gateBadge(context.state.departureGate)
-                        }
+                        Image(systemName: departureSymbol(context.attributes))
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.green)
                     } else {
-                        HStack {
-                            Image(systemName: "arrow.up.right")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(.green)
-                            // Two Texts, not one interpolated Text: a live
-                            // TimeDataSource countdown loses its data source
-                            // inside string interpolation and renders as
-                            // placeholder dashes ("–h ––m").
-                            HStack(spacing: 0) {
-                                Text("Departs Gate in ")
-                                    .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
-                                Text.minuteCountdown(to: context.state.departureTime)
-                                    .font(.system(size: 11, weight: .bold)).foregroundStyle(.primary)
-                            }
-                            Spacer()
+                        // Gate when it's known, otherwise the departure mark.
+                        // The countdown lives on the TRAILING side, which has
+                        // room for hours — a fixed 36pt here truncated
+                        // "2:40:12" to "2:4…" with an empty right side.
+                        if context.state.departureGate != nil {
                             gateBadge(context.state.departureGate)
+                        } else {
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 9, weight: .bold))
+                                .padding(3)
+                                .background(.green, in: Circle())
+                                .foregroundStyle(.black)
                         }
                     }
                 }
-            } compactLeading: {
-                // In-flight: Flighty's little self-filling progress ring with
-                // the plane in it. ProgressView(timerInterval:) with the
-                // circular style is system-animated — the ring keeps filling
-                // with the app dead and no internet, which matters because
-                // in-flight is exactly when there IS no internet.
-                if phase == .inFlight {
-                    ZStack {
-                        ProgressView(
-                            timerInterval: progressInterval(context.state),
-                            countsDown: false,
-                            label: { EmptyView() },
-                            currentValueLabel: { EmptyView() }
-                        )
-                        .progressViewStyle(.circular)
-                        .tint(.green)
-                        Image(systemName: "airplane")
-                            .font(.system(size: 7, weight: .bold))
+                .widgetURL(ArcDeepLink.url(for: context.attributes))
+            } compactTrailing: {
+                Group {
+                    if phase == .inFlight {
+                        Text.minuteCountdown(to: context.state.arrivalTime)
+                            .font(.system(size: 11, weight: .bold).monospacedDigit())
+                    } else if phase == .landed {
+                        if let belt = context.state.baggageClaim {
+                            HStack(spacing: 2) {
+                                Image(systemName: "suitcase.fill")
+                                    .font(.system(size: 9))
+                                Text(belt)
+                                    .font(.system(size: 11, weight: .bold))
+                            }
                             .foregroundStyle(.green)
-                    }
-                } else if phase == .landed {
-                    Image(systemName: "airplane.arrival")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.green)
-                } else if phase == .departing {
-                    Image(systemName: "airplane.departure")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.green)
-                } else {
-                    // Gate when it's known, otherwise the departure mark.
-                    // The countdown lives on the TRAILING side, which has
-                    // room for hours — a fixed 36pt here truncated
-                    // "2:40:12" to "2:4…" with an empty right side.
-                    if context.state.departureGate != nil {
+                        } else if isConfirmedLanded(context.state) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.green)
+                        } else {
+                            Text("Soon")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(.green)
+                        }
+                    } else if phase == .departing {
+                        // Clock passed departure but takeoff is unconfirmed — a
+                        // countdown says nothing here; the gate is the only
+                        // number still worth the space.
                         gateBadge(context.state.departureGate)
                     } else {
+                        Text.minuteCountdown(to: context.state.departureTime)
+                            .font(.system(size: 11, weight: .bold).monospacedDigit())
+                    }
+                }
+                .widgetURL(ArcDeepLink.url(for: context.attributes))
+            } minimal: {
+                Group {
+                    if phase == .inFlight {
+                        Image(systemName: context.attributes.mode.symbol)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.green)
+                    } else if phase == .landed {
+                        Image(systemName: isConfirmedLanded(context.state) ? "checkmark.circle.fill" : arrivalSymbol(context.attributes))
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.green)
+                    } else if phase == .departing {
+                        Image(systemName: departureSymbol(context.attributes))
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.green)
+                    } else {
                         Image(systemName: "arrow.up.right")
-                            .font(.system(size: 9, weight: .bold))
-                            .padding(3)
+                            .font(.system(size: 8, weight: .bold))
+                            .padding(2)
                             .background(.green, in: Circle())
                             .foregroundStyle(.black)
                     }
                 }
-            } compactTrailing: {
-                if phase == .inFlight {
-                    Text.minuteCountdown(to: context.state.arrivalTime)
-                        .font(.system(size: 11, weight: .bold).monospacedDigit())
-                } else if phase == .landed {
-                    if let belt = context.state.baggageClaim {
-                        HStack(spacing: 2) {
-                            Image(systemName: "suitcase.fill")
-                                .font(.system(size: 9))
-                            Text(belt)
-                                .font(.system(size: 11, weight: .bold))
-                        }
-                        .foregroundStyle(.green)
-                    } else if isConfirmedLanded(context.state) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.green)
-                    } else {
-                        Text("Soon")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.green)
-                    }
-                } else if phase == .departing {
-                    // Clock passed departure but takeoff is unconfirmed — a
-                    // countdown says nothing here; the gate is the only
-                    // number still worth the space.
-                    gateBadge(context.state.departureGate)
-                } else {
-                    Text.minuteCountdown(to: context.state.departureTime)
-                        .font(.system(size: 11, weight: .bold).monospacedDigit())
-                }
-            } minimal: {
-                if phase == .inFlight {
-                    Image(systemName: "airplane")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.green)
-                } else if phase == .landed {
-                    Image(systemName: isConfirmedLanded(context.state) ? "checkmark.circle.fill" : "airplane.arrival")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.green)
-                } else if phase == .departing {
-                    Image(systemName: "airplane.departure")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.green)
-                } else {
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 8, weight: .bold))
-                        .padding(2)
-                        .background(.green, in: Circle())
-                        .foregroundStyle(.black)
-                }
+                .widgetURL(ArcDeepLink.url(for: context.attributes))
             }
         }
     }
@@ -300,6 +318,17 @@ struct FlightLiveActivity: Widget {
     /// the UI says "Landing soon" instead of claiming "Landed".
     private func isConfirmedLanded(_ state: FlightActivityAttributes.ContentState) -> Bool {
         state.status == "landed"
+    }
+
+    /// "airplane.departure" / "airplane.arrival" have no tram or ferry
+    /// variants, so non-air legs wear their plain vehicle symbol in every
+    /// phase.
+    private func departureSymbol(_ attrs: FlightActivityAttributes) -> String {
+        attrs.mode == .air ? "airplane.departure" : attrs.mode.symbol
+    }
+
+    private func arrivalSymbol(_ attrs: FlightActivityAttributes) -> String {
+        attrs.mode == .air ? "airplane.arrival" : attrs.mode.symbol
     }
 
     private func effectivePhase(_ state: FlightActivityAttributes.ContentState) -> Phase {
@@ -369,7 +398,7 @@ struct FlightLiveActivity: Widget {
 
             HStack {
                 HStack(spacing: 7) {
-                    Image(systemName: "airplane.departure")
+                    Image(systemName: departureSymbol(attrs))
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(IntelligenceShimmerText.gradient)
                     VStack(alignment: .leading, spacing: 1) {
@@ -380,7 +409,7 @@ struct FlightLiveActivity: Widget {
                             text: "Departing…",
                             font: .system(size: 14, weight: .bold),
                             sweep: state.departureTime...state.departureTime.addingTimeInterval(Self.departureGrace))
-                        Text("Waiting for takeoff confirmation")
+                        Text(attrs.mode == .air ? "Waiting for takeoff confirmation" : "Waiting for departure confirmation")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.tertiary)
                     }
@@ -439,7 +468,7 @@ struct FlightLiveActivity: Widget {
             // widget has no airport database.
             // Friend mode: never — directions to an airport the VIEWER isn't
             // flying from are noise (and cost a row against the height cap).
-            if attrs.friendName == nil, showsDirections(state), let url = directionsURL(attrs: attrs, state: state) {
+            if attrs.mode.hasAirportOperations, attrs.friendName == nil, showsDirections(state), let url = directionsURL(attrs: attrs, state: state) {
                 Link(destination: url) {
                     HStack(spacing: 6) {
                         Image(systemName: "car.fill")
@@ -547,7 +576,7 @@ struct FlightLiveActivity: Widget {
                     // TimeDataSource text as placeholder dashes ("–h ––m") —
                     // only the classic live styles work here.
                     HStack(spacing: 0) {
-                        Text("Departs Gate in ")
+                        Text("Departs \(attrs.mode.boardingPointLabel) in ")
                             .font(.system(size: 14, weight: .medium)).foregroundStyle(.primary)
                         Text(state.departureTime, style: .relative)
                             .font(.system(size: 14, weight: .bold)).foregroundStyle(.primary)
@@ -601,7 +630,7 @@ struct FlightLiveActivity: Widget {
                 .frame(height: 24)
                 .padding(.bottom, 2)
 
-            arrivalCountdown(state)
+            arrivalCountdown(attrs: attrs, state)
         }
         // Same edge treatment as pre-departure: 17pt vertical air, bought by
         // trimming the flight path's height rather than the outer margins.
@@ -613,16 +642,16 @@ struct FlightLiveActivity: Widget {
     /// system-animated — it keeps counting down with the app dead and no
     /// internet, exactly the in-flight situation.
     @ViewBuilder
-    private func arrivalCountdown(_ state: FlightActivityAttributes.ContentState) -> some View {
+    private func arrivalCountdown(attrs: FlightActivityAttributes, _ state: FlightActivityAttributes.ContentState) -> some View {
         HStack {
             Spacer()
             VStack(spacing: 2) {
                 if Date.now >= state.arrivalTime {
                     if isConfirmedLanded(state) {
-                        Text("LANDED")
+                        Text(attrs.mode.arrivedShort)
                             .font(.system(size: 16, weight: .bold).monospacedDigit())
                             .foregroundStyle(.green)
-                        Text("ARRIVED")
+                        Text(attrs.mode == .air ? "ARRIVED" : "AT \(attrs.arrivalIATA)")
                             .font(.system(size: 8, weight: .semibold))
                             .foregroundStyle(.tertiary)
                             .tracking(0.4)
@@ -630,7 +659,7 @@ struct FlightLiveActivity: Widget {
                         // Unconfirmed = Arc is waiting: intelligence voice,
                         // sweeping over the plausible touch-down window.
                         IntelligenceShimmerText(
-                            text: "LANDING SOON",
+                            text: "\(attrs.mode.arrivingVerb.uppercased()) SOON",
                             font: .system(size: 16, weight: .bold),
                             sweep: state.arrivalTime...state.arrivalTime.addingTimeInterval(15 * 60))
                         Text("WAITING FOR CONFIRMATION")
@@ -654,7 +683,7 @@ struct FlightLiveActivity: Widget {
                     // permanent noise, not honesty. The flip runs off the last
                     // cached delay-adjusted estimate, refreshed every poll until
                     // connectivity was lost.
-                    Text("UNTIL GATE ARRIVAL")
+                    Text(attrs.mode == .air ? "UNTIL GATE ARRIVAL" : "UNTIL ARRIVAL")
                         .font(.system(size: 8, weight: .semibold))
                         .foregroundStyle(.tertiary)
                         .tracking(0.4)
@@ -677,7 +706,7 @@ struct FlightLiveActivity: Widget {
         VStack(spacing: 0) {
             HStack {
                 HStack(spacing: 5) {
-                    Image(systemName: "airplane.arrival")
+                    Image(systemName: arrivalSymbol(attrs))
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.green)
                     Text(attrs.flightNumber)
@@ -685,7 +714,7 @@ struct FlightLiveActivity: Widget {
                 }
                 Spacer()
                 if isConfirmedLanded(state) {
-                    Text("LANDED")
+                    Text(attrs.mode.arrivedShort)
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.green)
                         .padding(.horizontal, 8)
@@ -693,7 +722,7 @@ struct FlightLiveActivity: Widget {
                         .background(.green.opacity(0.12), in: Capsule())
                 } else {
                     IntelligenceShimmerText(
-                        text: "LANDING SOON",
+                        text: "\(attrs.mode.arrivingVerb.uppercased()) SOON",
                         font: .system(size: 11, weight: .bold),
                         sweep: state.arrivalTime...state.arrivalTime.addingTimeInterval(15 * 60))
                         .padding(.horizontal, 8)
@@ -707,7 +736,7 @@ struct FlightLiveActivity: Widget {
                 Text(attrs.departureIATA)
                     .font(.system(size: 20, weight: .bold))
                 Spacer()
-                Image(systemName: isConfirmedLanded(state) ? "checkmark.circle.fill" : "airplane.arrival")
+                Image(systemName: isConfirmedLanded(state) ? "checkmark.circle.fill" : arrivalSymbol(attrs))
                     .font(.system(size: 14))
                     .foregroundStyle(.green)
                 Spacer()
@@ -731,6 +760,17 @@ struct FlightLiveActivity: Widget {
                         .padding(.horizontal, 10).padding(.vertical, 5)
                         .background(Color.green, in: Capsule())
                         .shadow(color: .green.opacity(0.5), radius: 4)
+                    } else if !attrs.mode.hasAirportOperations {
+                        // Trains and ferries have no baggage carousel — the
+                        // arrived verb is the whole story.
+                        HStack(spacing: 5) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.green)
+                            Text("\(attrs.mode.arrivedVerb) at \(attrs.arrivalIATA)")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
                     } else {
                         // No belt assigned yet. It used to read "Baggage
                         // Scanning…", which implied we were watching something
@@ -764,7 +804,7 @@ struct FlightLiveActivity: Widget {
     private func headerRow(attrs: FlightActivityAttributes, state: FlightActivityAttributes.ContentState) -> some View {
         HStack {
             HStack(spacing: 5) {
-                Image(systemName: "airplane")
+                Image(systemName: attrs.mode.symbol)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.green)
                 Text(attrs.flightNumber)
@@ -805,7 +845,7 @@ struct FlightLiveActivity: Widget {
                 ForEach(0..<2, id: \.self) { _ in
                     Circle().fill(.tertiary).frame(width: 2.5, height: 2.5)
                 }
-                Image(systemName: "airplane")
+                Image(systemName: attrs.mode.symbol)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.tertiary)
                 ForEach(0..<2, id: \.self) { _ in

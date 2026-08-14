@@ -19,11 +19,17 @@ struct PassportStats {
         self.longHaul = done.filter { $0.distanceKm > 4000 }.count
         self.distanceKm = done.map(\.distanceKm).reduce(0, +)
         self.seconds = done.map(\.duration).reduce(0, +)
+        // Codes and airline identities are aviation facts — a rail leg's "BER"
+        // is Berlin Hbf, not an airport visited, and a rail operator is not an
+        // airline flown.
         var apts = Set<String>()
-        for f in done { apts.insert(f.departureIATA); apts.insert(f.arrivalIATA) }
+        for f in done where f.mode == .air { apts.insert(f.departureIATA); apts.insert(f.arrivalIATA) }
         self.airports = apts.count
-        self.airlines = Set(done.map(\.airlineCode)).count
-        let delayed = done.filter { $0.delayMinutes > 0 }
+        self.airlines = Set(done.filter { $0.mode == .air }.map(\.airlineCode)).count
+        // Delay stats only from legs whose source reported punctuality — the
+        // widget already zeroes these out for timetable/manual tiers, and the
+        // passport must not count what nobody measured.
+        let delayed = done.filter { $0.delayMinutes > 0 && $0.dataTier.reportsPunctuality }
         self.delayedFlights = delayed.count
         self.delayMinutesLost = delayed.map(\.delayMinutes).reduce(0, +)
         let byType = Dictionary(grouping: done.compactMap { $0.aircraftType }, by: { $0 })

@@ -118,7 +118,24 @@ struct ArcRootView: View {
         }
         .onOpenURL { url in
             guard let dest = ArcDeepLink.parse(url) else { return }
-            open(dest)
+            // A Live Activity / widget tap that LAUNCHES the app delivers its
+            // URL while the scene is still inactive — and a sheet presented
+            // before the window is active is silently dropped (the camera
+            // moved but no detail appeared). Park it; the scenePhase-active
+            // drain below presents it the moment presentation can stick.
+            if scenePhase == .active {
+                open(dest)
+            } else {
+                PendingFlightOpen.destination = dest
+                // The URL can also arrive AFTER the scene-active drain already
+                // ran (delivery order isn't guaranteed), which would leave the
+                // tap parked until the next foreground. A short delayed drain
+                // through the existing notification path covers that ordering;
+                // it's a no-op when the phase-change drain got there first.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    NotificationCenter.default.post(name: .arcOpenFlight, object: nil)
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .arcOpenFlight)) { _ in
             drainPendingOpen()

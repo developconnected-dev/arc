@@ -192,6 +192,11 @@ final class FlightTracker: ObservableObject {
 
                 try? modelContext.save()
 
+                // Re-write the App Group after every cycle: gate changes and
+                // delays otherwise reached the Live Activity but not the
+                // home-screen widget until the app was next foregrounded.
+                WidgetSync.sync(flights: flights)
+
                 // Base loop interval: 60s (individual flights skip if not due)
                 try? await Task.sleep(for: .seconds(60))
             }

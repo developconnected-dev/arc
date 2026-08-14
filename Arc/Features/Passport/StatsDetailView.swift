@@ -35,7 +35,7 @@ struct StatsDetailView: View {
 
     @ViewBuilder private var flightSection: some View {
         Section {
-            row("Flights", "\(stats.flights)")
+            row("Trips", "\(stats.flights)")
             row("Distance", stats.distanceFormatted)
             row("Around the world", String(format: "%.1f×", stats.distanceKm / 40075.0))
             row("Time in the air", stats.flightTimeFormatted)
@@ -85,7 +85,7 @@ struct StatsDetailView: View {
     @ViewBuilder private var delaySection: some View {
         Section {
             row("Minutes lost", "\(stats.delayMinutesLost)")
-            row("Delayed flights", "\(stats.delayedFlights) of \(stats.flights)")
+            row("Delayed trips", "\(stats.delayedFlights) of \(stats.flights)")
             row("Average delay", "\(stats.avgDelay)m")
             row("On-time rate", onTimeRate)
             row("Worst delay", "\(worstDelay)m")
@@ -107,7 +107,12 @@ struct StatsDetailView: View {
     private var worstDelay: Int { flights.map(\.delayMinutes).max() ?? 0 }
     private var delayByAirline: [(String, Int)] {
         var counts: [String: Int] = [:]
-        for f in flights where f.delayMinutes > 0 { counts[f.airlineCode, default: 0] += f.delayMinutes }
+        // Only legs whose source reported punctuality — and only airlines:
+        // charging a rail operator's timetable slip to "delay by airline"
+        // would be invented data twice over.
+        for f in flights where f.delayMinutes > 0 && f.mode == .air && f.dataTier.reportsPunctuality {
+            counts[f.airlineCode, default: 0] += f.delayMinutes
+        }
         return counts.sorted { $0.value > $1.value }.map { ($0.key, $0.value) }
     }
 

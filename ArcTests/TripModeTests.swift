@@ -63,9 +63,11 @@ final class TripModeTests: XCTestCase {
     // MARK: - Vocabulary
 
     func testTrainsDoNotLandAndFerriesAreNotInTheAir() {
+        // One register per mode on every surface (TripMode.inTransitTitle):
+        // the list, the widget and the friends feed may not disagree.
         for (mode, moving, arrived) in [(TripMode.air, "In Air", "Landed"),
                                         (.rail, "En Route", "Arrived"),
-                                        (.sea, "En Route", "Arrived")] {
+                                        (.sea, "At Sea", "Arrived")] {
             let f = leg(mode, tier: .live)
             f.status = .active
             XCTAssertEqual(f.statusText, moving, "\(mode) in transit")
@@ -226,7 +228,7 @@ final class TripModeTests: XCTestCase {
         train.status = .active
         let snapshot = WidgetFlight(train)
         XCTAssertEqual(snapshot.mode, .rail)
-        XCTAssertEqual(snapshot.statusText(phase: .inFlight), "En route")
+        XCTAssertEqual(snapshot.statusText(phase: .inFlight), "En Route")
         XCTAssertEqual(snapshot.mode.boardingPointLabel, "Platform")
         train.status = .landed
         XCTAssertEqual(WidgetFlight(train).terminalLabel, "Arrived")
@@ -238,7 +240,7 @@ final class TripModeTests: XCTestCase {
         XCTAssertTrue(snapshot.reportsPunctuality)
         XCTAssertEqual(snapshot.delayMinutes, 20)
         XCTAssertEqual(snapshot.statusText(phase: .upcoming), "Delayed 20m")
-        XCTAssertEqual(snapshot.statusText(phase: .inFlight), "In Flight")
+        XCTAssertEqual(snapshot.statusText(phase: .inFlight), "In Air")
     }
 
     func testCancelledSailingStillEarnsItsRedInTheWidget() {

@@ -73,6 +73,13 @@ enum ScheduleBackfill {
         if let gate = leg.dep_gate, !gate.isEmpty { flight.departureGate = gate }
         if let terminal = leg.dep_terminal, !terminal.isEmpty { flight.departureTerminal = terminal }
         flight.delayMinutes = leg.delay ?? 0
+        // A found schedule means a provider is now reporting this leg — the
+        // manual tier (and its "Added by you" qualifier) no longer applies.
+        if let tier = leg.data_tier, let parsed = DataTier(rawValue: tier) {
+            flight.dataTier = parsed
+        } else {
+            flight.dataTier = .live
+        }
         flight.awaitingSchedule = false
     }
 

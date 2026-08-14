@@ -2,7 +2,8 @@
 
 Arc's UI, offline typeahead, and manual flight entry all work with **zero
 API keys**. This is only needed to light up **live search + live tracking**
-(the `/flight` and `/inbound` endpoints in `backend/src/index.ts`).
+(`/flight`, `/inbound`, `/arrival-gate`, `/search-flights` route discovery,
+and the every-minute cron in `backend/src/index.ts`).
 
 There are two separate pieces, and they live in two different places:
 
@@ -113,7 +114,7 @@ every file in `supabase/migrations/` in order, and point the app at it (see the
 Social section of the README — the URL and anon key are defaults in
 `ArcSupabase.init`, not Settings fields).
 
-The Worker needs its own pair for the `/journey/:code` page, the gate store and
+The Worker needs its own pair for the `/s/:code` share page, the gate store and
 the API budget row: `wrangler secret put SUPABASE_URL` and `wrangler secret put
 SUPABASE_SERVICE_KEY`. The **service-role** key, not the anon one — none of
 those tables are open to anon — so it belongs only in Worker secrets, never in

@@ -43,8 +43,13 @@ struct AddFlightView: View {
 
     // Manual entry state
     @State private var manualNumber = ""
+    @State private var manualMode: TripMode = .air
     @State private var manualDep: AirportRef?
     @State private var manualArr: AirportRef?
+    // Rail/sea manual entry: there is no offline station/port database the way
+    // ReferenceData covers airports, so non-air endpoints are free-text names.
+    @State private var manualDepName = ""
+    @State private var manualArrName = ""
     @State private var manualDepartureDate = Date.now
     @State private var manualArrivalDate = Date.now.addingTimeInterval(2 * 3600)
     @State private var manualStatus: FlightStatus = .scheduled
@@ -214,7 +219,7 @@ struct AddFlightView: View {
         case .number: "Enter flight number"
         case .date: "Enter departure date"
         case .results: "Tap to add to My Trips"
-        case .manual: "Enter the flight details yourself"
+        case .manual: "Enter the trip details yourself"
         }
     }
 
@@ -406,7 +411,7 @@ struct AddFlightView: View {
             Button { enterManual(prefillingFrom: nil) } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "square.and.pencil").font(.system(size: 15, weight: .semibold))
-                    Text("Can't find it? Enter a flight manually")
+                    Text("Can't find it? Enter a trip manually")
                         .font(.system(size: 15, weight: .semibold))
                 }
                 .foregroundStyle(ArcTheme.action)
@@ -836,7 +841,8 @@ struct AddFlightView: View {
             if isPastEntry {
                 HStack(spacing: 6) {
                     Image(systemName: "clock.arrow.circlepath").font(.system(size: 11, weight: .bold))
-                    Text("LOGGING A PAST FLIGHT").font(.system(size: 11, weight: .heavy)).tracking(0.8)
+                    Text(manualMode == .air ? "LOGGING A PAST FLIGHT" : "LOGGING A PAST TRIP")
+                        .font(.system(size: 11, weight: .heavy)).tracking(0.8)
                 }
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 11).padding(.vertical, 6)
@@ -844,10 +850,22 @@ struct AddFlightView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                sectionLabel("FLIGHT NUMBER", icon: "number")
+                sectionLabel("TRIP TYPE", icon: manualMode.symbol)
+                Picker("Trip type", selection: $manualMode) {
+                    Text("Flight").tag(TripMode.air)
+                    Text("Train").tag(TripMode.rail)
+                    Text("Ferry").tag(TripMode.sea)
+                }
+                .pickerStyle(.segmented)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                sectionLabel(manualNumberLabel, icon: "number")
                 HStack(spacing: 10) {
-                    AirlineLogoView(iata: String(manualNumber.uppercased().prefix(2)), size: 30)
-                    TextField("e.g. LX1413", text: $manualNumber)
+                    if manualMode == .air {
+                        AirlineLogoView(iata: String(manualNumber.uppercased().prefix(2)), size: 30)
+                    }
+                    TextField(manualNumberPlaceholder, text: $manualNumber)
                         .font(.system(size: 22, weight: .heavy))
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
@@ -857,35 +875,50 @@ struct AddFlightView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                sectionLabel("ROUTE", icon: "airplane")
-                HStack(alignment: .top, spacing: 8) {
-                    AirportField(
-                        title: "FROM", airport: manualDep, isActive: activeAirportField == .from,
-                        query: $airportQuery,
-                        onActivate: { activate(.from) },
-                        onSelect: { a in manualDep = a; activeAirportField = nil; airportQuery = "" }
-                    )
-                    Button { swapAirports() } label: {
-                        Image(systemName: "arrow.left.arrow.right")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(ArcTheme.action)
-                            .frame(width: 30, height: 30)
-                            .background(Color(.secondarySystemFill), in: Circle())
+                sectionLabel("ROUTE", icon: manualMode.symbol)
+                if manualMode == .air {
+                    HStack(alignment: .top, spacing: 8) {
+                        AirportField(
+                            title: "FROM", airport: manualDep, isActive: activeAirportField == .from,
+                            query: $airportQuery,
+                            onActivate: { activate(.from) },
+                            onSelect: { a in manualDep = a; activeAirportField = nil; airportQuery = "" }
+                        )
+                        Button { swapAirports() } label: {
+                            Image(systemName: "arrow.left.arrow.right")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(ArcTheme.action)
+                                .frame(width: 30, height: 30)
+                                .background(Color(.secondarySystemFill), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 20)
+                        .disabled(manualDep == nil && manualArr == nil)
+                        AirportField(
+                            title: "TO", airport: manualArr, isActive: activeAirportField == .to,
+                            query: $airportQuery,
+                            onActivate: { activate(.to) },
+                            onSelect: { a in manualArr = a; activeAirportField = nil; airportQuery = "" }
+                        )
                     }
-                    .buttonStyle(.plain)
-                    .padding(.top, 20)
-                    .disabled(manualDep == nil && manualArr == nil)
-                    AirportField(
-                        title: "TO", airport: manualArr, isActive: activeAirportField == .to,
-                        query: $airportQuery,
-                        onActivate: { activate(.to) },
-                        onSelect: { a in manualArr = a; activeAirportField = nil; airportQuery = "" }
-                    )
+                } else {
+                    // Free-text endpoints: no offline station/port database to
+                    // pick from, and a hand-logged trip doesn't need one.
+                    VStack(spacing: 0) {
+                        TextField(manualMode == .rail ? "From station, e.g. Berlin Hbf" : "From port, e.g. Piraeus",
+                                  text: $manualDepName)
+                            .padding(.horizontal, 14).padding(.vertical, 12)
+                        Divider().padding(.leading, 14)
+                        TextField(manualMode == .rail ? "To station, e.g. München Hbf" : "To port, e.g. Santorini",
+                                  text: $manualArrName)
+                            .padding(.horizontal, 14).padding(.vertical, 12)
+                    }
+                    .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 14))
                 }
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                sectionLabel("TIMES · LOCAL TO EACH AIRPORT", icon: "clock")
+                sectionLabel(manualMode == .air ? "TIMES · LOCAL TO EACH AIRPORT" : "TIMES · LOCAL TO EACH STOP", icon: "clock")
                 VStack(spacing: 0) {
                     manualTimeRow(label: "Departs", date: $manualDepartureDate) { new in
                         if manualArrivalDate < new { manualArrivalDate = new.addingTimeInterval(2 * 3600) }
@@ -915,23 +948,25 @@ struct AddFlightView: View {
                     set: { manualStatus = $0; manualStatusTouched = true }
                 )) {
                     Text("Scheduled").tag(FlightStatus.scheduled)
-                    Text("Landed").tag(FlightStatus.landed)
+                    Text(manualMode == .air ? "Landed" : "Arrived").tag(FlightStatus.landed)
                     Text("Cancelled").tag(FlightStatus.cancelled)
                 }
                 .pickerStyle(.segmented)
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                sectionLabel("AIRCRAFT · OPTIONAL", icon: "airplane.circle")
-                VStack(spacing: 0) {
-                    TextField("Type, e.g. Airbus A320neo", text: $manualAircraft)
-                        .padding(.horizontal, 14).padding(.vertical, 12)
-                    Divider().padding(.leading, 14)
-                    TextField("Registration, e.g. HB-JCA", text: $manualRegistration)
-                        .textInputAutocapitalization(.characters).autocorrectionDisabled()
-                        .padding(.horizontal, 14).padding(.vertical, 12)
+            if manualMode == .air {
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionLabel("AIRCRAFT · OPTIONAL", icon: "airplane.circle")
+                    VStack(spacing: 0) {
+                        TextField("Type, e.g. Airbus A320neo", text: $manualAircraft)
+                            .padding(.horizontal, 14).padding(.vertical, 12)
+                        Divider().padding(.leading, 14)
+                        TextField("Registration, e.g. HB-JCA", text: $manualRegistration)
+                            .textInputAutocapitalization(.characters).autocorrectionDisabled()
+                            .padding(.horizontal, 14).padding(.vertical, 12)
+                    }
+                    .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 14))
                 }
-                .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 14))
             }
 
             if let addError {
@@ -949,7 +984,9 @@ struct AddFlightView: View {
             Button(action: addManual) {
                 HStack {
                     Spacer()
-                    Text(isPastEntry ? "Log Past Flight" : "Add Flight")
+                    Text(isPastEntry
+                         ? (manualMode == .air ? "Log Past Flight" : "Log Past Trip")
+                         : "Add \(manualMode == .air ? "Flight" : manualMode == .rail ? "Train" : "Ferry")")
                         .font(.system(size: 17, weight: .semibold))
                     Spacer()
                 }
@@ -979,12 +1016,43 @@ struct AddFlightView: View {
         airportQuery = ""
     }
 
+    private var manualNumberLabel: String {
+        switch manualMode {
+        case .air: "FLIGHT NUMBER"
+        case .rail: "TRAIN NUMBER"
+        case .sea: "VESSEL OR SERVICE"
+        }
+    }
+
+    private var manualNumberPlaceholder: String {
+        switch manualMode {
+        case .air: "e.g. LX1413"
+        case .rail: "e.g. ICE 373"
+        case .sea: "e.g. Blue Star Delos"
+        }
+    }
+
     private var canAddManual: Bool {
-        guard let dep = manualDep, let arr = manualArr, dep.iata != arr.iata else { return false }
-        return !manualNumber.trimmingCharacters(in: .whitespaces).isEmpty
+        guard !manualNumber.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        if manualMode == .air {
+            guard let dep = manualDep, let arr = manualArr, dep.iata != arr.iata else { return false }
+            return true
+        }
+        let from = manualDepName.trimmingCharacters(in: .whitespaces)
+        let to = manualArrName.trimmingCharacters(in: .whitespaces)
+        return !from.isEmpty && !to.isEmpty && from.caseInsensitiveCompare(to) != .orderedSame
+    }
+
+    /// A display code for a free-text stop name — the chip the list rows show
+    /// where an air leg shows its IATA. "Berlin Hbf" → "BER" is a *label*, not
+    /// an airport reference: nothing airport-flavored runs for non-air modes.
+    private static func stopCode(_ name: String) -> String {
+        let letters = name.uppercased().filter(\.isLetter)
+        return String(letters.prefix(3))
     }
 
     private func addManual() {
+        if manualMode != .air { addManualTransit(); return }
         guard let dep = manualDep, let arr = manualArr else { return }
         // The DatePicker edits using the device's own calendar/timezone, but the rest
         // of the app treats every flight time as local-to-the-airport (see
@@ -1008,6 +1076,9 @@ struct AddFlightView: View {
         f.scheduledDeparture = departure
         f.scheduledArrival = arrival
         f.statusRaw = manualStatus.rawValue
+        // The user typed it in; nobody reported punctuality. ScheduleBackfill
+        // upgrades the tier if a real schedule is found later.
+        f.dataTier = .manual
         if manualStatus == .landed {
             f.actualDeparture = departure
             f.actualArrival = arrival
@@ -1027,6 +1098,46 @@ struct AddFlightView: View {
         } catch {
             modelContext.delete(f)
             addError = "Couldn't save this flight: \(error.localizedDescription)"
+        }
+    }
+
+    /// Manual rail/sea entry. No station database backs this path, so the
+    /// endpoints are exactly what the user typed: full names in the city
+    /// fields, a derived three-letter label where a row expects a code, no
+    /// coordinates (the map simply doesn't draw an arc), and times kept in the
+    /// device's zone — without a stop registry there is nothing sounder to
+    /// re-project them onto.
+    private func addManualTransit() {
+        let from = manualDepName.trimmingCharacters(in: .whitespaces)
+        let to = manualArrName.trimmingCharacters(in: .whitespaces)
+        guard !from.isEmpty, !to.isEmpty else { return }
+
+        let f = Flight(flightNumber: manualNumber.uppercased(), date: manualDepartureDate)
+        f.sharedWithIds = sharedWithIds
+        f.mode = manualMode
+        f.dataTier = .manual
+        f.awaitingSchedule = false  // nothing to backfill a hand-typed train from
+        f.departureIATA = Self.stopCode(from); f.arrivalIATA = Self.stopCode(to)
+        f.departureCity = from; f.arrivalCity = to
+        f.scheduledDeparture = manualDepartureDate
+        f.scheduledArrival = manualArrivalDate
+        f.statusRaw = manualStatus.rawValue
+        if manualStatus == .landed {
+            f.actualDeparture = manualDepartureDate
+            f.actualArrival = manualArrivalDate
+        }
+        if manualMode == .sea { f.vesselName = manualNumber.uppercased() }
+
+        modelContext.insert(f)
+        do {
+            try modelContext.save()
+            if manualStatus == .scheduled { ArcNotifications.scheduleDepartureReminder(for: f) }
+            syncToCloud(f)
+            onAdded?(f)
+            dismiss()
+        } catch {
+            modelContext.delete(f)
+            addError = "Couldn't save this trip: \(error.localizedDescription)"
         }
     }
 

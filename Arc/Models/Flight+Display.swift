@@ -164,7 +164,7 @@ extension Flight {
         case .cancelled: return "Cancelled"
         case .landed: return mode == .air ? "Landed" : "Arrived"
         case .active:
-            let moving = mode == .air ? "In Air" : "En Route"
+            let moving = mode.inTransitTitle
             guard reportsPunctuality, delayMinutes > 0 else { return moving }
             return "\(moving) • \(delayMinutes)m late"
         case .diverted: return "Diverted"
@@ -184,7 +184,7 @@ extension Flight {
     /// Top-right label on a My Flights card.
     var cardTopRight: String {
         if isActive { return statusText }
-        if isRecentlyLanded { return "Landed" }
+        if isRecentlyLanded { return mode.arrivedVerb }
         // Boarding/gate-closed read as standalone states, not "Departs Boarding".
         if isBoarding { return statusText }
         // Arc's own knock-on prediction — only shown while it says meaningfully

@@ -71,7 +71,8 @@ struct ArcMapView: View {
                         FriendMapBubble(name: friend.name,
                                         avatarURL: friend.avatarURL,
                                         chipText: friend.chipText,
-                                        chipKind: friend.chipKind)
+                                        chipKind: friend.chipKind,
+                                        symbol: friend.symbol)
                     }
                 }
             }
@@ -202,7 +203,13 @@ struct ArcMapView: View {
                        !(controller.livePlane != nil && isFeedAircraft(flight)),
                        let plane = ownPlane(flight, dep: dep, arr: arr) {
                         Annotation("", coordinate: plane.coordinate) {
-                            ActivePlaneGlyph(heading: plane.heading, isLive: plane.isLive)
+                            ActivePlaneGlyph(symbol: flight.mode.symbol,
+                                             heading: plane.heading,
+                                             isLive: plane.isLive,
+                                             // Only the airplane glyph reads as
+                                             // directional — a rotated tram or
+                                             // ferry front-view just looks broken.
+                                             rotates: flight.mode == .air)
                         }
                     }
 
@@ -260,6 +267,7 @@ struct ArcMapView: View {
         let avatarURL: String?
         let chipText: String
         let chipKind: FriendFlightMath.ChipKind
+        let symbol: String
 
         var body: some View {
             let (bg, fg): (Color, Color) = switch chipKind {
@@ -274,7 +282,7 @@ struct ArcMapView: View {
                     .overlay(Circle().stroke(.white, lineWidth: 2))
                     .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
                 HStack(spacing: 3) {
-                    Image(systemName: "airplane").font(.system(size: 7, weight: .bold))
+                    Image(systemName: symbol).font(.system(size: 7, weight: .bold))
                     Text(chipText).font(.system(size: 9, weight: .heavy))
                 }
                 .foregroundStyle(fg)
@@ -288,8 +296,10 @@ struct ArcMapView: View {
     /// The active flight's own plane, with a slow breathing halo — the one
     /// aircraft on the map that's *yours, right now* reads as alive.
     private struct ActivePlaneGlyph: View {
+        let symbol: String
         let heading: Double
         let isLive: Bool
+        let rotates: Bool
         @State private var breathe = false
 
         var body: some View {
@@ -299,10 +309,10 @@ struct ArcMapView: View {
                     .frame(width: 34, height: 34)
                     .scaleEffect(breathe ? 1.25 : 0.8)
                     .opacity(breathe ? 0.1 : 0.45)
-                Image(systemName: "airplane")
+                Image(systemName: symbol)
                     .font(.system(size: 18, weight: .black))
                     .foregroundStyle(.white)
-                    .rotationEffect(.degrees(heading - 90))
+                    .rotationEffect(.degrees(rotates ? heading - 90 : 0))
                     .shadow(radius: 2)
                     // Estimated positions read slightly softer than a real
                     // fix, so the map never overstates what it knows.

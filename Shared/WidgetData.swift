@@ -101,8 +101,8 @@ struct WidgetFlight: Identifiable {
         if status == "cancelled" { return "Cancelled" }
         if status == "diverted" { return "Diverted" }
         switch phase {
-        case .inFlight: return mode.inTransitLabel
-        case .landed: return status == "landed" ? "Arrived" : "Arriving soon"
+        case .inFlight: return mode.inTransitTitle
+        case .landed: return status == "landed" ? mode.arrivedVerb : "\(mode.arrivingVerb) soon"
         case .upcoming:
             if showsPrediction { return "Arc +\(predictedDelayMinutes)m" }
             // "On Time" is a quote, not a guess. With only a timetable to go on

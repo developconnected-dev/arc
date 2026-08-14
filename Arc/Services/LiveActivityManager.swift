@@ -19,16 +19,22 @@ final class LiveActivityManager {
         } else {
             depTime = flight.scheduledDeparture
         }
-        let boardingMinutes = Self.estimateBoardingMinutes(airline: flight.airlineICAO, duration: flight.duration)
-        let boardingTime = depTime.addingTimeInterval(-Double(boardingMinutes) * 60)
-
-        // Fetch security wait time while the user could still be landside.
-        // ("delayed" was checked here before, but that string never occurs —
-        // the Worker normalizes it to "scheduled". boarding/gateClosed are
-        // real statuses where the wait is no longer actionable, so skip them.)
+        // Boarding windows and security queues are airport concepts. A rail
+        // leg's "BER" is Berlin Hbf, not Berlin Brandenburg — asking the
+        // airport tables about it returns another vehicle's answer.
+        var boardingTime: Date? = nil
         var securityWait: Int? = nil
-        if flight.statusRaw == "scheduled" {
-            securityWait = try? await FlightAPIClient.shared.securityWaitTime(iata: flight.departureIATA)?.securityMinutes
+        if flight.mode.hasAirportOperations {
+            let boardingMinutes = Self.estimateBoardingMinutes(airline: flight.airlineICAO, duration: flight.duration)
+            boardingTime = depTime.addingTimeInterval(-Double(boardingMinutes) * 60)
+
+            // Fetch security wait time while the user could still be landside.
+            // ("delayed" was checked here before, but that string never occurs —
+            // the Worker normalizes it to "scheduled". boarding/gateClosed are
+            // real statuses where the wait is no longer actionable, so skip them.)
+            if flight.statusRaw == "scheduled" {
+                securityWait = try? await FlightAPIClient.shared.securityWaitTime(iata: flight.departureIATA)?.securityMinutes
+            }
         }
 
         // Delay shifts the arrival too, matching depTime above — the
@@ -87,7 +93,8 @@ final class LiveActivityManager {
             seat: flight.seat,
             friendName: friendName,
             friendAvatarFile: friendAvatarFile,
-            flightId: friendName == nil ? flight.id.uuidString : nil
+            flightId: friendName == nil ? flight.id.uuidString : nil,
+            modeRaw: flight.mode.rawValue
         )
 
         let state = await makeState(for: flight)

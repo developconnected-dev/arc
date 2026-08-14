@@ -58,6 +58,9 @@ struct ArcApp: App {
         let descriptor = FetchDescriptor<Flight>()
         guard let flights = try? context.fetch(descriptor) else { return }
         await FlightTracker.shared.burstUpdate(flights: flights, modelContext: context)
+        // The whole point of the background window is fresh data while the
+        // app stays closed — push it to the home-screen widget too.
+        WidgetSync.sync(flights: flights)
         // Friend alerts + friend Live Activities ride the same background
         // window (refresh internally diffs against the persisted baseline).
         await FriendsStore.shared.refresh()
