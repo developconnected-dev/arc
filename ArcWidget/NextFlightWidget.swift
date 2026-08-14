@@ -164,13 +164,16 @@ struct NextFlightSmallView: View {
 
     private func countdownColor(_ flight: WidgetFlight, phase: WidgetFlight.Phase) -> Color {
         if flight.isDisrupted { return .red }
-        // Green is the widget saying "this is running to plan". A timetable
-        // never said that, so a timetable-only leg stays neutral.
-        if !flight.reportsPunctuality { return .secondary }
-        if phase != .upcoming { return .green }
-        if flight.showsPrediction || flight.delayMinutes > 0 { return .orange }
+        // Green is the widget saying "this ran to plan", and orange is a delay
+        // figure — neither is available for a leg whose source reports no
+        // punctuality. The countdown itself is a fact in any tier, though, so it
+        // keeps its normal weight; only the claims are withheld.
+        if phase != .upcoming { return flight.reportsPunctuality ? .green : .secondary }
+        if flight.reportsPunctuality, flight.showsPrediction || flight.delayMinutes > 0 {
+            return .orange
+        }
         let hours = flight.timeUntilDeparture / 3600
-        if hours < 2 { return .orange }
+        if hours < 2 { return .orange }   // soon is a clock fact, not a claim
         return .primary
     }
 
@@ -323,9 +326,9 @@ struct NextFlightMediumView: View {
 
     private func countdownColor(_ flight: WidgetFlight, phase: WidgetFlight.Phase) -> Color {
         if flight.isDisrupted { return .red }
-        if !flight.reportsPunctuality { return .secondary }
-        if phase != .upcoming { return .green }
-        return (flight.showsPrediction || flight.delayMinutes > 0) ? .orange : .primary
+        if phase != .upcoming { return flight.reportsPunctuality ? .green : .secondary }
+        return flight.reportsPunctuality && (flight.showsPrediction || flight.delayMinutes > 0)
+            ? .orange : .primary
     }
 }
 
