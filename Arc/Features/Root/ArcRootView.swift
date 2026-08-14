@@ -25,6 +25,11 @@ struct ArcRootView: View {
     /// keeps this permission-free.
     @State private var offeredPasteChange: Int?
     @State private var dismissedPasteChange: Int?
+    /// A detail screen waiting for the sheet in front of it to go away.
+    /// Presenting a second sheet while one is still up is a no-op in SwiftUI,
+    /// and swapping a presented sheet's item can drop the replacement on the
+    /// floor — so both cases dismiss first and come back through here.
+    @State private var queuedDetail: Flight?
 
 
     /// Test hooks for headless screenshots.
@@ -40,16 +45,25 @@ struct ArcRootView: View {
         // so the modifier chain below stays inside the type checker's budget.)
 
         .sheet(isPresented: $showAdd) {
-            AddFlightView(initialQuery: clipboardQuery ?? addInitialQuery)
-                .presentationDetents([.large])
-                .onDisappear { clipboardQuery = nil }
+            AddFlightView(initialQuery: clipboardQuery ?? addInitialQuery,
+                          onAdded: { added in queuedDetail = added })
+            .presentationDetents([.large])
+            .onDisappear {
+                clipboardQuery = nil
+                presentQueuedDetail()
+            }
         }
         // Dismissing the flight leaves its ground view too — otherwise the map
         // stayed stuck in terminal mode with a Back button and no flight.
-        .sheet(item: $detailFlight, onDismiss: { controller.clearGateMarker() }) { flight in
+        .sheet(item: $detailFlight,
+               onDismiss: {
+                   controller.clearGateMarker()
+                   presentQueuedDetail()
+               }) { flight in
             FlightDetailView(flight: flight,
                              onShowAtGate: { f in showPlaneAtGate(f) },
-                             onShowAirport: { f in showAirportView(f) })
+                             onShowAirport: { f in showAirportView(f) },
+                             onOpenFlight: { other in _ = show(other) })
                 .presentationDetents([.medium, .large], selection: $detailDetent)
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
@@ -57,6 +71,8 @@ struct ArcRootView: View {
             refitMapForCurrentData()
             openDetailIfPending()
             bootstrapTrackingAndWidgets()
+            // A tap that arrived before SwiftData had loaded gets its flight now.
+            drainPendingOpen()
         }
         .onChange(of: tab) { _, newTab in
             updateCameraForTab(newTab)
@@ -101,30 +117,11 @@ struct ArcRootView: View {
             }
         }
         .onOpenURL { url in
-            guard url.scheme == "arc" else { return }
-            // arc://directions/<IATA>?t=<terminal> — the Live Activity's
-            // "Directions" pill. Hand straight off to Apple Maps with driving
-            // directions to the departure airport; the widget can't do this
-            // itself because it has no coordinate database.
-            if url.host() == "directions" {
-                let iata = url.lastPathComponent.uppercased()
-                guard let airport = ReferenceData.shared.airport(iata) else { return }
-                let terminal = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                    .queryItems?.first(where: { $0.name == "t" })?.value
-                let item = MKMapItem(
-                    location: CLLocation(latitude: airport.lat, longitude: airport.lon),
-                    address: nil)
-                item.name = terminal.map { "\(airport.name) · Terminal \($0)" } ?? airport.name
-                item.openInMaps(launchOptions:
-                    [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
-                return
-            }
-            guard url.host() == "friend" else { return }
-            let code = url.lastPathComponent
-            guard !code.isEmpty, code != "friend" else { return }
-            FriendsStore.shared.pendingInviteCode = code
-            tab = .friends
-            Task { await FriendsStore.shared.redeemPendingIfPossible() }
+            guard let dest = ArcDeepLink.parse(url) else { return }
+            open(dest)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .arcOpenFlight)) { _ in
+            drainPendingOpen()
         }
         .onChange(of: detailFlight?.id) { _, _ in
             if let f = detailFlight { controller.focus(on: f) }
@@ -139,7 +136,10 @@ struct ArcRootView: View {
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active { refreshClipboardOffer() }
+            if newPhase == .active {
+                refreshClipboardOffer()
+                drainPendingOpen()
+            }
         }
         // Fetch advisories only once the layer is actually switched on, and only
         // when the cached set is stale.
@@ -156,6 +156,7 @@ struct ArcRootView: View {
             bootstrapTrackingAndWidgets()
             refreshClipboardOffer()
             if ProcessInfo.processInfo.arguments.contains("-openAdd") { showAdd = true }
+            drainPendingOpen()
         }
     }
 
@@ -361,6 +362,91 @@ struct ArcRootView: View {
         return (f.string(from: NSNumber(value: meters)) ?? "\(Int(meters))") + " m"
     }
 
+    /// A tap that arrived while SwiftData was still loading is retried rather
+    /// than dropped; anything the store genuinely doesn't have is discarded, so
+    /// a deleted flight can't hijack a later launch.
+    private func drainPendingOpen() {
+        guard let dest = PendingFlightOpen.destination else { return }
+        if open(dest) { PendingFlightOpen.destination = nil }
+    }
+
+    /// Routes one destination, whether it came from an `arc://` URL or a tapped
+    /// notification. Returns false only when a flight was asked for and the
+    /// store hasn't loaded yet — the caller keeps it pending.
+    @discardableResult
+    private func open(_ dest: ArcDeepLink.Destination) -> Bool {
+        switch dest {
+        case .directions(let iata, let terminal):
+            guard let airport = ReferenceData.shared.airport(iata) else { return true }
+            let item = MKMapItem(
+                location: CLLocation(latitude: airport.lat, longitude: airport.lon),
+                address: nil)
+            item.name = terminal.map { "\(airport.name) · Terminal \($0)" } ?? airport.name
+            item.openInMaps(launchOptions:
+                [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
+            return true
+        case .friend(let code):
+            FriendsStore.shared.pendingInviteCode = code
+            tab = .friends
+            Task { await FriendsStore.shared.redeemPendingIfPossible() }
+            return true
+        case .flight(let id):
+            return show(allFlights.first { $0.id == id })
+        case .flightIdentity(let number, let dep, let arr):
+            let norm = Self.normalizedNumber(number)
+            let sameNumber = allFlights.filter { Self.normalizedNumber($0.flightNumber) == norm }
+            let onRoute = sameNumber.filter {
+                $0.departureIATA.caseInsensitiveCompare(dep) == .orderedSame
+                    && $0.arrivalIATA.caseInsensitiveCompare(arr) == .orderedSame
+            }
+            return show(mostRelevant(onRoute) ?? mostRelevant(sameNumber))
+        }
+    }
+
+    /// Which instance a tap meant: a number like "LX14" names a flight that
+    /// flies every day, so prefer the one in the air, then the next to leave,
+    /// and only then the most recent one flown.
+    private func mostRelevant(_ flights: [Flight]) -> Flight? {
+        if let active = flights.first(where: { $0.isActive }) { return active }
+        if let next = flights.filter({ $0.isUpcoming })
+            .min(by: { $0.effectiveDeparture < $1.effectiveDeparture }) { return next }
+        return flights.max(by: { $0.scheduledDeparture < $1.scheduledDeparture })
+    }
+
+    private static func normalizedNumber(_ raw: String) -> String {
+        raw.replacingOccurrences(of: " ", with: "").uppercased()
+    }
+
+    /// Presents a flight's detail. Never opens a second sheet on top of Add —
+    /// that silently does nothing in SwiftUI — it queues behind its dismissal
+    /// instead, the same path a freshly added flight takes.
+    private func show(_ flight: Flight?) -> Bool {
+        tab = .myFlights
+        guard let flight else {
+            // Nothing matched: real miss once flights exist, otherwise the
+            // store simply hasn't loaded and the caller should retry.
+            return !allFlights.isEmpty
+        }
+        if showAdd {
+            queuedDetail = flight
+            showAdd = false
+        } else if let current = detailFlight, current.id != flight.id {
+            // Already showing a different flight (a connection's other leg, or
+            // a widget tap while detail was left open): let this one close.
+            queuedDetail = flight
+            detailFlight = nil
+        } else {
+            detailFlight = flight
+        }
+        return true
+    }
+
+    private func presentQueuedDetail() {
+        guard let queued = queuedDetail else { return }
+        queuedDetail = nil
+        detailFlight = queued
+    }
+
     private func openDetailIfPending() {
         guard pendingOpenDetail, detailFlight == nil, !allFlights.isEmpty else { return }
         let args = ProcessInfo.processInfo.arguments
@@ -382,7 +468,7 @@ struct ArcRootView: View {
     private var tabs: some View {
         TabView(selection: $tab) {
                 Tab(ArcTab.myFlights.title, systemImage: ArcTab.myFlights.icon, value: ArcTab.myFlights) {
-                    tabSurface { MyFlightsView { detailFlight = $0 } }
+                    tabSurface { MyFlightsView(onSelect: { detailFlight = $0 }, onAdd: { showAdd = true }) }
                 }
                 Tab(ArcTab.friends.title, systemImage: ArcTab.friends.icon, value: ArcTab.friends) {
                     tabSurface { FriendsScreen() }
@@ -482,8 +568,10 @@ struct ArcRootView: View {
                 Image(systemName: "sparkles")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(ArcTheme.brand)
-                // Read on tap, where the tap itself is the consent — no
-                // paste-permission alert, which is what broke this before.
+                Text("Add from clipboard")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ArcTheme.brand)
+                    .lineLimit(1)
                 PasteButton(payloadType: String.self) { strings in
                     handlePasted(strings.first ?? "")
                 }

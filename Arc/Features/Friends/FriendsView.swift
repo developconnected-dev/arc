@@ -556,14 +556,20 @@ struct FriendsListView: View {
             // Filter changes slide/fade the rows instead of snapping.
             .animation(.easeInOut(duration: 0.25), value: items.map(\.id))
         } else if store.friends.isEmpty && store.pending.isEmpty && !store.isLoading {
-            VStack(spacing: 12) {
-                Spacer().frame(height: 30)
-                Image(systemName: "person.2.wave.2").font(.system(size: 44)).foregroundStyle(.tertiary)
-                Text("No friends yet").font(.system(size: 16, weight: .semibold)).foregroundStyle(.secondary)
-                Text("Share an invite link — connecting takes one tap.")
-                    .font(.system(size: 13)).foregroundStyle(.tertiary)
+            Button { showingAddFriend = true } label: {
+                VStack(spacing: 12) {
+                    Spacer().frame(height: 30)
+                    Image(systemName: "person.2.wave.2").font(.system(size: 44)).foregroundStyle(.tertiary)
+                    Text("No friends yet").font(.system(size: 16, weight: .semibold)).foregroundStyle(.secondary)
+                    Text("Share an invite link — connecting takes one tap.")
+                        .font(.system(size: 13)).foregroundStyle(.tertiary)
+                    Text("Tap to invite")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(ArcTheme.action)
+                }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
+            .buttonStyle(.plain)
         } else if !store.isLoading {
             VStack(spacing: 10) {
                 Spacer().frame(height: 30)
@@ -825,7 +831,7 @@ struct AddFriendSheet: View {
                         if let inviteURL {
                             ShareLink(item: inviteURL,
                                       message: Text("Track my flights with me on Arc ✈️")) {
-                                pillLabel("Continue", loading: false)
+                                pillLabel("Share invite", loading: false)
                             }
                             Text(inviteURL.absoluteString.replacingOccurrences(of: "https://", with: ""))
                                 .font(.system(size: 12, design: .monospaced))

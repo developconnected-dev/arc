@@ -229,10 +229,12 @@ struct FlightRowCard: View {
                         .animation(flight.isActive ? .easeInOut(duration: 1.4).repeatForever(autoreverses: false) : .default, value: flight.isActive)
                 )
             if showText {
-                Text(flight.dataFreshnessShort)
-                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                TimelineView(.periodic(from: .now, by: 60)) { _ in
+                    Text(flight.dataFreshnessShort)
+                        .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
         }
         // fixedSize so the text renders whole or not at all — never squeezed.

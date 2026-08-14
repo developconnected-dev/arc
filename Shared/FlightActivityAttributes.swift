@@ -19,6 +19,10 @@ struct FlightActivityAttributes: ActivityAttributes {
     /// activity; absent (older activities, push-to-start) the widget falls
     /// back to the generic person icon.
     var friendAvatarFile: String? = nil
+    /// Local SwiftData id, so tapping the Live Activity opens THAT flight.
+    /// Optional: push-to-start from the Worker doesn't know it, and those
+    /// activities fall back to number + route.
+    var flightId: String? = nil
 
     struct ContentState: Codable, Hashable {
         let status: String
@@ -46,4 +50,113 @@ struct FlightActivityAttributes: ActivityAttributes {
         let heading: Double?
         let progress: Double
     }
+}
+
+/// `arc://` URLs shared by the app, the home-screen widget, and the Live Activity.
+enum ArcDeepLink {
+    static let scheme = "arc"
+
+    enum Destination: Equatable, Sendable {
+        case flight(id: UUID)
+        case flightIdentity(number: String, dep: String, arr: String)
+        case directions(iata: String, terminal: String?)
+        case friend(code: String)
+    }
+
+    static func flight(id: UUID) -> URL {
+        URL(string: "\(scheme)://flight/\(id.uuidString)")!
+    }
+
+    static func flight(number: String, dep: String, arr: String) -> URL {
+        var c = URLComponents()
+        c.scheme = scheme
+        c.host = "flight"
+        c.queryItems = [
+            URLQueryItem(name: "number", value: number),
+            URLQueryItem(name: "dep", value: dep),
+            URLQueryItem(name: "arr", value: arr),
+        ]
+        return c.url!
+    }
+
+    static func flight(widget: WidgetFlight) -> URL {
+        if let id = UUID(uuidString: widget.id) { return flight(id: id) }
+        return flight(number: widget.flightNumber, dep: widget.departureIATA, arr: widget.arrivalIATA)
+    }
+
+    static func url(for attributes: FlightActivityAttributes) -> URL {
+        if let raw = attributes.flightId, let id = UUID(uuidString: raw) {
+            return flight(id: id)
+        }
+        return flight(number: attributes.flightNumber,
+                      dep: attributes.departureIATA,
+                      arr: attributes.arrivalIATA)
+    }
+
+    /// Everything goes through `URLComponents`: the host of a custom-scheme URL
+    /// is the first segment, and splitting `path` keeps `arc://flight/<uuid>`
+    /// (one path segment) cleanly apart from `arc://flight?number=…` (none) —
+    /// `lastPathComponent` returns the host for the second form on some
+    /// platforms, which made the two indistinguishable.
+    static func parse(_ url: URL) -> Destination? {
+        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              comps.scheme?.lowercased() == scheme
+        else { return nil }
+        let parts = comps.path.split(separator: "/").map(String.init)
+        func query(_ name: String) -> String? {
+            comps.queryItems?.first(where: { $0.name == name })?.value
+        }
+        switch comps.host?.lowercased() {
+        case "flight":
+            if let first = parts.first, let id = UUID(uuidString: first) {
+                return .flight(id: id)
+            }
+            if let number = query("number"), let dep = query("dep"), let arr = query("arr") {
+                return .flightIdentity(number: number, dep: dep, arr: arr)
+            }
+            return nil
+        case "directions":
+            guard let iata = parts.first?.uppercased(), !iata.isEmpty else { return nil }
+            return .directions(iata: iata, terminal: query("t"))
+        case "friend":
+            guard let code = parts.first, !code.isEmpty else { return nil }
+            return .friend(code: code)
+        default:
+            return nil
+        }
+    }
+
+    /// The same routing, but from a local notification's `userInfo` — so a
+    /// tapped delay alert lands on exactly the flight it was about.
+    static func destination(fromNotificationUserInfo info: [AnyHashable: Any]) -> Destination? {
+        if let raw = info[ArcOpenFlightInfo.id] as? String, let id = UUID(uuidString: raw) {
+            return .flight(id: id)
+        }
+        if let number = info[ArcOpenFlightInfo.number] as? String,
+           let dep = info[ArcOpenFlightInfo.dep] as? String,
+           let arr = info[ArcOpenFlightInfo.arr] as? String {
+            return .flightIdentity(number: number, dep: dep, arr: arr)
+        }
+        return nil
+    }
+}
+
+extension Notification.Name {
+    /// Posted when a notification, widget, or Live Activity asks to open a flight.
+    static let arcOpenFlight = Notification.Name("arcOpenFlight")
+}
+
+enum ArcOpenFlightInfo {
+    static let id = "flightId"
+    static let number = "flightNumber"
+    static let dep = "dep"
+    static let arr = "arr"
+}
+
+/// A notification tap can be delivered before `ArcRootView` subscribes, and on
+/// a cold launch before SwiftData has any flights to match. The destination
+/// parks here until the root view can actually act on it.
+@MainActor
+enum PendingFlightOpen {
+    static var destination: ArcDeepLink.Destination?
 }

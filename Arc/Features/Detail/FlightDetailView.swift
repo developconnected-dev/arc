@@ -10,6 +10,7 @@ struct FlightDetailView: View {
     var isOwnFlight: Bool = true
     var onShowAtGate: ((Flight) -> Void)? = nil
     var onShowAirport: ((Flight) -> Void)? = nil
+    var onOpenFlight: ((Flight) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
@@ -18,6 +19,7 @@ struct FlightDetailView: View {
     @State private var airportSheet: AirportSheetTarget?
     @State private var showShare = false
     @State private var confirmDelete = false
+    @State private var pendingScroll: String?
     @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
 
     private struct AirportSheetTarget: Identifiable { let id: String }
@@ -46,7 +48,8 @@ struct FlightDetailView: View {
                         DelayRiskCard(flight: flight)
                     }
                     if let plan = connection {
-                        ConnectionCard(plan: plan, currentFlightID: flight.id)
+                        ConnectionCard(plan: plan, currentFlightID: flight.id,
+                                       onSelectOther: onOpenFlight)
                     }
                     // Only when the airline has actually assigned a belt. The
                     // old fallback invented "7 (Belt Confirmed)" for any landed
@@ -88,9 +91,20 @@ struct FlightDetailView: View {
                 let args = ProcessInfo.processInfo.arguments
                 let target = args.contains("-detailBottom") ? "bottom" : args.contains("-detailPlane") ? "plane" : nil
                 if let target {
+                    // Long delay on purpose: at launch this whole screen is
+                    // still laying out, and scrollTo before that is a no-op.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                         withAnimation { proxy.scrollTo(target, anchor: target == "plane" ? .top : .bottom) }
                     }
+                }
+            }
+            // A tap, by contrast, happens long after layout — one frame is
+            // enough, and waiting any longer just feels unresponsive.
+            .onChange(of: pendingScroll) { _, target in
+                guard let target else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    withAnimation { proxy.scrollTo(target, anchor: target == "plane" ? .top : .bottom) }
+                    pendingScroll = nil
                 }
             }
         }
@@ -175,18 +189,34 @@ struct FlightDetailView: View {
                     Circle()
                         .fill(flight.isDataFresh ? Color.green : Color.orange)
                         .frame(width: 6, height: 6)
-                    Text(flight.dataFreshnessText)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
+                    TimelineView(.periodic(from: .now, by: 60)) { _ in
+                        Text(flight.dataFreshnessText)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(Color(uiColor: .systemBackground).opacity(0.6), in: Capsule())
             }
             if let inbound = inboundLine {
-                HStack(spacing: 4) {
+                // The chevron promises a jump to "Where's My Plane?" — which
+                // only exists for your own air legs. Without that section to
+                // scroll to it's a dead affordance, so it isn't drawn at all
+                // rather than drawn and disabled.
+                if isOwnFlight, flight.mode == .air {
+                    Button {
+                        pendingScroll = "plane"
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(inbound).font(.system(size: 14)).foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Shows this aircraft's day")
+                } else {
                     Text(inbound).font(.system(size: 14)).foregroundStyle(.secondary)
-                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
                 }
             }
             // Airborne: the widget's system-animated progress bar lives INSIDE
@@ -389,7 +419,18 @@ struct FlightDetailView: View {
                     // missing data — so off-air the pill appears only once there
                     // is a real platform or berth to show.
                     if flight.mode == .air || (gate?.isEmpty == false) {
-                        GatePill(arrow: arrow, gate: gate ?? "--")
+                        let pillOpensMap = isOwnFlight && onShowAtGate != nil && flight.mode == .air
+                            && ((isArrival && (flight.isCompleted || flight.isRecentlyLanded))
+                                || (!isArrival && flight.isUpcoming))
+                        if pillOpensMap {
+                            Button { onShowAtGate?(flight) } label: {
+                                GatePill(arrow: arrow, gate: gate ?? "--")
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Show plane at \(gate ?? "gate")")
+                        } else {
+                            GatePill(arrow: arrow, gate: gate ?? "--")
+                        }
                     }
                     if let terminal { Text("Terminal \(terminal)").font(.system(size: 13)).foregroundStyle(.secondary) }
                 }

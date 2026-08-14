@@ -13,14 +13,24 @@ enum ArcNotifications {
 
     // MARK: - Scheduled Alerts
 
+    /// 2h before the *effective* departure (delay-adjusted), or nil if that
+    /// moment has already passed — so a delayed flight still reminds at the
+    /// useful time, and a reminder in the past is never scheduled.
+    static func departureReminderDate(for flight: Flight, now: Date = .now) -> Date? {
+        let fire = flight.effectiveDeparture.addingTimeInterval(-2 * 3600)
+        return fire > now ? fire : nil
+    }
+
     /// Schedule departure reminder (2 hours before)
     static func scheduleDepartureReminder(for flight: Flight) {
         guard prefs.object(forKey: "notifyDepartureReminder") == nil || prefs.bool(forKey: "notifyDepartureReminder") else { return }
 
+        guard let fire = departureReminderDate(for: flight) else { return }
+
         let trigger = UNCalendarNotificationTrigger(
             dateMatching: Calendar.current.dateComponents(
                 [.year, .month, .day, .hour, .minute],
-                from: flight.scheduledDeparture.addingTimeInterval(-2 * 3600)
+                from: fire
             ),
             repeats: false
         )
@@ -29,6 +39,7 @@ enum ArcNotifications {
         content.title = "\(flight.flightNumber) departs in 2 hours"
         content.body = "\(flight.departureIATA) → \(flight.arrivalIATA) • \(flight.airline)"
         content.sound = .default
+        content.userInfo = [ArcOpenFlightInfo.id: flight.id.uuidString]
 
         let request = UNNotificationRequest(
             identifier: "departure-\(flight.flightNumber)-\(Int(flight.scheduledDeparture.timeIntervalSince1970))",
@@ -46,7 +57,8 @@ enum ArcNotifications {
         send(
             title: "Gate changed — \(flight.flightNumber)",
             body: "New gate: \(newGate)",
-            id: "gate-\(flight.flightNumber)-\(newGate)"
+            id: "gate-\(flight.flightNumber)-\(newGate)",
+            flight: flight
         )
     }
 
@@ -56,7 +68,8 @@ enum ArcNotifications {
         send(
             title: "\(flight.flightNumber) delayed",
             body: "Now \(flight.delayMinutes) min late. \(flight.departureIATA) → \(flight.arrivalIATA)",
-            id: "delay-\(flight.flightNumber)-\(flight.delayMinutes)"
+            id: "delay-\(flight.flightNumber)-\(flight.delayMinutes)",
+            flight: flight
         )
     }
 
@@ -69,7 +82,8 @@ enum ArcNotifications {
         send(
             title: "\(flight.flightNumber) has landed",
             body: body,
-            id: "landed-\(flight.flightNumber)"
+            id: "landed-\(flight.flightNumber)",
+            flight: flight
         )
     }
 
@@ -80,7 +94,8 @@ enum ArcNotifications {
         send(
             title: "\(flight.flightNumber) likely delayed",
             body: "Arc predicts ~\(minutes) min late — the inbound aircraft is running behind. The airline hasn't updated the schedule yet.",
-            id: "predicted-\(flight.flightNumber)-\(minutes)"
+            id: "predicted-\(flight.flightNumber)-\(minutes)",
+            flight: flight
         )
     }
 
@@ -91,7 +106,8 @@ enum ArcNotifications {
         send(
             title: "Your aircraft has arrived",
             body: "The plane for \(flight.flightNumberSpaced) is on the ground at \(flight.departureCity). Departure \(flight.effectiveDepTimeLocal).",
-            id: "inbound-arrived-\(flight.flightNumber)"
+            id: "inbound-arrived-\(flight.flightNumber)",
+            flight: flight
         )
     }
 
@@ -100,7 +116,8 @@ enum ArcNotifications {
         send(
             title: "Connection now \(plan.risk.rawValue.lowercased())",
             body: "\(plan.layoverMinutes) min layover in \(plan.inbound.arrivalCity) — you need about \(plan.neededMinutes) min. \(plan.outbound.flightNumberSpaced) departs \(plan.outbound.effectiveDepTimeLocal).",
-            id: "connection-\(plan.outbound.flightNumber)-\(plan.risk.rawValue)"
+            id: "connection-\(plan.outbound.flightNumber)-\(plan.risk.rawValue)",
+            flight: plan.outbound
         )
     }
 
@@ -108,7 +125,8 @@ enum ArcNotifications {
         send(
             title: "\(flight.flightNumber) cancelled",
             body: "\(flight.departureIATA) → \(flight.arrivalIATA) has been cancelled.",
-            id: "cancelled-\(flight.flightNumber)"
+            id: "cancelled-\(flight.flightNumber)",
+            flight: flight
         )
     }
 
@@ -130,7 +148,8 @@ enum ArcNotifications {
         send(
             title: "\(flight.flightNumber) schedule confirmed",
             body: "\(flight.departureIATA) → \(flight.arrivalIATA) now has real times from the airline.",
-            id: "schedule-found-\(flight.flightNumber)-\(Int(flight.scheduledDeparture.timeIntervalSince1970))"
+            id: "schedule-found-\(flight.flightNumber)-\(Int(flight.scheduledDeparture.timeIntervalSince1970))",
+            flight: flight
         )
     }
 
@@ -166,11 +185,14 @@ enum ArcNotifications {
 
     // MARK: - Private
 
-    private static func send(title: String, body: String, id: String) {
+    private static func send(title: String, body: String, id: String, flight: Flight? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
+        if let flight {
+            content.userInfo = [ArcOpenFlightInfo.id: flight.id.uuidString]
+        }
 
         let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)

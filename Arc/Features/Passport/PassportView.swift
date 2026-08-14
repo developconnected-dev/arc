@@ -123,14 +123,20 @@ struct PassportView: View {
         Task { await Flight.delete(flight, from: modelContext) }
     }
 
+    private var passportShareText: String {
+        "My Arc passport: \(stats.flights) flights · \(stats.distanceFormatted) · \(stats.airports) airports · \(stats.flightTimeFormatted) in the air"
+    }
+
     private var header: some View {
         HStack(spacing: 12) {
             Text("Passport").font(ArcTheme.screenTitle)
             Spacer()
-            ShareLink(item: URL(string: "https://arc.flight")!) {
-                Image(systemName: "square.and.arrow.up").font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.primary).frame(width: 36, height: 36)
-                    .background(Color(.secondarySystemFill), in: Circle())
+            if stats.flights > 0 {
+                ShareLink(item: passportShareText) {
+                    Image(systemName: "square.and.arrow.up").font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.primary).frame(width: 36, height: 36)
+                        .background(Color(.secondarySystemFill), in: Circle())
+                }
             }
             Button { showSettings = true } label: {
                 ProfileButtonIcon(size: 34)
