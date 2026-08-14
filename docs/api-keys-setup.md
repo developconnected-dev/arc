@@ -82,8 +82,11 @@ using the secret key. Nothing else in the app needs configuring.
 
 ```bash
 curl "https://<your-worker-url>/health"
-# {"ok":true,"provider":"aerodatabox"}   ← key is configured
-# {"ok":true,"provider":"unconfigured"}  ← secret didn't get set; re-run step 2
+# {"ok":true,"providers":{"aerodatabox":true,…},"budget":{…}}
+#   aerodatabox true  ← the key is configured
+#   aerodatabox false ← the secret didn't get set; re-run step 2
+# `budget` is null until SUPABASE_SERVICE_KEY is set; when present it reports how
+# much of this month's AeroDataBox allowance is already spent.
 ```
 
 ```bash
@@ -104,10 +107,14 @@ curl "https://<your-worker-url>/flight?number=LX1413&date=2026-07-25"
 
 ## Optional: Supabase (Friends / Shared Journeys)
 
-Unrelated to flight data — this powers the deferred social features
-(Friends, Shared Journeys, Watchers). Skip it entirely for now; when you're
-ready: create a free project at [supabase.com](https://supabase.com), run
-`supabase/migrations/001_initial.sql` against it, then put the project URL
-and anon key into Settings → "Social (Supabase)" and as Worker secrets
-(`wrangler secret put SUPABASE_URL`, `wrangler secret put SUPABASE_ANON_KEY`)
-for the `/journey/:code` shared-journey page.
+Unrelated to flight data — this powers the social features (Friends, Shared
+Journeys). Create a free project at [supabase.com](https://supabase.com), apply
+every file in `supabase/migrations/` in order, and point the app at it (see the
+Social section of the README — the URL and anon key are defaults in
+`ArcSupabase.init`, not Settings fields).
+
+The Worker needs its own pair for the `/journey/:code` page, the gate store and
+the API budget row: `wrangler secret put SUPABASE_URL` and `wrangler secret put
+SUPABASE_SERVICE_KEY`. The **service-role** key, not the anon one — none of
+those tables are open to anon — so it belongs only in Worker secrets, never in
+the app.
