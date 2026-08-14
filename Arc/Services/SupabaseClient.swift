@@ -575,20 +575,15 @@ final class ArcSupabase: ObservableObject {
     }
 
     // MARK: - Watchers
-
-    func watchFlight(flightId: String) async throws {
-        guard let uid = currentUser?.id else { return }
-        let body: [String: Any] = [
-            "watcher_id": uid,
-            "flight_id": flightId
-        ]
-        _ = try await post(path: "/rest/v1/watchers", body: body)
-    }
-
-    func unwatchFlight(flightId: String) async throws {
-        guard let uid = currentUser?.id else { return }
-        _ = try await delete(path: "/rest/v1/watchers?watcher_id=eq.\(uid)&flight_id=eq.\(flightId)")
-    }
+    //
+    // Deliberately absent. The `watchers` table exists (migration 001) and this
+    // client used to write rows to it, but nothing ever read them: no screen
+    // offers "tell me about this flight", and the Worker has no code path that
+    // notifies a watcher. So the pair of calls could only ever accumulate rows
+    // and imply a promise the app cannot keep.
+    //
+    // Reinstating it is a Worker change first — a push to each watcher when a
+    // shared flight's status moves — and a client change second.
 
     // MARK: - HTTP Helpers
 

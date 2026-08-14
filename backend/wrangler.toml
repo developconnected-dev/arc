@@ -7,19 +7,52 @@ compatibility_date = "2024-12-01"
 [triggers]
 crons = ["* * * * *"]
 
-# Deploy instructions:
-# 1. npm install -g wrangler
-# 2. wrangler login
-# 3. Create a RapidAPI account, subscribe to AeroDataBox (free "Basic" tier),
-#    then:  wrangler secret put RAPIDAPI_KEY
-# 4. wrangler secret put SUPABASE_URL       (only needed for Shared Journeys)
-# 5. wrangler secret put SUPABASE_ANON_KEY  (only needed for Shared Journeys)
-# 6. wrangler deploy
-# 7. Put the deployed worker URL in Arc > Settings ("Backend URL")
+# ── Deploying ──────────────────────────────────────────────────────────────
+#   npm install -g wrangler
+#   wrangler login
+#   wrangler secret put RAPIDAPI_KEY      # see docs/api-keys-setup.md
+#   wrangler deploy
+#   # then put the printed URL in Arc → Settings → Backend URL
 #
-# Endpoints:
-#   GET /flight?number=LX1413&date=2026-07-20   flight status (AeroDataBox)
-#   GET /inbound?reg=HB-JMB&date=2026-07-20      inbound-aircraft legs (Where's My Plane)
-#   GET /position?icao24=4b1815                  live position (OpenSky, free)
-#   GET /journey/:code                           shared-journey web page
-#   GET /health                                  provider status
+# ── Secrets, and what each one is for ──────────────────────────────────────
+# Every secret is optional except RAPIDAPI_KEY, and the feature each unlocks is
+# the only thing that stops working without it. `GET /health` reports which
+# providers are configured.
+#
+#   RAPIDAPI_KEY         AeroDataBox — flight search, status, inbound rotation.
+#                        Without it the flight endpoints 404 and the app falls
+#                        back to manual entry. Rail and sea don't need it.
+#   AIRLABS_KEY          Route-schedule fallback when AeroDataBox has no leg.
+#   AI_API_KEY           Anthropic key (claude-haiku-4-5) for /parse-booking,
+#                        which reads a forwarded confirmation email. 503s
+#                        without it. NOT an OpenAI key.
+#   SUPABASE_URL         Friends, shared journeys, the gate-prediction store and
+#   SUPABASE_SERVICE_KEY the API budget row. The service-role key is required
+#                        rather than the anon one: none of those tables are open
+#                        to anon. Never ship it in the app.
+#   APNS_TEAM_ID         Remote Live Activity pushes, from the every-minute cron
+#   APNS_KEY_ID          above. All three, plus SUPABASE_SERVICE_KEY, or the
+#   APNS_P8              cron does nothing at all.
+#
+# ── Endpoints ──────────────────────────────────────────────────────────────
+# Air (AeroDataBox unless noted):
+#   GET  /flight?number=LX1413&date=2026-07-20      status for one flight
+#   GET  /search-flights?q=                         freeform search
+#   GET  /inbound?reg=HB-JMB&date=2026-07-20        inbound legs (Where's My Plane)
+#   GET  /arrival-gate?icao=EDDF&flight=LX1413      arrival stand, from airport FIDS
+#   GET  /position?icao24=4b1815                    live position (airplanes.live —
+#                                                   OpenSky rejects Cloudflare egress)
+#   GET  /weather/airport?iata=ZRH, /weather/hazards
+#   POST /gates/observe, POST /gates/store, GET /gates/predict   gate flywheel
+#   POST /parse-booking                             booking text → flight + date
+# Rail (Transitous/MOTIS, no key) and sea (Ferryhopper MCP, no key):
+#   GET  /classify?q=                               which modes a query could mean
+#   GET  /rail/stations?q=, /rail/departures?stopId=, /rail/search?from=&to=&date=
+#   GET  /rail/trip?tripId=&from=&to=               one booked service, as a leg
+#   GET  /rail/reresolve?stopId=&key=&time=         recover a renumbered trip id
+#   GET  /ferry/ports?q=, /ferry/search?from=&to=&date=, /ferry/disruptions?country=
+# Live Activities and everything else:
+#   POST /la/register, /la/unregister               push tokens for the cron
+#   GET  /journey/:code                             shared-journey web page
+#   GET  /health                                    which providers are configured,
+#                                                   plus this month's API budget

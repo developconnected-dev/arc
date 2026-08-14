@@ -46,6 +46,15 @@ struct WidgetFlight: Identifiable {
     /// "Arc +32m" instead of a green On Time the inbound will miss.
     var predictedDelayMinutes: Int = 0
 
+    /// How this leg travels. Defaulted to air so every snapshot written before
+    /// trip modes existed keeps meaning what it meant.
+    var mode: TripMode = .air
+
+    /// How much the source actually knows — see `DataTier`. A published
+    /// timetable is not a claim that anything is on time, and this is what
+    /// stops the widget making that claim on its behalf.
+    var dataTier: DataTier = .live
+
     /// Status-only, no clock comparison — mirrors Flight.isUpcoming. The old
     /// `&& scheduledDeparture > .now` had the same dead zone the app model
     /// did: any delayed flight past its original scheduled time (but not yet
@@ -72,21 +81,34 @@ struct WidgetFlight: Identifiable {
         status == "cancelled" || status == "diverted"
     }
 
+    /// May this leg wear a status colour and a delay figure at all? Same rule as
+    /// `Flight.reportsPunctuality`, deliberately duplicated rather than derived,
+    /// because the widget must not be able to drift from the app: only a source
+    /// that reports revised times has an opinion on punctuality — and a
+    /// cancellation is a reported fact in any mode.
+    var reportsPunctuality: Bool {
+        dataTier.reportsPunctuality || status == "cancelled"
+    }
+
     /// Big-slot label once a countdown no longer applies.
     var terminalLabel: String {
         if status == "cancelled" { return "Cancelled" }
         if status == "diverted" { return "Diverted" }
-        return status == "landed" ? "Landed" : "Arriving"
+        return status == "landed" ? mode.arrivedVerb : "Arriving"
     }
 
     func statusText(phase: Phase) -> String {
         if status == "cancelled" { return "Cancelled" }
         if status == "diverted" { return "Diverted" }
         switch phase {
-        case .inFlight: return "In Flight"
+        case .inFlight: return mode.inTransitLabel
         case .landed: return status == "landed" ? "Arrived" : "Arriving soon"
         case .upcoming:
             if showsPrediction { return "Arc +\(predictedDelayMinutes)m" }
+            // "On Time" is a quote, not a guess. With only a timetable to go on
+            // there is nobody to quote, so name the source instead — a green
+            // On Time on a ferry was Arc inventing a fact.
+            guard reportsPunctuality else { return dataTier.qualifier ?? "Scheduled" }
             if delayMinutes > 0 { return "Delayed \(delayMinutes)m" }
             return "On Time"
         }
@@ -137,21 +159,17 @@ struct WidgetFlight: Identifiable {
         return "\(mins)m"
     }
 
-    var statusColor: String {
-        if status == "cancelled" { return "red" }
-        if delayMinutes > 15 { return "orange" }
-        if status == "active" { return "cyan" }
-        return "green"
-    }
 }
 
-/// Custom decode so App Group snapshots written before `predictedDelayMinutes`
-/// existed still load (synthesized Codable would fail the whole widget).
+/// Custom decode so App Group snapshots written before `predictedDelayMinutes`,
+/// `mode` or `dataTier` existed still load (synthesized Codable would fail the
+/// whole widget, which renders as an empty widget the user can't fix).
 extension WidgetFlight: Codable {
     enum CodingKeys: String, CodingKey {
         case id, flightNumber, airline, departureIATA, arrivalIATA
         case departureCity, arrivalCity, scheduledDeparture, scheduledArrival
         case status, delayMinutes, departureGate, progress, predictedDelayMinutes
+        case mode, dataTier
     }
 
     init(from decoder: Decoder) throws {
@@ -170,6 +188,8 @@ extension WidgetFlight: Codable {
         departureGate = try c.decodeIfPresent(String.self, forKey: .departureGate)
         progress = try c.decode(Double.self, forKey: .progress)
         predictedDelayMinutes = try c.decodeIfPresent(Int.self, forKey: .predictedDelayMinutes) ?? 0
+        mode = try c.decodeIfPresent(TripMode.self, forKey: .mode) ?? .air
+        dataTier = try c.decodeIfPresent(DataTier.self, forKey: .dataTier) ?? .live
     }
 
     func encode(to encoder: Encoder) throws {
@@ -188,5 +208,7 @@ extension WidgetFlight: Codable {
         try c.encodeIfPresent(departureGate, forKey: .departureGate)
         try c.encode(progress, forKey: .progress)
         try c.encode(predictedDelayMinutes, forKey: .predictedDelayMinutes)
+        try c.encode(mode, forKey: .mode)
+        try c.encode(dataTier, forKey: .dataTier)
     }
 }
