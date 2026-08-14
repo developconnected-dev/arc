@@ -55,8 +55,10 @@ enum ArcNotifications {
     static func notifyGateChange(flight: Flight, newGate: String) {
         guard prefs.object(forKey: "notifyGateChanges") == nil || prefs.bool(forKey: "notifyGateChanges") else { return }
         send(
-            title: "Gate changed — \(flight.flightNumber)",
-            body: "New gate: \(newGate)",
+            // Platform changes are the rail equivalent, and they arrive through
+            // this same path — so the word has to come from the mode.
+            title: "\(flight.mode.boardingPointLabel) changed — \(flight.flightNumber)",
+            body: "New \(flight.mode.boardingPointLabel.lowercased()): \(newGate)",
             id: "gate-\(flight.flightNumber)-\(newGate)",
             flight: flight
         )
@@ -76,11 +78,12 @@ enum ArcNotifications {
     static func notifyLanded(flight: Flight) {
         guard prefs.object(forKey: "notifyLanding") == nil || prefs.bool(forKey: "notifyLanding") else { return }
         var body = "\(flight.departureIATA) → \(flight.arrivalIATA)"
-        if let gate = flight.arrivalGate { body += " • Gate \(gate)" }
+        if let gate = flight.arrivalGate { body += " • \(flight.mode.boardingPointLabel) \(gate)" }
         if let baggage = flight.baggageClaim { body += " • Belt \(baggage)" }
 
         send(
-            title: "\(flight.flightNumber) has landed",
+            // A train does not land.
+            title: "\(flight.flightNumber) has \(flight.mode.arrivedVerb.lowercased())",
             body: body,
             id: "landed-\(flight.flightNumber)",
             flight: flight

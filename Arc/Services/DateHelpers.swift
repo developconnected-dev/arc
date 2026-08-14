@@ -33,10 +33,21 @@ enum DateHelpers {
     /// yesterday's leg of the same number and stamps its landed status and
     /// times onto a flight that hasn't boarded yet.
     static func apiDate(_ date: Date, at iata: String?) -> String {
+        apiDate(date, in: iata.flatMap { ReferenceData.shared.timezone($0) } ?? .current)
+    }
+
+    /// The same calendar date for a leg whose endpoint is not an airport.
+    ///
+    /// A station or port must never be dated through the airport table: a ferry
+    /// out of Piraeus carries the chip "PIR", which is not an airport code at
+    /// all, and a train out of Berlin Hbf carries "BER", which is — Brandenburg,
+    /// possibly a continent away from the one the traveller is standing in.
+    /// Either way the answer is a plausible date for the wrong place.
+    static func apiDate(_ date: Date, in timeZone: TimeZone) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
-        f.timeZone = iata.flatMap { ReferenceData.shared.timezone($0) } ?? .current
+        f.timeZone = timeZone
         return f.string(from: date)
     }
 

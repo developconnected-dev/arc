@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node --test test/*.test.ts"
+    "//test": "The suite is TypeScript, and the Worker has no build step, so it runs on node's own type stripping rather than a test framework. Without the flag every file fails to load on Node < 22.18 — which is how 119 passing tests went unnoticed as 7 failures.",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "engines": {
+    "node": ">=22.6"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
