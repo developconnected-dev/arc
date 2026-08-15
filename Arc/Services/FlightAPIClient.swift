@@ -248,6 +248,20 @@ actor FlightAPIClient {
         return (try? await get("/ferry/disruptions", items)) ?? []
     }
 
+    private struct SeaRouteResponse: Codable, Sendable { let route_path: [[Double]]? }
+
+    /// The line a sailing between two ports follows, from OpenStreetMap's ferry
+    /// network (the same lines Apple Maps draws between islands). nil when OSM
+    /// has no line for the pair — the map then draws its straight fallback.
+    func ferryRoute(from: (lat: Double, lon: Double), to: (lat: Double, lon: Double)) async -> [[Double]]? {
+        let r: SeaRouteResponse? = try? await get("/ferry/route", [
+            .init(name: "from", value: "\(from.lat),\(from.lon)"),
+            .init(name: "to", value: "\(to.lat),\(to.lon)"),
+        ])
+        guard let path = r?.route_path, path.count >= 3 else { return nil }
+        return path
+    }
+
     // MARK: - Arrival stand
 
     /// Gate, terminal and belt for an arriving flight.
