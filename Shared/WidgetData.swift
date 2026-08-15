@@ -55,6 +55,22 @@ struct WidgetFlight: Identifiable {
     /// stops the widget making that claim on its behalf.
     var dataTier: DataTier = .live
 
+    // The facts a traveller actually glances at the home screen for — all
+    // optional so snapshots written before they existed still decode.
+    var departureTerminal: String? = nil
+    var arrivalGate: String? = nil
+    var arrivalTerminal: String? = nil
+    var baggageClaim: String? = nil
+    /// Provider-revised arrival, when there is one; the countdown targets it.
+    var estimatedArrival: Date? = nil
+    /// IANA zone identifiers, so the widget can print each end's LOCAL time the
+    /// way every other surface does. nil → device zone (older snapshots).
+    var departureTZ: String? = nil
+    var arrivalTZ: String? = nil
+    /// When these facts were last confirmed against a source. Drives the
+    /// "as of" honesty line and the widget's own refresh decisions.
+    var updatedAt: Date? = nil
+
     /// Status-only, no clock comparison — mirrors Flight.isUpcoming. The old
     /// `&& scheduledDeparture > .now` had the same dead zone the app model
     /// did: any delayed flight past its original scheduled time (but not yet
@@ -120,8 +136,22 @@ struct WidgetFlight: Identifiable {
     }
 
     var effectiveArrival: Date {
-        scheduledArrival.addingTimeInterval(Double(max(0, delayMinutes)) * 60)
+        // The provider's own revised arrival beats "schedule + departure delay"
+        // — a late departure that makes time up in the air is the common case.
+        estimatedArrival ?? scheduledArrival.addingTimeInterval(Double(max(0, delayMinutes)) * 60)
     }
+
+    /// Wall-clock at each end, in that place's own zone — the same rule every
+    /// other Arc surface follows. Falls back to the device zone for snapshots
+    /// written before zones were carried.
+    func localTime(_ date: Date, zone id: String?) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        f.timeZone = id.flatMap(TimeZone.init(identifier:)) ?? .current
+        return f.string(from: date)
+    }
+    var depTimeLocal: String { localTime(effectiveDeparture, zone: departureTZ) }
+    var arrTimeLocal: String { localTime(effectiveArrival, zone: arrivalTZ) }
 
     enum Phase { case upcoming, inFlight, landed }
 
@@ -170,6 +200,8 @@ extension WidgetFlight: Codable {
         case departureCity, arrivalCity, scheduledDeparture, scheduledArrival
         case status, delayMinutes, departureGate, progress, predictedDelayMinutes
         case mode, dataTier
+        case departureTerminal, arrivalGate, arrivalTerminal, baggageClaim
+        case estimatedArrival, departureTZ, arrivalTZ, updatedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -190,6 +222,14 @@ extension WidgetFlight: Codable {
         predictedDelayMinutes = try c.decodeIfPresent(Int.self, forKey: .predictedDelayMinutes) ?? 0
         mode = try c.decodeIfPresent(TripMode.self, forKey: .mode) ?? .air
         dataTier = try c.decodeIfPresent(DataTier.self, forKey: .dataTier) ?? .live
+        departureTerminal = try c.decodeIfPresent(String.self, forKey: .departureTerminal)
+        arrivalGate = try c.decodeIfPresent(String.self, forKey: .arrivalGate)
+        arrivalTerminal = try c.decodeIfPresent(String.self, forKey: .arrivalTerminal)
+        baggageClaim = try c.decodeIfPresent(String.self, forKey: .baggageClaim)
+        estimatedArrival = try c.decodeIfPresent(Date.self, forKey: .estimatedArrival)
+        departureTZ = try c.decodeIfPresent(String.self, forKey: .departureTZ)
+        arrivalTZ = try c.decodeIfPresent(String.self, forKey: .arrivalTZ)
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -210,5 +250,13 @@ extension WidgetFlight: Codable {
         try c.encode(predictedDelayMinutes, forKey: .predictedDelayMinutes)
         try c.encode(mode, forKey: .mode)
         try c.encode(dataTier, forKey: .dataTier)
+        try c.encodeIfPresent(departureTerminal, forKey: .departureTerminal)
+        try c.encodeIfPresent(arrivalGate, forKey: .arrivalGate)
+        try c.encodeIfPresent(arrivalTerminal, forKey: .arrivalTerminal)
+        try c.encodeIfPresent(baggageClaim, forKey: .baggageClaim)
+        try c.encodeIfPresent(estimatedArrival, forKey: .estimatedArrival)
+        try c.encodeIfPresent(departureTZ, forKey: .departureTZ)
+        try c.encodeIfPresent(arrivalTZ, forKey: .arrivalTZ)
+        try c.encodeIfPresent(updatedAt, forKey: .updatedAt)
     }
 }

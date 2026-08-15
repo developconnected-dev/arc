@@ -603,10 +603,15 @@ export default {
           if (!queryRoute || (!wanted.has("rail") && !wanted.has("sea"))) return [];
           const origin = new URL(req.url).origin;
           const jobs: Promise<Record<string, unknown>[]>[] = [];
+          // In-process, not a fetch to our own public URL: a Worker cannot
+          // loop back to itself over the network (the request never leaves
+          // the isolate and fails), which made every rail/sea fan-out return
+          // [] in production while the direct endpoints worked fine.
           const ask = async (path: string) => {
             try {
-              const r = await fetch(`${origin}${path}`, { headers: { Accept: "application/json" } });
-              if (!r.ok) return [];
+              const u = new URL(`${origin}${path}`);
+              const r = await handleTransit(new Request(u.toString(), { headers: { Accept: "application/json" } }), u, cors);
+              if (!r || !r.ok) return [];
               const j = await r.json();
               return Array.isArray(j) ? j as Record<string, unknown>[] : [];
             } catch { return []; }   // a provider being down must not fail the search

@@ -40,6 +40,15 @@ struct AddFlightView: View {
     @State private var prefetchTask: Task<Void, Never>?
     @State private var isPrefetching = false
     @State private var parseStatusMessage: String?
+    // Discovery fallback when free-text search finds nothing: matching rail
+    // stations (tap → live departure board → tap a train) and ferry ports (tap
+    // → completes the route in the search box). The Worker's classifier and
+    // typeahead existed for exactly this and were never reachable from any UI.
+    @State private var stationSuggestions: [FlightAPIClient.TransitStop] = []
+    @State private var portSuggestions: [FlightAPIClient.Port] = []
+    @State private var boardStop: FlightAPIClient.TransitStop?
+    @State private var boardDepartures: [FlightAPIClient.RailDeparture] = []
+    @State private var isLoadingBoard = false
 
     // Manual entry state
     @State private var manualNumber = ""
@@ -281,6 +290,10 @@ struct AddFlightView: View {
                 .padding(.top, 6)
                 .onSubmit { Task { await runUnifiedSearch() } }
                 .onChange(of: query) { _, newValue in
+                    // Suggestions belong to the query that produced them.
+                    if !newValue.hasPrefix("ferry ") || newValue.count < 8 {
+                        stationSuggestions = []; portSuggestions = []; boardStop = nil
+                    }
                     if step == .results {
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                             step = .search
@@ -383,6 +396,121 @@ struct AddFlightView: View {
             .transition(.offset(y: -24).combined(with: .scale(scale: 0.9, anchor: .top)).combined(with: .opacity))
     }
 
+    /// Stations and ports the failed query might have meant.
+    private var placeSuggestions: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !stationSuggestions.isEmpty {
+                listHeader("STATIONS").padding(.top, 14)
+                ForEach(stationSuggestions) { stop in
+                    Button { Task { await openBoard(stop) } } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "tram.fill").font(.system(size: 18))
+                                .foregroundStyle(.secondary).frame(width: 40)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(stop.name).font(.system(size: 16, weight: .semibold))
+                                Text("Departure board · \(stop.country ?? "")")
+                                    .font(.system(size: 13)).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            arrowButton
+                        }
+                        .padding(.horizontal, 20).padding(.vertical, 10)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            if !portSuggestions.isEmpty {
+                listHeader("PORTS").padding(.top, 14)
+                ForEach(portSuggestions) { port in
+                    Button {
+                        // Ferry search needs both ends; drop the port into the
+                        // box so the user finishes the sentence.
+                        query = "ferry \(port.name.capitalized) to "
+                        portSuggestions = []; stationSuggestions = []
+                        parseStatusMessage = nil
+                    } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "ferry.fill").font(.system(size: 18))
+                                .foregroundStyle(.secondary).frame(width: 40)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(port.name.capitalized).font(.system(size: 16, weight: .semibold))
+                                Text("\(port.country) · \(port.code)")
+                                    .font(.system(size: 13)).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            arrowButton
+                        }
+                        .padding(.horizontal, 20).padding(.vertical, 10)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    /// The live board for one station — tap a train to add it.
+    private func departureBoard(_ stop: FlightAPIClient.TransitStop) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Button { boardStop = nil; boardDepartures = [] } label: {
+                    Image(systemName: "chevron.left").font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(ArcTheme.action).frame(width: 30, height: 30)
+                        .background(Color(.secondarySystemFill), in: Circle())
+                }
+                .buttonStyle(.plain)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(stop.name).font(.system(size: 16, weight: .bold))
+                    Text("Departures · live").font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if isLoadingBoard { ProgressView() }
+            }
+            .padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 6)
+
+            if boardDepartures.isEmpty, !isLoadingBoard {
+                Text("No departures in the next while.")
+                    .font(.system(size: 13)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 20).padding(.vertical, 8)
+            }
+            ForEach(boardDepartures) { dep in
+                Button { Task { await pickDeparture(dep) } } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(DateHelpers.parseAPIDate(dep.expected).map { $0.formatted(date: .omitted, time: .shortened) } ?? "--:--")
+                                .font(.system(size: 15, weight: .heavy).monospacedDigit())
+                                .foregroundStyle(dep.expected != dep.scheduled ? .orange : .primary)
+                            if dep.expected != dep.scheduled,
+                               let s = DateHelpers.parseAPIDate(dep.scheduled) {
+                                Text(s.formatted(date: .omitted, time: .shortened))
+                                    .font(.system(size: 10)).foregroundStyle(.secondary).strikethrough()
+                            }
+                        }
+                        .frame(width: 52, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(dep.service) → \(dep.headsign)")
+                                .font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                            Text(dep.operator)
+                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if let track = dep.track, !track.isEmpty {
+                            Text("Pl. \(track)")
+                                .font(.system(size: 12, weight: .heavy))
+                                .padding(.horizontal, 8).padding(.vertical, 4)
+                                .background(ArcTheme.gate, in: RoundedRectangle(cornerRadius: 6))
+                                .foregroundStyle(.black)
+                        }
+                        if !dep.realtime {
+                            Text("Timetable").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .padding(.horizontal, 20).padding(.vertical, 9)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     private var searchStep: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let msg = parseStatusMessage {
@@ -391,6 +519,12 @@ struct AddFlightView: View {
                     Text(msg).font(.system(size: 13)).foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 20).padding(.top, 10)
+            }
+
+            if let stop = boardStop {
+                departureBoard(stop)
+            } else if !stationSuggestions.isEmpty || !portSuggestions.isEmpty {
+                placeSuggestions
             }
 
             LazyVStack(alignment: .leading, spacing: 0) {
@@ -1294,19 +1428,28 @@ struct AddFlightView: View {
             return
         }
 
-        // A route readable locally ("Athens to Munich 18 Sep") skips the
-        // server-side AI parse — most of a warm search's wait.
         withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { isParsingNatural = true }
         var found: [FlightAPIClient.FlightSearchResult] = []
-        let localRoute = FlightQueryParser.parseRoute(text)
+
+        // A pasted confirmation is a different job from a query: several legs,
+        // dates buried in prose, booking references that look like flight
+        // numbers. The dedicated extractor reads those; the route parser below
+        // would just see noise. "Looks like a booking" = long or multi-line.
+        if Self.looksLikeBooking(text) {
+            found = await Self.resolveBooking(text)
+        }
+
+        // A route readable locally ("Athens to Munich 18 Sep") skips the
+        // server-side AI parse — most of a warm search's wait.
+        let localRoute = found.isEmpty ? FlightQueryParser.parseRoute(text) : nil
         if let route = localRoute {
             let dateStr = DateHelpers.apiDate(route.date ?? .now, at: route.depIATA)
             found = (try? await FlightAPIClient.shared.searchNatural(
                 query: text, depIATA: route.depIATA, arrIATA: route.arrIATA, dateISO: dateStr)) ?? []
         }
-        // Everything else — free text, codeshare numbers, pasted
-        // confirmations — goes through the Worker's AI parser, which returns
-        // only real flights verified against schedule data. The user picks.
+        // Everything else — free text, codeshare numbers — goes through the
+        // Worker's AI parser, which returns only real flights verified against
+        // schedule data. The user picks.
         if found.isEmpty {
             let loose = (try? await FlightAPIClient.shared.searchNatural(query: text)) ?? []
             // …but it must not answer about somewhere else. "Syros to Athens"
@@ -1329,7 +1472,12 @@ struct AddFlightView: View {
             // it was written to explain.
             parseStatusMessage = localRoute.map {
                 "No flights found for \($0.depIATA) → \($0.arrIATA) on that date. You can still add the flight manually below."
-            } ?? "No flights found for that. Try \u{201C}LX1413 tomorrow\u{201D} or \u{201C}Athens to Munich 18 Sep\u{201D}, or pick an airline below."
+            } ?? "Nothing found for that. Try \u{201C}LX1413 tomorrow\u{201D} or \u{201C}Athens to Munich 18 Sep\u{201D}, pick a station or port below, or add it manually."
+            // Nothing matched as a route — offer the places the query might
+            // name, so a train or ferry can still be found without a perfect
+            // sentence. Only for queries the classifier thinks could be
+            // ground/water; an airline typo shouldn't surface Berlin Hbf.
+            if localRoute == nil { await loadPlaceSuggestions(for: text) }
             return
         }
         // One transaction, like the prefetch path: the droplet's retraction
@@ -1338,6 +1486,84 @@ struct AddFlightView: View {
             isParsingNatural = false
             adoptNaturalResults(found)
         }
+    }
+
+    /// Stations and ports the query could mean. The place words are whatever is
+    /// left once dates and mode words are gone; a query naming two places tries
+    /// each. Best-effort — a typeahead miss just leaves the lists empty.
+    private func loadPlaceSuggestions(for text: String) async {
+        let modes = Set(await FlightAPIClient.shared.classify(query: text))
+        let places = Self.placeWords(text)
+        guard !places.isEmpty else { return }
+        var stops: [FlightAPIClient.TransitStop] = []
+        var ports: [FlightAPIClient.Port] = []
+        for place in places.prefix(2) {
+            if modes.contains("rail") {
+                stops += (try? await FlightAPIClient.shared.railStations(query: place)) ?? []
+            }
+            if modes.contains("sea") {
+                ports += (try? await FlightAPIClient.shared.ferryPorts(query: place)) ?? []
+            }
+        }
+        var seenS = Set<String>(), seenP = Set<String>()
+        stationSuggestions = stops.filter { seenS.insert($0.id).inserted }.prefix(6).map { $0 }
+        portSuggestions = ports.filter { seenP.insert($0.name).inserted }.prefix(6).map { $0 }
+    }
+
+    /// "ferry Piraeus to Santorini 20 Aug" → ["Piraeus", "Santorini"].
+    static func placeWords(_ text: String) -> [String] {
+        let stripped = text
+            .replacingOccurrences(of: #"\b\d{1,2}(st|nd|rd|th)?\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b|\b\d{4}\b|\b(tomorrow|today|tonight|next|on|the|at)\b|\b(ferry|ferries|boat|sailing|train|rail|flight|fly|from|ice|ic|ec|tgv|nightjet)\b"#,
+                                  with: " ", options: [.regularExpression, .caseInsensitive])
+        return stripped
+            .split(separator: /\s+(?:to|-|→|->|—)\s+/)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters)) }
+            .filter { $0.count >= 3 }
+    }
+
+    /// Open the live board for one station.
+    private func openBoard(_ stop: FlightAPIClient.TransitStop) async {
+        boardStop = stop
+        isLoadingBoard = true
+        boardDepartures = (try? await FlightAPIClient.shared.railDepartures(stopId: stop.id)) ?? []
+        isLoadingBoard = false
+    }
+
+    /// One departure off the board, resolved to a full leg the way search
+    /// results are, then offered exactly like a found flight.
+    private func pickDeparture(_ dep: FlightAPIClient.RailDeparture) async {
+        isLoadingBoard = true
+        let legs = (try? await FlightAPIClient.shared.railTrip(tripId: dep.trip_id, from: dep.stop_id)) ?? []
+        isLoadingBoard = false
+        guard !legs.isEmpty else {
+            parseStatusMessage = "Couldn't load \(dep.service) — try again or add it manually."
+            return
+        }
+        boardStop = nil
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { adoptNaturalResults(legs) }
+    }
+
+    /// A pasted confirmation, as opposed to a typed query. Two lines or a long
+    /// single one — no real search is 120 characters.
+    static func looksLikeBooking(_ text: String) -> Bool {
+        text.contains("\n") || text.count > 120
+    }
+
+    /// The legs a confirmation names, each resolved to a real schedule row so
+    /// what the user is offered is addable — the extractor alone yields only a
+    /// number and a date, which is not yet a flight.
+    static func resolveBooking(_ text: String) async -> [FlightAPIClient.FlightSearchResult] {
+        guard let items = try? await FlightAPIClient.shared.parseBooking(text: text), !items.isEmpty
+        else { return [] }
+        var out: [FlightAPIClient.FlightSearchResult] = []
+        for item in items.prefix(6) {
+            let legs = (try? await FlightAPIClient.shared.searchFlight(
+                number: item.flightNumber.replacingOccurrences(of: " ", with: ""), date: item.date)) ?? []
+            // A number can fly several legs a day; the booking's leg is the one
+            // whose local date matches. Take the first if none is decisive.
+            out.append(contentsOf: legs.prefix(1))
+        }
+        return out
     }
 
     /// Free-text results, restricted to the route the user actually named.

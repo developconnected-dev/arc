@@ -12,6 +12,12 @@ enum WidgetSync {
             .map(WidgetFlight.init)
 
         WidgetData.save(flights: Array(widgetFlights))
+        // The widget refreshes the next flight's status on its own timeline
+        // (WidgetRefresh) so it stays current with the app closed — it needs
+        // to know which Worker to ask. Settings' override lives in standard
+        // defaults, which the extension can't read; mirror it.
+        WidgetData.sharedDefaults?.set(
+            UserDefaults.standard.string(forKey: "apiEndpoint"), forKey: "apiEndpoint")
         WidgetCenter.shared.reloadAllTimelines()
     }
 
@@ -55,7 +61,15 @@ extension WidgetFlight {
             // saved train was told it was "In Flight" at a "Gate", and a ferry
             // wore the green On Time nobody published.
             mode: flight.mode,
-            dataTier: flight.dataTier
+            dataTier: flight.dataTier,
+            departureTerminal: flight.departureTerminal,
+            arrivalGate: flight.arrivalGate,
+            arrivalTerminal: flight.arrivalTerminal,
+            baggageClaim: flight.baggageClaim,
+            estimatedArrival: flight.reportsPunctuality ? flight.estimatedArrival : nil,
+            departureTZ: flight.depTimeZone.identifier,
+            arrivalTZ: flight.arrTimeZone.identifier,
+            updatedAt: flight.lastStatusUpdate
         )
     }
 }

@@ -207,7 +207,10 @@ export function routeFromQuery(raw: unknown): { from: string; to: string } | nul
   const text = norm(stripDates(String(raw ?? "")))
     // Drop the mode word itself, so "ferry Piraeus to Santorini" doesn't make
     // the origin "ferry Piraeus".
-    .replace(/\b(ferry|ferries|boat|sailing|train|rail|flight|fly|from)\b/gi, " ");
+    .replace(/\b(ferry|ferries|boat|sailing|train|rail|flight|fly|from)\b/gi, " ")
+    // A bare service brand is a mode hint too: "ICE Berlin to München" is a
+    // Berlin→München query, not one from a place called "ICE Berlin".
+    .replace(/\b([A-Z]{2,14})\b/g, (m: string) => RAIL_ONLY.has(m.toUpperCase()) && m === m.toUpperCase() ? " " : m);
   const parts = norm(text).split(CONNECTOR);
   if (parts.length !== 2) return null;
   const from = norm(parts[0]), to = norm(parts[1]);
