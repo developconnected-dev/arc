@@ -29,7 +29,9 @@ struct GoodToKnowSection: View {
     let flight: Flight
 
     private var sunTip: SunSide.Tip? {
-        guard !flight.isCompleted else { return nil }
+        // "You'll fly into the sunset" is a plane's phenomenon, and a hand-
+        // typed leg has no coordinates to compute it from anyway.
+        guard !flight.isCompleted, flight.mode == .air, flight.hasRoute else { return nil }
         return SunSide.tip(
             dep: .init(latitude: flight.departureLat, longitude: flight.departureLon),
             arr: .init(latitude: flight.arrivalLat, longitude: flight.arrivalLon),
@@ -77,7 +79,7 @@ struct GoodToKnowSection: View {
                                 let d = flight.timezoneDeltaHours
                                 Text("\(d > 0 ? "+" : "")\(d) Hour Timezone Change")
                                     .font(.system(size: 15, weight: .semibold))
-                                Text("\(flight.arrTimeLocal) arrival is \(flight.arrivalInDepartureLocal) \(flight.departureCity) time")
+                                Text("\(flight.effectiveArrTimeLocal) arrival is \(flight.effectiveArrivalInDepartureLocal) \(flight.departureCity) time")
                                     .font(.system(size: 13)).foregroundStyle(.secondary)
                             }
                         }
@@ -325,6 +327,8 @@ struct WheresMyPlaneSection: View {
 
     private var statusText: String {
         if flight.isActive { return "Tracking live position" }
+        if flight.status == .cancelled { return "This flight was cancelled" }
+        if flight.status == .diverted { return "This flight was diverted" }
         if !flight.isUpcoming { return "This flight has already flown" }
 
         // No registration yet — airline hasn't assigned a tail
@@ -352,7 +356,7 @@ struct DetailedTimetableSection: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 sectionTitle("Detailed Timetable")
-                Text("Scheduled, Estimated, and Actual")
+                Text(flight.status == .landed ? "Scheduled and Actual" : "Scheduled and Estimated")
                     .font(.system(size: 13)).foregroundStyle(.secondary)
             }
             card {
@@ -390,7 +394,8 @@ struct DetailedTimetableSection: View {
             Text(t).font(.system(size: 12, weight: .semibold)).foregroundStyle(.tertiary).tracking(0.5)
             Spacer()
             Text("Scheduled").font(.system(size: 12)).foregroundStyle(.tertiary).frame(width: 80, alignment: .trailing)
-            Text("Estimated").font(.system(size: 12)).foregroundStyle(.tertiary).frame(width: 80, alignment: .trailing)
+            Text(flight.status == .landed ? "Actual" : "Estimated")
+                .font(.system(size: 12)).foregroundStyle(.tertiary).frame(width: 80, alignment: .trailing)
         }
     }
     private func timeRow(_ label: String, scheduled: String, estimated: String) -> some View {
@@ -488,12 +493,15 @@ struct RouteHistorySection: View {
     /// Punctuality from the user's own completed flights — data no API sells,
     /// and it compounds with every trip the family takes.
     private var punctualityLine: String? {
-        guard onRoute.count >= 2 else { return nil }
-        let delays = onRoute.map(\.delayMinutes).sorted()
+        // A timetable-only leg carries delay 0 because nobody measured it,
+        // not because it ran to time — it can't vote on punctuality.
+        let reported = onRoute.filter { $0.dataTier.reportsPunctuality }
+        guard reported.count >= 2 else { return nil }
+        let delays = reported.map(\.delayMinutes).sorted()
         let onTime = delays.filter { $0 <= 15 }.count
         let median = delays[delays.count / 2]
         let medianText = median > 0 ? "median +\(median)m" : "typically on time"
-        return "On time \(onTime) of \(onRoute.count) · \(medianText)"
+        return "On time \(onTime) of \(reported.count) · \(medianText)"
     }
 
     var body: some View {

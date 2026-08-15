@@ -56,14 +56,18 @@ enum ArcTheme {
 struct GatePill: View {
     let arrow: String   // "arrow.up.right" or "arrow.down.right"
     let gate: String
+    /// No gate assigned yet — same shape so the layout holds, but muted, so
+    /// "--" reads as "not yet" instead of a yellow assignment.
+    var pending: Bool = false
     var body: some View {
         HStack(spacing: 3) {
             Image(systemName: arrow).font(.system(size: 11, weight: .bold))
             Text(gate).font(.system(size: 17, weight: .bold))
         }
-        .foregroundStyle(.black)
+        .foregroundStyle(pending ? Color(.secondaryLabel) : .black)
         .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(ArcTheme.gate, in: RoundedRectangle(cornerRadius: ArcTheme.gatePillCorner))
+        .background(pending ? Color(.tertiarySystemFill) : ArcTheme.gate,
+                    in: RoundedRectangle(cornerRadius: ArcTheme.gatePillCorner))
     }
 }
 

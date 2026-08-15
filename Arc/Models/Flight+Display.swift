@@ -90,13 +90,16 @@ extension Flight {
     /// Countdown until departure — (value, unit) e.g. ("49","DAYS"), ("17","HOURS").
     var countdown: (value: String, unit: String)? {
         guard !isActive else { return nil }
-        let interval = scheduledDeparture.timeIntervalSince(.now)
+        // To the DELAYED departure, not the printed one: a flight 2h late
+        // otherwise hit zero and went blank exactly when the countdown mattered.
+        let target = effectiveDeparture
+        let interval = target.timeIntervalSince(.now)
         guard interval > 0 else { return nil }
         // Calendar days, not seconds/86400 — two flights on the same date
         // must show the same count regardless of departure hour.
         let cal = Calendar.current
         let days = cal.dateComponents(
-            [.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: scheduledDeparture)
+            [.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: target)
         ).day ?? 0
         let hours = Int(interval) / 3600
         let minutes = Int(interval) / 60
@@ -107,8 +110,25 @@ extension Flight {
 
     /// Near-term flight (within ~36h) → show live status instead of the date.
     var isSoon: Bool {
-        let dt = scheduledDeparture.timeIntervalSince(.now)
+        let dt = effectiveDeparture.timeIntervalSince(.now)
         return dt > 0 && dt < 36 * 3600
+    }
+
+    /// When the belt is worth showing: after landing, or on approach — an
+    /// hour out at most. A belt published before departure (FIDS do that)
+    /// on tomorrow's row reads as if the trip were already over.
+    var showsBaggageBelt: Bool {
+        guard let belt = baggageClaim, !belt.isEmpty else { return false }
+        if status == .landed { return true }
+        return isActive && effectiveArrival.timeIntervalSince(.now) < 60 * 60
+    }
+
+    /// Still "scheduled" per the source, but its (delayed) departure has
+    /// passed. Nobody has confirmed it left, so neither will Arc: the
+    /// countdown is gone, the row and banner say so instead of showing a
+    /// stale verb or a bare date.
+    var isDepartureUnconfirmed: Bool {
+        isUpcoming && effectiveDeparture.addingTimeInterval(60) < .now
     }
 
     var isDelayed: Bool { (reportsPunctuality && delayMinutes > 0) || status == .cancelled }
@@ -118,8 +138,12 @@ extension Flight {
     /// straight to Passport the instant the status flips to landed.
     var isRecentlyLanded: Bool {
         guard status == .landed else { return false }
-        let sinceLanding = Date.now.timeIntervalSince(actualArrival ?? scheduledArrival)
-        return sinceLanding >= 0 && sinceLanding <= 30 * 60
+        // The clock-healing paths mark a flight landed WITHOUT an actual
+        // arrival; measured from the printed schedule, a 45-minute-late
+        // landing skipped the grace entirely and an early one failed a
+        // `>= 0` guard. Use what the app believes the arrival was.
+        let sinceLanding = Date.now.timeIntervalSince(actualArrival ?? effectiveArrival)
+        return sinceLanding <= 30 * 60
     }
 
     /// Lock-screen smart line when the Worker hasn't pushed one. Mirrors the
@@ -164,6 +188,13 @@ extension Flight {
         case .cancelled: return "Cancelled"
         case .landed: return mode == .air ? "Landed" : "Arrived"
         case .active:
+            // Flipped to active by the clock, not by the source: for the first
+            // 20 minutes say "Departing" — the same grace the Live Activity
+            // gives an unconfirmed take-off — rather than "In Air" on faith.
+            if actualDeparture == nil, Date.now >= effectiveDeparture,
+               Date.now < effectiveDeparture.addingTimeInterval(20 * 60) {
+                return "Departing"
+            }
             let moving = mode.inTransitTitle
             guard reportsPunctuality, delayMinutes > 0 else { return moving }
             return "\(moving) • \(delayMinutes)m late"
@@ -171,6 +202,7 @@ extension Flight {
         case .boarding: return "Boarding"
         case .gateClosed: return mode == .air ? "Gate Closed" : "Departing"
         default:
+            if isDepartureUnconfirmed { return "Not yet departed" }
             // Nothing published a revised time, so say where the time came from
             // rather than claiming it is being kept to.
             guard reportsPunctuality else {
@@ -190,6 +222,7 @@ extension Flight {
         // Arc's own knock-on prediction — only shown while it says meaningfully
         // more than the airline's official number (showsPrediction gates that).
         if showsPrediction { return "Predicted +\(predictedDelayMinutes)m" }
+        if isDepartureUnconfirmed { return statusText }
         // "Departs On Time" reads; "Departs Timetable" does not. Where the
         // status names the SOURCE rather than a punctuality, it stands alone.
         if isSoon { return reportsPunctuality ? "Departs \(statusText)" : statusText }
@@ -205,6 +238,7 @@ extension Flight {
     var cardTopRightColor: Color {
         if status == .gateClosed { return ArcTheme.late }   // urgency — gate is closing/closed
         if showsPrediction { return .orange }               // predicted, not airline-confirmed
+        if isDepartureUnconfirmed { return Color(.secondaryLabel) }
         return (isSoon || isActive || isRecentlyLanded || isBoarding) ? accentColor : Color(.secondaryLabel)
     }
 
@@ -249,8 +283,10 @@ extension Flight {
         return scheduledDeparture
     }
     var effectiveArrival: Date {
-        if let estimatedArrival { return estimatedArrival }
+        // Once it has landed, the actual time is the truth; an estimate that
+        // outlived the landing must not keep the screen on a prediction.
         if let actualArrival { return actualArrival }
+        if let estimatedArrival { return estimatedArrival }
         if delayMinutes > 0 { return scheduledArrival.addingTimeInterval(Double(delayMinutes) * 60) }
         return scheduledArrival
     }
@@ -275,22 +311,28 @@ extension Flight {
     var bannerHeadline: String {
         switch status {
         case .cancelled: return mode == .air ? "Flight Cancelled" : "Cancelled"
+        case .diverted: return "Diverted"
         case .landed: return mode.arrivedVerb
         case .active:
+            if actualDeparture == nil, Date.now >= effectiveDeparture,
+               Date.now < effectiveDeparture.addingTimeInterval(20 * 60) { return "Departing" }
             if let t = compactUntil(effectiveArrival) { return "\(mode.arrivingVerb) in \(t)" }
-            return "Arriving"
+            return "Arrival not yet confirmed"
         default:
             // "Gate Departure" names a gate a ferry doesn't have; a berth is not
             // where a sailing's clock starts either.
             let what = mode == .air ? "Gate Departure" : "Departure"
             if let t = compactUntil(effectiveDeparture) { return "\(what) in \(t)" }
-            return "Departing"
+            // Past its (delayed) departure and nobody has said it left.
+            return "Departure not yet confirmed"
         }
     }
 
     var bannerColor: Color {
-        if status == .cancelled { return ArcTheme.late }
+        if status == .cancelled || status == .diverted { return ArcTheme.late }
         if isDelayed { return ArcTheme.late }
+        // "Departure not yet confirmed" is not a green state.
+        if isDepartureUnconfirmed { return Color(.secondaryLabel) }
         // Green is the app saying "this is running to plan". A timetable has no
         // opinion on that, so a sailing gets the neutral treatment rather than
         // a reassurance nobody issued.
@@ -300,6 +342,8 @@ extension Flight {
 
     /// "On Time", "1h 2m Late", etc. for an endpoint given its delta.
     private func deltaLabel(effective: Date, scheduled: Date) -> String {
+        if status == .cancelled { return "Cancelled" }
+        if status == .diverted { return "Diverted" }
         // Without a revised time there is no delta to describe, and "On Time"
         // would be a claim about punctuality the source never made. Name where
         // the time came from instead.
@@ -320,7 +364,10 @@ extension Flight {
 
     var departureRelText: String {
         if let t = compactUntil(effectiveDeparture) { return "Departs in \(t)" }
-        return "\(compactAgo(effectiveDeparture)) ago"
+        // Only a confirmed departure gets "ago"; an unconfirmed one already
+        // says so in the status line and shouldn't add a past tense to it.
+        if isDepartureUnconfirmed { return "\(compactAgo(effectiveDeparture)) past schedule" }
+        return "Departed \(compactAgo(effectiveDeparture)) ago"
     }
 
     /// "5m", "2h 10m", or "61d" style elapsed time — mirrors `compactUntil`'s
@@ -333,8 +380,9 @@ extension Flight {
         return "\(m)m"
     }
     var arrivalRelText: String {
+        if status == .landed { return "Arrived" }
         if let t = compactUntil(effectiveArrival) { return "Arrives in \(t)" }
-        return "Arrived"
+        return "Arrival not yet confirmed"
     }
 
     /// Timezone offset difference dep→arr in whole hours.
@@ -369,4 +417,7 @@ extension Flight {
     }
 
     var arrivalInDepartureLocal: String { hhmm(scheduledArrival, depTimeZone) }
+    /// The live arrival on the departure city's clock — the timezone card
+    /// must show the same arrival the endpoints do, not the printed one.
+    var effectiveArrivalInDepartureLocal: String { hhmm(effectiveArrival, depTimeZone) }
 }

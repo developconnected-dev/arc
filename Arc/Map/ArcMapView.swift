@@ -62,11 +62,15 @@ struct ArcMapView: View {
 
                 }
                 if friend.showsBubble {
+                    // Landed → at arrival. Airborne → on the arc. Otherwise at
+                    // whichever end the clock says: past the ETA but not yet
+                    // confirmed down, the bubble waits at the arrival airport
+                    // rather than jumping back to departure.
                     let position: CLLocationCoordinate2D = friend.landed
                         ? friend.arr
                         : friend.airborne
                             ? (friend.live ?? gc[min(gc.count - 1, max(0, Int(friend.progress * Double(gc.count - 1))))])
-                            : friend.dep
+                            : (friend.progress >= 1 ? friend.arr : friend.dep)
                     Annotation(friend.name, coordinate: position) {
                         FriendMapBubble(name: friend.name,
                                         avatarURL: friend.avatarURL,
@@ -406,7 +410,11 @@ struct ArcMapView: View {
                           dep: CLLocationCoordinate2D,
                           arr: CLLocationCoordinate2D)
     -> (coordinate: CLLocationCoordinate2D, heading: Double, isLive: Bool)? {
-        if let lat = flight.liveLat, let lon = flight.liveLon {
+        // Same 15-minute rule friends' bubbles get: an ADS-B fix from right
+        // after take-off would otherwise pin the plane near departure for the
+        // whole flight, drawn at full "this is real" opacity.
+        if let lat = flight.liveLat, let lon = flight.liveLon,
+           let at = flight.liveUpdatedAt, Date.now.timeIntervalSince(at) < 15 * 60 {
             return (CLLocationCoordinate2D(latitude: lat, longitude: lon),
                     flight.liveHeading ?? GeoMath.bearing(from: dep, to: arr),
                     true)

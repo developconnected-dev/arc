@@ -916,12 +916,14 @@ struct AddFlightView: View {
                 }
                 TextHelpers.cityPair(depCity, arrCity, size: 18)
                 HStack(spacing: 18) {
+                    // Same colour as the status label above: a cancelled or
+                    // 90m-late result must not print its times in on-time green.
                     Text("\(r.dep_iata)  \(timeOnly(r.dep_scheduled, at: r.dep_iata, tz: r.dep_tz))")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(resultReportsPunctuality(r) ? ArcTheme.onTime : Color(.label))
+                        .foregroundStyle(timeColor(r))
                     Text("\(r.arr_iata)  \(timeOnly(r.arr_scheduled, at: r.arr_iata, tz: r.arr_tz))")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(resultReportsPunctuality(r) ? ArcTheme.onTime : Color(.label))
+                        .foregroundStyle(timeColor(r))
                 }
             }
         }
@@ -1060,7 +1062,11 @@ struct AddFlightView: View {
                 VStack(spacing: 0) {
                     manualTimeRow(label: "Departs", date: $manualDepartureDate) { new in
                         if manualArrivalDate < new { manualArrivalDate = new.addingTimeInterval(2 * 3600) }
-                        if !manualStatusTouched { manualStatus = new < .now ? .landed : .scheduled }
+                        // Re-derive whenever the date crosses "now" — a touched
+                        // "Landed" for a date moved into the future is impossible.
+                        if !manualStatusTouched || (manualStatus == .landed && new > .now) || (manualStatus == .scheduled && new < .now) {
+                            manualStatus = new < .now ? .landed : .scheduled
+                        }
                     }
                     Divider().padding(.leading, 14)
                     manualTimeRow(label: "Arrives", date: $manualArrivalDate, onChange: nil)
@@ -1081,12 +1087,15 @@ struct AddFlightView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 sectionLabel("STATUS", icon: "checkmark.circle")
+                // Only what the date allows: a future trip cannot have landed,
+                // and a past one can't still be "scheduled" — status is what
+                // decides whether it lives in My Trips or Passport.
                 Picker("Status", selection: Binding(
                     get: { manualStatus },
                     set: { manualStatus = $0; manualStatusTouched = true }
                 )) {
-                    Text("Scheduled").tag(FlightStatus.scheduled)
-                    Text(manualMode == .air ? "Landed" : "Arrived").tag(FlightStatus.landed)
+                    if manualDepartureDate >= .now { Text("Scheduled").tag(FlightStatus.scheduled) }
+                    if manualDepartureDate < .now { Text(manualMode == .air ? "Landed" : "Arrived").tag(FlightStatus.landed) }
                     Text("Cancelled").tag(FlightStatus.cancelled)
                 }
                 .pickerStyle(.segmented)
@@ -1172,6 +1181,8 @@ struct AddFlightView: View {
 
     private var canAddManual: Bool {
         guard !manualNumber.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        // Arriving before departing is not a trip; it saved a negative duration.
+        guard manualArrivalDate > manualDepartureDate else { return false }
         if manualMode == .air {
             guard let dep = manualDep, let arr = manualArr, dep.iata != arr.iata else { return false }
             return true
@@ -1341,6 +1352,8 @@ struct AddFlightView: View {
         case "active": return mode == .air ? "In the air" : "En route"
         case "cancelled": return "Cancelled"
         case "diverted": return "Diverted"
+        case "boarding": return "Boarding"
+        case "gateclosed": return mode == .air ? "Gate closed" : "Departing"
         default:
             guard resultReportsPunctuality(r) else {
                 return (DataTier(rawValue: r.data_tier ?? "live") ?? .live).qualifier ?? "Scheduled"
@@ -1355,6 +1368,18 @@ struct AddFlightView: View {
         case "landed": return .secondary
         default:
             guard resultReportsPunctuality(r) else { return Color(.secondaryLabel) }
+            return (r.delay ?? 0) > 0 ? ArcTheme.late : ArcTheme.onTime
+        }
+    }
+
+    /// The endpoint times follow the status: green only when the source says
+    /// it's running to time, red when late/cancelled, plain otherwise.
+    private func timeColor(_ r: FlightAPIClient.FlightSearchResult) -> Color {
+        switch r.status.lowercased() {
+        case "cancelled", "diverted": return ArcTheme.late
+        case "landed": return Color(.label)
+        default:
+            guard resultReportsPunctuality(r) else { return Color(.label) }
             return (r.delay ?? 0) > 0 ? ArcTheme.late : ArcTheme.onTime
         }
     }
@@ -1392,6 +1417,8 @@ struct AddFlightView: View {
         let cal = Calendar.current
         let days = cal.dateComponents([.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: d)).day ?? 0
         let hrs = Int(d.timeIntervalSince(.now)) / 3600
+        // Already gone: "0 HOURS" read as "leaves right now".
+        if d < .now { return ("—", r.status.lowercased() == "landed" ? "FLOWN" : "DEPARTED") }
         if days >= 1 && hrs >= 12 { return ("\(days)", days == 1 ? "DAY" : "DAYS") }
         return ("\(max(0, hrs))", "HOURS")
     }

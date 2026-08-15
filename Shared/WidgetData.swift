@@ -84,6 +84,15 @@ struct WidgetFlight: Identifiable {
         status == "active"
     }
 
+    /// Worth leading with. An "active" leg whose arrival is long past — the
+    /// status never flipped because the app wasn't opened — must not hijack
+    /// the widget for days, nor block the refresh of the real next trip.
+    func isCurrent(at now: Date) -> Bool {
+        if isUpcoming { return true }
+        if isActive { return effectiveArrival.timeIntervalSince(now) > -45 * 60 }
+        return false
+    }
+
     /// Same bar as `Flight.showsPrediction`: only when Arc knows ~10m more
     /// than the airline has admitted.
     var showsPrediction: Bool {
@@ -171,7 +180,7 @@ struct WidgetFlight: Identifiable {
     }
 
     var timeUntilDeparture: TimeInterval {
-        scheduledDeparture.timeIntervalSince(.now)
+        effectiveDeparture.timeIntervalSince(.now)
     }
 
     var countdownText: String {

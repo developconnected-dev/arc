@@ -35,7 +35,14 @@ struct FlightRowCard: View {
                         companionAvatars
                     }
                     Spacer(minLength: 8)
-                    if let newGate = flight.departureGate, flight.previousDepartureGate != nil, !flight.isCompleted {
+                    // A gate change is the news only while nothing louder is
+                    // going on: once the flight is delayed, boarding or in the
+                    // air, that state owns the corner (the change stays on the
+                    // detail screen). Before this the chip hid "Delayed 45m"
+                    // and "In Air" for the rest of the leg's life.
+                    if let newGate = flight.departureGate, flight.previousDepartureGate != nil,
+                       flight.isUpcoming, !flight.isBoarding, !flight.isDelayed,
+                       !flight.showsPrediction, !flight.isDepartureUnconfirmed {
                         // Same vocabulary as the detail screen's gate pills:
                         // yellow chip, black type — "gate" always looks like
                         // this in Arc, instead of a one-off warning capsule.
@@ -71,7 +78,7 @@ struct FlightRowCard: View {
                 // city pair
                 cityPair
 
-                if let belt = flight.baggageClaim {
+                if flight.showsBaggageBelt, let belt = flight.baggageClaim {
                     HStack(spacing: 5) {
                         Image(systemName: "suitcase.fill")
                             .font(.system(size: 11, weight: .bold))
@@ -222,12 +229,16 @@ struct FlightRowCard: View {
     /// in an even, round chip — an intentional glyph, not a squeezed capsule.
     private func dataFreshnessBadge(showText: Bool) -> some View {
         HStack(spacing: 5) {
+            // Green means "live and fresh". A timetable-only leg polled a
+            // second ago is fresh but not live, so its dot stays neutral —
+            // otherwise the badge contradicts the "Timetable" label above it.
+            let liveFresh = flight.isDataFresh && flight.reportsPunctuality
             Circle()
-                .fill(flight.isDataFresh ? Color.green : Color.orange)
+                .fill(liveFresh ? Color.green : (flight.isDataFresh ? Color(.secondaryLabel) : Color.orange))
                 .frame(width: 6, height: 6)
                 .overlay(
                     Circle()
-                        .stroke(flight.isDataFresh ? Color.green : Color.clear, lineWidth: 1.5)
+                        .stroke(liveFresh ? Color.green : Color.clear, lineWidth: 1.5)
                         .scaleEffect(flight.isActive ? 2.0 : 1.0)
                         .opacity(flight.isActive ? 0 : 1)
                         .animation(flight.isActive ? .easeInOut(duration: 1.4).repeatForever(autoreverses: false) : .default, value: flight.isActive)

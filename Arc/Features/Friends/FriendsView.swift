@@ -4,7 +4,7 @@ import SwiftUI
 /// share/avatar row and either the one-time profile setup or the live
 /// friends list, matching the other tabs' bottom-sheet layout (no standalone
 /// NavigationStack at the top level — that's reserved for the signed-in
-/// content, which needs to push to FriendDetailView).
+/// content, which presents flight detail sheets).
 struct FriendsScreen: View {
     @ObservedObject private var supabase = ArcSupabase.shared
     @AppStorage("hasSeenFriendsIntro") private var hasSeenIntro = false
@@ -318,7 +318,7 @@ struct NationalityPicker: View {
 /// Flighty's Friends' Flights page: one flight-centric feed across all
 /// friends. Header swaps between the title and an expanding search field;
 /// the always-visible Add chip and the avatar filter row sit above the
-/// feed. Owns its own NavigationStack so rows can push FriendDetailView.
+/// feed. Owns its own NavigationStack for the toolbar and sheets.
 /// What the feed (and the globe) is narrowed to. One value rather than two
 /// optionals so "a friend" and "a group" can't both be selected at once.
 enum FeedFilter: Equatable {
@@ -555,7 +555,7 @@ struct FriendsListView: View {
             }
             // Filter changes slide/fade the rows instead of snapping.
             .animation(.easeInOut(duration: 0.25), value: items.map(\.id))
-        } else if store.friends.isEmpty && store.pending.isEmpty && !store.isLoading {
+        } else if store.friends.isEmpty && store.pending.isEmpty && !store.isLoading && store.hasLoadedOnce {
             Button { showingAddFriend = true } label: {
                 VStack(spacing: 12) {
                     Spacer().frame(height: 30)
@@ -570,7 +570,7 @@ struct FriendsListView: View {
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.plain)
-        } else if !store.isLoading {
+        } else if !store.isLoading && store.hasLoadedOnce {
             VStack(spacing: 10) {
                 Spacer().frame(height: 30)
                 Image(systemName: "airplane.circle").font(.system(size: 40)).foregroundStyle(.tertiary)
@@ -578,6 +578,9 @@ struct FriendsListView: View {
                     .font(.system(size: 15, weight: .semibold)).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity)
+        } else if store.friends.isEmpty {
+            // Still loading the first pass — say nothing false meanwhile.
+            ProgressView().padding(.top, 40).frame(maxWidth: .infinity)
         }
 
         if !filteredPast.isEmpty {
@@ -672,7 +675,12 @@ struct FriendFlightRow: View {
 
     private var flight: ArcSupabase.SharedFlight { item.flight }
     private var airborne: Bool { FriendFlightMath.isAirborne(flight) }
-    private var tint: Color { flight.delay_minutes > 0 ? ArcTheme.late : ArcTheme.onTime }
+    /// Green is a report of punctuality; a timetable-only leg (or a landed
+    /// one) has none to colour by.
+    private var tint: Color {
+        guard flight.tier.reportsPunctuality, flight.status != "landed" else { return Color(.secondaryLabel) }
+        return flight.delay_minutes > 0 ? ArcTheme.late : ArcTheme.onTime
+    }
 
     var body: some View {
         // A minute heartbeat so the countdown/context lines stay honest while
@@ -734,6 +742,7 @@ struct FriendFlightRow: View {
 
     private func statusMini(at now: Date) -> String {
         let mode = flight.tripMode
+        if flight.status == "cancelled" { return "CANCELLED" }
         if airborne { return mode.inTransitShort }
         if flight.status == "landed" { return mode.arrivedShort }
         if let dep = FriendFlightMath.departure(flight), dep > now {
@@ -741,7 +750,8 @@ struct FriendFlightRow: View {
             if mins >= 1440 { return "IN \(mins / 1440)D" }
             return mins >= 60 ? "IN \(mins / 60)H" : "IN \(mins)M"
         }
-        return mode.arrivedShort
+        // Past the schedule with no confirmation from the source: not "LANDED".
+        return "DUE"
     }
 
     /// Only facts we actually have. The old line invented a "True Curb ETA
@@ -751,11 +761,19 @@ struct FriendFlightRow: View {
         if airborne, let arr = FriendFlightMath.arrival(flight) {
             return "\(mode.arrivingVerb) in \(FriendFlightMath.hmLower(Int(arr.timeIntervalSince(now) / 60)))"
         }
-        if flight.status == "landed" || (FriendFlightMath.departure(flight).map { $0 <= now } ?? false) {
+        if flight.status == "cancelled" { return "Cancelled" }
+        if flight.status == "landed" {
             if let arr = FriendFlightMath.arrival(flight), arr <= now {
                 return "\(mode.arrivedVerb) \(FriendFlightMath.hmLower(Int(now.timeIntervalSince(arr) / 60))) ago"
             }
             return mode.arrivedVerb
+        }
+        // Clock past the schedule, source silent: say exactly that.
+        if FriendFlightMath.arrival(flight).map({ $0 <= now }) ?? false {
+            return "Arrival not yet confirmed"
+        }
+        if FriendFlightMath.departure(flight).map({ $0 <= now }) ?? false {
+            return "Departed"
         }
         // Punctuality only where somebody actually reported it. A friend's ferry
         // has a timetable and no revised time, so "On Time" would be this app
@@ -985,77 +1003,5 @@ private struct Line: Shape {
         p.move(to: CGPoint(x: rect.minX, y: rect.midY))
         p.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
         return p
-    }
-}
-
-// MARK: - Friend Detail
-
-struct FriendDetailView: View {
-    let entry: FriendsStore.FriendEntry
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                VStack(spacing: 8) {
-                    FriendAvatar(name: entry.user.display_name, size: 64, avatarURL: entry.user.avatar_url)
-                    HStack(spacing: 8) {
-                        Text(entry.user.display_name).font(.system(size: 22, weight: .bold))
-                        if let nation = entry.user.nationality {
-                            Text(String.flag(forRegion: nation)).font(.system(size: 20))
-                        }
-                    }
-                }
-                .padding(.top, 24)
-
-                if entry.flights.isEmpty {
-                    Text("No shared flights").font(.system(size: 15)).foregroundStyle(.tertiary).padding(.top, 24)
-                } else {
-                    ForEach(entry.flights) { flight in friendFlightCard(flight) }
-                }
-            }
-            .padding(.horizontal, 20).padding(.bottom, 24)
-        }
-        .navigationTitle(entry.user.display_name)
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func friendFlightCard(_ flight: ArcSupabase.SharedFlight) -> some View {
-        VStack(spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(flight.departure_iata).font(.system(size: 16, weight: .semibold, design: .monospaced))
-                    Text(flight.departure_city).font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                VStack(spacing: 1) {
-                    Text(flight.flight_number).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
-                    if let dep = DateHelpers.parseAPIDate(flight.scheduled_departure) {
-                        Text(dep.formatted(.dateTime.day().month())).font(.system(size: 11)).foregroundStyle(.tertiary)
-                    }
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(flight.arrival_iata).font(.system(size: 16, weight: .semibold, design: .monospaced))
-                    Text(flight.arrival_city).font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-            }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color(.separator)).frame(height: 3)
-                    Capsule().fill(ArcTheme.action)
-                        .frame(width: geo.size.width * FriendFlightMath.progress(flight), height: 3)
-                }
-            }.frame(height: 3)
-            HStack {
-                Text(FriendFlightMath.chip(for: flight).text)
-                    .font(.system(size: 12, weight: .heavy))
-                    .foregroundStyle(flight.delay_minutes > 0 ? ArcTheme.late : ArcTheme.onTime)
-                Spacer()
-                if flight.delay_minutes > 0 {
-                    Text("+\(flight.delay_minutes)m").font(.system(size: 13, weight: .semibold)).foregroundStyle(ArcTheme.late)
-                }
-            }
-        }
-        .padding(14).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
     }
 }

@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var photoPick: PhotosPickerItem?
     @State private var profileSaving = false
     @State private var profileSaved = false
+    @State private var profileError: String?
     @State private var designEmoji = ""
     @State private var designColor = "#4DABF7"
 
@@ -157,6 +158,10 @@ struct SettingsView: View {
                         .buttonStyle(.plain)
                         .disabled(profileSaving || !profileDirty)
                         .listRowSeparator(.hidden)
+                        if let profileError {
+                            Text(profileError).font(.system(size: 13)).foregroundStyle(ArcTheme.late)
+                                .listRowSeparator(.hidden)
+                        }
                     } header: {
                         Text("Profile")
                     } footer: {
@@ -334,18 +339,25 @@ struct SettingsView: View {
             || profileRegion != (user.nationality ?? "")
     }
 
+    /// "Saved ✓" only when it actually saved — a swallowed error used to
+    /// report success and leave the form looking clean.
     private func saveProfile() async {
         profileSaving = true
         profileSaved = false
+        profileError = nil
         let name = profileName.trimmingCharacters(in: .whitespaces)
-        try? await ArcSupabase.shared.updateProfile(
-            displayName: name.isEmpty ? nil : name,
-            nationality: profileRegion)
-        if let pending = pendingAvatar {
-            try? await ArcSupabase.shared.updateAvatar(dataURL: pending)
-            pendingAvatar = nil
+        do {
+            try await ArcSupabase.shared.updateProfile(
+                displayName: name.isEmpty ? nil : name,
+                nationality: profileRegion)
+            if let pending = pendingAvatar {
+                try await ArcSupabase.shared.updateAvatar(dataURL: pending)
+                pendingAvatar = nil
+            }
+            profileSaved = true
+        } catch {
+            profileError = "Couldn't save: \(error.localizedDescription)"
         }
         profileSaving = false
-        profileSaved = true
     }
 }

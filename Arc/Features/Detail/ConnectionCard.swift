@@ -24,6 +24,8 @@ struct ConnectionCard: View {
     private var historyMedianDelay: Int? {
         let onRoute = allFlights.filter {
             $0.status == .landed
+                && $0.mode == shown.inbound.mode
+                && $0.dataTier.reportsPunctuality
                 && $0.departureIATA == shown.inbound.departureIATA
                 && $0.arrivalIATA == shown.inbound.arrivalIATA
         }

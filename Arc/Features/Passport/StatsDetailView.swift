@@ -57,18 +57,26 @@ struct StatsDetailView: View {
         }
     }
 
+    /// Only trips actually taken: `flights` arrives scoped to completed legs,
+    /// which includes cancelled and diverted ones — a cancelled flight must not
+    /// add a country you never entered or an aircraft you never sat in.
+    private var landed: [Flight] { flights.filter { $0.status == .landed } }
+    /// Airport lookups are air-only: a train's "BER" is Berlin Hbf, and the
+    /// airport table would score Germany via Berlin Brandenburg for it.
+    private var landedAir: [Flight] { landed.filter { $0.mode == .air } }
+
     private var countries: Int {
         var set = Set<String>()
-        for f in flights {
+        for f in landedAir {
             if let c = ReferenceData.shared.airport(f.departureIATA)?.country { set.insert(c) }
             if let c = ReferenceData.shared.airport(f.arrivalIATA)?.country { set.insert(c) }
         }
         return set.count
     }
-    private var longest: Flight? { flights.max { $0.distanceKm < $1.distanceKm } }
+    private var longest: Flight? { landed.max { $0.distanceKm < $1.distanceKm } }
     private var topRoute: (String, Int)? {
         var counts: [String: Int] = [:]
-        for f in flights {
+        for f in landed {
             let key = [f.departureIATA, f.arrivalIATA].sorted().joined(separator: " ↔ ")
             counts[key, default: 0] += 1
         }
@@ -76,7 +84,7 @@ struct StatsDetailView: View {
     }
     private var topAirport: (String, Int)? {
         var counts: [String: Int] = [:]
-        for f in flights { counts[f.departureIATA, default: 0] += 1; counts[f.arrivalIATA, default: 0] += 1 }
+        for f in landedAir { counts[f.departureIATA, default: 0] += 1; counts[f.arrivalIATA, default: 0] += 1 }
         return counts.max { $0.value < $1.value }.map { ($0.key, $0.value) }
     }
 
@@ -99,12 +107,17 @@ struct StatsDetailView: View {
         }
     }
 
+    /// Same population top and bottom, and only legs whose source actually
+    /// reported punctuality — a timetable-only ferry carries delay 0 because
+    /// nobody measured it, and would inflate the rate (or push it past 100%
+    /// when the denominator counted something else).
     private var onTimeRate: String {
-        guard stats.flights > 0 else { return "—" }
-        let onTime = flights.filter { $0.delayMinutes == 0 }.count
-        return "\(Int(Double(onTime) / Double(stats.flights) * 100))%"
+        let reported = landed.filter { $0.dataTier.reportsPunctuality }
+        guard !reported.isEmpty else { return "—" }
+        let onTime = reported.filter { $0.delayMinutes == 0 }.count
+        return "\(Int(Double(onTime) / Double(reported.count) * 100))%"
     }
-    private var worstDelay: Int { flights.map(\.delayMinutes).max() ?? 0 }
+    private var worstDelay: Int { landed.filter { $0.dataTier.reportsPunctuality }.map(\.delayMinutes).max() ?? 0 }
     private var delayByAirline: [(String, Int)] {
         var counts: [String: Int] = [:]
         // Only legs whose source reported punctuality — and only airlines:
@@ -145,7 +158,7 @@ struct StatsDetailView: View {
     }
 
     private var collection: [(String, Int)] {
-        Dictionary(grouping: flights.compactMap { $0.aircraftType }, by: { $0 })
+        Dictionary(grouping: landed.compactMap { $0.aircraftType }, by: { $0 })
             .mapValues(\.count).sorted { $0.value > $1.value }.map { ($0.key, $0.value) }
     }
 

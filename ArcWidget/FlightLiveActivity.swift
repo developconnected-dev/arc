@@ -105,14 +105,14 @@ struct FlightLiveActivity: Widget {
                             VStack(spacing: 2) {
                                 routeRow(attrs: context.attributes, state: context.state)
                                 HStack {
-                                    Text(departureStatusText(context.state))
+                                    Text(departureStatusText(context.state, context.attributes))
                                         .font(.system(size: 11, weight: .medium))
-                                        .foregroundStyle(departureStatusColor(context.state))
+                                        .foregroundStyle(departureStatusColor(context.state, context.attributes))
                                         .contentTransition(.numericText())
                                     Spacer()
-                                    Text(arrivalStatusText(context.state))
+                                    Text(arrivalStatusText(context.state, context.attributes))
                                         .font(.system(size: 11, weight: .medium))
-                                        .foregroundStyle(arrivalStatusColor(context.state))
+                                        .foregroundStyle(arrivalStatusColor(context.state, context.attributes))
                                         .contentTransition(.numericText())
                                 }
                                 FlightPathProgress(state: context.state)
@@ -380,14 +380,14 @@ struct FlightLiveActivity: Widget {
             routeRow(attrs: attrs, state: state)
 
             HStack {
-                Text(departureStatusText(state))
+                Text(departureStatusText(state, attrs))
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(departureStatusColor(state))
+                    .foregroundStyle(departureStatusColor(state, attrs))
                     .contentTransition(.numericText())
                 Spacer()
-                Text(arrivalStatusText(state))
+                Text(arrivalStatusText(state, attrs))
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(arrivalStatusColor(state))
+                    .foregroundStyle(arrivalStatusColor(state, attrs))
                     .contentTransition(.numericText())
             }
             .padding(.top, 3)
@@ -447,14 +447,14 @@ struct FlightLiveActivity: Widget {
                         Text("·")
                             .foregroundStyle(.tertiary)
                     }
-                    Text(departureStatusText(state))
+                    Text(departureStatusText(state, attrs))
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(departureStatusColor(state))
+                        .foregroundStyle(departureStatusColor(state, attrs))
                 }
                 Spacer()
-                Text(arrivalStatusText(state))
+                Text(arrivalStatusText(state, attrs))
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(arrivalStatusColor(state))
+                    .foregroundStyle(arrivalStatusColor(state, attrs))
                     .contentTransition(.numericText())
             }
             .padding(.top, 3)
@@ -608,14 +608,14 @@ struct FlightLiveActivity: Widget {
             routeRow(attrs: attrs, state: state)
 
             HStack {
-                Text(departureStatusText(state))
+                Text(departureStatusText(state, attrs))
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(departureStatusColor(state))
+                    .foregroundStyle(departureStatusColor(state, attrs))
                     .contentTransition(.numericText())
                 Spacer()
-                Text(arrivalStatusText(state))
+                Text(arrivalStatusText(state, attrs))
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(arrivalStatusColor(state))
+                    .foregroundStyle(arrivalStatusColor(state, attrs))
                     .contentTransition(.numericText())
             }
             .padding(.top, 3)
@@ -837,7 +837,7 @@ struct FlightLiveActivity: Widget {
                     .font(.system(size: 20, weight: .bold))
                 Text(state.departureTime, style: .time)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(departureStatusColor(state, attrs))
                     .contentTransition(.numericText())
             }
             Spacer()
@@ -930,13 +930,20 @@ struct FlightLiveActivity: Widget {
 
     // MARK: - Helpers
 
-    private func departureStatusText(_ s: FlightActivityAttributes.ContentState) -> String {
+    // "On Time" is a claim only a live source can make; a timetable-only leg
+    // (ferry, hand-typed flight) names its source instead, in neutral —
+    // the same rule the app applies everywhere else.
+    private func departureStatusText(_ s: FlightActivityAttributes.ContentState,
+                                     _ a: FlightActivityAttributes) -> String {
+        guard a.reportsPunctuality else { return a.dataTier.qualifier ?? "Scheduled" }
         if s.delayMinutes < 0 { return "\(abs(s.delayMinutes))m Early" }
         if s.delayMinutes > 0 { return "\(s.delayMinutes)m Late" }
         return "On Time"
     }
 
-    private func departureStatusColor(_ s: FlightActivityAttributes.ContentState) -> Color {
+    private func departureStatusColor(_ s: FlightActivityAttributes.ContentState,
+                                      _ a: FlightActivityAttributes) -> Color {
+        guard a.reportsPunctuality else { return .secondary }
         if s.delayMinutes < 0 { return .green }
         if s.delayMinutes > 0 { return .orange }
         return .green
@@ -949,15 +956,19 @@ struct FlightLiveActivity: Widget {
         s.arrivalDelayMinutes ?? s.delayMinutes
     }
 
-    private func arrivalStatusText(_ s: FlightActivityAttributes.ContentState) -> String {
+    private func arrivalStatusText(_ s: FlightActivityAttributes.ContentState,
+                                   _ a: FlightActivityAttributes) -> String {
+        guard a.reportsPunctuality else { return a.dataTier.qualifier ?? "Scheduled" }
         let d = arrivalDelay(s)
         if d < 0 { return "\(abs(d))m Early" }
         if d > 0 { return "\(d)m Late" }
         return "On Time"
     }
 
-    private func arrivalStatusColor(_ s: FlightActivityAttributes.ContentState) -> Color {
-        arrivalDelay(s) > 0 ? .orange : .green
+    private func arrivalStatusColor(_ s: FlightActivityAttributes.ContentState,
+                                    _ a: FlightActivityAttributes) -> Color {
+        guard a.reportsPunctuality else { return .secondary }
+        return arrivalDelay(s) > 0 ? .orange : .green
     }
 }
 

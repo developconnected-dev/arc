@@ -132,12 +132,22 @@ enum ConnectionPlanner {
     /// Two flights form a connection when the first lands where the second
     /// departs, with a same-journey-plausible gap (30 min – 24 h).
     static func detectConnection(from flights: [Flight]) -> (inbound: Flight, outbound: Flight)? {
+        // The inbound may already have LANDED — that is exactly when the
+        // steps and the layover clock matter most, so it stays a connection
+        // as long as the outbound hasn't left. Cancelled/diverted inbounds
+        // are excluded: nothing connects from a flight that didn't arrive.
         let relevant = flights
-            .filter { $0.isUpcoming || $0.isActive }
+            .filter { $0.isUpcoming || $0.isActive || $0.isRecentlyLanded
+                      || ($0.status == .landed && $0.effectiveArrival > Date.now.addingTimeInterval(-24 * 3600)) }
             .sorted { $0.scheduledDeparture < $1.scheduledDeparture }
         guard relevant.count >= 2 else { return nil }
         for i in 0..<(relevant.count - 1) {
             let a = relevant[i], b = relevant[i + 1]
+            // The OUTBOUND must still be ahead of the traveller.
+            guard b.isUpcoming || b.isActive else { continue }
+            // Same network as well as same code: a train arriving at "BER"
+            // (Berlin Hbf) does not connect to a flight from BER the airport.
+            guard a.mode == b.mode else { continue }
             guard a.arrivalIATA.uppercased() == b.departureIATA.uppercased() else { continue }
             let gap = b.scheduledDeparture.timeIntervalSince(a.scheduledArrival) / 60
             if gap >= 30 && gap <= 24 * 60 { return (a, b) }
