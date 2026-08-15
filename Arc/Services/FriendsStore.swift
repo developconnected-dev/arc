@@ -203,6 +203,9 @@ final class FriendsStore {
         /// The leg's vehicle glyph — a friend AT SEA gets a ferry on their
         /// chip, not an airplane.
         let symbol: String
+        /// And its route grammar: a sailing draws as a dotted teal rhumb line,
+        /// not a flight's arc.
+        let mode: TripMode
     }
 
     /// Bumped once a minute while the Friends tab is visible — SwiftUI only
@@ -244,7 +247,8 @@ final class FriendsStore {
                 showsBubble: bubbleOwners.insert(item.user.id).inserted,
                 chipText: chip.text,
                 chipKind: chip.kind,
-                symbol: f.tripMode.symbol)
+                symbol: f.tripMode.symbol,
+                mode: f.tripMode)
         }
     }
 

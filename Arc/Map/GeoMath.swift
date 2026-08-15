@@ -3,6 +3,29 @@ import CoreLocation
 import MapKit
 
 enum GeoMath {
+    /// A rhumb line (constant bearing) from a to b, densified so `position(along:)`
+    /// can walk it. This is what a ship actually steers and what a sea chart
+    /// draws — a straight line on the Mercator map — as opposed to the great
+    /// circle an aircraft flies, which bows poleward and is how a flight is
+    /// recognised on this map. Drawing a sailing as an arc made it read as a
+    /// flight; the geometry itself is the first cue that it isn't one.
+    static func rhumbLine(from a: CLLocationCoordinate2D,
+                          to b: CLLocationCoordinate2D,
+                          samples: Int = 32) -> [CLLocationCoordinate2D] {
+        let n = max(2, samples)
+        // Interpolate in Mercator space so the result is straight ON THE MAP.
+        func merc(_ lat: Double) -> Double { log(tan(.pi / 4 + (lat * .pi / 180) / 2)) }
+        func unmerc(_ y: Double) -> Double { (2 * atan(exp(y)) - .pi / 2) * 180 / .pi }
+        var dLon = b.longitude - a.longitude
+        if dLon > 180 { dLon -= 360 } else if dLon < -180 { dLon += 360 }
+        let y1 = merc(a.latitude), y2 = merc(b.latitude)
+        return (0...n).map { i in
+            let f = Double(i) / Double(n)
+            return .init(latitude: unmerc(y1 + (y2 - y1) * f),
+                         longitude: a.longitude + dLon * f)
+        }
+    }
+
     /// Samples `samples` intermediate points along the great circle from a to b
     /// (inclusive of both endpoints) so a MapPolyline renders a curved arc.
     static func greatCircle(from a: CLLocationCoordinate2D,
