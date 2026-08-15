@@ -16,6 +16,10 @@ enum ArcTheme {
     /// Past flights' routes: same hue family, darker and muted — history
     /// recedes, upcoming/current flights glow (Flighty's visual language).
     static let routeLinePast = Color(red: 0.18, green: 0.38, blue: 0.58).opacity(0.65)
+    /// Sea legs: a teal wake, dotted, on a rhumb line — deliberately not the
+    /// sky-blue arc, so a sailing is never mistaken for a flight at a glance.
+    static let seaLine = Color(red: 0.13, green: 0.76, blue: 0.79)   // #21C2C9
+    static let seaLinePast = Color(red: 0.14, green: 0.42, blue: 0.45).opacity(0.65)
 
     static func timeColor(late: Bool) -> Color { late ? Self.late : Self.onTime }
 

@@ -34,7 +34,8 @@ struct ArcMapView: View {
             // upcoming ones wait at the departure airport; freshly landed
             // ones sit at the arrival airport (no arc — the trip is done).
             ForEach(friendOverlays) { friend in
-                let gc = GeoMath.greatCircle(from: friend.dep, to: friend.arr)
+                let style = RouteStyle(mode: friend.mode)
+                let gc = style.path(from: friend.dep, to: friend.arr)
                 // Same grammar as the user's own flights: upcoming = solid
                 // planned line; flying = solid flown part + dotted remainder;
                 // landed = no arc (just the bubble at the arrival airport).
@@ -44,21 +45,20 @@ struct ArcMapView: View {
                     let split = min(gc.count - 1, max(0, Int(friend.progress * Double(gc.count - 1))))
                     let flown = Array(gc[0...split])
                     MapPolyline(coordinates: flown)
-                        .stroke(ArcTheme.routeLine.opacity(0.30), style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                        .stroke(style.live.opacity(0.30), style: StrokeStyle(lineWidth: 7, lineCap: .round))
                     MapPolyline(coordinates: flown)
-                        .stroke(ArcTheme.routeLine, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .stroke(style.live, style: style.flownStroke)
                     MapPolyline(coordinates: Array(gc[split...]))
-                        .stroke(ArcTheme.routeLine.opacity(0.75),
-                                style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [1, 4]))
+                        .stroke(style.live.opacity(0.75), style: style.remainderStroke)
                 } else if !friend.landed {
                     MapPolyline(coordinates: gc)
-                        .stroke(ArcTheme.routeLine.opacity(0.28), style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                        .stroke(style.live.opacity(0.28), style: StrokeStyle(lineWidth: 6, lineCap: .round))
                     MapPolyline(coordinates: gc)
-                        .stroke(ArcTheme.routeLine, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .stroke(style.live, style: style.plannedStroke)
                 }
                 if !friend.landed {
-                    Annotation("", coordinate: friend.dep) { endpointDot(past: false) }
-                    Annotation("", coordinate: friend.arr) { endpointDot(past: false) }
+                    Annotation("", coordinate: friend.dep) { endpointDot(past: false, style: style) }
+                    Annotation("", coordinate: friend.arr) { endpointDot(past: false, style: style) }
 
                 }
                 if friend.showsBubble {
@@ -135,6 +135,8 @@ struct ArcMapView: View {
                         CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
                     }
 
+                    let style = RouteStyle(mode: flight.mode)
+
                     if flight.isCompleted, track.count >= 2 {
                         // Landed: the real recorded path, airport to airport —
                         // what you actually flew, not a theoretical arc. Past
@@ -143,7 +145,7 @@ struct ArcMapView: View {
                             CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
                         } + [arr]
                         MapPolyline(coordinates: flown)
-                            .stroke(ArcTheme.routeLinePast, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                            .stroke(style.past, style: style.pastStroke)
                     } else if flight.isActive, track.count >= 2 {
                         // We have real recorded positions: draw the path actually
                         // flown (solid, airport → breadcrumbs → current position)
@@ -161,32 +163,32 @@ struct ArcMapView: View {
                         // crisp line. (MapPolyline can't take a shadow, so the
                         // glow is a wide low-opacity stroke of the same path.)
                         MapPolyline(coordinates: flown)
-                            .stroke(ArcTheme.routeLine.opacity(0.30), style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                            .stroke(style.live.opacity(0.30), style: StrokeStyle(lineWidth: 7, lineCap: .round))
                         MapPolyline(coordinates: flown)
-                            .stroke(ArcTheme.routeLine, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                        MapPolyline(coordinates: GeoMath.greatCircle(from: current, to: arr))
-                            .stroke(ArcTheme.routeLine.opacity(0.75),
-                                    style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [1, 4]))
+                            .stroke(style.live, style: style.flownStroke)
+                        MapPolyline(coordinates: style.path(from: current, to: arr))
+                            .stroke(style.live.opacity(0.75), style: style.remainderStroke)
                     } else if flight.isCompleted {
                         // Past, no recorded track: the routed path if the leg
-                        // has one, else a muted great circle.
-                        MapPolyline(coordinates: routed.count >= 3 ? routed
-                                    : GeoMath.greatCircle(from: dep, to: arr))
-                            .stroke(ArcTheme.routeLinePast, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                        // has one, else the mode's own planned geometry.
+                        MapPolyline(coordinates: routed.count >= 3 ? routed : style.path(from: dep, to: arr))
+                            .stroke(style.past, style: style.pastStroke)
                     } else {
                         // Upcoming (or active without track): bright + glow.
                         // The routed path wins where it exists — drawing a train
                         // as a straight line across the countryside is the one
-                        // thing on this map that is simply untrue.
-                        let gc = routed.count >= 3 ? routed : GeoMath.greatCircle(from: dep, to: arr)
-                        MapPolyline(coordinates: gc)
-                            .stroke(ArcTheme.routeLine.opacity(0.28), style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                        MapPolyline(coordinates: gc)
-                            .stroke(ArcTheme.routeLine, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        // thing on this map that is simply untrue. A sailing has
+                        // no published geometry, so it gets a rhumb line in the
+                        // sea grammar (dotted teal) rather than a flight's arc.
+                        let planned = routed.count >= 3 ? routed : style.path(from: dep, to: arr)
+                        MapPolyline(coordinates: planned)
+                            .stroke(style.live.opacity(0.28), style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                        MapPolyline(coordinates: planned)
+                            .stroke(style.live, style: style.plannedStroke)
                     }
 
-                    Annotation("", coordinate: dep) { endpointDot(past: flight.isCompleted) }
-                    Annotation("", coordinate: arr) { endpointDot(past: flight.isCompleted) }
+                    Annotation("", coordinate: dep) { endpointDot(past: flight.isCompleted, style: style) }
+                    Annotation("", coordinate: arr) { endpointDot(past: flight.isCompleted, style: style) }
 
 
                     // A live ADS-B fix when there is one, otherwise the clock's
@@ -348,11 +350,54 @@ struct ArcMapView: View {
         return (gc, pos.coordinate, pos.heading)
     }
 
-    private func endpointDot(past: Bool) -> some View {
+    private func endpointDot(past: Bool, style: RouteStyle = RouteStyle(mode: .air)) -> some View {
         Circle().fill(.white).frame(width: past ? 8 : 10, height: past ? 8 : 10)
-            .overlay(Circle().stroke(past ? ArcTheme.routeLinePast : ArcTheme.action,
+            .overlay(Circle().stroke(past ? style.past : style.endpoint,
                                      lineWidth: past ? 2 : 3))
             .opacity(past ? 0.8 : 1)
+    }
+
+    /// One visual grammar per mode, so the map itself says what kind of
+    /// journey a line is before any label does.
+    ///
+    /// Air: the great-circle arc, sky blue, solid with a glow — Arc's original
+    /// language. Rail: the same stroke on the REAL routed path (drawn from
+    /// `routePath` by the caller). Sea: a rhumb line — straight on the map,
+    /// which is what a ship steers and what a chart draws — in teal, dotted
+    /// like a wake. A sailing drawn as a solid blue arc read as a flight; a
+    /// straight line in the flight's own colour still did.
+    struct RouteStyle {
+        let mode: TripMode
+
+        var live: Color { mode == .sea ? ArcTheme.seaLine : ArcTheme.routeLine }
+        var past: Color { mode == .sea ? ArcTheme.seaLinePast : ArcTheme.routeLinePast }
+        var endpoint: Color { mode == .sea ? ArcTheme.seaLine : ArcTheme.action }
+
+        /// Planned geometry between two points when no routed path exists.
+        func path(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> [CLLocationCoordinate2D] {
+            mode == .sea ? GeoMath.rhumbLine(from: a, to: b) : GeoMath.greatCircle(from: a, to: b)
+        }
+
+        var plannedStroke: StrokeStyle {
+            mode == .sea
+                ? StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [0.1, 6])   // dotted wake
+                : StrokeStyle(lineWidth: 2, lineCap: .round)
+        }
+        var flownStroke: StrokeStyle {
+            mode == .sea
+                ? StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [0.1, 5])
+                : StrokeStyle(lineWidth: 2, lineCap: .round)
+        }
+        var remainderStroke: StrokeStyle {
+            mode == .sea
+                ? StrokeStyle(lineWidth: 2, lineCap: .round, dash: [0.1, 8])
+                : StrokeStyle(lineWidth: 2, lineCap: .round, dash: [1, 4])
+        }
+        var pastStroke: StrokeStyle {
+            mode == .sea
+                ? StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [0.1, 5])
+                : StrokeStyle(lineWidth: 1.5, lineCap: .round)
+        }
     }
 
     /// Is this flight riding the aircraft the ground-view ADS-B feed is
@@ -378,8 +423,12 @@ struct ArcMapView: View {
                     flight.liveHeading ?? GeoMath.bearing(from: dep, to: arr),
                     true)
         }
-        guard let estimated = GeoMath.position(along: GeoMath.greatCircle(from: dep, to: arr),
-                                               progress: flight.progress) else { return nil }
+        // Walk the same geometry the map draws for this mode — a ferry
+        // estimated along a great circle would sit beside its own dotted line.
+        let planned = flight.routePath.count >= 3
+            ? flight.routePath.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+            : RouteStyle(mode: flight.mode).path(from: dep, to: arr)
+        guard let estimated = GeoMath.position(along: planned, progress: flight.progress) else { return nil }
         return (estimated.coordinate, estimated.heading, false)
     }
 
