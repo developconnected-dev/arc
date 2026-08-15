@@ -187,3 +187,79 @@ enum RotationChain {
         return (predicted, reason)
     }
 }
+
+// MARK: - Presentation
+
+/// What one rotation-leg row says, derived from status AND the clock — pure,
+/// so the wording is unit-tested. The old row drew a green tick beside every
+/// leg with no departure delay, which read as "done" for a leg still in the
+/// air; here the state glyph is the only tick, and it appears only once the
+/// leg has actually landed.
+struct RotationLegDisplay: Equatable {
+    enum Phase: Equatable { case scheduled, airborne, landed, cancelled, overdue }
+
+    let phase: Phase
+    /// SF Symbol for the state glyph on the left.
+    let symbol: String
+    /// One line under the number: the state, and lateness only when there is any.
+    let statusText: String
+    /// The time on the right — actual arrival, ETA, or scheduled-plus-delay.
+    let timeText: String?
+    /// The word above/below that time: "landed" · "lands" · "due".
+    let timeCaption: String
+    /// Departure lateness worth colouring (0 when none).
+    let delayMinutes: Int
+
+    static func make(_ leg: RotationLeg, now: Date = .now) -> RotationLegDisplay {
+        let delay = max(0, leg.delayMinutes)
+        let late = delay > 0 ? " · \(delay)m late" : ""
+        let arrival = leg.effectiveArrival
+        // Airport-local, like every other time in the app — a leg landing in
+        // Lisbon reads in Lisbon's clock, not the phone's.
+        let arrZone = ReferenceData.shared.timezone(leg.arrIATA) ?? .current
+        let depZone = ReferenceData.shared.timezone(leg.depIATA) ?? .current
+        let time = arrival.map { $0.formatted(Date.FormatStyle(timeZone: arrZone).hour().minute()) }
+
+        switch leg.status {
+        case "cancelled":
+            return .init(phase: .cancelled, symbol: "xmark.circle.fill",
+                         statusText: "Cancelled", timeText: nil, timeCaption: "", delayMinutes: 0)
+        case "landed":
+            return .init(phase: .landed, symbol: "checkmark.circle.fill",
+                         statusText: delay > 0 ? "Landed · \(delay)m late" : "Landed on time",
+                         timeText: time, timeCaption: "landed", delayMinutes: delay)
+        case "active":
+            // The airline still lists it airborne well past its arrival —
+            // the feed is stale, and "in the air" would be a guess.
+            if let arrival, now > arrival.addingTimeInterval(20 * 60) {
+                return .init(phase: .overdue, symbol: "questionmark.circle",
+                             statusText: "Landing not yet confirmed" + late,
+                             timeText: time, timeCaption: "due", delayMinutes: delay)
+            }
+            return .init(phase: .airborne, symbol: "airplane",
+                         statusText: "In the air" + late,
+                         timeText: time, timeCaption: "lands", delayMinutes: delay)
+        default:
+            // Scheduled per the last fetch. If the clock has passed its
+            // arrival, the data is simply old — say so instead of "Scheduled".
+            if let arrival, now > arrival.addingTimeInterval(20 * 60) {
+                return .init(phase: .overdue, symbol: "questionmark.circle",
+                             statusText: "Landing not yet confirmed" + late,
+                             timeText: time, timeCaption: "due", delayMinutes: delay)
+            }
+            // Past its (delayed) departure but not yet reported airborne —
+            // most likely taxiing or the feed lagging. Not "scheduled".
+            if let dep = leg.scheduledDeparture,
+               now > dep.addingTimeInterval(Double(delay) * 60 + 10 * 60) {
+                return .init(phase: .airborne, symbol: "airplane.departure",
+                             statusText: "Departure not yet confirmed" + late,
+                             timeText: time, timeCaption: "due", delayMinutes: delay)
+            }
+            let depText = leg.scheduledDeparture
+                .map { $0.addingTimeInterval(Double(delay) * 60).formatted(Date.FormatStyle(timeZone: depZone).hour().minute()) }
+            return .init(phase: .scheduled, symbol: "clock",
+                         statusText: (depText.map { "Departs \($0)" } ?? "Not yet departed") + late,
+                         timeText: time, timeCaption: "due", delayMinutes: delay)
+        }
+    }
+}

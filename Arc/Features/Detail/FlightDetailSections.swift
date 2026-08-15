@@ -160,7 +160,7 @@ struct WheresMyPlaneSection: View {
 
                 if !flight.rotationLegs.isEmpty {
                     Divider().background(.white.opacity(0.2))
-                    Text("This aircraft today")
+                    Text("Earlier legs of this aircraft · latest first")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.55))
                         .textCase(.uppercase)
@@ -175,8 +175,8 @@ struct WheresMyPlaneSection: View {
                 } else if flight.inboundChecked && flight.aircraftRegistration != nil {
                     Divider().background(.white.opacity(0.2))
                     HStack(spacing: 10) {
-                        Image(systemName: "checkmark.circle").foregroundStyle(.green)
-                        Text("No delays on previous rotation")
+                        Image(systemName: "questionmark.circle").foregroundStyle(.white.opacity(0.7))
+                        Text("No earlier legs found for this aircraft today")
                             .font(.system(size: 13)).foregroundStyle(.white.opacity(0.8))
                     }
                 }
@@ -231,80 +231,94 @@ struct WheresMyPlaneSection: View {
     }
 
     private func rotationLegRow(_ leg: RotationLeg) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: leg.status == "active" ? "airplane"
-                  : leg.status == "landed" ? "checkmark.circle.fill" : "clock")
-                .font(.system(size: 12))
-                .foregroundStyle(leg.status == "landed" ? .green : .white.opacity(0.85))
-                .frame(width: 16)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
-                    Text(leg.flightNumber).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
-                    Text("\(leg.depIATA) → \(leg.arrIATA)").font(.system(size: 13)).foregroundStyle(.white.opacity(0.75))
+        // A minute heartbeat: "Departure not yet confirmed" is a claim about
+        // the clock, and the card can sit open across the moment it changes.
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            let d = RotationLegDisplay.make(leg, now: context.date)
+            HStack(spacing: 10) {
+                // The ONE tick in the row, and only once the leg has landed.
+                Image(systemName: d.symbol)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(glyphColor(d.phase))
+                    .frame(width: 18)
+                    .symbolEffect(.pulse, options: .repeating, isActive: d.phase == .airborne)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        Text(leg.flightNumber).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                        Text("\(leg.depIATA) → \(leg.arrIATA)").font(.system(size: 13)).foregroundStyle(.white.opacity(0.75))
+                    }
+                    Text(d.statusText)
+                        .font(.system(size: 12))
+                        .foregroundStyle(d.delayMinutes > 0 ? delayColor(d.delayMinutes) : .white.opacity(0.65))
                 }
-                HStack(spacing: 6) {
-                    Text(rotationLegStatus(leg)).font(.system(size: 12)).foregroundStyle(.white.opacity(0.65))
-                    if let arr = leg.effectiveArrival {
-                        Text("· \(arr.formatted(.dateTime.hour().minute()))")
-                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                Spacer()
+                if let time = d.timeText {
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text(time)
+                            .font(.system(size: 14, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(.white)
+                        Text(d.timeCaption)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.5))
+                            .textCase(.uppercase)
                     }
                 }
             }
-            Spacer()
-            if leg.delayMinutes > 15 {
-                Text("+\(leg.delayMinutes)m")
-                    .font(.system(size: 12, weight: .bold)).foregroundStyle(.orange)
-            } else if leg.delayMinutes > 0 {
-                Text("+\(leg.delayMinutes)m")
-                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(.yellow)
-            } else {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 13)).foregroundStyle(.green)
-            }
         }
     }
 
-    private func rotationLegStatus(_ leg: RotationLeg) -> String {
-        switch leg.status {
-        case "active": return "In the air"
-        case "landed": return leg.delayMinutes > 0 ? "Landed \(leg.delayMinutes)m late" : "Landed on time"
-        case "cancelled": return "Cancelled"
-        default: return leg.delayMinutes > 0 ? "Running \(leg.delayMinutes)m late" : "Scheduled"
+    private func glyphColor(_ phase: RotationLegDisplay.Phase) -> Color {
+        switch phase {
+        case .landed: .green
+        case .cancelled: ArcTheme.late
+        case .overdue: .white.opacity(0.55)
+        case .airborne, .scheduled: .white.opacity(0.9)
         }
     }
 
+    /// Yellow up to a quarter hour, orange beyond — same thresholds the
+    /// prediction uses to decide a delay is worth mentioning.
+    private func delayColor(_ minutes: Int) -> Color {
+        minutes > 15 ? .orange : .yellow
+    }
+
+    /// Legacy single-inbound row (data recorded before the chain existed).
+    /// The model has no status for it, only a scheduled arrival and lateness,
+    /// so the clock decides the verb — never a tick it can't back up.
     private func inboundLegRow(number: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "arrow.turn.down.right").foregroundStyle(.white.opacity(0.8))
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(number).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
-                    if let route = flight.inboundRoute {
-                        Text(route).font(.system(size: 13)).foregroundStyle(.white.opacity(0.75))
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            let delay = flight.inboundDelayMinutes
+            let due = flight.inboundArrivalTime.map { $0.addingTimeInterval(Double(delay) * 60) }
+            let past = due.map { context.date > $0.addingTimeInterval(20 * 60) } ?? false
+            // The inbound lands where this flight departs — that airport's clock.
+            let zone = ReferenceData.shared.timezone(flight.departureIATA) ?? .current
+            HStack(spacing: 10) {
+                Image(systemName: past ? "questionmark.circle" : "arrow.turn.down.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(past ? 0.55 : 0.9))
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        Text(number).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                        if let route = flight.inboundRoute {
+                            Text(route).font(.system(size: 13)).foregroundStyle(.white.opacity(0.75))
+                        }
+                    }
+                    Text((past ? "Landing not yet confirmed" : "Inbound to \(flight.departureIATA)")
+                         + (delay > 0 ? " · \(delay)m late" : ""))
+                        .font(.system(size: 12))
+                        .foregroundStyle(delay > 0 ? delayColor(delay) : .white.opacity(0.65))
+                }
+                Spacer()
+                if let due {
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text(due.formatted(Date.FormatStyle(timeZone: zone).hour().minute()))
+                            .font(.system(size: 14, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(.white)
+                        Text("due").font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.5)).textCase(.uppercase)
                     }
                 }
-                HStack(spacing: 6) {
-                    Text(inboundLegStatusText).font(.system(size: 12)).foregroundStyle(.white.opacity(0.65))
-                    if let arrTime = flight.inboundArrivalTime {
-                        Text("· \(arrTime.formatted(.dateTime.hour().minute()))")
-                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
-                    }
-                }
-            }
-            Spacer()
-            // Status indicator
-            if flight.inboundDelayMinutes > 15 {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.orange)
-            } else if flight.inboundDelayMinutes > 0 {
-                Image(systemName: "clock.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.yellow)
-            } else {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.green)
             }
         }
     }
@@ -328,11 +342,6 @@ struct WheresMyPlaneSection: View {
         return "Inbound aircraft on schedule"
     }
 
-    private var inboundLegStatusText: String {
-        if flight.inboundDelayMinutes > 15 { return "Landed \(flight.inboundDelayMinutes)m late" }
-        if flight.inboundDelayMinutes > 0 { return "\(flight.inboundDelayMinutes)m late" }
-        return "On time"
-    }
 }
 
 // MARK: - Detailed Timetable

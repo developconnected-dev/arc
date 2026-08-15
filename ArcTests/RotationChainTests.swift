@@ -229,3 +229,86 @@ final class RotationChainTests: XCTestCase {
             aircraftType: nil, officialDelayMinutes: 0))
     }
 }
+
+// MARK: - Row wording (RotationLegDisplay)
+
+/// The row draws a tick only for a landed leg; everything else names its state
+/// from status + clock, and lateness appears only when there is some.
+@MainActor
+final class RotationLegDisplayTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_790_000_000)
+
+    private func leg(status: String, delay: Int = 0, depIn: Double, arrIn: Double,
+                     actualArr: Double? = nil) -> RotationLeg {
+        RotationLeg(flightNumber: "LX1412", depIATA: "ZRH", arrIATA: "BEG",
+                    scheduledArrival: now.addingTimeInterval(arrIn * 60),
+                    actualArrival: actualArr.map { now.addingTimeInterval($0 * 60) },
+                    delayMinutes: delay, status: status,
+                    scheduledDeparture: now.addingTimeInterval(depIn * 60))
+    }
+
+    func testAirborneLegIsNotATick() {
+        let d = RotationLegDisplay.make(leg(status: "active", depIn: -60, arrIn: 40), now: now)
+        XCTAssertEqual(d.phase, .airborne)
+        XCTAssertEqual(d.symbol, "airplane")
+        XCTAssertEqual(d.statusText, "In the air")
+        XCTAssertEqual(d.timeCaption, "lands")
+    }
+
+    func testAirborneLateLegNamesTheLateness() {
+        let d = RotationLegDisplay.make(leg(status: "active", delay: 22, depIn: -60, arrIn: 40), now: now)
+        XCTAssertEqual(d.statusText, "In the air · 22m late")
+        XCTAssertEqual(d.delayMinutes, 22)
+    }
+
+    func testLandedOnTimeIsTheOnlyTick() {
+        let d = RotationLegDisplay.make(leg(status: "landed", depIn: -180, arrIn: -30, actualArr: -32), now: now)
+        XCTAssertEqual(d.phase, .landed)
+        XCTAssertEqual(d.symbol, "checkmark.circle.fill")
+        XCTAssertEqual(d.statusText, "Landed on time")
+        XCTAssertEqual(d.timeCaption, "landed")
+    }
+
+    func testLandedLate() {
+        let d = RotationLegDisplay.make(leg(status: "landed", delay: 40, depIn: -180, arrIn: -30, actualArr: -5), now: now)
+        XCTAssertEqual(d.statusText, "Landed · 40m late")
+    }
+
+    func testFutureLegIsScheduledWithDepartureTime() {
+        let d = RotationLegDisplay.make(leg(status: "scheduled", depIn: 90, arrIn: 200), now: now)
+        XCTAssertEqual(d.phase, .scheduled)
+        XCTAssertEqual(d.symbol, "clock")
+        XCTAssertTrue(d.statusText.hasPrefix("Departs "), d.statusText)
+        XCTAssertEqual(d.timeCaption, "due")
+    }
+
+    /// Past its departure but the feed still says scheduled: not "Scheduled".
+    func testPastDepartureStillScheduledIsUnconfirmed() {
+        let d = RotationLegDisplay.make(leg(status: "scheduled", depIn: -25, arrIn: 60), now: now)
+        XCTAssertEqual(d.statusText, "Departure not yet confirmed")
+        XCTAssertEqual(d.symbol, "airplane.departure")
+    }
+
+    /// Past its arrival and never reported landed: the honest answer.
+    func testPastArrivalNotLandedIsUnconfirmed() {
+        for status in ["scheduled", "active"] {
+            let d = RotationLegDisplay.make(leg(status: status, depIn: -200, arrIn: -45), now: now)
+            XCTAssertEqual(d.phase, .overdue, status)
+            XCTAssertEqual(d.statusText, "Landing not yet confirmed", status)
+        }
+    }
+
+    /// Delay pushes the "departure passed" judgement, so a leg running 30m
+    /// late that's 15m past its scheduled departure is still just late.
+    func testDelayShiftsTheDepartureJudgement() {
+        let d = RotationLegDisplay.make(leg(status: "scheduled", delay: 30, depIn: -15, arrIn: 90), now: now)
+        XCTAssertEqual(d.phase, .scheduled)
+        XCTAssertTrue(d.statusText.hasSuffix("· 30m late"), d.statusText)
+    }
+
+    func testCancelled() {
+        let d = RotationLegDisplay.make(leg(status: "cancelled", depIn: 30, arrIn: 90), now: now)
+        XCTAssertEqual(d.phase, .cancelled)
+        XCTAssertNil(d.timeText)
+    }
+}
