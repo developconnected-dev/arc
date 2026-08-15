@@ -378,30 +378,14 @@ struct ArcMapView: View {
             mode == .sea ? GeoMath.rhumbLine(from: a, to: b) : GeoMath.greatCircle(from: a, to: b)
         }
 
-        // Sea strokes are as heavy as air ones — a route the eye has to hunt
-        // for is worse than one that looks like a flight. The difference is
-        // carried by colour (teal vs sky) and a long dash (a wake), not by
-        // weight. The first attempt used a 0.1pt dot pattern; it vanished.
-        var plannedStroke: StrokeStyle {
-            mode == .sea
-                ? StrokeStyle(lineWidth: 3, lineCap: .round, dash: [9, 6])
-                : StrokeStyle(lineWidth: 2, lineCap: .round)
-        }
-        var flownStroke: StrokeStyle {
-            mode == .sea
-                ? StrokeStyle(lineWidth: 3, lineCap: .round)
-                : StrokeStyle(lineWidth: 2, lineCap: .round)
-        }
-        var remainderStroke: StrokeStyle {
-            mode == .sea
-                ? StrokeStyle(lineWidth: 3, lineCap: .round, dash: [9, 6])
-                : StrokeStyle(lineWidth: 2, lineCap: .round, dash: [1, 4])
-        }
-        var pastStroke: StrokeStyle {
-            mode == .sea
-                ? StrokeStyle(lineWidth: 2, lineCap: .round, dash: [7, 5])
-                : StrokeStyle(lineWidth: 1.5, lineCap: .round)
-        }
+        // Same stroke language as every other route on the map — solid line,
+        // glow halo, dotted remainder — with colour alone telling sea from
+        // air. Pattern and weight tricks were tried; the geometry (a real
+        // ferry line vs a great-circle arc) plus teal is all it needs.
+        var plannedStroke: StrokeStyle { StrokeStyle(lineWidth: 2, lineCap: .round) }
+        var flownStroke: StrokeStyle { StrokeStyle(lineWidth: 2, lineCap: .round) }
+        var remainderStroke: StrokeStyle { StrokeStyle(lineWidth: 2, lineCap: .round, dash: [1, 4]) }
+        var pastStroke: StrokeStyle { StrokeStyle(lineWidth: 1.5, lineCap: .round) }
     }
 
     /// Is this flight riding the aircraft the ground-view ADS-B feed is
