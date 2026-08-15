@@ -20,6 +20,10 @@ struct FlightDetailView: View {
     @State private var showShare = false
     @State private var confirmDelete = false
     @State private var pendingScroll: String?
+    /// Friends picked as companions on THIS screen, not yet invited — sent
+    /// when the sheet closes (see `sendPendingCompanionInvites`).
+    @State private var newCompanionIds: [String] = []
+    @State private var friendsStore = FriendsStore.shared
     @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
 
     private struct AirportSheetTarget: Identifiable { let id: String }
@@ -67,7 +71,7 @@ struct FlightDetailView: View {
                     if !flight.isCompleted, flight.mode == .air {
                         AirportOverlapRow(flight: flight)
                     }
-                    if !companions.isEmpty {
+                    if !companions.isEmpty || !invitedCompanions.isEmpty {
                         companionsCard
                     }
                     if isOwnFlight { bookingSeatRow; audienceCard }
@@ -459,14 +463,44 @@ struct FlightDetailView: View {
     /// flight you just made private stays visible until then.
     @ViewBuilder private var audienceCard: some View {
         if ArcSupabase.shared.isSignedIn && !FriendsStore.shared.friends.isEmpty {
-            FlightAudienceRow(sharedWithIds: Binding(
-                get: { flight.sharedWithIds },
-                set: { newValue in
-                    flight.sharedWithIds = newValue
-                    Task { try? await ArcSupabase.shared.shareFlight(flight) }
-                }))
-                .padding(14)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+            // Same two verbs as the add flow: who's ON it, then who may SEE it.
+            // Companions picked here are invited the moment the sheet closes;
+            // people already invited show ticked and locked.
+            VStack(spacing: 0) {
+                TravelCompanionsRow(travellingWithIds: $newCompanionIds,
+                                    lockedIds: friendsStore.invitedIds(for: flight),
+                                    onDone: sendPendingCompanionInvites)
+                    .padding(14)
+                    .onChange(of: newCompanionIds) { _, ids in
+                        // Being on the trip implies seeing it.
+                        let widened = TripCompanions.audience(sharedWithIds: flight.sharedWithIds, travellingWithIds: ids)
+                        if widened != flight.sharedWithIds { flight.sharedWithIds = widened }
+                    }
+                Divider().padding(.leading, 39)
+                FlightAudienceRow(sharedWithIds: Binding(
+                    get: { flight.sharedWithIds },
+                    set: { newValue in
+                        flight.sharedWithIds = newValue
+                        Task { try? await ArcSupabase.shared.shareFlight(flight) }
+                    }))
+                    .padding(14)
+            }
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+            .onDisappear { sendPendingCompanionInvites() }
+        }
+    }
+
+    /// Fires the invitations chosen on this screen — when the picker closes,
+    /// not per tick, so toggling Peter on and off again never sends him
+    /// anything. `onDisappear` is the belt to that brace.
+    private func sendPendingCompanionInvites() {
+        let ids = newCompanionIds
+        guard !ids.isEmpty else { return }
+        newCompanionIds = []
+        Task {
+            _ = try? await ArcSupabase.shared.shareFlight(flight)
+            try? await ArcSupabase.shared.sendTripInvites(flight, to: ids)
+            await FriendsStore.shared.refreshSentTripInvites()
         }
     }
 
@@ -549,19 +583,45 @@ struct FlightDetailView: View {
         FriendsStore.shared.companions(for: flight)
     }
 
+    /// Invited onto this trip, answer still open. Only the sender's own trip
+    /// has these; a friend's trip viewed read-only shows none.
+    private var invitedCompanions: [ArcSupabase.ArcUser] {
+        guard isOwnFlight else { return [] }
+        let confirmed = Set(companions.map(\.user.id))
+        return friendsStore.pendingCompanions(for: flight).filter { !confirmed.contains($0.id) }
+    }
+
     private var companionsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Image(systemName: "person.2.fill")
                     .foregroundColor(ArcTheme.brand)
-                Text("On This Flight")
+                Text(flight.mode == .air ? "On This Flight" : "On This Trip")
                     .font(.system(size: 15, weight: .bold))
                 Spacer()
-                Text("\(companions.count) \(companions.count == 1 ? "Friend" : "Friends")")
+                let n = companions.count + invitedCompanions.count
+                Text("\(n) \(n == 1 ? "Friend" : "Friends")")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
             Divider()
+            // Invited but not yet accepted: named, muted, honest about it.
+            ForEach(invitedCompanions, id: \.id) { user in
+                HStack(spacing: 12) {
+                    FriendAvatar(name: user.display_name, size: 36, avatarURL: user.avatar_url)
+                        .opacity(0.55)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(user.display_name)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text("Invited · waiting for them to accept")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 2)
+            }
             ForEach(Array(companions.enumerated()), id: \.offset) { _, comp in
                 HStack(spacing: 12) {
                     FriendAvatar(name: comp.user.display_name, size: 36, avatarURL: comp.user.avatar_url)

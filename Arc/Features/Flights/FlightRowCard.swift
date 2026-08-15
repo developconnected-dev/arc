@@ -4,6 +4,10 @@ import SwiftUI
 /// airline + number + status, city pair, then the route row with arrow chips.
 struct FlightRowCard: View {
     let flight: Flight
+    /// A trip that isn't the user's (yet) — a friend's invitation preview.
+    /// Hides the live-data badge (nothing has been polled) and the companion
+    /// avatars (the inviter is named in the card around it).
+    var isPreview: Bool = false
 
     var body: some View {
         // Countdown block rides the vertical CENTER of the row (Flighty),
@@ -27,7 +31,7 @@ struct FlightRowCard: View {
                         numberText(flight.flightNumberWithMarketingShort)
                         numberText(flight.flightNumberSpaced)
                     }
-                    if !companions.isEmpty {
+                    if !isPreview, !companions.isEmpty {
                         companionAvatars
                     }
                     Spacer(minLength: 8)
@@ -169,7 +173,7 @@ struct FlightRowCard: View {
             endpoint(arrow: "arrow.up.right", iata: flight.departureIATA, time: flight.effectiveDepTimeLocal)
             endpoint(arrow: "arrow.down.right", iata: flight.arrivalIATA, time: flight.effectiveArrTimeLocal)
             Spacer(minLength: 2)
-            dataFreshnessBadge(showText: fullBadge)
+            if !isPreview { dataFreshnessBadge(showText: fullBadge) }
         }
     }
 

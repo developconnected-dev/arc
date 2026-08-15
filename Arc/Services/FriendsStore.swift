@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import SwiftData
 import CoreLocation
 
 /// One shared source of truth for the Friends feature: the friend list, each
@@ -29,6 +30,114 @@ final class FriendsStore {
     var isLoading = false
     var lastError: String?
     private var lastRefreshAt: Date?
+
+    // MARK: Trip invites ("travelling with")
+
+    /// A friend has added a trip for the two of you and is waiting for an
+    /// answer. Rendered pinned above My Trips; Accept materialises the journey
+    /// as the user's own flight, Decline just clears it.
+    struct TripInviteItem: Identifiable {
+        let invite: ArcSupabase.TripInvite
+        let sender: ArcSupabase.ArcUser
+        var id: String { invite.id }
+    }
+    var tripInvites: [TripInviteItem] = []
+
+    /// Invites THIS user sent, open or accepted — so a trip's detail can show
+    /// "Invited · Peter" until he takes it up.
+    var sentTripInvites: [ArcSupabase.TripInvite] = []
+
+    /// Friends invited onto `flight` who haven't answered yet.
+    func pendingCompanions(for flight: Flight) -> [ArcSupabase.ArcUser] {
+        let key = Self.journeyKey(flight.flightNumber, flight.scheduledDeparture)
+        return sentTripInvites
+            .filter { $0.status == "pending" && Self.journeyKey($0.flight_number, DateHelpers.parseAPIDate($0.scheduled_departure)) == key }
+            .compactMap { invite in friends.first { $0.id == invite.to_user }?.user }
+    }
+
+    /// Everyone already invited onto `flight`, answered or not — the picker
+    /// pre-ticks these so the sender doesn't invite Peter twice.
+    func invitedIds(for flight: Flight) -> [String] {
+        let key = Self.journeyKey(flight.flightNumber, flight.scheduledDeparture)
+        return sentTripInvites
+            .filter { Self.journeyKey($0.flight_number, DateHelpers.parseAPIDate($0.scheduled_departure)) == key }
+            .map(\.to_user)
+    }
+
+    /// The natural key of a journey: number + departure to the minute. Same
+    /// tolerance `companions(for:)` needs — ISO strings lose sub-second
+    /// precision on the way through PostgREST.
+    static func journeyKey(_ number: String, _ departure: Date?) -> String {
+        let n = number.replacingOccurrences(of: " ", with: "").uppercased()
+        let t = departure.map { Int($0.timeIntervalSince1970 / 60) } ?? -1
+        return "\(n)|\(t)"
+    }
+
+    /// Right after sending, so the detail screen shows "Invited · Peter"
+    /// without waiting out the refresh throttle.
+    func refreshSentTripInvites() async {
+        guard ArcSupabase.shared.currentUser != nil else { return }
+        if let sent = try? await ArcSupabase.shared.sentTripInvites() { sentTripInvites = sent }
+    }
+
+    /// Accept: the journey becomes the user's own flight, saved, tracked and
+    /// mirrored like any other add. Runs the network answer AFTER the local
+    /// save so a dead connection can never lose the trip — worst case the
+    /// invite is answered again on the next refresh via `reconcile`.
+    func accept(_ item: TripInviteItem, into context: ModelContext) async {
+        let flight = item.invite.flight.materialize()
+        context.insert(flight)
+        do { try context.save() } catch {
+            context.delete(flight)
+            lastError = "Couldn't save this trip: \(error.localizedDescription)"
+            return
+        }
+        withAnimation { tripInvites.removeAll { $0.id == item.id } }
+        if flight.isUpcoming { ArcNotifications.scheduleDepartureReminder(for: flight) }
+        Task {
+            try? await ArcSupabase.shared.upsertUserFlight(flight)
+            _ = try? await ArcSupabase.shared.shareFlight(flight)
+            try? await ArcSupabase.shared.respondToTripInvite(id: item.id, accept: true)
+        }
+    }
+
+    func decline(_ item: TripInviteItem) {
+        withAnimation { tripInvites.removeAll { $0.id == item.id } }
+        Task { try? await ArcSupabase.shared.respondToTripInvite(id: item.id, accept: false) }
+    }
+
+    /// Invites for a journey the user ALREADY has (they added the same
+    /// flight themselves) are answered silently — the companions card just
+    /// gains the sender. Called with the local flights whenever either side
+    /// changes; the store itself has no model context.
+    func reconcileTripInvites(with userFlights: [Flight]) {
+        guard !tripInvites.isEmpty else { return }
+        let mine = Set(userFlights.map { Self.journeyKey($0.flightNumber, $0.scheduledDeparture) })
+        let already = tripInvites.filter { item in
+            mine.contains(Self.journeyKey(item.invite.flight_number,
+                                          DateHelpers.parseAPIDate(item.invite.scheduled_departure)))
+        }
+        guard !already.isEmpty else { return }
+        tripInvites.removeAll { item in already.contains { $0.id == item.id } }
+        for item in already {
+            Task { try? await ArcSupabase.shared.respondToTripInvite(id: item.id, accept: true) }
+        }
+    }
+
+    /// Announce invites the user hasn't been told about yet — against a
+    /// PERSISTED set, so a background refresh and the next cold launch don't
+    /// both ring for the same one.
+    private func announceNewTripInvites(_ items: [TripInviteItem]) {
+        let key = "tripInvites.announced"
+        var announced = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
+        for item in items where !announced.contains(item.id) {
+            announced.insert(item.id)
+            ArcNotifications.notifyTripInvite(item)
+        }
+        // Prune answered/withdrawn ids so the set can't grow forever.
+        announced.formIntersection(items.map(\.id))
+        UserDefaults.standard.set(Array(announced), forKey: key)
+    }
 
     struct AirportOverlap: Identifiable, Equatable {
         let id = UUID()
@@ -360,7 +469,11 @@ final class FriendsStore {
     /// Both the list (.task) and the map (tab switch) call this — the
     /// throttle collapses those into one fetch.
     func refresh() async {
-        guard ArcSupabase.shared.isSignedIn else { friends = []; pending = []; return }
+        guard ArcSupabase.shared.isSignedIn else {
+            friends = []; pending = []; sentTripInvites = []
+            if !DemoSeed.isTripInviteRequested { tripInvites = [] }
+            return
+        }
         // Profile not loaded yet (cold launch, bootstrap still running):
         // bail WITHOUT arming the throttle, so the bootstrap's own refresh
         // isn't swallowed a moment later.
@@ -403,6 +516,23 @@ final class FriendsStore {
                 }
             }
             pending = loadedPending.map { (friendship: $0.0, user: $0.1) }
+
+            // Trip invites, both directions. Senders are friends (RLS insists
+            // at insert time), so their profiles are already in hand; the
+            // fallback fetch covers someone unfriended since they invited.
+            let incoming = try await supabase.pendingTripInvites()
+            var items: [TripInviteItem] = []
+            for invite in incoming {
+                var sender = profileById[invite.from_user]
+                if sender == nil {
+                    sender = try? await supabase.getProfile(userId: invite.from_user)
+                    if let sender { profileById[invite.from_user] = sender }
+                }
+                if let sender { items.append(TripInviteItem(invite: invite, sender: sender)) }
+            }
+            if !DemoSeed.isTripInviteRequested { tripInvites = items }   // simulator seed survives
+            announceNewTripInvites(items)
+            sentTripInvites = (try? await supabase.sentTripInvites()) ?? sentTripInvites
 
             // Diff against the persisted baseline: friend notifications +
             // friend Live Activities ride every refresh, foreground or BGTask.

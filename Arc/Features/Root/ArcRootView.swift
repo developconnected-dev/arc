@@ -168,6 +168,7 @@ struct ArcRootView: View {
             DemoSeed.seedIfRequested(into: modelContext, existing: allFlights)
             DemoSeed.seedStuckFlightIfRequested(into: modelContext, existing: allFlights)
             DemoSeed.startDemoLiveActivityIfRequested()
+            DemoSeed.seedTripInviteIfRequested()
             refitMapForCurrentData()
             openDetailIfPending()
             bootstrapTrackingAndWidgets()
@@ -487,6 +488,8 @@ struct ArcRootView: View {
                 Tab(ArcTab.myFlights.title, systemImage: ArcTab.myFlights.icon, value: ArcTab.myFlights) {
                     tabSurface { MyFlightsView(onSelect: { detailFlight = $0 }, onAdd: { showAdd = true }) }
                 }
+                // Trips friends added for the two of you, waiting on an answer.
+                .badge(friendsStore.tripInvites.count)
                 Tab(ArcTab.friends.title, systemImage: ArcTab.friends.icon, value: ArcTab.friends) {
                     tabSurface { FriendsScreen() }
                 }
