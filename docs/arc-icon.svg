@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Arc app icon: globe grid + plane on an orbit, white on near-black. -->
+  <rect width="1024" height="1024" fill="#1c1c1e"/>
+  <defs>
+    <!-- A thin halo around the plane's silhouette so it reads on top of the
+         grid — the plane shape itself, stroked wide, as a mask cut-out. -->
+    <mask id="planeGap">
+      <rect width="1024" height="1024" fill="#fff"/>
+      <g transform="translate(655 495) rotate(-38)">
+        <path fill="#000" stroke="#000" stroke-width="30" stroke-linejoin="round" d="M 0 -104
+             C 14 -104 22 -86 22 -64
+             L 22 -22
+             L 118 34 L 118 60 L 22 30
+             L 22 66 L 46 86 L 46 104 L 0 92 L -46 104 L -46 86 L -22 66
+             L -22 30 L -118 60 L -118 34 L -22 -22
+             L -22 -64
+             C -22 -86 -14 -104 0 -104 Z"/>
+      </g>
+    </mask>
+  </defs>
+  <g fill="none" stroke="#ffffff" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" mask="url(#planeGap)">
+    <!-- Globe outline -->
+    <circle cx="512" cy="512" r="286"/>
+    <!-- Meridians -->
+    <ellipse cx="512" cy="512" rx="128" ry="286"/>
+    <line x1="512" y1="226" x2="512" y2="798"/>
+    <!-- Parallels -->
+    <line x1="226" y1="512" x2="798" y2="512"/>
+    <path d="M 268 366 Q 512 292 756 366"/>
+    <path d="M 268 658 Q 512 732 756 658"/>
+    <!-- Orbit: one continuous sweep, lower-left up past the plane to the
+         upper-right, where it curls back as it passes behind the globe. -->
+    <path d="M 168 662 C 128 686, 128 720, 172 726 C 240 736, 400 690, 570 596 C 660 546, 740 490, 800 430 C 852 378, 866 316, 838 276 C 812 240, 750 246, 690 282"/>
+  </g>
+  <!-- Plane, filled, nose up-right along the orbit -->
+  <g transform="translate(655 495) rotate(-38)" fill="#ffffff">
+    <path d="M 0 -104
+             C 14 -104 22 -86 22 -64
+             L 22 -22
+             L 118 34 L 118 60 L 22 30
+             L 22 66 L 46 86 L 46 104 L 0 92 L -46 104 L -46 86 L -22 66
+             L -22 30 L -118 60 L -118 34 L -22 -22
+             L -22 -64
+             C -22 -86 -14 -104 0 -104 Z"/>
+  </g>
+</svg>
