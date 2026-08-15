@@ -202,9 +202,14 @@ final class FlightStatusHealTests: XCTestCase {
         XCTAssertEqual(FlightStatus.heal(rawValue: "expected", scheduledArrival: future), .scheduled)
     }
 
-    func testHealFallsBackToLandedForPastUnknownStatus() {
-        let past = Date.now.addingTimeInterval(-3600)
-        XCTAssertEqual(FlightStatus.heal(rawValue: "arrived", scheduledArrival: past), .landed)
+    /// Comfortably past its arrival → history. Just past it → NOT asserted
+    /// landed: an unknown status string can't be turned into an arrival by
+    /// the clock alone.
+    func testHealFallsBackToLandedOnlyWellPastArrival() {
+        let longAgo = Date.now.addingTimeInterval(-3 * 3600)
+        XCTAssertEqual(FlightStatus.heal(rawValue: "arrived", scheduledArrival: longAgo), .landed)
+        let justNow = Date.now.addingTimeInterval(-3600)
+        XCTAssertEqual(FlightStatus.heal(rawValue: "weird", scheduledArrival: justNow), .scheduled)
     }
 }
 
@@ -449,5 +454,103 @@ final class WidgetFlightTests: XCTestCase {
         XCTAssertEqual(decoded.mode, .sea)
         XCTAssertEqual(decoded.dataTier, .scheduled)
         XCTAssertEqual(decoded.statusText(phase: .upcoming), "Timetable")
+    }
+}
+
+// MARK: - Tense honesty (what WAS, what IS, what WILL BE)
+
+@MainActor
+final class FlightTenseTests: XCTestCase {
+    private func flight(depIn: TimeInterval, durationH: Double = 2, delay: Int = 0,
+                        status: FlightStatus = .scheduled, tier: DataTier = .live) -> Flight {
+        let f = Flight(flightNumber: "LX1413", date: .now.addingTimeInterval(depIn))
+        f.scheduledArrival = f.scheduledDeparture.addingTimeInterval(durationH * 3600)
+        f.delayMinutes = delay
+        f.status = status
+        f.dataTier = tier
+        f.departureIATA = "BEG"; f.arrivalIATA = "ZRH"
+        return f
+    }
+
+    /// A delayed flight counts down to when it actually leaves, and keeps its
+    /// status label past the printed time instead of falling to a bare date.
+    func testDelayedFlightCountsDownToEffectiveDeparture() {
+        let f = flight(depIn: -30 * 60, delay: 90)   // printed 30m ago, leaves in 60m
+        XCTAssertNotNil(f.countdown)
+        XCTAssertEqual(f.countdown?.unit, "MIN")
+        XCTAssertTrue(f.isSoon)
+        XCTAssertEqual(f.cardTopRight, "Departs Delayed 90m")
+    }
+
+    /// Past its (delayed) departure and still "scheduled": nobody confirmed
+    /// it left, so Arc doesn't either — no countdown, no date, no green.
+    func testUnconfirmedDepartureSaysSo() {
+        let f = flight(depIn: -25 * 60)
+        XCTAssertTrue(f.isDepartureUnconfirmed)
+        XCTAssertNil(f.countdown)
+        XCTAssertEqual(f.cardTopRight, "Not yet departed")
+        XCTAssertEqual(f.bannerHeadline, "Departure not yet confirmed")
+        XCTAssertNotEqual(f.bannerColor, ArcTheme.onTime)
+        XCTAssertFalse(f.departureRelText.hasSuffix(" ago"))
+    }
+
+    /// Flipped to active by the clock a few minutes ago: "Departing", not
+    /// "In Air" on faith. Once the source reports a real departure, In Air.
+    func testFreshlyActiveHedgesThenCommits() {
+        let f = flight(depIn: -5 * 60, status: .active)
+        XCTAssertEqual(f.statusText, "Departing")
+        XCTAssertEqual(f.bannerHeadline, "Departing")
+        f.actualDeparture = f.scheduledDeparture
+        XCTAssertEqual(f.statusText, "In Air")
+        let later = flight(depIn: -40 * 60, status: .active)
+        XCTAssertEqual(later.statusText, "In Air")
+    }
+
+    /// An active flight past its ETA is not "Arrived" until the source says so.
+    func testArrivalNotClaimedFromClock() {
+        let f = flight(depIn: -4 * 3600, status: .active)   // ETA was 2h ago
+        XCTAssertEqual(f.arrivalRelText, "Arrival not yet confirmed")
+        XCTAssertEqual(f.bannerHeadline, "Arrival not yet confirmed")
+        f.status = .landed
+        XCTAssertEqual(f.arrivalRelText, "Arrived")
+    }
+
+    /// What happened beats what was predicted.
+    func testActualArrivalBeatsStaleEstimate() {
+        let f = flight(depIn: -4 * 3600, status: .landed)
+        f.estimatedArrival = f.scheduledArrival.addingTimeInterval(40 * 60)
+        f.actualArrival = f.scheduledArrival.addingTimeInterval(5 * 60)
+        XCTAssertEqual(f.effectiveArrival, f.actualArrival)
+    }
+
+    /// The 30-minute grace measures from the arrival the app believes in —
+    /// a delayed landing marked by the clock (no actualArrival) still gets it.
+    func testRecentlyLandedGraceSurvivesDelayAndEarlyArrival() {
+        let late = flight(depIn: -3 * 3600, delay: 45, status: .landed)   // eff. arrival 15m ago
+        XCTAssertTrue(late.isRecentlyLanded)
+        let early = flight(depIn: -110 * 60, status: .landed)             // scheduled arrival in 10m
+        early.estimatedArrival = Date.now.addingTimeInterval(-5 * 60)
+        XCTAssertTrue(early.isRecentlyLanded)
+    }
+
+    func testCancelledAndDivertedNeverReadOnTime() {
+        for status in [FlightStatus.cancelled, .diverted] {
+            let f = flight(depIn: 3600, status: status)
+            XCTAssertNotEqual(f.departureStatusText, "On Time", "\(status)")
+            XCTAssertNotEqual(f.arrivalStatusText, "On Time", "\(status)")
+            XCTAssertEqual(f.bannerColor, ArcTheme.late, "\(status)")
+        }
+        XCTAssertEqual(flight(depIn: 3600, status: .diverted).bannerHeadline, "Diverted")
+    }
+
+    /// The freshness pill says "Live" only for a source that is.
+    func testFreshnessNeverSaysLiveForATimetable() {
+        let ferry = flight(depIn: 3600, tier: .scheduled)
+        ferry.lastStatusUpdate = .now
+        XCTAssertFalse(ferry.dataFreshnessText.hasPrefix("Live"))
+        XCTAssertNotEqual(ferry.dataFreshnessShort, "Live")
+        let live = flight(depIn: 3600, tier: .live)
+        live.lastStatusUpdate = .now
+        XCTAssertTrue(live.dataFreshnessText.hasPrefix("Live"))
     }
 }

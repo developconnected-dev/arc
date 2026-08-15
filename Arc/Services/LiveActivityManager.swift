@@ -94,7 +94,8 @@ final class LiveActivityManager {
             friendName: friendName,
             friendAvatarFile: friendAvatarFile,
             flightId: friendName == nil ? flight.id.uuidString : nil,
-            modeRaw: flight.mode.rawValue
+            modeRaw: flight.mode.rawValue,
+            dataTierRaw: flight.dataTier.rawValue
         )
 
         let state = await makeState(for: flight)
@@ -176,10 +177,34 @@ final class LiveActivityManager {
     }
 
     func endActivity(for flight: Flight) async {
+        // Same relaunch reconciliation as `updateActivity`: the in-memory map
+        // is empty after a cold start, and a delete/cancel that couldn't find
+        // its activity left a live countdown running for a trip that no
+        // longer existed, with a dead tap target.
+        if activeActivities[flight.id.uuidString] == nil {
+            if let existing = Activity<FlightActivityAttributes>.activities.first(where: {
+                $0.attributes.flightNumber == flight.flightNumber &&
+                $0.attributes.departureIATA == flight.departureIATA &&
+                $0.attributes.arrivalIATA == flight.arrivalIATA &&
+                $0.attributes.friendName == nil
+            }) {
+                activeActivities[flight.id.uuidString] = existing
+            }
+        }
         guard let activity = activeActivities[flight.id.uuidString] else { return }
         let flightId = flight.id.uuidString
 
-        let finalArrival = flight.actualArrival ?? flight.scheduledArrival
+        // Only a LANDED flight earns the landed card. A cancelled flight or a
+        // deleted trip must not linger for an hour wearing a green tick and a
+        // baggage belt — it just goes.
+        guard flight.status == .landed else {
+            nonisolated(unsafe) let act = activity
+            await act.end(nil, dismissalPolicy: .immediate)
+            activeActivities.removeValue(forKey: flightId)
+            return
+        }
+
+        let finalArrival = flight.actualArrival ?? flight.effectiveArrival
         let finalState = FlightActivityAttributes.ContentState(
             status: "landed",
             departureTime: flight.actualDeparture ?? flight.scheduledDeparture,

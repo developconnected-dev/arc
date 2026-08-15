@@ -27,7 +27,7 @@ struct NextFlightProvider: TimelineProvider {
         // Active or upcoming first; failing that, a flight landed within the
         // last 30 min still gets shown (in its landed look) before the widget
         // gives up and shows the empty state.
-        let next = flights.first { $0.isUpcoming || $0.isActive }
+        let next = flights.first { $0.isCurrent(at: now) }
             ?? flights.first { $0.phase(at: now) == .landed && now < $0.effectiveArrival.addingTimeInterval(30 * 60) }
 
         // Widget views are rendered ONCE per entry, at timeline-build time —
@@ -40,11 +40,16 @@ struct NextFlightProvider: TimelineProvider {
         // works with the app closed AND the device offline.
         var entries = [NextFlightEntry(date: now, flight: next, all: flights)]
         if let f = next {
-            let flips = [f.effectiveDeparture,
-                         f.effectiveArrival,
-                         f.effectiveArrival.addingTimeInterval(30 * 60 + 1)]
+            let flips = [f.effectiveDeparture, f.effectiveArrival]
             for moment in flips where moment > now {
                 entries.append(NextFlightEntry(date: moment, flight: f, all: flights))
+            }
+            // Grace expired: hand over to whatever comes next (or the empty
+            // state) instead of re-rendering the landed leg forever.
+            let done = f.effectiveArrival.addingTimeInterval(30 * 60 + 1)
+            if done > now {
+                let following = flights.first { $0.id != f.id && $0.isCurrent(at: done) }
+                entries.append(NextFlightEntry(date: done, flight: following, all: flights))
             }
         }
         // Ask to be reloaded (and re-fetch) often while a leg is live or
@@ -113,11 +118,14 @@ struct NextFlightSmallView: View {
                 HStack(spacing: 4) {
                     Text(flight.departureIATA)
                         .font(.system(size: 15, weight: .heavy))
+                    // The tick means "you got there" — only the source can
+                    // say so; the clock passing the ETA merely says "should
+                    // have", which the label above hedges as "Arriving soon".
                     Image(systemName: flight.isDisrupted ? "xmark"
-                          : phase == .landed ? "checkmark" : "arrow.right")
+                          : flight.status == "landed" ? "checkmark" : "arrow.right")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(flight.isDisrupted ? .red
-                                         : phase == .landed && flight.reportsPunctuality
+                                         : flight.status == "landed" && flight.reportsPunctuality
                                              ? .green : .secondary)
                     Text(flight.arrivalIATA)
                         .font(.system(size: 15, weight: .heavy))
@@ -511,9 +519,12 @@ struct NextFlightMediumView: View {
     /// in the day, not counted down; a countdown of "16 hrs, 46 min" tells you
     /// nothing you can plan around.
     private func whenText(_ f: WidgetFlight) -> String {
-        let cal = Calendar.current
+        var cal = Calendar.current
         let dep = f.effectiveDeparture
         let tz = f.departureTZ.flatMap(TimeZone.init(identifier:)) ?? .current
+        // "Today" on the AIRPORT's calendar, matching the airport-local time
+        // printed next to it — a Tokyo 01:30 is not "Today" for a Zurich phone.
+        cal.timeZone = tz
         if cal.isDateInToday(dep) { return "Today \(f.depTimeLocal)" }
         if cal.isDateInTomorrow(dep) { return "Tmrw \(f.depTimeLocal)" }
         let fmt = DateFormatter()

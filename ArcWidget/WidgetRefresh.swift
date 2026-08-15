@@ -30,7 +30,7 @@ enum WidgetRefresh {
     /// The leg the widget will lead with, refreshed against the Worker when it
     /// is worth asking. Returns the (possibly patched) full list.
     static func refreshed(_ flights: [WidgetFlight], now: Date = .now) async -> [WidgetFlight] {
-        guard let hero = flights.first(where: { $0.isUpcoming || $0.isActive }),
+        guard let hero = flights.first(where: { $0.isCurrent(at: now) }),
               hero.mode == .air, hero.dataTier.reportsPunctuality,
               hero.scheduledDeparture.timeIntervalSince(now) < leadTime,
               hero.effectiveArrival.timeIntervalSince(now) > -tailTime

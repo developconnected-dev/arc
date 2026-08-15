@@ -29,6 +29,11 @@ final class FriendsStore {
     var pending: [(friendship: ArcSupabase.Friendship, user: ArcSupabase.ArcUser)] = []
     var isLoading = false
     var lastError: String?
+    /// False until the first refresh has actually completed. On a cold launch
+    /// the session token is present but the profile isn't loaded yet, so a
+    /// refresh bails early — and "No friends yet" was shown to people with
+    /// friends for the whole bootstrap round-trip.
+    var hasLoadedOnce = false
     private var lastRefreshAt: Date?
 
     // MARK: Trip invites ("travelling with")
@@ -520,7 +525,16 @@ final class FriendsStore {
             // Trip invites, both directions. Senders are friends (RLS insists
             // at insert time), so their profiles are already in hand; the
             // fallback fetch covers someone unfriended since they invited.
-            let incoming = try await supabase.pendingTripInvites()
+            // An invite for a trip that already departed can't be joined any
+            // more; answer it silently instead of pinning a dead card on top.
+            let all = try await supabase.pendingTripInvites()
+            let (incoming, stale) = all.reduce(into: ([ArcSupabase.TripInvite](), [ArcSupabase.TripInvite]())) { acc, invite in
+                let dep = DateHelpers.parseAPIDate(invite.scheduled_departure) ?? .distantFuture
+                if dep > Date.now.addingTimeInterval(-60 * 60) { acc.0.append(invite) } else { acc.1.append(invite) }
+            }
+            for invite in stale {
+                Task { try? await supabase.respondToTripInvite(id: invite.id, accept: false) }
+            }
             var items: [TripInviteItem] = []
             for invite in incoming {
                 var sender = profileById[invite.from_user]
@@ -537,6 +551,7 @@ final class FriendsStore {
             // Diff against the persisted baseline: friend notifications +
             // friend Live Activities ride every refresh, foreground or BGTask.
             await FriendAlerts.process(entries: friends)
+            hasLoadedOnce = true
         } catch {
             lastError = "Couldn't load friends: \(error.localizedDescription)"
         }
@@ -618,23 +633,29 @@ enum FriendFlightMath {
     enum ChipKind { case landed, delayed, inFlight, countdown, boarding }
     static func chip(for f: ArcSupabase.SharedFlight,
                      at now: Date = .now) -> (text: String, kind: ChipKind) {
+        if f.status == "cancelled" { return ("CANCELLED", .delayed) }
         if isAirborne(f, at: now) {
             if let arr = arrival(f) {
                 let mins = max(0, Int(arr.timeIntervalSince(now) / 60))
                 return ("LANDS IN \(hm(mins))", .inFlight)
             }
-            return ("IN FLIGHT", .inFlight)
+            return (f.tripMode.inTransitShort, .inFlight)
         }
-        if f.status == "landed" || (arrival(f).map { $0 <= now } ?? false) {
-            return ("LANDED", .landed)
-        }
-        if f.delay_minutes > 0 { return ("DELAYED", .delayed) }
+        // "LANDED" is a fact only the source can state. Past the last
+        // published arrival with no confirmation, the honest chip is DUE — a
+        // friend holding over the airport must not be told to their family
+        // as already on the ground.
+        if f.status == "landed" { return (f.tripMode.arrivedShort, .landed) }
+        if arrival(f).map({ $0 <= now }) ?? false { return ("DUE", .countdown) }
+        // A delay is a report; a timetable-only leg has none to give.
+        if f.delay_minutes > 0, f.tier.reportsPunctuality { return ("DELAYED", .delayed) }
         if f.status == "boarding" { return ("BOARDING", .boarding) }
         if let dep = departure(f), dep > now {
             let mins = Int(dep.timeIntervalSince(now) / 60)
             return ("IN \(hm(mins))", .countdown)
         }
-        return ("ON TIME", .countdown)
+        // Departure passed, nothing else known: say only that.
+        return ("DEPARTED", .countdown)
     }
 
     /// Past a day, hours stop meaning anything ("IN 523H 14M") — roll to days.

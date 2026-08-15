@@ -113,7 +113,10 @@ enum FriendAlerts {
 
     static func process(entries: [FriendsStore.FriendEntry], at now: Date = .now) async {
         let baseline = (UserDefaults.standard.dictionary(forKey: baselineKey) as? [String: String]) ?? [:]
-        let flights = entries.flatMap { entry in entry.flights.map { (entry.user, $0) } }
+        // A cancelled flight has no take-off, landing or delay to announce.
+        let flights = entries.flatMap { entry in
+            entry.flights.filter { $0.status != "cancelled" }.map { (entry.user, $0) }
+        }
         let levels = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, level(for: $0.id)) })
 
         for event in events(baseline: baseline, flights: flights, levels: levels, at: now) {
@@ -136,7 +139,7 @@ enum FriendAlerts {
             content.body = "\(event.flightNumber) \(event.route)"
         case .landed:
             content.title = "\(event.friendName) landed in \(event.arrivalCity) 🛬"
-            content.body = "\(event.flightNumber) \(event.route) • True Curb ETA: ~35m for taxi, deplane & baggage claim. Time your drive!"
+            content.body = "\(event.flightNumber) \(event.route)"
         case .delayed(let minutes):
             content.title = "\(event.friendName)'s flight is \(minutes)m late"
             content.body = "\(event.flightNumber) \(event.route)"

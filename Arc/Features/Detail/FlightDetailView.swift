@@ -50,7 +50,9 @@ struct FlightDetailView: View {
                     statusBanner
                     // METAR / airport-history reasoning — meaningless for a
                     // train or ferry, so air only.
-                    if !flight.isCompleted, flight.mode == .air {
+                    // …and only before departure: a departure-weather outlook
+                    // for a plane already in the air is a forecast of the past.
+                    if !flight.isCompleted, !flight.isActive, flight.mode == .air {
                         DelayRiskCard(flight: flight)
                     }
                     if let plan = connection {
@@ -60,7 +62,10 @@ struct FlightDetailView: View {
                     // Only when the airline has actually assigned a belt. The
                     // old fallback invented "7 (Belt Confirmed)" for any landed
                     // flight — a made-up number presented as confirmed.
-                    if let belt = flight.baggageClaim, !belt.isEmpty {
+                    // And only once a belt can matter: FIDS often publish one
+                    // before departure, and "BAGGAGE RECLAIM · Belt 7" above
+                    // tomorrow's departure reads as if the trip were over.
+                    if flight.showsBaggageBelt, let belt = flight.baggageClaim {
                         BaggageCarouselSection(flight: flight, belt: belt)
                     }
                     endpointsCard
@@ -80,7 +85,9 @@ struct FlightDetailView: View {
                     // are all about a plane. A ferry has a vessel and a train
                     // has neither, so this whole section is air-only until each
                     // has something of its own to say.
-                    if isOwnFlight, flight.mode == .air {
+                    // Once the flight is over there is no plane to find, and the
+                    // rotation list would be a stale snapshot of that morning.
+                    if isOwnFlight, flight.mode == .air, !flight.isCompleted {
                         WheresMyPlaneSection(flight: flight).id("plane")
                     }
                     DetailedTimetableSection(flight: flight)
@@ -196,7 +203,8 @@ struct FlightDetailView: View {
                 Spacer()
                 HStack(spacing: 5) {
                     Circle()
-                        .fill(flight.isDataFresh ? Color.green : Color.orange)
+                        .fill(flight.isDataFresh && flight.reportsPunctuality ? Color.green
+                              : (flight.isDataFresh ? Color(.secondaryLabel) : Color.orange))
                         .frame(width: 6, height: 6)
                     TimelineView(.periodic(from: .now, by: 60)) { _ in
                         Text(flight.dataFreshnessText)
@@ -265,11 +273,15 @@ struct FlightDetailView: View {
             }
             // Say out loud that these are the times you typed and that Arc is
             // still looking, so nobody wonders whether it quietly gave up.
+            // The backfill stops looking once the typed departure has passed,
+            // so past that point say what's true: the times are yours.
             if flight.awaitingSchedule {
                 HStack(spacing: 6) {
                     Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
                         .font(.system(size: 12, weight: .semibold))
-                    Text("Your times — checking daily for the airline's schedule")
+                    Text(flight.scheduledDeparture > .now
+                         ? "Your times — checking daily for the airline's schedule"
+                         : "Your times — no airline schedule was found for this flight")
                         .font(.system(size: 13))
                 }
                 .foregroundStyle(.secondary)
@@ -338,7 +350,7 @@ struct FlightDetailView: View {
             // aircraft parked at its gate. Neither exists for a station or a
             // quayside, and an button that opens an empty map is worse than no
             // button.
-            if onShowAirport != nil, flight.mode == .air {
+            if onShowAirport != nil, flight.mode == .air, flight.hasRoute {
             Button {
                 onShowAirport?(flight)
             } label: {
@@ -351,7 +363,11 @@ struct FlightDetailView: View {
             .buttonStyle(.plain)
             }
 
-            if flight.isUpcoming, onShowAtGate != nil, flight.mode == .air {
+            // "My plane" needs a plane: without a tail (ICAO24/registration)
+            // the watch returns immediately and the user is left staring at an
+            // empty gate. The Where's My Plane card says "not yet assigned".
+            if flight.isUpcoming, onShowAtGate != nil, flight.mode == .air, flight.hasRoute,
+               flight.aircraftICAO24?.isEmpty == false || flight.aircraftRegistration?.isEmpty == false {
                 Button { onShowAtGate?(flight) } label: {
                     Label(flight.departureGate.map { "My plane · Gate \($0)" } ?? "My plane",
                           systemImage: "airplane.circle.fill")
@@ -362,8 +378,11 @@ struct FlightDetailView: View {
                         .foregroundStyle(ArcTheme.action)
                 }
                 .buttonStyle(.plain)
-            } else if flight.isCompleted || flight.isRecentlyLanded, let gate = flight.arrivalGate,
-                      onShowAtGate != nil, flight.mode == .air {
+            // A parked plane is only a fact for a LANDED flight, and only for
+            // the half hour it plausibly still stands there — not for a
+            // cancelled or diverted one, whose aircraft never reached this gate.
+            } else if flight.status == .landed, flight.isRecentlyLanded, let gate = flight.arrivalGate,
+                      onShowAtGate != nil, flight.mode == .air, flight.hasRoute {
                 Button { onShowAtGate?(flight) } label: {
                     Label("Plane at \(gate)", systemImage: "airplane.circle.fill")
                         .font(.system(size: 14, weight: .semibold))
@@ -389,24 +408,32 @@ struct FlightDetailView: View {
         let terminal = isArrival ? flight.arrivalTerminal : flight.departureTerminal
         let arrow = isArrival ? "arrow.down.right" : "arrow.up.right"
 
+        // A station's or port's code is not an airport code — "BER" on a
+        // train is Berlin Hbf, and the airport sheet would show Brandenburg's
+        // weather as this leg's. Off-air the header is a label, not a button.
+        let opensAirport = flight.mode == .air
+        let tint = endpointColor(isArrival: isArrival)
         return VStack(alignment: .leading, spacing: 8) {
-            Button { airportSheet = AirportSheetTarget(id: iata) } label: {
+            Button { if opensAirport { airportSheet = AirportSheetTarget(id: iata) } } label: {
                 HStack(spacing: 6) {
                     Image(systemName: arrow).font(.system(size: 9, weight: .bold))
                         .foregroundStyle(Color(.systemBackground))
                         .frame(width: 18, height: 18).background(Color.primary, in: Circle())
                     Text(iata).font(.system(size: 15, weight: .bold))
                     Text("• \(name)").font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1)
-                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
+                    if opensAirport {
+                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
+                    }
                     Spacer(minLength: 0)
                 }
             }
             .buttonStyle(.plain)
+            .disabled(!opensAirport)
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(time).font(.system(size: 40, weight: .regular))
-                            .foregroundStyle(flight.bannerColor)
+                            .foregroundStyle(tint)
                             .contentTransition(.numericText())
                             .animation(.default, value: time)
                         if changed {
@@ -416,9 +443,15 @@ struct FlightDetailView: View {
                     }
                     // Completed flights drop the relative clock ("39d 8h ago"
                     // says nothing useful about a flight already flown).
-                    Text(flight.isCompleted ? statusText : "\(statusText) • \(relText)")
+                    // An unconfirmed departure can't be "On Time": say what's
+                    // known — how far past the schedule, and that no delay
+                    // has been published.
+                    Text(flight.isCompleted ? statusText
+                         : (!isArrival && flight.isDepartureUnconfirmed)
+                            ? "\(relText) • no delay reported"
+                            : "\(statusText) • \(relText)")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(flight.bannerColor)
+                        .foregroundStyle(tint)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 4) {
@@ -428,17 +461,24 @@ struct FlightDetailView: View {
                     // missing data — so off-air the pill appears only once there
                     // is a real platform or berth to show.
                     if flight.mode == .air || (gate?.isEmpty == false) {
+                        // Tappable only when there is a gate to show AND a
+                        // plane to find there — a yellow "--" that flew the map
+                        // to an empty apron promised something it couldn't do.
+                        let hasTail = flight.aircraftICAO24?.isEmpty == false || flight.aircraftRegistration?.isEmpty == false
                         let pillOpensMap = isOwnFlight && onShowAtGate != nil && flight.mode == .air
-                            && ((isArrival && (flight.isCompleted || flight.isRecentlyLanded))
-                                || (!isArrival && flight.isUpcoming))
-                        if pillOpensMap {
+                            && gate?.isEmpty == false && flight.hasRoute
+                            && ((isArrival && flight.status == .landed && flight.isRecentlyLanded)
+                                || (!isArrival && flight.isUpcoming && hasTail))
+                        if pillOpensMap, let gate {
                             Button { onShowAtGate?(flight) } label: {
-                                GatePill(arrow: arrow, gate: gate ?? "--")
+                                GatePill(arrow: arrow, gate: gate)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("Show plane at \(gate ?? "gate")")
+                            .accessibilityLabel("Show plane at gate \(gate)")
                         } else {
-                            GatePill(arrow: arrow, gate: gate ?? "--")
+                            // No gate yet: a quiet placeholder, not a yellow
+                            // chip that reads like an assignment.
+                            GatePill(arrow: arrow, gate: gate ?? "--", pending: gate == nil)
                         }
                     }
                     if let terminal { Text("Terminal \(terminal)").font(.system(size: 13)).foregroundStyle(.secondary) }
@@ -446,6 +486,18 @@ struct FlightDetailView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    /// Each endpoint is coloured by ITS OWN delta. One flight-wide colour
+    /// painted "On Time" red at the arrival of a flight that left late but
+    /// will land on time — and the reverse.
+    private func endpointColor(isArrival: Bool) -> Color {
+        if flight.status == .cancelled || flight.status == .diverted { return ArcTheme.late }
+        guard flight.reportsPunctuality else { return flight.bannerColor }
+        if !isArrival, flight.isDepartureUnconfirmed { return Color(.secondaryLabel) }
+        let effective = isArrival ? flight.effectiveArrival : flight.effectiveDeparture
+        let scheduled = isArrival ? flight.scheduledArrival : flight.scheduledDeparture
+        return effective.timeIntervalSince(scheduled) >= 60 ? ArcTheme.late : ArcTheme.onTime
     }
 
     // MARK: Booking / Seat

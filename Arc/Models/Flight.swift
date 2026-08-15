@@ -247,8 +247,11 @@ final class Flight {
         } else {
             "\(Int(interval / 86400))d ago"
         }
-        if interval < 60 { return "Live • Just updated" }
-        if interval < 600 { return "Live • \(age)" }
+        // "Live" is a claim about the SOURCE, not the poll: a ferry timetable
+        // fetched a second ago is still a timetable.
+        let live = dataTier.reportsPunctuality
+        if interval < 60 { return live ? "Live • Just updated" : "Timetable • Just checked" }
+        if interval < 600 { return live ? "Live • \(age)" : "Timetable • checked \(age)" }
         return online ? "Updated \(age)" : "Offline • Cached \(age)"
     }
 
@@ -259,7 +262,7 @@ final class Flight {
     var dataFreshnessShort: String {
         guard let updateTime = lastStatusUpdate ?? liveUpdatedAt else { return "—" }
         let interval = Date.now.timeIntervalSince(updateTime)
-        if interval < 60 { return "Live" }
+        if interval < 60 { return dataTier.reportsPunctuality ? "Live" : "Now" }
         if interval < 3600 { return "\(max(1, Int(interval / 60)))m" }
         if interval < 86400 { return "\(max(1, Int(interval / 3600)))h" }
         return "\(Int(interval / 86400))d"
@@ -538,6 +541,9 @@ enum FlightStatus: String, Codable, CaseIterable {
     /// "scheduled", so a clearly-past flight doesn't get stuck looking upcoming.
     static func heal(rawValue: String, scheduledArrival: Date) -> FlightStatus {
         if let known = FlightStatus(rawValue: rawValue) { return known }
-        return scheduledArrival < .now ? .landed : .scheduled
+        // A flight comfortably past its arrival is history; one that only
+        // just should have landed is NOT asserted landed — a status the app
+        // never received can't be turned into an arrival by the clock alone.
+        return scheduledArrival.addingTimeInterval(2 * 3600) < .now ? .landed : .scheduled
     }
 }

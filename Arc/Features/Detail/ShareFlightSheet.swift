@@ -38,8 +38,12 @@ struct ShareFlightSheet: View {
                     Label("Creating live link…", systemImage: "clock")
                         .font(.system(size: 13)).foregroundStyle(.secondary)
                 case .ready:
-                    Label("Anyone with the link can watch this flight live for 48h — no app needed.",
-                          systemImage: "dot.radiowaves.left.and.right")
+                    // A landed flight has nothing left to watch live; the link
+                    // still opens the record, so say that instead.
+                    Label(flight.isCompleted
+                          ? "Anyone with the link can see how this trip went — no app needed."
+                          : "Anyone with the link can watch this flight live for 48h — no app needed.",
+                          systemImage: flight.isCompleted ? "checkmark.seal" : "dot.radiowaves.left.and.right")
                         .font(.system(size: 13)).foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 case .unavailable:
@@ -235,16 +239,22 @@ struct ShareTicketView: View {
                     .foregroundStyle(accent)
                     .lineLimit(1).minimumScaleFactor(0.7)
                 Text(liveURL != nil
-                     ? "Scan to watch this flight live — no app needed."
+                     ? (flight.isCompleted ? "Scan to see this trip — no app needed."
+                                           : "Scan to watch this flight live — no app needed.")
                      : "Tracked with Arc.")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(dim)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 4) {
-                    Image(systemName: "location.north.circle.fill").font(.system(size: 10))
-                    Text("ARC · LIVE FOR 48H").font(.system(size: 9, weight: .heavy)).tracking(1.2)
+                // The badge promises a live link — only print it when there
+                // is one, and only "live" while there's something to watch.
+                if liveURL != nil {
+                    HStack(spacing: 4) {
+                        Image(systemName: "location.north.circle.fill").font(.system(size: 10))
+                        Text(flight.isCompleted ? "ARC · LINK ACTIVE 48H" : "ARC · LIVE FOR 48H")
+                            .font(.system(size: 9, weight: .heavy)).tracking(1.2)
+                    }
+                    .foregroundStyle(dim.opacity(0.8))
                 }
-                .foregroundStyle(dim.opacity(0.8))
             }
             Spacer()
             if let liveURL, let qr = QRCode.image(for: liveURL.absoluteString) {

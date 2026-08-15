@@ -26,7 +26,10 @@ enum WidgetSync {
     /// isn't happening as the last thing the user saw. Keep it until its
     /// scheduled arrival passes.
     static func isWorthShowing(_ flight: Flight, at now: Date = .now) -> Bool {
-        flight.isUpcoming || flight.isActive || flight.isRecentlyLanded
+        // A stuck-"active" leg hours past its arrival is history, not news.
+        flight.isUpcoming
+            || (flight.isActive && flight.effectiveArrival > now.addingTimeInterval(-45 * 60))
+            || flight.isRecentlyLanded
             || ((flight.status == .cancelled || flight.status == .diverted)
                 && flight.scheduledArrival > now.addingTimeInterval(-30 * 60))
     }

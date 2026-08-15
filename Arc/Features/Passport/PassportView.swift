@@ -227,7 +227,11 @@ struct PassportView: View {
             HStack {
                 Text("\(scopeLabel)").font(.system(size: 15, weight: .bold))
                 Spacer()
-                Text("\(scoped.count) FLIGHTS").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                // Same number as the stats card above: trips actually flown.
+                // `scoped` also holds cancelled/diverted legs, and two counts
+                // on one screen is one too many.
+                Text("\(scoped.filter { $0.status == .landed }.count) FLOWN")
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
             }
             .padding(.top, 4)
         }

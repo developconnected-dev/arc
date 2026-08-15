@@ -514,9 +514,12 @@ struct ArcRootView: View {
             // Hidden in the ground views: it collided with the Back button, and
             // at the gate the interesting thing is where the aircraft is on the
             // apron, not its cruise speed.
+            // …and only while the fix is fresh: a speed from a position hours
+            // old is not the plane's speed now.
             if tab != .friends, controller.airportView == nil, controller.gateMarker == nil,
                let active = activeFlight,
-               active.liveSpeed != nil || active.liveAltitude != nil {
+               active.liveSpeed != nil || active.liveAltitude != nil,
+               let at = active.liveUpdatedAt, Date.now.timeIntervalSince(at) < 15 * 60 {
                 speedAltPill(active).padding(.top, 6)
             }
 
@@ -663,10 +666,15 @@ struct ArcRootView: View {
         guard !text.isEmpty else { return }
 
         if let code = Self.flightCode(in: text) {
-            let already = allFlights.contains {
+            // Already tracked: the useful answer to "paste LX1413" is that
+            // flight, not a button that silently vanishes.
+            if let existing = allFlights.first(where: {
                 $0.flightNumber.replacingOccurrences(of: " ", with: "").uppercased() == code
+            }) {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                _ = show(existing)
+                return
             }
-            guard !already else { return }
             clipboardQuery = code
         } else {
             // Not a bare number — let the Add screen's parser take the whole thing.

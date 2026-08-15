@@ -61,7 +61,10 @@ final class BackgroundFlightUpdater {
         // Time-based status healing
         for flight in flights {
             let depTime = flight.actualDeparture ?? flight.scheduledDeparture.addingTimeInterval(Double(flight.delayMinutes) * 60)
-            let arrTime = flight.estimatedArrival ?? flight.scheduledArrival
+            // Delay-adjusted like `depTime` above — measured from the printed
+            // arrival, a delayed airborne flight was force-landed early.
+            let arrTime = flight.estimatedArrival
+                ?? flight.scheduledArrival.addingTimeInterval(Double(max(0, flight.delayMinutes)) * 60)
 
             if (flight.statusRaw == "scheduled" || flight.statusRaw == "boarding" || flight.statusRaw == "gateClosed") && Date.now >= depTime {
                 print("[Arc] BackgroundFlightUpdater: healing \(flight.flightNumber) to active")

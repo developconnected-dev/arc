@@ -26,8 +26,14 @@ struct FlightActivityAttributes: ActivityAttributes {
     /// Raw `TripMode`, optional so activities started before the field existed
     /// (and pushes from an older Worker) still decode. Absent = air.
     var modeRaw: String? = nil
+    /// Raw `DataTier`. Absent (older activities, Worker pushes) = live, which
+    /// is what every activity was before trains and ferries existed.
+    var dataTierRaw: String? = nil
 
     var mode: TripMode { TripMode(rawValue: modeRaw ?? "") ?? .air }
+    var dataTier: DataTier { DataTier(rawValue: dataTierRaw ?? "") ?? .live }
+    /// Only a live source may say "On Time" — same rule as the app.
+    var reportsPunctuality: Bool { dataTier.reportsPunctuality }
 
     struct ContentState: Codable, Hashable {
         let status: String

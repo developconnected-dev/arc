@@ -198,7 +198,9 @@ struct MyFlightsView: View {
         HStack(spacing: 12) {
             Text("My Trips").font(ArcTheme.screenTitle)
             Spacer()
-            if let next = flights.first {
+            // Shares the trip you're ON if there is one, else the NEXT one —
+            // never a leg that already landed, which is what "first" was.
+            if let next = flights.first(where: \.isActive) ?? flights.first(where: \.isUpcoming) {
                 Button { shareFlight = next } label: {
                     circleIcon("square.and.arrow.up")
                 }
