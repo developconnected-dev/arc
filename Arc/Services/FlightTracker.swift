@@ -44,6 +44,22 @@ final class FlightTracker: ObservableObject {
                         await ScheduleBackfill.check(flight, at: now)
                     }
 
+                    // A sailing added without its line (Overpass was slow, or
+                    // it predates sea routing) asks once for the OSM ferry
+                    // path so the map stops drawing it across islands. Also
+                    // runs for legs weeks out — the tiers below skip those,
+                    // and the map shows them regardless.
+                    if flight.mode == .sea, flight.routePath.isEmpty,
+                       flight.departureLat != 0, flight.arrivalLat != 0,
+                       !seaRouteTried.contains(flight.id) {
+                        seaRouteTried.insert(flight.id)
+                        if let path = await FlightAPIClient.shared.ferryRoute(
+                            from: (flight.departureLat, flight.departureLon),
+                            to: (flight.arrivalLat, flight.arrivalLon)) {
+                            flight.routePathData = try? JSONEncoder().encode(path)
+                        }
+                    }
+
                     let hoursUntilDep = flight.scheduledDeparture.timeIntervalSince(now) / 3600
 
                     // Smart polling. Status/ETA barely move mid-cruise — the
@@ -225,6 +241,9 @@ final class FlightTracker: ObservableObject {
     /// delay, aircraft, inbound status, and arrival info are all cached locally
     /// so the Live Activity has everything it needs even without internet.
     private var preCached: Set<UUID> = []
+    /// Sea legs whose OSM line has been asked for this session — one ask per
+    /// leg; a null answer (no line mapped) must not become a poll every minute.
+    private var seaRouteTried: Set<UUID> = []
 
     private func preCacheIfNeeded(flight: Flight, modelContext: ModelContext) async {
         guard !preCached.contains(flight.id) else { return }

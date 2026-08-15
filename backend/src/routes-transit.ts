@@ -11,6 +11,9 @@ import {
   type TripMode,
 } from "./transit.ts";
 import { classifyQuery, modesToQuery } from "./classify.ts";
+import {
+  buildFerryGraph, routeAlongFerries, simplify, overpassQuery, type OSMWay, type LatLon,
+} from "./searoute.ts";
 
 /// Transitous asks every consumer to identify itself with an application name,
 /// version and a way to reach the author, and to keep resource use modest. Both
@@ -110,6 +113,63 @@ function bad(message: string, cors: Record<string, string>, status = 400): Respo
 }
 
 // ── handlers ──────────────────────────────────────────────────────────────
+
+// ── sea routing (OSM ferry ways via Overpass) ────────────────────────────
+
+/// Public Overpass instances, tried in order — each has its own bad days.
+const OVERPASS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://lz4.overpass-api.de/api/interpreter",
+  "https://z.overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+];
+
+async function fetchFerryWays(from: LatLon, to: LatLon, budgetMs: number): Promise<OSMWay[] | null> {
+  const q = overpassQuery(from, to);
+  const deadline = Date.now() + budgetMs;
+  for (const ep of OVERPASS) {
+    const left = deadline - Date.now();
+    if (left < 3000) break;
+    try {
+      const res = await fetch(ep, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": UA },
+        body: "data=" + encodeURIComponent(q),
+        signal: AbortSignal.timeout(Math.min(left, 25_000)),
+      });
+      if (!res.ok) continue;
+      const j = await res.json() as { elements?: any[] };
+      const ways = (j.elements ?? []).filter(e => e.type === "way" && Array.isArray(e.geometry)) as OSMWay[];
+      return ways;
+    } catch { /* next mirror */ }
+  }
+  return null;
+}
+
+/// The path a sailing between two ports follows, along OSM's ferry lines —
+/// or null when the network doesn't connect them, in which case the app
+/// draws its honest straight fallback. Cached a month per port pair: the
+/// lines change on the timescale of timetables, not sailings.
+async function seaRoute(from: LatLon, to: LatLon, budgetMs = 40_000): Promise<LatLon[] | null> {
+  const key = new Request(`https://arc.internal/searoute?f=${from[0].toFixed(3)},${from[1].toFixed(3)}&t=${to[0].toFixed(3)},${to[1].toFixed(3)}`);
+  const cache = (caches as any).default;
+  const hit = cache ? await cache.match(key) : undefined;
+  if (hit) {
+    const j = await hit.json() as { path: LatLon[] | null };
+    return j.path;
+  }
+  const ways = await fetchFerryWays(from, to, budgetMs);
+  if (!ways) return null;   // provider down: don't cache a miss we didn't earn
+  const r = routeAlongFerries(buildFerryGraph(ways), from, to);
+  const path = r ? simplify(r.path) : null;
+  if (cache) {
+    await cache.put(key, Response.json({ path }, {
+      headers: { "Cache-Control": `public, max-age=${30 * 86_400}` },
+    }));
+  }
+  return path;
+}
 
 /// Returns a Response for a rail/ferry/classify path, or null if the request is
 /// none of ours — which is what lets index.ts fall straight through to the
@@ -286,6 +346,20 @@ export async function handleTransit(
     }
 
     // ── /ferry/search?from=&to=&date= ── sailings on a crossing ──
+    // ── /ferry/route?from=lat,lon&to=lat,lon ── the sailing's line, from OSM ──
+    if (p === "/ferry/route") {
+      const parse = (v: string | null): LatLon | null => {
+        const m = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(v ?? "");
+        return m ? [Number(m[1]), Number(m[2])] : null;
+      };
+      const from = parse(url.searchParams.get("from")), to = parse(url.searchParams.get("to"));
+      if (!from || !to) return bad("from and to must be lat,lon", cors);
+      const path = await seaRoute(from, to);
+      return Response.json({ route_path: path }, {
+        headers: { ...cors, "Cache-Control": "public, max-age=86400" },
+      });
+    }
+
     if (p === "/ferry/search") {
       const from = url.searchParams.get("from");
       const to = url.searchParams.get("to");
@@ -304,6 +378,20 @@ export async function handleTransit(
         // is no per-sailing delay anywhere in the free data), so a search that
         // doesn't carry them ships silence. One country-wide fetch per side,
         // best-effort: a notice failure must never sink the search itself.
+        // The line the crossing follows, once per port pair (every sailing
+        // between the same two ports shares it). Best-effort within a short
+        // budget so a slow Overpass never holds the search hostage; the app
+        // asks /ferry/route itself for anything that comes back without one.
+        try {
+          const first = sailings.find(s => s["dep_lat"] != null && s["arr_lat"] != null);
+          if (first) {
+            const path = await seaRoute(
+              [first["dep_lat"] as number, first["dep_lon"] as number],
+              [first["arr_lat"] as number, first["arr_lon"] as number], 9_000);
+            if (path) for (const s of sailings) s["route_path"] = path;
+          }
+        } catch { /* best-effort */ }
+
         try {
           const countries = [...new Set(
             sailings.flatMap(s => [s["dep_city"], s["arr_city"]])
