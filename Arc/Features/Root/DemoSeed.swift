@@ -203,6 +203,39 @@ enum DemoSeed {
             pushType: nil)
     }
 
+    /// `-seedTripInvite`: drops a fake "Peter added this trip for you
+    /// together" into the store — no network, no second account — so the
+    /// invite card can be seen and exercised in the simulator. Accept goes
+    /// through the real path (materialise + save); the cloud answer no-ops.
+    static var isTripInviteRequested: Bool { ProcessInfo.processInfo.arguments.contains("-seedTripInvite") }
+
+    @MainActor
+    static func seedTripInviteIfRequested() {
+        guard isTripInviteRequested, FriendsStore.shared.tripInvites.isEmpty else { return }
+        let ref = ReferenceData.shared
+        let dep = Date.now.addingTimeInterval(3 * 24 * 3600 + 5 * 3600)
+        let iso = ISO8601DateFormatter()
+        var p = TripInvitePayload()
+        p.mode = "air"; p.data_tier = "live"
+        p.flight_number = "LX1413"; p.airline = "Swiss"; p.airline_icao = "SWR"
+        p.departure_iata = "BEG"; p.arrival_iata = "ZRH"
+        p.departure_city = ref.airport("BEG")?.city ?? "Belgrade"
+        p.arrival_city = ref.airport("ZRH")?.city ?? "Zurich"
+        p.departure_lat = ref.airport("BEG")?.lat; p.departure_lon = ref.airport("BEG")?.lon
+        p.arrival_lat = ref.airport("ZRH")?.lat; p.arrival_lon = ref.airport("ZRH")?.lon
+        p.scheduled_departure = iso.string(from: dep)
+        p.scheduled_arrival = iso.string(from: dep.addingTimeInterval(2 * 3600))
+        p.status = "scheduled"; p.delay_minutes = 0
+        p.aircraft_type = "Airbus A220-300"
+        let invite = ArcSupabase.TripInvite(
+            id: "demo-invite", from_user: "demo-peter", to_user: "me",
+            flight_number: "LX1413", scheduled_departure: iso.string(from: dep),
+            status: "pending", created_at: iso.string(from: .now), flight: p)
+        let peter = ArcSupabase.ArcUser(id: "demo-peter", display_name: "Peter Müller",
+                                        handle: "peter", avatar_url: nil, home_airport: "ZRH", nationality: "CH")
+        FriendsStore.shared.tripInvites = [FriendsStore.TripInviteItem(invite: invite, sender: peter)]
+    }
+
     /// One-off verification hook, `-seedStuckFlight`: seeds a real flight
     /// (LX53, BOS→ZRH, actually landed hours ago per a live API check) but
     /// pinned at `.scheduled` — exactly the state a flight could get

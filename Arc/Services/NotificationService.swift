@@ -146,6 +146,24 @@ enum ArcNotifications {
         )
     }
 
+    /// "Carl added a trip for you together" — the invite waits at the top of
+    /// My Trips; opening the app is enough, so no flight id rides along (the
+    /// trip isn't the user's yet).
+    static func notifyTripInvite(_ item: FriendsStore.TripInviteItem) {
+        let f = item.invite.flight
+        let route = [f.departure_city, f.arrival_city].compactMap { $0 }.filter { !$0.isEmpty }
+        let when = DateHelpers.parseAPIDate(f.scheduled_departure)
+            .map { $0.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)) }
+        let detail = [route.isEmpty ? nil : route.joined(separator: " → "), when]
+            .compactMap { $0 }.joined(separator: " · ")
+        send(
+            title: "\(item.sender.display_name) added a trip for you together",
+            body: detail.isEmpty ? "Accept it in My Trips to add it to your list."
+                                 : "\(detail). Accept it in My Trips to add it to your list.",
+            id: "trip-invite-\(item.id)"
+        )
+    }
+
     /// The payoff for a flight added by hand before its schedule existed: the
     /// airline has now filed it and Arc has replaced the typed times.
     static func scheduleFound(_ flight: Flight) {

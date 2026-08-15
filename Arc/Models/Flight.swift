@@ -507,6 +507,9 @@ extension Flight {
         Task {
             try? await ArcSupabase.shared.deleteUserFlight(id: id)
             try? await ArcSupabase.shared.unshareFlight(flightNumber: number, scheduledDeparture: departure)
+            // Open "travelling with" invites die with the trip — otherwise a
+            // friend could still Accept a journey nobody's on any more.
+            try? await ArcSupabase.shared.withdrawTripInvites(flightNumber: number, scheduledDeparture: departure)
         }
     }
 }

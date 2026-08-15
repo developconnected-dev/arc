@@ -26,6 +26,10 @@ struct AddFlightView: View {
     /// is what every flight did before this existed — so the default keeps
     /// adding a flight behaving exactly as it used to.
     @State private var sharedWithIds: [String]?
+    /// Friends ON the trip — each gets it offered for their own list. Distinct
+    /// from the audience above (seeing vs. being on it), though picking a
+    /// companion also admits them to the audience at add time.
+    @State private var travellingWithIds: [String] = []
 
     /// Set when a query resolved to a specific flight, so the search uses it
     /// verbatim instead of rebuilding it from the airline picker.
@@ -1196,7 +1200,7 @@ struct AddFlightView: View {
         let arrival = DateHelpers.reinterpretWallClock(manualArrivalDate, asLocalTo: ReferenceData.shared.timezone(arr.iata))
 
         let f = Flight(flightNumber: manualNumber.uppercased(), date: departure)
-        f.sharedWithIds = sharedWithIds
+        f.sharedWithIds = TripCompanions.audience(sharedWithIds: sharedWithIds, travellingWithIds: travellingWithIds)
         // Only worth watching for a schedule that hasn't happened yet — a past
         // flight logged by hand is already as complete as it will ever be.
         f.awaitingSchedule = departure > .now
@@ -1247,7 +1251,7 @@ struct AddFlightView: View {
         guard !from.isEmpty, !to.isEmpty else { return }
 
         let f = Flight(flightNumber: manualNumber.uppercased(), date: manualDepartureDate)
-        f.sharedWithIds = sharedWithIds
+        f.sharedWithIds = TripCompanions.audience(sharedWithIds: sharedWithIds, travellingWithIds: travellingWithIds)
         f.mode = manualMode
         f.dataTier = .manual
         f.awaitingSchedule = false  // nothing to backfill a hand-typed train from
@@ -1661,7 +1665,7 @@ struct AddFlightView: View {
         let mode = TripMode(rawValue: r.mode ?? "air") ?? .air
         f.mode = mode
         f.dataTier = DataTier(rawValue: r.data_tier ?? "live") ?? .live
-        f.sharedWithIds = sharedWithIds
+        f.sharedWithIds = TripCompanions.audience(sharedWithIds: sharedWithIds, travellingWithIds: travellingWithIds)
         f.marketingFlightNumber = r.marketing_number
         f.airline = r.airline_name
         f.airlineICAO = r.airline_iata
@@ -1724,19 +1728,32 @@ struct AddFlightView: View {
     /// signed out, where sharing doesn't exist at all.
     @ViewBuilder private var audiencePicker: some View {
         if ArcSupabase.shared.isSignedIn && !FriendsStore.shared.friends.isEmpty {
-            FlightAudienceRow(sharedWithIds: $sharedWithIds)
-                .padding(.horizontal, 14).padding(.vertical, 12)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
-                .padding(.horizontal, 20).padding(.bottom, 4)
+            // Two verbs, one card: who's ON the trip, then who may SEE it.
+            VStack(spacing: 0) {
+                TravelCompanionsRow(travellingWithIds: $travellingWithIds)
+                    .padding(.horizontal, 14).padding(.vertical, 12)
+                Divider().padding(.leading, 39)
+                FlightAudienceRow(sharedWithIds: $sharedWithIds)
+                    .padding(.horizontal, 14).padding(.vertical, 12)
+            }
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 20).padding(.bottom, 4)
         }
     }
 
     /// Best-effort background mirror to Supabase — never blocks or fails the
-    /// local add, which must keep working fully offline / signed-out.
+    /// local add, which must keep working fully offline / signed-out. The
+    /// companions' invitations ride the same task, after the trip exists in
+    /// the cloud.
     private func syncToCloud(_ flight: Flight) {
+        let companions = travellingWithIds
         Task {
             try? await ArcSupabase.shared.upsertUserFlight(flight)
             _ = try? await ArcSupabase.shared.shareFlight(flight)
+            if !companions.isEmpty {
+                try? await ArcSupabase.shared.sendTripInvites(flight, to: companions)
+                await FriendsStore.shared.refreshSentTripInvites()
+            }
         }
     }
 }

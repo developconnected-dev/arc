@@ -13,6 +13,7 @@ struct MyFlightsView: View {
 
     @State private var showSettings = false
     @State private var shareFlight: Flight?
+    @State private var previewFlight: Flight?
     @State private var friendsStore = FriendsStore.shared
 
     private var flights: [Flight] {
@@ -39,6 +40,19 @@ struct MyFlightsView: View {
                 .padding(.bottom, 10)
 
             List {
+                // Trips a friend added for the two of you, waiting on an
+                // answer. Pinned above everything rather than slotted into
+                // the timeline: an invite for a trip six weeks out would
+                // otherwise sit below the fold and never be seen.
+                ForEach(friendsStore.tripInvites) { item in
+                    TripInviteCard(item: item,
+                                   onOpen: { previewFlight = $0 },
+                                   onAccept: { accept(item) },
+                                   onDecline: { friendsStore.decline(item) })
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+                }
                 if flights.isEmpty {
                     Button(action: onAdd) {
                         emptyState.padding(.top, 40)
@@ -87,6 +101,8 @@ struct MyFlightsView: View {
             .scrollIndicators(.hidden)
             .refreshable {
                 await FlightTracker.shared.burstUpdate(flights: Array(allFlights), modelContext: modelContext)
+                // Pull-to-refresh is also "did anyone add a trip for me?"
+                await friendsStore.refresh()
             }
         }
         .sheet(isPresented: $showSettings) {
@@ -95,16 +111,30 @@ struct MyFlightsView: View {
         .sheet(item: $shareFlight) { flight in
             ShareFlightSheet(flight: flight)
         }
+        // A tap on the invited trip itself: the same detail screen, read-only —
+        // it isn't the user's until they accept.
+        .sheet(item: $previewFlight) { flight in
+            FlightDetailView(flight: flight, isOwnFlight: false)
+                .presentationDetents([.medium, .large])
+        }
         .onAppear {
             friendsStore.updateAirportOverlaps(with: Array(allFlights))
+            friendsStore.reconcileTripInvites(with: Array(allFlights))
             if ProcessInfo.processInfo.arguments.contains("-openSettings") { showSettings = true }
         }
         .onChange(of: allFlights.map(\.id)) { _, _ in
             friendsStore.updateAirportOverlaps(with: Array(allFlights))
+            friendsStore.reconcileTripInvites(with: Array(allFlights))
+        }
+        // Invites for a journey the user already has answer themselves.
+        .onChange(of: friendsStore.tripInvites.map(\.id)) { _, _ in
+            friendsStore.reconcileTripInvites(with: Array(allFlights))
         }
     }
-    
 
+    private func accept(_ item: FriendsStore.TripInviteItem) {
+        Task { await friendsStore.accept(item, into: modelContext) }
+    }
 
     private func delete(_ flight: Flight) {
         Task { await Flight.delete(flight, from: modelContext) }

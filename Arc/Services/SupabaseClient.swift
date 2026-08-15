@@ -530,6 +530,84 @@ final class ArcSupabase: ObservableObject {
         ]
     }
 
+    // MARK: - Trip invites ("travelling with")
+    //
+    // Sharing lets a friend SEE a trip. An invite says they are ON it: the
+    // recipient gets the same journey offered for their own list and adds it
+    // with one tap. The journey crosses as a JSON snapshot (see migration 013)
+    // so it survives the sender deleting theirs, and never carries the
+    // sender's booking code, seat or notes.
+
+    struct TripInvite: Codable, Identifiable {
+        let id: String
+        let from_user: String
+        let to_user: String
+        let flight_number: String
+        let scheduled_departure: String
+        let status: String
+        let created_at: String?
+        let flight: TripInvitePayload
+    }
+
+    /// Cap per trip. Beyond a handful of companions this stops being "we're
+    /// travelling together" and starts being a broadcast — which is what
+    /// sharing is for.
+    static let maxTripCompanions = 6
+
+    /// Invites each friend to add `flight` as their own. Idempotent on the
+    /// (sender, recipient, journey) key, so re-adding a trip re-invites nobody
+    /// twice; RLS refuses anyone who isn't an accepted friend.
+    func sendTripInvites(_ flight: Flight, to userIds: [String]) async throws {
+        guard let uid = currentUser?.id else { return }
+        let recipients = Array(Set(userIds)).filter { $0 != uid }.prefix(Self.maxTripCompanions)
+        guard !recipients.isEmpty else { return }
+        let iso = ISO8601DateFormatter()
+        let payload = TripInvitePayload.body(for: flight)
+        for to in recipients {
+            let body: [String: Any] = [
+                "from_user": uid,
+                "to_user": to,
+                "flight_number": flight.flightNumber,
+                "scheduled_departure": iso.string(from: flight.scheduledDeparture),
+                "flight": payload,
+            ]
+            _ = try await send(request("POST",
+                "/rest/v1/trip_invites?on_conflict=from_user,to_user,flight_number,scheduled_departure",
+                body: body, prefer: "resolution=ignore-duplicates"))
+        }
+    }
+
+    /// Invitations waiting for THIS user's answer.
+    func pendingTripInvites() async throws -> [TripInvite] {
+        guard let uid = currentUser?.id else { return [] }
+        let data = try await get(path: "/rest/v1/trip_invites?to_user=eq.\(uid)&status=eq.pending&select=*&order=created_at.desc&limit=30")
+        return try JSONDecoder().decode([TripInvite].self, from: data)
+    }
+
+    /// Invitations this user has SENT that are still open or were taken up —
+    /// so a trip's detail can say "Invited · Peter" until he accepts.
+    func sentTripInvites() async throws -> [TripInvite] {
+        guard let uid = currentUser?.id else { return [] }
+        let data = try await get(path: "/rest/v1/trip_invites?from_user=eq.\(uid)&status=neq.declined&select=*&order=created_at.desc&limit=60")
+        return try JSONDecoder().decode([TripInvite].self, from: data)
+    }
+
+    func respondToTripInvite(id: String, accept: Bool) async throws {
+        _ = try await patch(path: "/rest/v1/trip_invites?id=eq.\(id)", body: [
+            "status": accept ? "accepted" : "declined",
+            "responded_at": ISO8601DateFormatter().string(from: .now),
+        ])
+    }
+
+    /// Deleting a trip pulls its open invitations — an invite for a journey
+    /// the sender no longer has would materialise a phantom on Accept.
+    func withdrawTripInvites(flightNumber: String, scheduledDeparture: Date) async throws {
+        guard let uid = currentUser?.id else { return }
+        let iso = ISO8601DateFormatter().string(from: scheduledDeparture)
+        let number = flightNumber.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? flightNumber
+        _ = try await delete(path: "/rest/v1/trip_invites?from_user=eq.\(uid)&status=eq.pending&flight_number=eq.\(number)&scheduled_departure=eq.\(iso)")
+    }
+
     // MARK: - Shared Journeys
 
     /// Returns an active share code for this shared-flight row, minting one
