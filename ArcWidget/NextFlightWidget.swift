@@ -237,22 +237,33 @@ struct NextFlightMediumView: View {
 
     var body: some View {
         if let hero = flights.first {
-            VStack(alignment: .leading, spacing: 0) {
+            let rest = Array(flights.dropFirst())
+            // Every trip is its own card, so "how many flights is this?" needs
+            // no reading. The hero card stretches to take whatever height the
+            // mini cards leave — no dead air at the top or bottom.
+            VStack(spacing: 6) {
                 Link(destination: ArcDeepLink.flight(widget: hero)) {
                     heroCard(hero)
+                        .padding(.horizontal, 12).padding(.vertical, 9)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .background(cardFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
-                let rest = flights.dropFirst()
                 if !rest.isEmpty {
-                    Divider().padding(.top, 8).padding(.bottom, 5)
-                    VStack(spacing: 4) {
-                        ForEach(Array(rest), id: \.id) { flight in
+                    HStack(spacing: 6) {
+                        ForEach(rest, id: \.id) { flight in
                             Link(destination: ArcDeepLink.flight(widget: flight)) {
-                                compactRow(flight)
+                                miniCard(flight)
+                                    .padding(.horizontal, 10).padding(.vertical, 7)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(cardFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                             }
                         }
+                        // One follow-up leg still gets a half-width card, so the
+                        // rhythm doesn't change when a trip is added or removed.
+                        if rest.count == 1 { Color.clear.frame(maxWidth: .infinity) }
                     }
+                    .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer(minLength: 0)
             }
         } else {
             HStack {
@@ -272,6 +283,10 @@ struct NextFlightMediumView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
+
+    /// Cards sit on the widget's own tertiary fill; a step lighter/darker than
+    /// that reads as a surface in both appearances without a hard edge.
+    private var cardFill: some ShapeStyle { Color.primary.opacity(0.06) }
 
     // MARK: Hero
 
@@ -427,51 +442,6 @@ struct NextFlightMediumView: View {
         }
     }
 
-    // MARK: Compact rows
-
-    @ViewBuilder
-    private func compactRow(_ f: WidgetFlight) -> some View {
-        let phase = f.phase(at: entry.date)
-        HStack(spacing: 8) {
-            Image(systemName: f.mode.symbol)
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(.tertiary)
-                .frame(width: 12)
-            Text(f.departureIATA)
-                .font(.system(size: 12, weight: .heavy))
-            Image(systemName: "arrow.right")
-                .font(.system(size: 7, weight: .bold))
-                .foregroundStyle(.tertiary)
-            Text(f.arrivalIATA)
-                .font(.system(size: 12, weight: .heavy))
-            Text(f.flightNumber)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            // Right side: the one thing worth knowing about a later leg —
-            // Arc's prediction, a reported delay, its source, or its gate.
-            if f.showsPrediction, phase == .upcoming {
-                IntelligenceBadge(text: "Arc +\(f.predictedDelayMinutes)m", size: 10)
-            } else if f.isDisrupted {
-                Text(f.terminalLabel).font(.system(size: 10, weight: .bold)).foregroundStyle(.red)
-            } else if f.reportsPunctuality, f.delayMinutes > 0 {
-                Text("+\(f.delayMinutes)m").font(.system(size: 10, weight: .bold)).foregroundStyle(.orange)
-            } else if let g = f.departureGate, !g.isEmpty, phase == .upcoming {
-                Text("\(f.mode.boardingPointLabel) \(g)")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(f.reportsPunctuality ? Color.green : .secondary)
-            } else if let q = f.dataTier.qualifier, phase == .upcoming {
-                Text(q).font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
-            }
-            Text(whenText(f))
-                .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-        }
-    }
-
     /// The first word or two of a carrier's registered name — what people
     /// call the airline. Deliberately dumb: strips the corporate tail rather
     /// than maintaining a brand table the widget can't keep current.
@@ -484,6 +454,57 @@ struct NextFlightMediumView: View {
             if cut.count >= 3 { s = String(cut) }
         }
         return s
+    }
+
+    // MARK: Mini cards
+
+    /// Half-width card for a later leg: route + number on top, the day and
+    /// the one fact worth knowing (Arc's prediction, a delay, the gate, or the
+    /// data source) underneath.
+    @ViewBuilder
+    private func miniCard(_ f: WidgetFlight) -> some View {
+        let phase = f.phase(at: entry.date)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Image(systemName: f.mode.symbol)
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.secondary)
+                Text(f.departureIATA)
+                    .font(.system(size: 13, weight: .heavy))
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(.tertiary)
+                Text(f.arrivalIATA)
+                    .font(.system(size: 13, weight: .heavy))
+                Spacer(minLength: 2)
+                Text(f.flightNumber)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            HStack(spacing: 4) {
+                Text(whenText(f))
+                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 2)
+                if f.showsPrediction, phase == .upcoming {
+                    IntelligenceBadge(text: "Arc +\(f.predictedDelayMinutes)m", size: 10)
+                } else if f.isDisrupted {
+                    Text(f.terminalLabel).font(.system(size: 10, weight: .bold)).foregroundStyle(.red)
+                } else if f.reportsPunctuality, f.delayMinutes > 0 {
+                    Text("+\(f.delayMinutes)m").font(.system(size: 10, weight: .bold)).foregroundStyle(.orange)
+                } else if let g = f.departureGate, !g.isEmpty, phase == .upcoming {
+                    Text("\(f.mode.boardingPointLabel) \(g)")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(f.reportsPunctuality ? Color.green : .secondary)
+                        .lineLimit(1)
+                } else if let q = f.dataTier.qualifier, phase == .upcoming {
+                    Text(q).font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 
     /// "Today 17:22" / "Tomorrow 19:45" / "Sun 20 Sep" — a later leg is placed
@@ -530,6 +551,9 @@ struct NextFlightWidget: Widget {
                 if #available(iOSApplicationExtension 17.0, *) {
                     NextFlightWidgetEntryView(entry: entry)
                         .containerBackground(.fill.tertiary, for: .widget)
+                        // The cards carry their own inner air; the system's
+                        // 16pt on top of that left a dead band above and below.
+                        .modifier(MediumInsets())
                 } else {
                     NextFlightWidgetEntryView(entry: entry)
                         .padding()
@@ -537,9 +561,20 @@ struct NextFlightWidget: Widget {
                 }
             }
         }
+        .contentMarginsDisabled()
         .configurationDisplayName("Next Flight")
         .description("Countdown to your next flight with gate and status.")
         .supportedFamilies([.systemSmall, .systemMedium])
+    }
+}
+
+/// 10pt content margins on the medium family, system default elsewhere.
+struct MediumInsets: ViewModifier {
+    @Environment(\.widgetFamily) private var family
+    func body(content: Content) -> some View {
+        // Content margins are disabled at the configuration level, so the
+        // small family gets the system's usual 16pt back here.
+        content.padding(family == .systemMedium ? 10 : 16)
     }
 }
 
