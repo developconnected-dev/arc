@@ -60,13 +60,18 @@ enum DemoSeed {
         upcoming2.inboundDelayMinutes = 42
         upcoming2.inboundArrivalTime = Date.now.addingTimeInterval(16.4 * 3600)
         upcoming2.inboundChecked = true
+        // The tail's day so far: one leg down (a quarter hour late), the
+        // immediate inbound airborne right now and running 42 late.
         upcoming2.rotationLegs = [
             RotationLeg(flightNumber: "LX1571", depIATA: "VIE", arrIATA: "ZRH",
-                        scheduledArrival: Date.now.addingTimeInterval(12 * 3600),
-                        actualArrival: nil, delayMinutes: 15, status: "landed"),
+                        scheduledArrival: Date.now.addingTimeInterval(-3 * 3600),
+                        actualArrival: Date.now.addingTimeInterval(-2.75 * 3600),
+                        delayMinutes: 15, status: "landed",
+                        scheduledDeparture: Date.now.addingTimeInterval(-4.5 * 3600)),
             RotationLeg(flightNumber: "LX1412", depIATA: "ZRH", arrIATA: "BEG",
-                        scheduledArrival: Date.now.addingTimeInterval(16.4 * 3600),
-                        actualArrival: nil, delayMinutes: 42, status: "scheduled"),
+                        scheduledArrival: Date.now.addingTimeInterval(1.2 * 3600),
+                        actualArrival: nil, delayMinutes: 42, status: "active",
+                        scheduledDeparture: Date.now.addingTimeInterval(-0.6 * 3600)),
         ]
         upcoming2.predictedDelayMinutes = 32
         upcoming2.predictionReason = "Inbound aircraft lands too late for a 30-min turnaround"
