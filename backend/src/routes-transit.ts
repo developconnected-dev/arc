@@ -97,14 +97,16 @@ async function cached(
   req: Request, ttlSeconds: number, produce: () => Promise<unknown>,
   cors: Record<string, string>,
 ): Promise<Response> {
-  const cache = (caches as any).default;
+  const cacheable = req.method === "GET";
+  const cache = cacheable ? (caches as any).default : undefined;
   const hit = cache ? await cache.match(req) : undefined;
   if (hit) return hit;
   const body = await produce();
   const res = Response.json(body, {
     headers: { ...cors, "Cache-Control": `public, max-age=${ttlSeconds}` },
   });
-  if (cache) await cache.put(req, res.clone());
+  // cache.put throws on non-GET — the work was done, don't 502 the reply.
+  if (cache) try { await cache.put(req, res.clone()); } catch { /* uncacheable */ }
   return res;
 }
 
@@ -139,8 +141,11 @@ async function fetchFerryWays(from: LatLon, to: LatLon, budgetMs: number): Promi
         signal: AbortSignal.timeout(Math.min(left, 25_000)),
       });
       if (!res.ok) continue;
-      const j = await res.json() as { elements?: any[] };
+      const j = await res.json() as { elements?: any[]; remark?: string };
       const ways = (j.elements ?? []).filter(e => e.type === "way" && Array.isArray(e.geometry)) as OSMWay[];
+      // A timeout comes back as HTTP 200 with a "remark" and no elements —
+      // treating it as an answer cached "no sea route" for 30 days.
+      if (j.remark || ways.length === 0) continue;
       return ways;
     } catch { /* next mirror */ }
   }
@@ -210,7 +215,8 @@ export async function handleTransit(
       const stopId = url.searchParams.get("stopId");
       if (!stopId) return bad("missing stopId", cors);
       const time = url.searchParams.get("time") ?? new Date().toISOString();
-      const n = Math.min(Number(url.searchParams.get("n") ?? 20), 50);
+      const parsedN = Number(url.searchParams.get("n") ?? 20);
+      const n = Math.min(Math.max(Number.isFinite(parsedN) ? Math.floor(parsedN) : 20, 1), 50);
       const modes = url.searchParams.get("modes")
         ?? "HIGHSPEED_RAIL,LONG_DISTANCE,NIGHT_RAIL,REGIONAL_FAST_RAIL,REGIONAL_RAIL,FERRY";
       // Short TTL: this is the surface that shows a delay.

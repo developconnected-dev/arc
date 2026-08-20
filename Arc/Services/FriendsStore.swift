@@ -90,6 +90,9 @@ final class FriendsStore {
     /// save so a dead connection can never lose the trip — worst case the
     /// invite is answered again on the next refresh via `reconcile`.
     func accept(_ item: TripInviteItem, into context: ModelContext) async {
+        // Two fast taps enqueue two Tasks with the same item — only the one
+        // that still finds the invite listed may materialise it.
+        guard tripInvites.contains(where: { $0.id == item.id }) else { return }
         let flight = item.invite.flight.materialize()
         context.insert(flight)
         do { try context.save() } catch {
@@ -473,7 +476,11 @@ final class FriendsStore {
 
     /// Both the list (.task) and the map (tab switch) call this — the
     /// throttle collapses those into one fetch.
-    func refresh() async {
+    /// `force` bypasses the 20-second throttle. Every mutation's follow-up
+    /// (redeem, accept request, remove friend, pull-to-refresh) must — the
+    /// throttle is for the tab-open/map double-fire, and it was silently
+    /// swallowing "show me what I just changed".
+    func refresh(force: Bool = false) async {
         guard ArcSupabase.shared.isSignedIn else {
             friends = []; pending = []; sentTripInvites = []
             if !DemoSeed.isTripInviteRequested { tripInvites = [] }
@@ -484,7 +491,7 @@ final class FriendsStore {
         // isn't swallowed a moment later.
         guard ArcSupabase.shared.currentUser != nil else { return }
         if isLoading { return }
-        if let last = lastRefreshAt, Date.now.timeIntervalSince(last) < 20 { return }
+        if !force, let last = lastRefreshAt, Date.now.timeIntervalSince(last) < 20 { return }
         lastRefreshAt = .now
         isLoading = true
         lastError = nil
@@ -495,8 +502,14 @@ final class FriendsStore {
 
             var entries: [FriendEntry] = []
             var profileById: [String: ArcSupabase.ArcUser] = [:]
+            var seenFriendIds = Set<String>()
             for f in friendships {
                 let friendId = f.requester_id == myId ? f.addressee_id : f.requester_id
+                // The friendship constraint is DIRECTIONAL — (A,B) and (B,A)
+                // can both exist when two people invite each other. One entry
+                // per person, or every keyed-by-id consumer downstream breaks
+                // (Dictionary(uniqueKeysWithValues:) traps on duplicates).
+                guard seenFriendIds.insert(friendId).inserted else { continue }
                 if profileById[friendId] == nil,
                    let profile = try? await supabase.getProfile(userId: friendId) {
                     profileById[friendId] = profile

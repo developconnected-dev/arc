@@ -19,6 +19,13 @@ struct ArcRootView: View {
     @State private var pendingOpenDetail = ProcessInfo.processInfo.arguments.contains("-openDetail")
     @State private var lastCameraTab: ArcTab?
     @State private var planeWatchTask: Task<Void, Never>?
+    /// The in-flight "Terminal Map"/"My plane" setup (a network fetch, then a
+    /// camera dive). Cancelled when its detail closes — otherwise the answer
+    /// arrived seconds after dismissal and hijacked the map with a gate view
+    /// for a flight that was no longer open.
+    @State private var groundViewTask: Task<Void, Never>?
+    /// The sheet height before a friend-route zoom shrank it to .small.
+    @State private var detentBeforeFocus: SheetDetent?
     @State private var clipboardQuery: String? = nil
     /// Pasteboard `changeCount` currently being offered, and the last one the
     /// user waved away — tracking the count rather than the content is what
@@ -57,6 +64,8 @@ struct ArcRootView: View {
         // stayed stuck in terminal mode with a Back button and no flight.
         .sheet(item: $detailFlight,
                onDismiss: {
+                   groundViewTask?.cancel()
+                   groundViewTask = nil
                    controller.clearGateMarker()
                    presentQueuedDetail()
                }) { flight in
@@ -66,6 +75,13 @@ struct ArcRootView: View {
                              onOpenFlight: { other in _ = show(other) })
                 .presentationDetents([.medium, .large], selection: $detailDetent)
                 .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+        }
+        // Belt to the sheets' own onDismiss braces: a queued detail must
+        // present whenever nothing is in front of it any more — a cancelled
+        // Add presentation (showAdd flipped back before the sheet appeared)
+        // never fires onDisappear, and stranded the queued flight forever.
+        .onChange(of: showAdd) { _, presented in
+            if !presented { DispatchQueue.main.async { presentQueuedDetail() } }
         }
         .onChange(of: allFlights.map(\.id)) { _, _ in
             refitMapForCurrentData()
@@ -97,9 +113,14 @@ struct ArcRootView: View {
                 // Make sure the zoom is actually visible: the tab sheet may
                 // be at full height under the newly presented detail (which
                 // itself opens at the system medium ≈ half screen).
+                if detentBeforeFocus == nil { detentBeforeFocus = detent }
                 detent = .small
                 controller.focusRoute(dep: route.dep, arr: route.arr)
             } else {
+                // Give the sheet back its height — `detent` is shared across
+                // tabs, and the sliver otherwise followed you to My Trips.
+                if let restored = detentBeforeFocus { detent = restored }
+                detentBeforeFocus = nil
                 applyCameraForCurrentTab()
             }
         }
@@ -254,7 +275,8 @@ struct ArcRootView: View {
         let lat = watching ? flight.departureLat : flight.arrivalLat
         let lon = watching ? flight.departureLon : flight.arrivalLon
         let gateRef = watching ? flight.departureGate : flight.arrivalGate
-        Task {
+        groundViewTask?.cancel()
+        groundViewTask = Task {
             var target = (lat: lat, lon: lon, label: iata)
             if let gateRef {
                 let gates = await FlightAPIClient.shared.gates(iata: iata, lat: lat, lon: lon)
@@ -262,6 +284,7 @@ struct ArcRootView: View {
                     target = (matched.lat, matched.lon, "Gate \(gateRef)")
                 }
             }
+            guard !Task.isCancelled, detailFlight?.id == flight.id else { return }
             controller.showGate(lat: target.lat, lon: target.lon, label: target.label)
             detailDetent = .medium
             if watching { startPlaneWatch(flight) }
@@ -279,8 +302,10 @@ struct ArcRootView: View {
         let lon = upcoming ? flight.departureLon : flight.arrivalLon
         let myGate = upcoming ? flight.departureGate : flight.arrivalGate
         let name = ReferenceData.shared.airport(iata)?.name ?? iata
-        Task {
+        groundViewTask?.cancel()
+        groundViewTask = Task {
             let osm = await FlightAPIClient.shared.gates(iata: iata, lat: lat, lon: lon)
+            guard !Task.isCancelled, detailFlight?.id == flight.id else { return }
             let matched = myGate.flatMap { FlightAPIClient.matchGate(osm, to: $0) }
             let gates = osm.map {
                 MapController.AirportGate(
@@ -461,6 +486,8 @@ struct ArcRootView: View {
 
     private func presentQueuedDetail() {
         guard let queued = queuedDetail else { return }
+        // Something is still presented — wait for ITS dismissal to drain.
+        guard detailFlight == nil, !showAdd else { return }
         queuedDetail = nil
         detailFlight = queued
     }

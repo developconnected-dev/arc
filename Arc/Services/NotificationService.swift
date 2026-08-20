@@ -85,7 +85,7 @@ enum ArcNotifications {
             // A train does not land.
             title: "\(flight.flightNumber) has \(flight.mode.arrivedVerb.lowercased())",
             body: body,
-            id: "landed-\(flight.flightNumber)",
+            id: "landed-\(flight.flightNumber)-\(Int(flight.scheduledDeparture.timeIntervalSince1970))",
             flight: flight
         )
     }
@@ -109,7 +109,7 @@ enum ArcNotifications {
         send(
             title: "Your aircraft has arrived",
             body: "The plane for \(flight.flightNumberSpaced) is on the ground at \(flight.departureCity). Departure \(flight.effectiveDepTimeLocal).",
-            id: "inbound-arrived-\(flight.flightNumber)",
+            id: "inbound-arrived-\(flight.flightNumber)-\(Int(flight.scheduledDeparture.timeIntervalSince1970))",
             flight: flight
         )
     }
@@ -128,7 +128,7 @@ enum ArcNotifications {
         send(
             title: "\(flight.flightNumber) cancelled",
             body: "\(flight.departureIATA) → \(flight.arrivalIATA) has been cancelled.",
-            id: "cancelled-\(flight.flightNumber)",
+            id: "cancelled-\(flight.flightNumber)-\(Int(flight.scheduledDeparture.timeIntervalSince1970))",
             flight: flight
         )
     }
@@ -195,10 +195,9 @@ enum ArcNotifications {
             let ids = requests
                 .filter { id in
                     ["departure-\(flightNum)-", "gate-\(flightNum)-", "delay-\(flightNum)-",
-                     "predicted-\(flightNum)-"].contains(where: id.identifier.hasPrefix)
-                    || id.identifier == "landed-\(flightNum)"
-                    || id.identifier == "cancelled-\(flightNum)"
-                    || id.identifier == "inbound-arrived-\(flightNum)"
+                     "predicted-\(flightNum)-", "landed-\(flightNum)-",
+                     "cancelled-\(flightNum)-", "inbound-arrived-\(flightNum)-"]
+                        .contains(where: id.identifier.hasPrefix)
                 }
                 .map(\.identifier)
             UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ids)

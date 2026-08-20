@@ -1202,7 +1202,9 @@ struct AddFlightView: View {
 
     private func addManual() {
         if manualMode != .air { addManualTransit(); return }
+        guard !isAdding else { return }
         guard let dep = manualDep, let arr = manualArr else { return }
+        isAdding = true
         // The DatePicker edits using the device's own calendar/timezone, but the rest
         // of the app treats every flight time as local-to-the-airport (see
         // `depTimeLocal`/`arrTimeLocal`) — re-project onto each airport's zone so a
@@ -1210,6 +1212,10 @@ struct AddFlightView: View {
         let departure = DateHelpers.reinterpretWallClock(manualDepartureDate, asLocalTo: ReferenceData.shared.timezone(dep.iata))
         let arrival = DateHelpers.reinterpretWallClock(manualArrivalDate, asLocalTo: ReferenceData.shared.timezone(arr.iata))
 
+        // The form can sit open across the departure moment; a "scheduled"
+        // status picked 15 minutes ago may be impossible by now.
+        if manualStatus == .landed, departure > .now { manualStatus = .scheduled }
+        if manualStatus == .scheduled, departure < .now, isPastEntry { manualStatus = .landed }
         let f = Flight(flightNumber: manualNumber.uppercased(), date: departure)
         f.sharedWithIds = TripCompanions.audience(sharedWithIds: sharedWithIds, travellingWithIds: travellingWithIds)
         // Only worth watching for a schedule that hasn't happened yet — a past
@@ -1246,6 +1252,7 @@ struct AddFlightView: View {
             dismiss()
         } catch {
             modelContext.delete(f)
+            isAdding = false
             addError = "Couldn't save this flight: \(error.localizedDescription)"
         }
     }
@@ -1257,9 +1264,11 @@ struct AddFlightView: View {
     /// device's zone — without a stop registry there is nothing sounder to
     /// re-project them onto.
     private func addManualTransit() {
+        guard !isAdding else { return }
         let from = manualDepName.trimmingCharacters(in: .whitespaces)
         let to = manualArrName.trimmingCharacters(in: .whitespaces)
         guard !from.isEmpty, !to.isEmpty else { return }
+        isAdding = true
 
         let f = Flight(flightNumber: manualNumber.uppercased(), date: manualDepartureDate)
         f.sharedWithIds = TripCompanions.audience(sharedWithIds: sharedWithIds, travellingWithIds: travellingWithIds)
@@ -1286,6 +1295,7 @@ struct AddFlightView: View {
             dismiss()
         } catch {
             modelContext.delete(f)
+            isAdding = false
             addError = "Couldn't save this trip: \(error.localizedDescription)"
         }
     }
@@ -1437,7 +1447,14 @@ struct AddFlightView: View {
     private func runUnifiedSearch() async {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        // One search at a time — the button is disabled while parsing, but
+        // the keyboard's return key wasn't, and two fast returns raced on
+        // `results`.
+        guard !isParsingNatural else { return }
         parseStatusMessage = nil
+        // The user may edit the query while the AI path is out; a stale
+        // answer must not stomp the new search's state.
+        func stale() -> Bool { query.trimmingCharacters(in: .whitespacesAndNewlines) != text }
 
         // The keystroke-pause prefetch may already hold this exact answer.
         if let live = livePrefetch, live.query == text, !live.results.isEmpty {
@@ -1468,6 +1485,7 @@ struct AddFlightView: View {
         // would just see noise. "Looks like a booking" = long or multi-line.
         if Self.looksLikeBooking(text) {
             found = await Self.resolveBooking(text)
+            if stale() { withAnimation { isParsingNatural = false }; return }
         }
 
         // A route readable locally ("Athens to Munich 18 Sep") skips the
@@ -1477,12 +1495,14 @@ struct AddFlightView: View {
             let dateStr = DateHelpers.apiDate(route.date ?? .now, at: route.depIATA)
             found = (try? await FlightAPIClient.shared.searchNatural(
                 query: text, depIATA: route.depIATA, arrIATA: route.arrIATA, dateISO: dateStr)) ?? []
+            if stale() { withAnimation { isParsingNatural = false }; return }
         }
         // Everything else — free text, codeshare numbers — goes through the
         // Worker's AI parser, which returns only real flights verified against
         // schedule data. The user picks.
         if found.isEmpty {
             let loose = (try? await FlightAPIClient.shared.searchNatural(query: text)) ?? []
+            if stale() { withAnimation { isParsingNatural = false }; return }
             // …but it must not answer about somewhere else. "Syros to Athens"
             // resolves locally to JSY, which the provider has no data for at
             // all; the free-text parser then read Syros as SANTORINI and handed
@@ -1741,7 +1761,9 @@ struct AddFlightView: View {
             try modelContext.save()
             ArcNotifications.scheduleDepartureReminder(for: f)
             syncToCloud(f)
-            isAdding = false
+            // isAdding stays true: the sheet is dismissing, and re-enabling
+            // the result buttons for the animation's last 300ms let a second
+            // tap add the flight twice.
             onAdded?(f)
             dismiss()
         } catch {

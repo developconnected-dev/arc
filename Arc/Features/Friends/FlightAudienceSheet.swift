@@ -134,6 +134,11 @@ struct FlightAudienceSheet: View {
 /// flight detail screen, so the two can't drift apart.
 struct FlightAudienceRow: View {
     @Binding var sharedWithIds: [String]?
+    /// Runs when the picker closes. The detail screen pushes the final
+    /// audience to the cloud here, ONCE — pushing per toggle raced four
+    /// concurrent upserts whose last finisher won, which could settle the
+    /// server on an intermediate selection.
+    var onDone: (() -> Void)? = nil
     @State private var store = FriendsStore.shared
     @State private var showPicker = false
 
@@ -154,7 +159,7 @@ struct FlightAudienceRow: View {
             }
         }
         .buttonStyle(.plain)
-        .sheet(isPresented: $showPicker) {
+        .sheet(isPresented: $showPicker, onDismiss: { onDone?() }) {
             FlightAudienceSheet(sharedWithIds: $sharedWithIds)
                 .presentationDetents([.medium, .large])
         }

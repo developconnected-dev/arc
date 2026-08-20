@@ -620,6 +620,11 @@ actor FlightAPIClient {
         var req = URLRequest(url: baseURL.appending(path: path))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Gate contributions are authenticated writes now — the Worker
+        // refuses anonymous ones (anyone could wipe an airport's gate map).
+        if let token = await MainActor.run(body: { ArcSupabase.shared.bearerToken }) {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         req.httpBody = data
         _ = try? await session.data(for: req)   // best-effort; cron just won't know about us on failure
     }

@@ -102,7 +102,7 @@ struct MyFlightsView: View {
             .refreshable {
                 await FlightTracker.shared.burstUpdate(flights: Array(allFlights), modelContext: modelContext)
                 // Pull-to-refresh is also "did anyone add a trip for me?"
-                await friendsStore.refresh()
+                await friendsStore.refresh(force: true)
             }
         }
         .sheet(isPresented: $showSettings) {

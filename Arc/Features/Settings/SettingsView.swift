@@ -14,6 +14,9 @@ struct SettingsView: View {
     @State private var profileSaving = false
     @State private var profileSaved = false
     @State private var profileError: String?
+    /// What the region picker showed before any edit — the dirtiness baseline
+    /// for users who have no stored nationality yet.
+    @State private var regionBaseline = ""
     @State private var designEmoji = ""
     @State private var designColor = "#4DABF7"
 
@@ -319,7 +322,14 @@ struct SettingsView: View {
     private func seedProfileFields() {
         guard let user = supabase.currentUser else { return }
         if profileName.isEmpty { profileName = user.display_name }
-        if let nation = user.nationality { profileRegion = nation }
+        if let nation = user.nationality {
+            profileRegion = nation
+        } else {
+            // No nationality on file: mirror the current picker default into
+            // the dirtiness baseline, otherwise the form opened "edited" and
+            // Save silently wrote the device region as a chosen nationality.
+            regionBaseline = profileRegion
+        }
     }
 
     private var displayedName: String {
@@ -336,7 +346,7 @@ struct SettingsView: View {
         guard let user = supabase.currentUser else { return false }
         return pendingAvatar != nil
             || profileName.trimmingCharacters(in: .whitespaces) != user.display_name
-            || profileRegion != (user.nationality ?? "")
+            || profileRegion != (user.nationality ?? regionBaseline)
     }
 
     /// "Saved ✓" only when it actually saved — a swallowed error used to

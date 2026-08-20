@@ -22,6 +22,8 @@ enum InboundMonitor {
         let yesterdayLegs = (try? await FlightAPIClient.shared.inboundLegs(registration: registration, date: yesterdayStr)) ?? []
         let legs = todayLegs + yesterdayLegs
 
+        // Two network awaits sit above — the flight can be deleted meanwhile.
+        guard !flight.isDeleted, flight.modelContext != nil else { return }
         flight.inboundChecked = true
 
         let chain = RotationChain.buildChain(

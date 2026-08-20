@@ -67,22 +67,56 @@ final class ArcSupabase: ObservableObject {
     }
 
     /// Supabase access tokens expire after ~an hour; the refresh grant swaps
-    /// the stored refresh token for a fresh pair. Reports whether it worked so
-    /// a 401 can tell "just stale" apart from "genuinely signed out".
+    /// the stored refresh token for a fresh pair.
+    ///
+    /// Single-flight, and three-valued. Both matter for the same reason: the
+    /// refresh token IS the identity here (no email to recover with). Two
+    /// concurrent 401s used to race the rotation — the loser's now-stale token
+    /// was rejected, which read as "signed out", which deleted the Keychain
+    /// token and silently destroyed the account. So every caller shares one
+    /// in-flight refresh, and only an explicit 4xx rejection of the grant may
+    /// end the session; a timeout or server error just fails this request.
+    private enum RefreshOutcome { case ok, rejected, transient }
+    private var refreshTask: Task<RefreshOutcome, Never>?
+
     @discardableResult
     private func refreshSession() async -> Bool {
-        guard let token = refreshToken else { return false }
-        guard let data = try? await post(path: "/auth/v1/token?grant_type=refresh_token",
-                                         body: ["refresh_token": token], auth: false),
-              let result = try? JSONDecoder().decode(AuthResponse.self, from: data)
-        else { return false }
-        accessToken = result.access_token
-        refreshToken = result.refresh_token
-        isSignedIn = true
-        return true
+        await refreshOutcome() == .ok
+    }
+
+    private func refreshOutcome() async -> RefreshOutcome {
+        if let task = refreshTask { return await task.value }
+        let task = Task { await performRefresh() }
+        refreshTask = task
+        let result = await task.value
+        refreshTask = nil
+        return result
+    }
+
+    private func performRefresh() async -> RefreshOutcome {
+        guard let token = refreshToken else { return .rejected }
+        do {
+            let data = try await post(path: "/auth/v1/token?grant_type=refresh_token",
+                                      body: ["refresh_token": token], auth: false)
+            guard let result = try? JSONDecoder().decode(AuthResponse.self, from: data) else {
+                return .transient
+            }
+            accessToken = result.access_token
+            refreshToken = result.refresh_token
+            isSignedIn = true
+            return .ok
+        } catch let ArcError.http(status, _) where (400..<500).contains(status) {
+            return .rejected
+        } catch {
+            return .transient
+        }
     }
 
     var isConfigured: Bool { !baseURL.isEmpty && !anonKey.isEmpty }
+
+    /// The session's bearer token, for Worker endpoints that require a
+    /// signed-in user (gate contributions). Read-only; nil when signed out.
+    var bearerToken: String? { accessToken }
 
     // MARK: - Auth
 
@@ -230,7 +264,9 @@ final class ArcSupabase: ObservableObject {
     // MARK: - Friends
 
     func searchUsers(query: String) async throws -> [ArcUser] {
-        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        // Value-safe escaping: `,` `(` `)` `&` `=` survive .urlQueryAllowed and
+        // would splice into PostgREST's or=() filter expression.
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? query
         let data = try await get(path: "/rest/v1/profiles?or=(handle.ilike.*\(encoded)*,display_name.ilike.*\(encoded)*)&select=*&limit=20")
         return try JSONDecoder().decode([ArcUser].self, from: data)
     }
@@ -250,6 +286,14 @@ final class ArcSupabase: ObservableObject {
 
     func removeFriend(friendshipId: String) async throws {
         _ = try await delete(path: "/rest/v1/friendships?id=eq.\(friendshipId)")
+    }
+
+    /// Removes the friendship with `userId` in BOTH directions. Mutual invite
+    /// links legally create (A,B) and (B,A); deleting only one row made the
+    /// friend reappear on the next refresh.
+    func removeFriendship(with userId: String) async throws {
+        guard let uid = currentUser?.id else { return }
+        _ = try await delete(path: "/rest/v1/friendships?or=(and(requester_id.eq.\(uid),addressee_id.eq.\(userId)),and(requester_id.eq.\(userId),addressee_id.eq.\(uid)))")
     }
 
     struct Friendship: Codable, Identifiable {
@@ -700,13 +744,19 @@ final class ArcSupabase: ObservableObject {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
 
         if status == 401, authorised, !retrying {
-            if await refreshSession() {
+            switch await refreshOutcome() {
+            case .ok:
                 return try await send(original, authorised: true, retrying: true)
+            case .rejected:
+                // The server itself refused the grant — the session is dead.
+                signOut()
+            case .transient:
+                // Network trouble is not a sign-out; this request just fails.
+                break
             }
-            signOut()
         }
         guard (200..<300).contains(status) else {
-            throw ArcError.server(Self.errorMessage(data) ?? "Request failed (\(status)).")
+            throw ArcError.http(status, Self.errorMessage(data) ?? "Request failed (\(status)).")
         }
         return data
     }
@@ -780,12 +830,16 @@ final class ArcSupabase: ObservableObject {
         case notSignedIn
         case notConfigured
         case server(String)
+        /// A non-2xx with its status — so auth can tell a rejected grant
+        /// (4xx: sign out) from a hiccup (5xx/timeout: just fail the call).
+        case http(Int, String)
 
         var errorDescription: String? {
             switch self {
             case .notSignedIn: "You're not signed in."
             case .notConfigured: "Social features aren't configured."
             case .server(let message): message
+            case .http(_, let message): message
             }
         }
     }

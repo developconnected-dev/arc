@@ -4,6 +4,13 @@ import ActivityKit
 
 /// Runs a dedicated loop that pushes Live Activity updates every 60 seconds.
 /// Each update recalculates progress from Date.now, so the arc moves.
+///
+/// This loop only RENDERS — it never writes flight state. It used to run its
+/// own time-based status healing against a second `ModelContext`, which
+/// fought FlightTracker's healing in the main context (status flapping
+/// active↔landed on alternating minutes) and skipped `handleStatusChange`,
+/// so a landing it detected posted no notification and uploaded no track.
+/// FlightTracker owns healing; this owns the 60-second repaint.
 @MainActor
 final class BackgroundFlightUpdater {
     static let shared = BackgroundFlightUpdater()
@@ -14,7 +21,6 @@ final class BackgroundFlightUpdater {
     func start(modelContainer: ModelContainer) {
         guard !isRunning else { return }
         isRunning = true
-        print("[Arc] BackgroundFlightUpdater started")
 
         updateTask = Task {
             let context = ModelContext(modelContainer)
@@ -27,57 +33,23 @@ final class BackgroundFlightUpdater {
     }
 
     private func pushUpdates(context: ModelContext) async {
+        // OWN activities only. A friend's card for the same flight number is
+        // driven by FriendAlerts from the shared row — feeding it a local
+        // flight's state would overwrite the friend's data with yours.
         let activities = Activity<FlightActivityAttributes>.activities
-        print("[Arc] BackgroundFlightUpdater: \(activities.count) active Live Activities")
-
+            .filter { $0.attributes.friendName == nil }
         guard !activities.isEmpty else { return }
 
         let descriptor = FetchDescriptor<Flight>()
-        guard let flights = try? context.fetch(descriptor) else {
-            print("[Arc] BackgroundFlightUpdater: failed to fetch flights")
-            return
-        }
-        print("[Arc] BackgroundFlightUpdater: \(flights.count) flights in database")
+        guard let flights = try? context.fetch(descriptor) else { return }
 
         for activity in activities {
-            let matchingFlight = flights.first(where: {
+            let flight = flights.first(where: {
                 $0.flightNumber == activity.attributes.flightNumber &&
                 $0.departureIATA == activity.attributes.departureIATA
-            })
-
-            if let flight = matchingFlight {
-                print("[Arc] BackgroundFlightUpdater: updating \(flight.flightNumber), progress=\(flight.progress)")
+            }) ?? flights.first(where: { $0.flightNumber == activity.attributes.flightNumber })
+            if let flight, !flight.isDeleted {
                 await LiveActivityManager.shared.updateActivity(for: flight)
-            } else {
-                print("[Arc] BackgroundFlightUpdater: no match for \(activity.attributes.flightNumber) \(activity.attributes.departureIATA)")
-                // Try to find by flight number only (departure IATA might differ due to how it was stored)
-                if let flight = flights.first(where: { $0.flightNumber == activity.attributes.flightNumber }) {
-                    print("[Arc] BackgroundFlightUpdater: found by number only, updating \(flight.flightNumber)")
-                    await LiveActivityManager.shared.updateActivity(for: flight)
-                }
-            }
-        }
-
-        // Time-based status healing
-        for flight in flights {
-            let depTime = flight.actualDeparture ?? flight.scheduledDeparture.addingTimeInterval(Double(flight.delayMinutes) * 60)
-            // Delay-adjusted like `depTime` above — measured from the printed
-            // arrival, a delayed airborne flight was force-landed early.
-            let arrTime = flight.estimatedArrival
-                ?? flight.scheduledArrival.addingTimeInterval(Double(max(0, flight.delayMinutes)) * 60)
-
-            if (flight.statusRaw == "scheduled" || flight.statusRaw == "boarding" || flight.statusRaw == "gateClosed") && Date.now >= depTime {
-                print("[Arc] BackgroundFlightUpdater: healing \(flight.flightNumber) to active")
-                flight.statusRaw = "active"
-                try? context.save()
-                await LiveActivityManager.shared.startActivity(for: flight)
-            }
-
-            if flight.statusRaw == "active" && Date.now >= arrTime {
-                print("[Arc] BackgroundFlightUpdater: healing \(flight.flightNumber) to landed")
-                flight.statusRaw = "landed"
-                try? context.save()
-                await LiveActivityManager.shared.endActivity(for: flight)
             }
         }
     }
