@@ -531,10 +531,13 @@ struct FlightDetailView: View {
                 Divider().padding(.leading, 39)
                 FlightAudienceRow(sharedWithIds: Binding(
                     get: { flight.sharedWithIds },
-                    set: { newValue in
-                        flight.sharedWithIds = newValue
-                        Task { try? await ArcSupabase.shared.shareFlight(flight) }
-                    }))
+                    set: { flight.sharedWithIds = $0 }),
+                    onDone: {
+                        // One push with the final audience, persisted locally.
+                        try? modelContext.save()
+                        let f = flight
+                        Task { _ = try? await ArcSupabase.shared.shareFlight(f) }
+                    })
                     .padding(14)
             }
             .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))

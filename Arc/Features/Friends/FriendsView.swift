@@ -260,7 +260,7 @@ struct ProfileSetupView: View {
                 displayName: name.trimmingCharacters(in: .whitespaces),
                 nationality: region)
             await store.redeemPendingIfPossible()
-            await store.refresh()
+            await store.refresh(force: true)
         } catch {
             errorMessage = "Couldn't set up your profile: \(error.localizedDescription)"
         }
@@ -362,13 +362,23 @@ struct FriendsListView: View {
                     .padding(.top, 12).padding(.bottom, 140)
                 }
                 .scrollIndicators(.hidden)
-                .refreshable { await store.refresh() }
+                .refreshable { await store.refresh(force: true) }
             }
             .toolbarVisibility(.hidden, for: .navigationBar)
             .sheet(isPresented: $showingAddFriend) {
                 AddFriendSheet().presentationDetents([.medium, .large])
             }
-            .sheet(isPresented: $showingManage, onDismiss: { groups = FriendGroups.all() }) {
+            .sheet(isPresented: $showingManage, onDismiss: {
+                groups = FriendGroups.all()
+                // The filter may point at a friend or group that no longer
+                // exists — an empty-set filter showed nothing with no chip lit.
+                switch filter {
+                case .friend(let id) where !store.friends.contains(where: { $0.id == id }): filter = .all
+                case .group(let id) where !groups.contains(where: { $0.id == id }): filter = .all
+                default: break
+                }
+                store.mapFilterIds = filterIds
+            }) {
                 ManageFriendsSheet()
             }
             .sheet(isPresented: $showSettings) { SettingsView() }
@@ -657,7 +667,7 @@ struct FriendsListView: View {
             Button("Accept") {
                 Task {
                     try? await supabase.acceptFriendRequest(friendshipId: friendship.id)
-                    await store.refresh()
+                    await store.refresh(force: true)
                 }
             }
             .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
@@ -987,7 +997,7 @@ struct AddFriendSheet: View {
 
         if let friend = try? await ArcSupabase.shared.redeemInvite(code: code.lowercased()) {
             store.justRedeemedFriend = friend
-            await store.refresh()
+            await store.refresh(force: true)
             dismiss()
         } else {
             redeemError = "That invite isn't valid anymore — ask for a fresh link."

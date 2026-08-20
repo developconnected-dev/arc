@@ -172,15 +172,16 @@ struct ManageFriendsSheet: View {
 
     private func reload() {
         groups = FriendGroups.all()
-        levels = Dictionary(uniqueKeysWithValues: store.friends.map { ($0.id, FriendAlerts.level(for: $0.id)) })
+        levels = Dictionary(store.friends.map { ($0.id, FriendAlerts.level(for: $0.id)) },
+                            uniquingKeysWith: { a, _ in a })
     }
 
     private func remove(_ entry: FriendsStore.FriendEntry) {
         pendingRemoval = nil
         Task {
-            try? await ArcSupabase.shared.removeFriend(friendshipId: entry.friendshipId)
+            try? await ArcSupabase.shared.removeFriendship(with: entry.id)
             FriendGroups.removeMemberEverywhere(entry.id)
-            await store.refresh()
+            await store.refresh(force: true)
             reload()
         }
     }

@@ -35,20 +35,30 @@ enum ScheduleBackfill {
     /// CLOSEST to this flight's departure. Shuttle numbers fly one route
     /// multiple times a day; route-only matching stamped the morning leg's
     /// actual times onto an evening flight, which then read "6h early".
+    /// `allowRouteChange` gates the off-route fallback. The backfill may take
+    /// it (a hand-typed flight can carry a mis-picked airport, and the
+    /// airline's filing corrects it — but only within a day of the typed
+    /// time). Live tracking must NOT: an off-route pick there stamps a
+    /// different leg's status, gates and actual times onto the tracked
+    /// flight, and rewrites its route mid-trip.
     nonisolated static func bestLeg(_ legs: [FlightAPIClient.FlightSearchResult],
-                                    matching flight: Flight) -> FlightAPIClient.FlightSearchResult? {
+                                    matching flight: Flight,
+                                    allowRouteChange: Bool = false) -> FlightAPIClient.FlightSearchResult? {
         let dep = flight.departureIATA.uppercased()
         let arr = flight.arrivalIATA.uppercased()
         let scheduled = flight.scheduledDeparture
         let onRoute = legs.filter {
             $0.dep_iata.uppercased() == dep && $0.arr_iata.uppercased() == arr
         }
-        let pool = onRoute.isEmpty ? legs : onRoute
         func distance(_ leg: FlightAPIClient.FlightSearchResult) -> TimeInterval {
             guard let d = DateHelpers.parseAPIDate(leg.dep_scheduled) else { return .greatestFiniteMagnitude }
             return abs(d.timeIntervalSince(scheduled))
         }
-        return pool.min { distance($0) < distance($1) }
+        if let best = onRoute.min(by: { distance($0) < distance($1) }) { return best }
+        guard allowRouteChange else { return nil }
+        guard let fallback = legs.min(by: { distance($0) < distance($1) }),
+              distance(fallback) <= 24 * 3600 else { return nil }
+        return fallback
     }
 
     /// The published schedule wins over what was typed — that's the whole
@@ -91,19 +101,35 @@ enum ScheduleBackfill {
         let date = DateHelpers.apiDate(flight.scheduledDeparture, at: flight.departureIATA)
         guard let legs = try? await FlightAPIClient.shared.searchFlight(
             number: flight.flightNumber, date: date),
-              let leg = bestLeg(legs, matching: flight) else { return }
+              let leg = bestLeg(legs, matching: flight, allowRouteChange: true) else { return }
+        // The lookup awaited the network — the flight may be gone by now.
+        guard !flight.isDeleted, flight.modelContext != nil else { return }
 
         // The typed departure keys two things that must move WITH it: the
         // 2-hour reminder (else it fires 2 h before a time that no longer
         // exists) and the shared row's natural key (else friends keep a
         // frozen duplicate at the old time forever).
         let typedDeparture = flight.scheduledDeparture
+        // Companions were invited under the TYPED departure — the invite's
+        // natural key. Capture who's still waiting before the time moves, so
+        // the invitation can follow the schedule instead of orphaning.
+        let pendingInviteeIds = FriendsStore.shared.pendingCompanions(for: flight).map(\.id)
         apply(leg, to: flight)
         if flight.scheduledDeparture != typedDeparture {
             ArcNotifications.removeDepartureReminder(flightNumber: flight.flightNumber, scheduledDeparture: typedDeparture)
             ArcNotifications.scheduleDepartureReminder(for: flight)
             let number = flight.flightNumber
-            Task { try? await ArcSupabase.shared.unshareFlight(flightNumber: number, scheduledDeparture: typedDeparture) }
+            let moved = flight
+            Task {
+                try? await ArcSupabase.shared.unshareFlight(flightNumber: number, scheduledDeparture: typedDeparture)
+                // Open invites keyed on the old time would let a friend Accept
+                // a journey at a time that no longer exists.
+                try? await ArcSupabase.shared.withdrawTripInvites(flightNumber: number, scheduledDeparture: typedDeparture)
+                if !pendingInviteeIds.isEmpty, !moved.isDeleted {
+                    try? await ArcSupabase.shared.sendTripInvites(moved, to: pendingInviteeIds)
+                    await FriendsStore.shared.refreshSentTripInvites()
+                }
+            }
         }
         ArcNotifications.scheduleFound(flight)
         // Push the real times to friends now rather than waiting for this

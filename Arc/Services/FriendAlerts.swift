@@ -117,7 +117,9 @@ enum FriendAlerts {
         let flights = entries.flatMap { entry in
             entry.flights.filter { $0.status != "cancelled" }.map { (entry.user, $0) }
         }
-        let levels = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, level(for: $0.id)) })
+        // Tolerant keying: a duplicate entry must degrade, never trap.
+        let levels = Dictionary(entries.map { ($0.id, level(for: $0.id)) },
+                                uniquingKeysWith: { a, _ in a })
 
         for event in events(baseline: baseline, flights: flights, levels: levels, at: now) {
             post(event)
@@ -187,7 +189,7 @@ enum FriendAlerts {
             await LiveActivityManager.shared.startActivity(
                 for: flight, friendName: entry.user.display_name,
                 friendAvatarFile: avatarFile)
-            await LiveActivityManager.shared.updateActivity(for: flight)
+            await LiveActivityManager.shared.updateActivity(for: flight, friendName: entry.user.display_name)
         }
     }
 }

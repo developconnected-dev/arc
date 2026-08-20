@@ -60,7 +60,7 @@ struct PassportView: View {
                     ForEach(sortedPast) { f in
                         Button { onSelect(f) } label: { pastRow(f) }
                             .buttonStyle(.plain)
-                            .id(f.flightNumber)
+                            .id(f.id.uuidString)
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
@@ -88,7 +88,10 @@ struct PassportView: View {
                 .onAppear {
                     let args = ProcessInfo.processInfo.arguments
                     if let i = args.firstIndex(of: "-passportScrollTo"), i + 1 < args.count {
-                        let target = args[i + 1]
+                        // The hook passes a flight NUMBER; resolve it to the
+                        // row's unique id (the number repeats across trips).
+                        let number = args[i + 1]
+                        let target = sortedPast.first { $0.flightNumber == number }?.id.uuidString ?? number
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
                             withAnimation { proxy.scrollTo(target, anchor: .top) }
                         }

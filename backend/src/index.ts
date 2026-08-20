@@ -25,6 +25,9 @@ const APP_BUNDLE_ID = "com.arc.flighttracker";
 
 const ADB_HOST = "aerodatabox.p.rapidapi.com";
 
+/// The only date shape allowed to reach a provider URL path or Date() math.
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
 // AeroDataBox's full FlightStatus vocabulary (confirmed against the live API +
 // its published OpenAPI schema): unknown, expected, enRoute, checkIn, boarding,
 // gateClosed, departed, delayed, approaching, arrived, canceled, diverted,
@@ -652,7 +655,11 @@ export default {
           // Same text, same day → same parse. Keyed by day because relative
           // dates ("tomorrow") change meaning at midnight. Saves the single
           // slowest fixed cost (~2-3 s) on every repeat, from any device.
-          const pkey = `aiparse|${new Date().toISOString().slice(0, 10)}|${query.toLowerCase().replace(/\s+/g, " ").slice(0, 120)}`;
+          const norm = query.toLowerCase().replace(/\s+/g, " ");
+          const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(norm));
+          const qhash = [...new Uint8Array(digest)].slice(0, 16)
+            .map(b => b.toString(16).padStart(2, "0")).join("");
+          const pkey = `aiparse|${new Date().toISOString().slice(0, 10)}|${qhash}`;
           const prow = (await cacheRows(env, [pkey])).get(pkey);
           if (prow && Date.now() - Date.parse(String(prow.fetched_at)) < 24 * 3600_000) {
             parsed = prow.payload as unknown as ParsedFlightQuery;
@@ -675,7 +682,10 @@ export default {
         }
 
         const today = new Date().toISOString().slice(0, 10);
-        const defaultDay = parsed.date || today;
+        // The model's date is a string it composed — only a real ISO day may
+        // reach provider URL paths or Date() math (C1: an unpadded "2026-9-18"
+        // made adbRouteDiscovery throw and 500 the whole search).
+        const defaultDay = parsed.date && ISO_DAY.test(parsed.date) ? parsed.date : today;
 
 
         // Check the parser's route against the places the query actually names.
@@ -885,7 +895,11 @@ export default {
     if (url.pathname === "/flight") {
       const number = url.searchParams.get("number");
       const date = url.searchParams.get("date");
-      if (!number) return new Response("missing number", { status: 400 });
+      if (!number) return new Response("missing number", { status: 400, headers: cors });
+      // The date lands in a provider URL path unencoded — anything but a
+      // plain ISO day would let an anonymous caller steer the paid API key
+      // at arbitrary endpoints ("../../airports/…").
+      if (date && !ISO_DAY.test(date)) return Response.json([], { headers: cors });
 
       // 1. Shared cache → AeroDataBox (budget-guarded). One answer serves
       // every family device, the cron, and share pages for its TTL.
@@ -960,6 +974,7 @@ export default {
       const reg = url.searchParams.get("reg");
       const date = url.searchParams.get("date");
       if (!reg) return Response.json(null, { headers: cors });
+      if (date && !ISO_DAY.test(date)) return Response.json([], { headers: cors });
       const regDay = date ?? new Date().toISOString().slice(0, 10);
       const { legs, cache } = await fetchLegsCached(env, "reg", reg, regDay, "interactive");
       // the leg immediately before the queried flight is the inbound
@@ -1345,6 +1360,7 @@ export default {
 
     if (url.pathname === "/gates/observe" && req.method === "POST") {
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false }, { headers: cors });
+      if (!(await requireSupabaseUser(env, req))) return new Response("unauthorized", { status: 401, headers: cors });
       try {
         const b = await req.json() as Record<string, unknown>;
         if (!b["flight_number"] || !b["departure_iata"] || !b["flight_date"]) {
@@ -1374,6 +1390,7 @@ export default {
     // cache-first so each airport is fetched from Overpass once per ~90 days.
     if (url.pathname === "/gates/store" && req.method === "POST") {
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false }, { headers: cors });
+      if (!(await requireSupabaseUser(env, req))) return new Response("unauthorized", { status: 401, headers: cors });
       try {
         const b = await req.json() as { iata?: string; gates?: Array<{ ref: string; lat: number; lon: number }> };
         const iata = (b.iata ?? "").toUpperCase();
@@ -1543,7 +1560,8 @@ async function cacheRows(env: Env, keys: string[]): Promise<Map<string, Record<s
     else missing.push(k);
   }
   if (missing.length) {
-    const rows = await sbSelect(env, `/flight_cache?key=in.(${missing.map(encodeURIComponent).join(",")})&select=*`);
+    const rows = await sbSelect(env,
+      `/flight_cache?key=in.(${missing.map(k => encodeURIComponent(`"${k.replace(/"/g, '\\"')}"`)).join(",")})&select=*`);
     const byKey = new Map(rows.map(r => [String(r["key"]), r]));
     for (const k of missing) {
       const row = byKey.get(k) ?? null;
@@ -1586,6 +1604,7 @@ async function adbRouteDiscovery(
   // Nearest date with the target's weekday that FIDS can still serve.
   const today = new Date(); today.setUTCHours(0, 0, 0, 0);
   const target = new Date(`${targetDate}T00:00:00Z`);
+  if (isNaN(target.getTime())) return empty;
   let discovery = target;
   const daysOut = Math.round((target.getTime() - today.getTime()) / 86_400_000);
   if (daysOut > 6 || daysOut < -6) {
@@ -1935,8 +1954,10 @@ function synthesizeAirportStatus(w: AirportWeather | null, faa: FaaDelay | null)
 const ADB_MONTHLY_CALLS = 900;
 const ADB_CRON_SHARE = 0.6;
 // Once RapidAPI has told us what's left we use that instead of guessing, and
-// only stop the cron early so a search always has quota behind it.
-const ADB_CRON_RESERVE = 2000;
+// only stop the cron early so a search always has quota behind it. The
+// reserve is a SHARE of the observed plan (spent + remaining), not a fixed
+// count — a fixed 2000 permanently silenced the cron on any smaller plan.
+const ADB_CRON_RESERVE_SHARE = 0.25;
 const AIRLABS_BUDGET = 800;           // per month (plan is 1k)
 
 function monthKey(): string {
@@ -1965,17 +1986,27 @@ async function budgetRow(env: Env): Promise<Record<string, any>> {
 
 async function budgetBump(env: Env, field: string, current: number,
                           remaining?: string | null): Promise<void> {
-  const patch: Record<string, unknown> = { [field]: current + 1 };
   // RapidAPI reports what's actually left on every response. Recording it means
   // /health shows the provider's own number, not just our count of attempts —
   // the two disagreeing is exactly how a plan upgrade went unnoticed.
   const left = remaining == null ? NaN : Number(remaining);
-  if (Number.isFinite(left)) patch["adb_remaining"] = left;
   if (budgetMemo) {
-    budgetMemo.row[field] = current + 1;
+    budgetMemo.row[field] = ((budgetMemo.row[field] as number) ?? current) + 1;
     if (Number.isFinite(left)) budgetMemo.row["adb_remaining"] = left;
   }
-  await sbService(env, "PATCH", `/api_budget?month=eq.${monthKey()}`, patch);
+  // SQL-side increment (migration 014): a fanned-out search fires several of
+  // these concurrently, and read-modify-write PATCHes counted them as one.
+  const res = await sbService(env, "POST", "/rpc/bump_api_budget", {
+    p_month: monthKey(), p_field: field,
+    p_remaining: Number.isFinite(left) ? left : null,
+  });
+  if (!res.ok && res.status !== 503) {
+    // RPC missing (migration not applied yet): fall back to the old PATCH so
+    // accounting degrades to approximate instead of stopping.
+    const patch: Record<string, unknown> = { [field]: current + 1 };
+    if (Number.isFinite(left)) patch["adb_remaining"] = left;
+    await sbService(env, "PATCH", `/api_budget?month=eq.${monthKey()}`, patch);
+  }
 }
 
 /// Phase-aware freshness: how long a cached answer stays good, judged from
@@ -2014,8 +2045,10 @@ async function fetchLegsCached(
   // Prefer what the provider reports; our own count can't know the plan, which
   // is how an upgrade left searches blocked against a ceiling that no longer
   // existed. The local cap is only the bootstrap, before the first response.
+  const planQuota = typeof remaining === "number" ? totalUsed + remaining : ADB_MONTHLY_CALLS;
+  const cronReserve = Math.max(50, Math.floor(planQuota * ADB_CRON_RESERVE_SHARE));
   const blocked = typeof remaining === "number"
-    ? remaining <= (source === "cron" ? ADB_CRON_RESERVE : 0)
+    ? remaining <= (source === "cron" ? cronReserve : 0)
     : source === "cron"
       ? cronUsed >= ADB_MONTHLY_CALLS * ADB_CRON_SHARE
       : totalUsed >= ADB_MONTHLY_CALLS;
@@ -2093,29 +2126,53 @@ async function cacheAirlabsResult(env: Env, ident: string, date: string,
 
 // ── Live Activity cron internals ──
 
+/// The service key writes for these endpoints, so the Worker itself must
+/// check WHO is asking: any signed-in user may contribute, nobody anonymous
+/// may wipe an airport's gate map or poison the prediction history.
+async function requireSupabaseUser(env: Env, req: Request): Promise<boolean> {
+  const auth = req.headers.get("authorization");
+  if (!auth?.startsWith("Bearer ") || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY) return false;
+  try {
+    const res = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: env.SUPABASE_SERVICE_KEY, authorization: auth },
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
 async function sbService(env: Env, method: string, path: string, body?: unknown): Promise<Response> {
-  return fetch(`${env.SUPABASE_URL}/rest/v1${path}`, {
-    method,
-    headers: {
-      apikey: env.SUPABASE_SERVICE_KEY!,
-      authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-      "content-type": "application/json",
-      prefer: method === "POST" ? "resolution=merge-duplicates,return=minimal" : "return=minimal",
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  // A rejected fetch (DNS, connect) must not escape — /flight has a provider
+  // fallback that never ran because the cache read 500'd first.
+  try {
+    return await fetch(`${env.SUPABASE_URL}/rest/v1${path}`, {
+      method,
+      headers: {
+        apikey: env.SUPABASE_SERVICE_KEY!,
+        authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        "content-type": "application/json",
+        prefer: method === "POST" ? "resolution=merge-duplicates,return=minimal" : "return=minimal",
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    return new Response(null, { status: 503 });
+  }
 }
 
 async function sbSelect(env: Env, path: string): Promise<Record<string, any>[]> {
-  const res = await fetch(`${env.SUPABASE_URL}/rest/v1${path}`, {
-    headers: {
-      apikey: env.SUPABASE_SERVICE_KEY!,
-      authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-    },
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return Array.isArray(data) ? data as Record<string, any>[] : [];
+  try {
+    const res = await fetch(`${env.SUPABASE_URL}/rest/v1${path}`, {
+      headers: {
+        apikey: env.SUPABASE_SERVICE_KEY!,
+        authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data as Record<string, any>[] : [];
+  } catch {
+    return [];
+  }
 }
 
 /// ActivityKit decodes remote content-state with a default JSONDecoder, whose
@@ -2220,8 +2277,10 @@ async function refreshSharedFlights(env: Env): Promise<void> {
     [active[i], active[j]] = [active[j], active[i]];
   }
   for (const row of active.slice(0, 5)) {
+    try {
+    if (!row.flight_number) continue;
     const day = String(row.scheduled_departure).slice(0, 10);
-    const { legs } = await fetchLegsCached(env, "flight", row.flight_number, day, "cron");
+    const { legs } = await fetchLegsCached(env, "flight", String(row.flight_number), day, "cron");
     const leg = (legs ?? []).find(l =>
       l["dep_iata"] === row.departure_iata && l["arr_iata"] === row.arrival_iata
     ) ?? (legs && legs.length > 0 ? legs[0] : null);
@@ -2244,6 +2303,10 @@ async function refreshSharedFlights(env: Env): Promise<void> {
       actual_departure: leg["dep_actual"] ?? null,
       updated_at: new Date().toISOString(),
     });
+    } catch (e) {
+      // One malformed row must not kill the refreshes behind it this tick.
+      console.error("refreshSharedFlights row failed:", row?.id, e);
+    }
   }
 }
 
@@ -2528,7 +2591,7 @@ async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[
       if (alreadyLive || (sent[key] && now - sent[key] < 6 * 60 * 60 * 1000)) continue;
 
       const depMs = new Date(f.scheduled_departure).getTime() + (f.delay_minutes ?? 0) * 60_000;
-      const arrMs = new Date(f.scheduled_arrival).getTime() + (f.delay_minutes ?? 0) * 60_000;
+      const arrMs = new Date(f.scheduled_arrival ?? f.scheduled_departure).getTime() + (f.delay_minutes ?? 0) * 60_000;
       const payload = {
         aps: {
           timestamp: Math.floor(now / 1000),
@@ -2822,9 +2885,12 @@ L.polyline(PTS,{color:'#3a648c',weight:2,opacity:.95,dashArray:'1 4',lineCap:'ro
 var glow=L.polyline([],{color:'#35d0ff',weight:9,opacity:.2,lineCap:'round'}).addTo(map);
 var crisp=L.polyline([],{color:'#6fe0ff',weight:2.5,opacity:.95,lineCap:'round'}).addTo(map);
 
+// divIcon's html IS innerHTML, and the IATA labels come from client-written
+// rows — the same reason renderStatic escapes gate/terminal/belt below.
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return '&#'+c.charCodeAt(0)+';'})}
 function apDot(ll,label,side){
   L.circleMarker(ll,{radius:4,color:'#9fd4ff',weight:2,fillColor:'#06080f',fillOpacity:1}).addTo(map);
-  L.marker(ll,{icon:L.divIcon({className:'ap-label',html:label,iconAnchor:side==='r'?[-8,7]:[38,7]}),interactive:false}).addTo(map);
+  L.marker(ll,{icon:L.divIcon({className:'ap-label',html:esc(label),iconAnchor:side==='r'?[-8,7]:[38,7]}),interactive:false}).addTo(map);
 }
 apDot(A,f.dep.iata,'l');apDot(B,f.arr.iata,'r');
 

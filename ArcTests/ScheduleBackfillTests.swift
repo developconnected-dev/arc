@@ -59,9 +59,23 @@ final class ScheduleBackfillTests: XCTestCase {
         XCTAssertEqual(ScheduleBackfill.bestLeg(legs, matching: f)?.arr_iata, "MUC")
     }
 
-    func testFallsBackToFirstLegWhenNoRouteWasTyped() {
-        let legs = [leg(dep: "ATH", arr: "LHR"), leg(dep: "ATH", arr: "MUC")]
-        XCTAssertEqual(ScheduleBackfill.bestLeg(legs, matching: pending())?.arr_iata, "LHR")
+    /// The off-route fallback exists for hand-typed flights (a mis-picked
+    /// airport corrected by the airline's filing) and must be OPTED INTO.
+    /// Live tracking passes false: an off-route pick there would stamp a
+    /// different leg's status and route onto the tracked flight.
+    func testOffRouteFallbackOnlyWhenAllowed() {
+        // Legs on the same day as the typed departure — the fallback is
+        // bounded to 24h so a different day's leg can never rewrite a route.
+        let iso = ISO8601DateFormatter()
+        let f = pending(dep: 3600)
+        let near = iso.string(from: f.scheduledDeparture.addingTimeInterval(1800))
+        let legs = [leg(dep: "ATH", arr: "LHR", depTime: near),
+                    leg(dep: "ATH", arr: "MUC", depTime: near)]
+        XCTAssertEqual(ScheduleBackfill.bestLeg(legs, matching: f, allowRouteChange: true)?.arr_iata, "LHR")
+        XCTAssertNil(ScheduleBackfill.bestLeg(legs, matching: f), "off-route needs opting in")
+        // A whole day away is a different journey, not a corrected airport.
+        let farAway = pending(dep: 3 * 86400)
+        XCTAssertNil(ScheduleBackfill.bestLeg(legs, matching: farAway, allowRouteChange: true))
     }
 
     // MARK: apply

@@ -8,8 +8,18 @@ final class FlightTracker: ObservableObject {
 
     @Published var isTracking = false
     private var trackingTask: Task<Void, Never>?
-    private var lastConnectionRisk: ConnectionPlanner.Risk?
+    /// Keyed by the OUTBOUND leg: a 3-leg itinerary changes which pair is
+    /// "the connection" mid-trip, and one un-keyed value compared risk across
+    /// two different connections.
+    private var lastConnectionRisk: [UUID: ConnectionPlanner.Risk] = [:]
     private var observedGateSignature: [UUID: String] = [:]
+    // Poll clocks live on the instance: `startTracking` fires on every list
+    // change, and clocks local to the task closure meant each add/delete
+    // re-polled every flight from a clean slate.
+    private var lastPolled: [UUID: Date] = [:]
+    private var lastInboundCheck: [UUID: Date] = [:]
+    private var lastStandCheck: [UUID: Date] = [:]
+    private var lastPositionPoll: [UUID: Date] = [:]
 
     /// Start tracking all active and upcoming flights.
     func startTracking(flights: [Flight], modelContext: ModelContext) {
@@ -24,17 +34,24 @@ final class FlightTracker: ObservableObject {
         }
         NetworkMonitor.shared.start()
 
-        // Track last poll time per flight to implement smart polling tiers
-        var lastPolled: [UUID: Date] = [:]
-        var lastInboundCheck: [UUID: Date] = [:]
-        var lastStandCheck: [UUID: Date] = [:]
-        var lastPositionPoll: [UUID: Date] = [:]
+        // Drop clocks for flights no longer tracked (deleted or long landed).
+        let ids = Set(flights.map(\.id))
+        lastPolled = lastPolled.filter { ids.contains($0.key) }
+        lastInboundCheck = lastInboundCheck.filter { ids.contains($0.key) }
+        lastStandCheck = lastStandCheck.filter { ids.contains($0.key) }
+        lastPositionPoll = lastPositionPoll.filter { ids.contains($0.key) }
 
         trackingTask = Task {
             while !Task.isCancelled {
                 let now = Date.now
 
                 for flight in flights {
+                    // The task is only CANCELLED on restart, never awaited —
+                    // and a swipe-delete can destroy a model while this cycle
+                    // is suspended at an await. A cancelled loop must stop
+                    // writing, and a deleted model must never be touched.
+                    guard !Task.isCancelled else { return }
+                    guard !flight.isDeleted, flight.modelContext != nil else { continue }
                     guard !flight.isCompleted || flight.isRecentlyLanded else { continue }
 
                     // Runs before the polling tiers on purpose: they skip
@@ -196,16 +213,16 @@ final class FlightTracker: ObservableObject {
                 // Connection Assistant: re-rate the connection with the fresh
                 // delays and alert when the tier WORSENS (never on improvement
                 // or repetition — the notification id also dedupes per tier).
-                if let pair = ConnectionPlanner.detectConnection(from: flights) {
+                let live = flights.filter { !$0.isDeleted && $0.modelContext != nil }
+                if let pair = ConnectionPlanner.detectConnection(from: live) {
                     let plan = ConnectionPlanner.plan(inbound: pair.inbound, outbound: pair.outbound)
-                    if let last = lastConnectionRisk, rank(plan.risk) > rank(last) {
+                    if let last = self.lastConnectionRisk[pair.outbound.id], rank(plan.risk) > rank(last) {
                         ArcNotifications.notifyConnectionRisk(plan)
                     }
-                    lastConnectionRisk = plan.risk
-                } else {
-                    lastConnectionRisk = nil
+                    self.lastConnectionRisk[pair.outbound.id] = plan.risk
                 }
 
+                guard !Task.isCancelled else { return }
                 try? modelContext.save()
 
                 // Re-write the App Group after every cycle: gate changes and
@@ -286,6 +303,8 @@ final class FlightTracker: ObservableObject {
         let oldGate = flight.departureGate
 
         await updateFlightStatus(flight)
+        // The network round-trip above is exactly where a deletion can land.
+        guard !flight.isDeleted, flight.modelContext != nil else { return }
 
         if flight.statusRaw != oldStatus {
             await handleStatusChange(flight: flight, from: oldStatus)
@@ -343,6 +362,9 @@ final class FlightTracker: ObservableObject {
         // the refresh was the one skipped.
         let relevant = flights.filter { $0.isActive || $0.isUpcoming || $0.isRecentlyLanded }
         for flight in relevant {
+            // A delete can land while this burst is suspended mid-network —
+            // a destroyed model must not be polled or saved.
+            guard !flight.isDeleted, flight.modelContext != nil else { continue }
             await pollWithChangeHandling(flight)
             await LiveActivityManager.shared.updateActivity(for: flight)
         }
@@ -403,7 +425,7 @@ final class FlightTracker: ObservableObject {
             // One number often flies several legs a day (A→B→C); blindly
             // taking the first stamped the WRONG leg's status, gates and
             // actual times onto the tracked flight every poll.
-            guard let latest = ScheduleBackfill.bestLeg(results, matching: flight) else { return }
+            guard let latest = ScheduleBackfill.bestLeg(results, matching: flight, allowRouteChange: false) else { return }
 
             // Update status
             flight.statusRaw = FlightStatus.heal(rawValue: latest.status, scheduledArrival: flight.scheduledArrival).rawValue
