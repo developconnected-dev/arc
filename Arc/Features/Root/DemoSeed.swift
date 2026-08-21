@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import SwiftData
 import ActivityKit
 
@@ -197,6 +198,15 @@ enum DemoSeed {
             delayMinutes: -10,   // photo parity: "10m Early"
             arrivalDelayMinutes: -10,
             insight: "Making up time in the air — arrival trending early",
+            // -laDemoParty widens the demo to a family: three companions plus
+            // an overflow, exercising the cluster's cap. Default: one friend
+            // with a seat — the common case.
+            companions: args.contains("-laDemoParty")
+                ? [.init(name: "Anna", seat: "14B", avatarFile: demoAvatar("A", 0xE0876A)),
+                   .init(name: "Peter", seat: "14C", avatarFile: demoAvatar("P", 0x6A9BE0)),
+                   .init(name: "Vicky", seat: "14D", avatarFile: demoAvatar("V", 0x7BC47F)),
+                   .init(name: "Mila", seat: "14E", avatarFile: nil)]
+                : [.init(name: "Anna", seat: "14B", avatarFile: demoAvatar("A", 0xE0876A))],
             departureGate: "B7", departureTerminal: "2",
             arrivalGate: nil, arrivalTerminal: "5", baggageClaim: nil,
             altitude: 10600, speed: 480, heading: 90, progress: 0.3)
@@ -206,6 +216,37 @@ enum DemoSeed {
             attributes: attrs,
             content: .init(state: state, staleDate: takeoffSoon ? state.departureTime : state.arrivalTime),
             pushType: nil)
+    }
+
+    /// Renders an initials avatar PNG into the App Group so the demo Live
+    /// Activity has real-looking companion faces (widgets load only staged
+    /// files). Returns the filename, or nil if the group container is absent.
+    private static func demoAvatar(_ letter: String, _ rgb: Int) -> String? {
+        guard let dir = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: "group.com.arc.flighttracker")?
+            .appendingPathComponent("la-avatars", isDirectory: true) else { return nil }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = "demo-\(letter).png"
+        let url = dir.appendingPathComponent(file)
+        if FileManager.default.fileExists(atPath: url.path) { return file }
+        let size = CGSize(width: 64, height: 64)
+        let color = UIColor(red: CGFloat((rgb >> 16) & 0xFF) / 255,
+                            green: CGFloat((rgb >> 8) & 0xFF) / 255,
+                            blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
+        let image = UIGraphicsImageRenderer(size: size).image { ctx in
+            color.setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 34, weight: .heavy),
+                .foregroundColor: UIColor.white,
+            ]
+            let text = NSAttributedString(string: letter, attributes: attrs)
+            let bounds = text.boundingRect(with: size, options: [], context: nil)
+            text.draw(at: CGPoint(x: (size.width - bounds.width) / 2,
+                                  y: (size.height - bounds.height) / 2))
+        }
+        try? image.pngData()?.write(to: url)
+        return file
     }
 
     /// `-seedTripInvite`: drops a fake "Peter added this trip for you

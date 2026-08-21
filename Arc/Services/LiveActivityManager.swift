@@ -9,7 +9,23 @@ final class LiveActivityManager {
 
     private var activeActivities: [String: Activity<FlightActivityAttributes>] = [:]
 
-    private func makeState(for flight: Flight, preservingInsight existing: String? = nil) async -> FlightActivityAttributes.ContentState {
+    /// Friends on this same flight (avatar staged, seat along), for the
+    /// header of the traveller's OWN activity. Never on a friend activity —
+    /// there the flight is the friend's, and they'd list themselves.
+    private func companionsState(for flight: Flight) async -> [FlightActivityAttributes.Companion]? {
+        let matches = FriendsStore.shared.companions(for: flight)
+        guard !matches.isEmpty else { return nil }
+        var out: [FlightActivityAttributes.Companion] = []
+        for match in matches.prefix(6) {
+            let file = await LiveActivityAvatarStore.ensureAvatar(
+                userId: match.user.id, urlString: match.user.avatar_url)
+            out.append(.init(name: match.user.display_name, seat: match.seat, avatarFile: file))
+        }
+        return out
+    }
+
+    private func makeState(for flight: Flight, preservingInsight existing: String? = nil,
+                           friendName: String? = nil) async -> FlightActivityAttributes.ContentState {
         // Use actual departure if available, otherwise adjust scheduled by delay
         let depTime: Date
         if let actual = flight.actualDeparture {
@@ -56,6 +72,7 @@ final class LiveActivityManager {
             // Local knock-on wins when it's live; otherwise keep a Worker
             // insight so a 60s local update doesn't wipe the smart line.
             insight: flight.liveActivityInsight ?? existing,
+            companions: friendName == nil ? await companionsState(for: flight) : nil,
             departureGate: flight.departureGate,
             departureTerminal: flight.departureTerminal,
             arrivalGate: flight.arrivalGate,
@@ -113,7 +130,7 @@ final class LiveActivityManager {
             dataTierRaw: flight.dataTier.rawValue
         )
 
-        let state = await makeState(for: flight)
+        let state = await makeState(for: flight, friendName: friendName)
         do {
             // pushType .token: ActivityKit hands us an APNs token for this
             // activity, LiveActivityPushSync registers it with the Worker, and
@@ -175,7 +192,8 @@ final class LiveActivityManager {
         }
         guard let activity = activeActivities[key] else { return }
 
-        let state = await makeState(for: flight, preservingInsight: activity.content.state.insight)
+        let state = await makeState(for: flight, preservingInsight: activity.content.state.insight,
+                                    friendName: friendName)
         let content = ActivityContent(state: state, staleDate: Self.staleDate(for: state))
         nonisolated(unsafe) let act = activity
         await act.update(content)

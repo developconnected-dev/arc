@@ -1,4 +1,5 @@
 import Foundation
+import ActivityKit
 import UserNotifications
 
 /// How much you care about one friend's flying, decided per friend and
@@ -170,7 +171,17 @@ enum FriendAlerts {
             let phase = FriendFlightMath.phase(f, at: now)
             let arrival = FriendFlightMath.arrival(f)
 
-            if !isLive || (phase == .landed && (arrival.map { now > $0.addingTimeInterval(45 * 60) } ?? true)) {
+            // On the SAME flight, the friend belongs on the traveller's own
+            // card (avatar + seat in the header) — a second full activity for
+            // one plane is noise, and the lock screen only shows two anyway.
+            let norm = f.flight_number.replacingOccurrences(of: " ", with: "").uppercased()
+            let onMyOwnFlight = Activity<FlightActivityAttributes>.activities.contains {
+                $0.attributes.friendName == nil &&
+                $0.attributes.flightNumber.replacingOccurrences(of: " ", with: "").uppercased() == norm &&
+                $0.attributes.departureIATA == f.departure_iata
+            }
+            if !isLive || onMyOwnFlight
+                || (phase == .landed && (arrival.map { now > $0.addingTimeInterval(45 * 60) } ?? true)) {
                 await LiveActivityManager.shared.endFriendActivity(
                     flightNumber: f.flight_number, departureIATA: f.departure_iata)
                 continue

@@ -70,14 +70,19 @@ struct FlightLiveActivity: Widget {
                                 }
                                 .padding(.top, 6)
                                 .padding(.trailing, 4)
-                            } else if let seat = context.attributes.seat, !seat.isEmpty {
-                                HStack(spacing: 3) {
-                                    Image(systemName: "carseat.right.fill")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(.secondary)
-                                    Text(seat)
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundStyle(.secondary)
+                            } else {
+                                HStack(spacing: 6) {
+                                    companionsCluster(context.state, size: 15)
+                                    if let seat = context.attributes.seat, !seat.isEmpty {
+                                        HStack(spacing: 3) {
+                                            Image(systemName: "carseat.right.fill")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(.secondary)
+                                            Text(seat)
+                                                .font(.system(size: 13, weight: .semibold))
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
                                 }
                                 .padding(.top, 6)
                                 .padding(.trailing, 4)
@@ -818,13 +823,18 @@ struct FlightLiveActivity: Widget {
                         .font(.system(size: 14, weight: .semibold))
                         .lineLimit(1)
                 }
-            } else if let seat = attrs.seat, !seat.isEmpty {
-                HStack(spacing: 3) {
-                    Image(systemName: "carseat.right.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                    Text(seat)
-                        .font(.system(size: 14, weight: .semibold))
+            } else {
+                HStack(spacing: 8) {
+                    companionsCluster(state)
+                    if let seat = attrs.seat, !seat.isEmpty {
+                        HStack(spacing: 3) {
+                            Image(systemName: "carseat.right.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                            Text(seat)
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                    }
                 }
             }
         }
@@ -869,8 +879,8 @@ struct FlightLiveActivity: Widget {
     /// images). Falls back to the generic person icon when no avatar file
     /// exists — older activities, push-to-start, or users without a photo.
     @ViewBuilder
-    private func friendAvatar(_ attrs: FlightActivityAttributes, size: CGFloat) -> some View {
-        if let file = attrs.friendAvatarFile,
+    private func avatarCircle(file: String?, size: CGFloat) -> some View {
+        if let file,
            let dir = FileManager.default.containerURL(
                forSecurityApplicationGroupIdentifier: "group.com.arc.flighttracker"),
            let image = UIImage(contentsOfFile: dir.appendingPathComponent("la-avatars/\(file)").path) {
@@ -879,6 +889,48 @@ struct FlightLiveActivity: Widget {
                 .scaledToFill()
                 .frame(width: size, height: size)
                 .clipShape(Circle())
+        } else {
+            ZStack {
+                Circle().fill(.tertiary.opacity(0.35))
+                Image(systemName: "person.fill")
+                    .font(.system(size: size * 0.55))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: size, height: size)
+        }
+    }
+
+    /// Friends on THIS flight, in the traveller's own header: overlapping
+    /// avatars capped at three, then "+N" — a family fits without eating the
+    /// row. With exactly one companion there's room for their seat too.
+    @ViewBuilder
+    private func companionsCluster(_ state: FlightActivityAttributes.ContentState,
+                                   size: CGFloat = 18) -> some View {
+        if let companions = state.companions, !companions.isEmpty {
+            HStack(spacing: 4) {
+                HStack(spacing: -size * 0.35) {
+                    ForEach(Array(companions.prefix(3).enumerated()), id: \.offset) { _, c in
+                        avatarCircle(file: c.avatarFile, size: size)
+                            .overlay(Circle().strokeBorder(.background.opacity(0.8), lineWidth: 1))
+                    }
+                }
+                if companions.count > 3 {
+                    Text("+\(companions.count - 3)")
+                        .font(.system(size: size * 0.62, weight: .bold))
+                        .foregroundStyle(.secondary)
+                } else if companions.count == 1, let seat = companions[0].seat, !seat.isEmpty {
+                    Text(seat)
+                        .font(.system(size: size * 0.72, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func friendAvatar(_ attrs: FlightActivityAttributes, size: CGFloat) -> some View {
+        if attrs.friendAvatarFile != nil {
+            avatarCircle(file: attrs.friendAvatarFile, size: size)
         } else {
             Image(systemName: "person.fill")
                 .font(.system(size: size * 0.6))
