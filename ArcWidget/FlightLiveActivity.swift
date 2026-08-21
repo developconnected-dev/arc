@@ -190,6 +190,9 @@ struct FlightLiveActivity: Widget {
                     // with the app dead and no internet, which matters because
                     // in-flight is exactly when there IS no internet.
                     if phase == .inFlight {
+                        // Pinned to compact-island size: the circular timer
+                        // style otherwise renders at its default intrinsic
+                        // size and the island grows a fat pill around it.
                         ZStack {
                             ProgressView(
                                 timerInterval: progressInterval(context.state),
@@ -203,6 +206,7 @@ struct FlightLiveActivity: Widget {
                                 .font(.system(size: 7, weight: .bold))
                                 .foregroundStyle(.green)
                         }
+                        .frame(width: 18, height: 18)
                     } else if phase == .landed {
                         Image(systemName: arrivalSymbol(context.attributes))
                             .font(.system(size: 11, weight: .semibold))
@@ -233,6 +237,9 @@ struct FlightLiveActivity: Widget {
                     if phase == .inFlight {
                         Text.minuteCountdown(to: context.state.arrivalTime)
                             .font(.system(size: 11, weight: .bold).monospacedDigit())
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .frame(maxWidth: 48, alignment: .trailing)
                     } else if phase == .landed {
                         if let belt = context.state.baggageClaim {
                             HStack(spacing: 2) {
@@ -259,6 +266,9 @@ struct FlightLiveActivity: Widget {
                     } else {
                         Text.minuteCountdown(to: context.state.departureTime)
                             .font(.system(size: 11, weight: .bold).monospacedDigit())
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .frame(maxWidth: 48, alignment: .trailing)
                     }
                 }
                 .widgetURL(ArcDeepLink.url(for: context.attributes))
