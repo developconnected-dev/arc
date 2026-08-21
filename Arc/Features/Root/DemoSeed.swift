@@ -156,7 +156,8 @@ enum DemoSeed {
     static func startDemoLiveActivityIfRequested() {
         let args = ProcessInfo.processInfo.arguments
         guard args.contains("-laDemo") || args.contains("-laDemoLanding") || args.contains("-laDemoTakeoff")
-                || args.contains("-laDemoPreflight") || args.contains("-laDemoLanded") else { return }
+                || args.contains("-laDemoPreflight") || args.contains("-laDemoLanded")
+                || args.contains("-laDemoAtAirport") else { return }
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         Task { @MainActor in
             // Relaunching the demo must replace the card, not stack another —
@@ -182,6 +183,28 @@ enum DemoSeed {
             flightNumber: "B6 416", departureIATA: "SFO", arrivalIATA: "JFK",
             departureCity: "San Francisco", arrivalCity: "New York",
             airline: "JetBlue", aircraftType: "Airbus A321", seat: "1A")
+        // -laDemoAtAirport: inside the Directions cutoff (T-55min), gate
+        // assigned, boarding in 20 — the "walk to your gate" face of the
+        // pre-departure card: boarding time + yellow gate badge, no pill.
+        if args.contains("-laDemoAtAirport") {
+            let state = FlightActivityAttributes.ContentState(
+                status: "scheduled",
+                departureTime: .now.addingTimeInterval(55 * 60),
+                arrivalTime: .now.addingTimeInterval((55 + 380) * 60),
+                boardingTime: .now.addingTimeInterval(20 * 60),
+                securityWaitMinutes: 12,
+                delayMinutes: 0, arrivalDelayMinutes: 0, insight: nil,
+                companions: [.init(name: "Anna", seat: "14B", avatarFile: demoAvatar("A", 0xE0876A))],
+                updatedAt: .now,
+                departureGate: "B7", departureTerminal: "2",
+                arrivalGate: nil, arrivalTerminal: "5", baggageClaim: nil,
+                altitude: nil, speed: nil, heading: nil, progress: 0)
+            _ = try? Activity.request(
+                attributes: attrs,
+                content: .init(state: state, staleDate: state.boardingTime),
+                pushType: nil)
+            return
+        }
         // -laDemoLanded: confirmed on the ground 8 minutes ago, belt assigned —
         // the terminal state of the card (green tick, ARRIVED, baggage belt).
         if args.contains("-laDemoLanded") {
