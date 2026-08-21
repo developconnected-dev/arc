@@ -175,7 +175,7 @@ final class FriendsStore {
                 if fNum == myNum {
                     if let dep = FriendFlightMath.departure(f),
                        abs(dep.timeIntervalSince(flight.scheduledDeparture)) < 18 * 3600 {
-                        matches.append((user: entry.user, seat: nil))
+                        matches.append((user: entry.user, seat: f.seat))
                         break
                     }
                 }

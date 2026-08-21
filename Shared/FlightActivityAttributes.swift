@@ -35,6 +35,18 @@ struct FlightActivityAttributes: ActivityAttributes {
     /// Only a live source may say "On Time" — same rule as the app.
     var reportsPunctuality: Bool { dataTier.reportsPunctuality }
 
+    /// A friend on the SAME flight, shown on the traveller's own activity —
+    /// avatar and seat in the header instead of a whole second card for one
+    /// plane. Lives in ContentState so a friend adding the flight mid-journey
+    /// appears on the next update.
+    struct Companion: Codable, Hashable {
+        var name: String
+        var seat: String? = nil
+        /// Pre-staged PNG in the App Group ("la-avatars/<file>") — widgets
+        /// can't load network images.
+        var avatarFile: String? = nil
+    }
+
     struct ContentState: Codable, Hashable {
         let status: String
         let departureTime: Date
@@ -51,6 +63,9 @@ struct FlightActivityAttributes: ActivityAttributes {
         /// server-side by the Worker's AI from structured signals. Optional
         /// on the wire; absent = the widget simply shows nothing extra.
         var insight: String? = nil
+        /// Friends on this same flight. Optional with a default so pushes
+        /// from an older Worker and stored states still decode.
+        var companions: [Companion]? = nil
         let departureGate: String?
         let departureTerminal: String?
         let arrivalGate: String?

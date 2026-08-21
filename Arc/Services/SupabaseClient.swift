@@ -357,6 +357,9 @@ final class ArcSupabase: ObservableObject {
         var vessel_name: String? = nil
         var operator_logo_url: String? = nil
         var disruption_note: String? = nil
+        /// The one booking detail that crosses (migration 015): a companion
+        /// on the same journey wants to know where you sit.
+        var seat: String? = nil
 
         /// What kind of journey this is. Absent means air, which is what every
         /// row written before trains existed actually was.
@@ -431,6 +434,7 @@ final class ArcSupabase: ObservableObject {
             "vessel_name": flight.vesselName as Any,
             "operator_logo_url": flight.operatorLogoURL as Any,
             "disruption_note": flight.disruptionNote as Any,
+            "seat": flight.seat as Any,
         ]
         let data = try await upsert(
             path: "/rest/v1/shared_flights?on_conflict=user_id,flight_number,scheduled_departure",
