@@ -1712,6 +1712,13 @@ struct AddFlightView: View {
         let mode = TripMode(rawValue: r.mode ?? "air") ?? .air
         f.mode = mode
         f.dataTier = DataTier(rawValue: r.data_tier ?? "live") ?? .live
+        // An airline leg that arrived as a TIMETABLE was inferred from a
+        // neighbouring day because the provider's far-future record is
+        // missing — keep asking daily until the real one is filed, exactly
+        // like a hand-typed flight.
+        if mode == .air, f.dataTier == .scheduled, departure > .now {
+            f.awaitingSchedule = true
+        }
         f.sharedWithIds = TripCompanions.audience(sharedWithIds: sharedWithIds, travellingWithIds: travellingWithIds)
         f.marketingFlightNumber = r.marketing_number
         f.airline = r.airline_name

@@ -105,6 +105,13 @@ enum ScheduleBackfill {
         // The lookup awaited the network — the flight may be gone by now.
         guard !flight.isDeleted, flight.modelContext != nil else { return }
 
+        // An inferred timetable (the Worker shifting a neighbouring day over a
+        // provider hole) is worth taking when the flight has only typed times,
+        // but it is not the airline's filing: keep looking, and don't announce
+        // "schedule confirmed" for it.
+        let isRealRecord = (leg.data_tier ?? "live") == "live"
+        if !isRealRecord && flight.dataTier != .manual { return }
+
         // The typed departure keys two things that must move WITH it: the
         // 2-hour reminder (else it fires 2 h before a time that no longer
         // exists) and the shared row's natural key (else friends keep a
@@ -131,7 +138,11 @@ enum ScheduleBackfill {
                 }
             }
         }
-        ArcNotifications.scheduleFound(flight)
+        if isRealRecord {
+            ArcNotifications.scheduleFound(flight)
+        } else {
+            flight.awaitingSchedule = true   // a timetable filled the gap; the filing is still awaited
+        }
         // Push the real times to friends now rather than waiting for this
         // flight to enter a polling tier, which could be weeks away.
         // The widget is refreshed by the tracker's own sync pass.

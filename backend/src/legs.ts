@@ -126,3 +126,64 @@ export function cachedRowFresh(row: Record<string, any> | null | undefined): boo
   return age < ttl;
 }
 
+
+/// Is this leg complete enough to be added as a flight — both endpoints and
+/// both scheduled times? AeroDataBox serves far-out records with a side
+/// hollowed out (see `repairLegForRoute`), and an empty `arr_iata` would
+/// become a flight to nowhere.
+export function isCompleteLeg(leg: Record<string, unknown>): boolean {
+  return !!String(leg["dep_iata"] ?? "") && !!String(leg["arr_iata"] ?? "")
+    && !!String(leg["dep_scheduled"] ?? "") && !!String(leg["arr_scheduled"] ?? "");
+}
+
+/// The same flight, moved to another day.
+///
+/// AeroDataBox's far-future schedule has holes: LH1751 answered in full for
+/// 11 Sep and 25 Sep and empty for 18 Sep — a daily rotation does not skip a
+/// Friday, the provider does. When the asked day is empty but the same
+/// number flies the same weekday a week either side, that neighbour IS the
+/// schedule, shifted by whole days. Everything live is stripped (status,
+/// actuals, delay, gates, tail) and the result is marked `data_tier:
+/// "scheduled"` — a timetable the app keeps re-checking until the real
+/// record returns, never a claim of punctuality.
+export function shiftLegToDay(
+  leg: Record<string, unknown>, fromDay: string, toDay: string,
+): Record<string, unknown> | null {
+  const delta = Date.parse(`${toDay}T00:00:00Z`) - Date.parse(`${fromDay}T00:00:00Z`);
+  if (!isFinite(delta) || !isCompleteLeg(leg)) return null;
+  const shift = (v: unknown): string => {
+    const ms = Date.parse(String(v ?? ""));
+    return isFinite(ms) ? new Date(ms + delta).toISOString() : "";
+  };
+  return {
+    ...leg,
+    dep_scheduled: shift(leg["dep_scheduled"]),
+    arr_scheduled: shift(leg["arr_scheduled"]),
+    dep_actual: null,
+    arr_actual: null,
+    status: "scheduled",
+    delay: 0,
+    dep_gate: null,
+    arr_gate: null,
+    arr_baggage: null,
+    aircraft_registration: null,
+    aircraft_icao24: null,
+    data_tier: "scheduled",
+    schedule_inferred_from: fromDay,
+  };
+}
+
+/// A hollow leg for the asked day (one endpoint or time missing) completed
+/// from the shifted neighbour: the day's own fields win wherever present.
+export function completeLeg(
+  hollow: Record<string, unknown>, template: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...template };
+  for (const [k, v] of Object.entries(hollow)) {
+    if (v !== null && v !== undefined && v !== "") out[k] = v;
+  }
+  // Completed from a neighbour ⇒ the record is partly timetable.
+  out["data_tier"] = "scheduled";
+  out["schedule_inferred_from"] = template["schedule_inferred_from"] ?? null;
+  return out;
+}
