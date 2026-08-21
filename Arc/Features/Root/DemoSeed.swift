@@ -192,7 +192,7 @@ enum DemoSeed {
                 departureTime: .now.addingTimeInterval(55 * 60),
                 arrivalTime: .now.addingTimeInterval((55 + 380) * 60),
                 boardingTime: .now.addingTimeInterval(20 * 60),
-                securityWaitMinutes: 12,
+                securityWaitMinutes: nil,
                 delayMinutes: 0, arrivalDelayMinutes: 0, insight: nil,
                 companions: [.init(name: "Anna", seat: "14B", avatarFile: demoAvatar("A", 0xE0876A))],
                 updatedAt: .now,
@@ -252,7 +252,9 @@ enum DemoSeed {
             boardingTime: nil, securityWaitMinutes: nil,
             delayMinutes: -10,   // photo parity: "10m Early"
             arrivalDelayMinutes: -10,
-            insight: "Making up time in the air — arrival trending early",
+            // An in-air insight before departure is nonsense — only the
+            // landing/in-flight demo carries it.
+            insight: takeoffSoon ? nil : "Making up time in the air — arrival trending early",
             // -laDemoParty widens the demo to a family: three companions plus
             // an overflow, exercising the cluster's cap. Default: one friend
             // with a seat — the common case.

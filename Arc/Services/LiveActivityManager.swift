@@ -35,24 +35,16 @@ final class LiveActivityManager {
         } else {
             depTime = flight.scheduledDeparture
         }
-        // Boarding windows and security queues are airport concepts. A rail
-        // leg's "BER" is Berlin Hbf, not Berlin Brandenburg — asking the
-        // airport tables about it returns another vehicle's answer.
+        // Boarding windows are airport concepts. A rail leg's "BER" is
+        // Berlin Hbf, not Berlin Brandenburg — asking the airport tables
+        // about it returns another vehicle's answer. (The security-wait
+        // fetch that lived here is gone with its row: it spent an API call
+        // per update on a number nobody acts on from the lock screen.)
         var boardingTime: Date? = nil
-        var securityWait: Int? = nil
         if flight.mode.hasAirportOperations {
-            let boardingMinutes = Self.estimateBoardingMinutes(airline: flight.airlineICAO, duration: flight.duration)
-            boardingTime = depTime.addingTimeInterval(-Double(boardingMinutes) * 60)
-
-            // Fetch security wait time while the user could still be landside.
-            // ("delayed" was checked here before, but that string never occurs —
-            // the Worker normalizes it to "scheduled". boarding/gateClosed are
-            // real statuses where the wait is no longer actionable, so skip them.)
-            if flight.statusRaw == "scheduled" {
-                securityWait = try? await FlightAPIClient.shared.securityWaitTime(iata: flight.departureIATA)?.securityMinutes
-            }
+            let minutes = Self.estimateBoardingMinutes(airline: flight.airlineICAO, duration: flight.duration)
+            boardingTime = depTime.addingTimeInterval(TimeInterval(-minutes * 60))
         }
-
         // Delay shifts the arrival too, matching depTime above — the
         // lock screen otherwise counts down to an arrival that passed.
         let arrTime = flight.estimatedArrival
@@ -63,7 +55,7 @@ final class LiveActivityManager {
             departureTime: depTime,
             arrivalTime: arrTime,
             boardingTime: boardingTime,
-            securityWaitMinutes: securityWait,
+            securityWaitMinutes: nil,
             delayMinutes: flight.delayMinutes,
             // Arrival delay is its own number: the provider revises arrival
             // independently (estimatedArrival), so a 20m late departure can
