@@ -400,10 +400,7 @@ struct FlightLiveActivity: Widget {
                     .foregroundStyle(departureStatusColor(state, attrs))
                     .contentTransition(.numericText())
                 Spacer()
-                Text(arrivalStatusText(state, attrs))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(arrivalStatusColor(state, attrs))
-                    .contentTransition(.numericText())
+                arrivalStatusView(state, attrs)
             }
             .padding(.top, 3)
             .padding(.bottom, 14)
@@ -630,30 +627,27 @@ struct FlightLiveActivity: Widget {
                     .foregroundStyle(departureStatusColor(state, attrs))
                     .contentTransition(.numericText())
                 Spacer()
-                Text(arrivalStatusText(state, attrs))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(arrivalStatusColor(state, attrs))
-                    .contentTransition(.numericText())
+                // Pre-landing, this number IS the prediction — it wears the
+                // intelligence voice (sparkle + shimmer) instead of a whole
+                // sentence-long insight row, and turns plain once confirmed.
+                arrivalStatusView(state, attrs)
             }
             .padding(.top, 3)
-            .padding(.bottom, 10)
-
-            insightLine(state)
-                .padding(.bottom, 6)
+            .padding(.bottom, 12)
 
             // Flighty's glowing flight-path line, filling left→right with
             // progress — self-animating even offline (see FlightPathProgress).
             FlightPathProgress(state: state)
                 .frame(height: 24)
-                .padding(.bottom, 2)
 
             arrivalCountdown(attrs: attrs, state)
         }
-        // Same edge treatment as pre-departure: 17pt vertical air, bought by
-        // trimming the flight path's height rather than the outer margins.
+        // The header needed air above it and UNTIL GATE ARRIVAL air below —
+        // bought by retiring the in-flight insight row (its content moved
+        // into the arrival delta) and closing the arc→countdown gap.
         .padding(.horizontal, 20)
-        .padding(.top, 16)
-        .padding(.bottom, 16)
+        .padding(.top, 20)
+        .padding(.bottom, 20)
     }
 
     /// Big centered "1 hr, 20 min / UNTIL GATE ARRIVAL". `.relative` text is
@@ -955,6 +949,29 @@ struct FlightLiveActivity: Widget {
     /// (delay trend, knock-on expectation). Sparkle wears the intelligence
     /// gradient; the text stays quiet secondary — the insight should read as
     /// understanding, not decoration.
+    @ViewBuilder
+    private func arrivalStatusView(_ state: FlightActivityAttributes.ContentState,
+                                   _ attrs: FlightActivityAttributes) -> some View {
+        let d = arrivalDelay(state)
+        if attrs.reportsPunctuality, d != 0, !isConfirmedLanded(state) {
+            let from = state.updatedAt ?? state.departureTime
+            HStack(spacing: 3) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(IntelligenceShimmerText.gradient)
+                IntelligenceShimmerText(
+                    text: arrivalStatusText(state, attrs),
+                    font: .system(size: 12, weight: .semibold),
+                    sweep: from...from.addingTimeInterval(5))
+            }
+        } else {
+            Text(arrivalStatusText(state, attrs))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(arrivalStatusColor(state, attrs))
+                .contentTransition(.numericText())
+        }
+    }
+
     @ViewBuilder
     private func insightLine(_ state: FlightActivityAttributes.ContentState) -> some View {
         if let insight = state.insight, !insight.isEmpty {
