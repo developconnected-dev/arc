@@ -481,7 +481,14 @@ struct FlightLiveActivity: Widget {
             // widget has no airport database.
             // Friend mode: never — directions to an airport the VIEWER isn't
             // flying from are noise (and cost a row against the height cap).
-            if attrs.mode.hasAirportOperations, attrs.friendName == nil, showsDirections(state), let url = directionsURL(attrs: attrs, state: state) {
+            // ONE contextual middle row — the height cap is hard, and the
+            // pill stacked on the boarding row clipped the card at both
+            // edges. While Directions is the useful action (T-105min+), it
+            // IS the row; boarding/insight/security take over when it
+            // retires, which is exactly when they become the useful thing.
+            let showsPill = attrs.mode.hasAirportOperations && attrs.friendName == nil
+                && showsDirections(state) && directionsURL(attrs: attrs, state: state) != nil
+            if showsPill, let url = directionsURL(attrs: attrs, state: state) {
                 Link(destination: url) {
                     HStack(spacing: 6) {
                         Image(systemName: "car.fill")
@@ -494,7 +501,7 @@ struct FlightLiveActivity: Widget {
                             .opacity(0.6)
                     }
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
+                    .padding(.vertical, 8)
                     .background(.blue.opacity(0.16), in: Capsule())
                     .foregroundStyle(.blue)
                 }
@@ -502,16 +509,17 @@ struct FlightLiveActivity: Widget {
             }
 
             // The smart line, when the Worker pushed one. It takes priority
-            // over the security-wait row below (one contextual row, not two —
-            // pre-departure is the tallest layout and the height cap is hard).
-            insightLine(state)
-                .padding(.bottom, 8)
+            // over the security-wait row below (same one-row rule).
+            if !showsPill {
+                insightLine(state)
+                    .padding(.bottom, 8)
+            }
 
             // Security wait (Waitport live data or time-of-day estimate) —
             // only meaningful while still landside, i.e. before boarding, and
             // only for the traveler themself: the security queue at the
             // FRIEND's airport is their problem, not the viewer's.
-            if attrs.friendName == nil,
+            if !showsPill, attrs.friendName == nil,
                (state.insight ?? "").isEmpty,
                let wait = state.securityWaitMinutes, wait > 0,
                state.status != "boarding", state.status != "gateClosed" {
@@ -528,7 +536,7 @@ struct FlightLiveActivity: Widget {
             }
 
             // Row 4: Boarding status + gate badge
-            if state.status == "boarding" {
+            if !showsPill, state.status == "boarding" {
                 // Real boarding status from API
                 HStack {
                     HStack(spacing: 5) {
@@ -543,7 +551,7 @@ struct FlightLiveActivity: Widget {
                     gateBadge(state.departureGate)
                 }
                 .padding(.bottom, 8)
-            } else if state.status == "gateClosed" {
+            } else if !showsPill, state.status == "gateClosed" {
                 // Gate closed from API
                 HStack {
                     HStack(spacing: 5) {
@@ -558,7 +566,7 @@ struct FlightLiveActivity: Widget {
                     gateBadge(state.departureGate)
                 }
                 .padding(.bottom, 8)
-            } else if let boardTime = state.boardingTime, Date.now < boardTime {
+            } else if !showsPill, let boardTime = state.boardingTime, Date.now < boardTime {
                 // Estimated boarding time (no API data)
                 HStack {
                     HStack(spacing: 5) {
@@ -596,8 +604,9 @@ struct FlightLiveActivity: Widget {
                     }
                 }
                 Spacer()
-                if state.status != "boarding", state.status != "gateClosed",
-                   state.boardingTime == nil || Date.now >= (state.boardingTime ?? .distantFuture) {
+                if showsPill
+                    || (state.status != "boarding" && state.status != "gateClosed"
+                        && (state.boardingTime == nil || Date.now >= (state.boardingTime ?? .distantFuture))) {
                     gateBadge(state.departureGate)
                 }
             }
