@@ -99,7 +99,11 @@ final class FlightTracker: ObservableObject {
                     } else if hoursUntilDep <= 24 {
                         pollInterval = 30 * 60      // Within 24 hours: every 30 min
                     } else {
-                        continue                    // More than 24h out: skip entirely
+                        // Further out: once a day. Schedule changes land weeks
+                        // ahead, and a trip reading "Updated 11d ago" isn't
+                        // being tracked in any sense the user recognises. The
+                        // Worker's far-future cache makes this ~free.
+                        pollInterval = 24 * 3600
                     }
 
                     // A timetable has nothing to say minute by minute. Where the
@@ -577,7 +581,12 @@ final class FlightTracker: ObservableObject {
         // knows less than it did — the tier travels with the answer, not with
         // whatever it was when the trip was added.
         if let tier = r.data_tier, let parsed = DataTier(rawValue: tier) {
-            flight.dataTier = parsed
+            // A weekly-inferred timetable leg (the provider has a hole for
+            // this date right now) must not demote a flight that already had
+            // a live record — that would flap "On Time" off and on.
+            if !(flight.dataTier == .live && parsed == .scheduled && flight.mode == .air) {
+                flight.dataTier = parsed
+            }
         }
         // A re-platformed train reuses the gate-change machinery built for
         // flights, so the "platform changed" alert lights up for free.

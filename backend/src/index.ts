@@ -1,5 +1,5 @@
 import { apnsConfigured, sendLiveActivityPush } from "./apns";
-import { toISO, repairLegForRoute, cachedRowFresh } from "./legs";
+import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, shiftLegToDay, completeLeg } from "./legs";
 import { predictGate, type GateObservation } from "./gates";
 import { verifiedRoute } from "./place";
 import { handleTransit } from "./routes-transit";
@@ -278,6 +278,46 @@ async function airlabsRouteSchedules(
 /// (This replaces an AirLabs lookup that could never have worked: its
 /// /schedules endpoint reaches ~10 hours ahead, and cs_flight_iata is a
 /// response field, not a query parameter.)
+/// The legs for `number` on `day` — and when the provider's far-future
+/// record is missing or hollow, the same flight a week either side shifted
+/// onto the day (see `shiftLegToDay`). Only for days at least two days out:
+/// inside that window the live record is the truth, holes included.
+/// The neighbour lookups ride the normal 72h far-future cache, so a week of
+/// re-asks costs one provider call.
+async function legsWithWeeklyFallback(
+  env: Env, number: string, day: string, source: "cron" | "interactive"
+): Promise<{ legs: Record<string, unknown>[] | null; cache: string }> {
+  const direct = await fetchLegsCached(env, "flight", number, day, source);
+  const own = (direct.legs ?? []) as Record<string, unknown>[];
+  const complete = own.filter(isCompleteLeg);
+  if (complete.length > 0) return { legs: complete, cache: direct.cache };
+
+  const dayMs = Date.parse(`${day}T00:00:00Z`);
+  if (!isFinite(dayMs) || dayMs - Date.now() < 2 * 86_400_000) return direct;
+
+  const todayMs = Date.parse(new Date().toISOString().slice(0, 10) + "T00:00:00Z");
+  // Same weekday only (±7, ±14): a daily rotation also flies ±1, but a
+  // Tue/Thu/Sat service doesn't, and a wrong day is worse than none.
+  for (const offsetDays of [-7, 7, -14, 14]) {
+    const nMs = dayMs + offsetDays * 86_400_000;
+    if (nMs < todayMs) continue;
+    const nDay = new Date(nMs).toISOString().slice(0, 10);
+    const n = await fetchLegsCached(env, "flight", number, nDay, source);
+    const templates = ((n.legs ?? []) as Record<string, unknown>[])
+      .filter(isCompleteLeg)
+      .map(l => shiftLegToDay(l, nDay, day))
+      .filter((l): l is Record<string, unknown> => l !== null);
+    if (templates.length === 0) continue;
+    // The day's own hollow record keeps whatever it did say (its own time,
+    // a gate); the neighbour fills the rest.
+    const legs = own.length > 0
+      ? own.map(h => completeLeg(h, templates[0]!))
+      : templates;
+    return { legs, cache: "inferred" };
+  }
+  return direct;
+}
+
 async function resolveMarketingNumber(
   env: Env, number: string
 ): Promise<{ operating: string; dep: string; arr: string; depTimeUTC: string } | null> {
@@ -904,7 +944,7 @@ export default {
       // 1. Shared cache → AeroDataBox (budget-guarded). One answer serves
       // every family device, the cron, and share pages for its TTL.
       const day = date ?? new Date().toISOString().slice(0, 10);
-      const { legs: cachedLegs, cache } = await fetchLegsCached(env, "flight", number, day, "interactive");
+      const { legs: cachedLegs, cache } = await legsWithWeeklyFallback(env, number, day, "interactive");
       if (cachedLegs && cachedLegs.length > 0) {
         return Response.json(cachedLegs, { headers: { ...cors, "x-arc-cache": cache } });
       }
@@ -953,7 +993,7 @@ export default {
       if (date && Date.parse(`${date}T00:00:00Z`) > Date.now()) {
         const resolved = await resolveMarketingNumber(env, number);
         if (resolved) {
-          const { legs } = await fetchLegsCached(env, "flight", resolved.operating, day, "interactive");
+          const { legs } = await legsWithWeeklyFallback(env, resolved.operating, day, "interactive");
           const marketing = number.replace(/\s+/g, "").toUpperCase();
           const onRoute = (legs ?? [])
             .map(l => repairLegForRoute({ ...l, marketing_number: marketing },

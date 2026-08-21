@@ -103,3 +103,47 @@ test("a missing or payload-less row is never fresh", () => {
   assert.equal(cachedRowFresh(undefined), false);
   assert.equal(cachedRowFresh({ fetched_at: ago(0) }), false);
 });
+
+import { shiftLegToDay, completeLeg, isCompleteLeg } from "../src/legs.ts";
+
+// ── weekly schedule inference ──
+const sep11 = {
+  flight_number: "LH1751", dep_iata: "ATH", arr_iata: "MUC",
+  dep_scheduled: "2026-09-11T09:45:00.000Z", arr_scheduled: "2026-09-11T12:30:00.000Z",
+  status: "scheduled", delay: 0, dep_gate: "B7", aircraft_registration: "D-AIEA",
+  aircraft_icao24: "3C6F00", dep_actual: null, arr_actual: null,
+};
+
+test("weekly: shifts a neighbour's leg by whole days and strips everything live", () => {
+  const out = shiftLegToDay(sep11, "2026-09-11", "2026-09-18")!;
+  assert.equal(out.dep_scheduled, "2026-09-18T09:45:00.000Z");
+  assert.equal(out.arr_scheduled, "2026-09-18T12:30:00.000Z");
+  assert.equal(out.dep_iata, "ATH"); assert.equal(out.arr_iata, "MUC");
+  assert.equal(out.data_tier, "scheduled");
+  assert.equal(out.status, "scheduled");
+  assert.equal(out.dep_gate, null);
+  assert.equal(out.aircraft_registration, null);
+  assert.equal(out.schedule_inferred_from, "2026-09-11");
+});
+
+test("weekly: shifts backwards too", () => {
+  const out = shiftLegToDay(sep11, "2026-09-11", "2026-09-04")!;
+  assert.equal(out.dep_scheduled, "2026-09-04T09:45:00.000Z");
+});
+
+test("weekly: refuses a hollow template", () => {
+  assert.equal(shiftLegToDay({ ...sep11, arr_iata: "" }, "2026-09-11", "2026-09-18"), null);
+  assert.equal(isCompleteLeg({ ...sep11, arr_scheduled: "" }), false);
+});
+
+test("weekly: completes a hollow day from the shifted neighbour, the day's own fields winning", () => {
+  const template = shiftLegToDay(sep11, "2026-09-11", "2026-09-17")!;
+  const hollow = { flight_number: "LH1751", dep_iata: "ATH", arr_iata: "",
+                   dep_scheduled: "2026-09-17T09:50:00.000Z", arr_scheduled: "", dep_gate: "A12" };
+  const out = completeLeg(hollow, template);
+  assert.equal(out.arr_iata, "MUC");
+  assert.equal(out.arr_scheduled, "2026-09-17T12:30:00.000Z");
+  assert.equal(out.dep_scheduled, "2026-09-17T09:50:00.000Z");
+  assert.equal(out.dep_gate, "A12");
+  assert.equal(out.data_tier, "scheduled");
+});
