@@ -158,6 +158,18 @@ enum DemoSeed {
         guard args.contains("-laDemo") || args.contains("-laDemoLanding") || args.contains("-laDemoTakeoff")
                 || args.contains("-laDemoPreflight") else { return }
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        Task { @MainActor in
+            // Relaunching the demo must replace the card, not stack another —
+            // and the end must complete BEFORE the new request.
+            for activity in Activity<FlightActivityAttributes>.activities {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
+            requestDemoActivity(args: args)
+        }
+    }
+
+    @MainActor
+    private static func requestDemoActivity(args: [String]) {
         // -laDemoLanding: lands in ~1 min — verifies the offline in-flight →
         // landed flip (and that nothing counts UP afterwards) within minutes.
         // -laDemoTakeoff: boarding, departs in ~1 min — verifies the offline

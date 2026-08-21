@@ -73,6 +73,7 @@ final class LiveActivityManager {
             // insight so a 60s local update doesn't wipe the smart line.
             insight: flight.liveActivityInsight ?? existing,
             companions: friendName == nil ? await companionsState(for: flight) : nil,
+            updatedAt: .now,
             departureGate: flight.departureGate,
             departureTerminal: flight.departureTerminal,
             arrivalGate: flight.arrivalGate,
@@ -210,6 +211,34 @@ final class LiveActivityManager {
               activity.attributes.friendName != nil {
             nonisolated(unsafe) let act = activity
             await act.end(nil, dismissalPolicy: .default)
+        }
+    }
+
+    /// Ends every extra activity that shows the same flight (same number +
+    /// departure + own/friend kind). Duplicates could accumulate through the
+    /// old adoption bug or a relaunch race; the lock screen must never stack
+    /// two cards for one plane. Called once per app start.
+    func reapDuplicateActivities() async {
+        var keep: [String: String] = [:]   // identity -> activity id
+        let tracked = Set(activeActivities.values.map(\.id))
+        for activity in Activity<FlightActivityAttributes>.activities {
+            let a = activity.attributes
+            let identity = "\(a.friendName == nil)|\(a.flightNumber.replacingOccurrences(of: " ", with: "").uppercased())|\(a.departureIATA)"
+            if let kept = keep[identity] {
+                nonisolated(unsafe) let act = activity
+                // Prefer the one the manager drives; end the other.
+                if tracked.contains(activity.id) && !tracked.contains(kept) {
+                    if let loser = Activity<FlightActivityAttributes>.activities.first(where: { $0.id == kept }) {
+                        nonisolated(unsafe) let l = loser
+                        await l.end(nil, dismissalPolicy: .immediate)
+                    }
+                    keep[identity] = activity.id
+                } else {
+                    await act.end(nil, dismissalPolicy: .immediate)
+                }
+            } else {
+                keep[identity] = activity.id
+            }
         }
     }
 
