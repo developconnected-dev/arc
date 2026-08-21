@@ -447,8 +447,11 @@ struct FlightLiveActivity: Widget {
             // Row 2: SFO 10:26AM · · ✈ · · 16:45PM JFK
             routeRow(attrs: attrs, state: state)
 
-            // Row 3: ↗ T3 · On Time          On Time
-            HStack {
+            // Row 3: departure facts left, state chips right — the arrival
+            // side said "On Time" twice before the plane even moved, and
+            // boarding lived in its own extra row. One row now: terminal +
+            // punctuality, then a boarding chip and the yellow gate badge.
+            HStack(spacing: 6) {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.up.right")
                         .font(.system(size: 9, weight: .bold))
@@ -463,15 +466,14 @@ struct FlightLiveActivity: Widget {
                     Text(departureStatusText(state, attrs))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(departureStatusColor(state, attrs))
+                        .lineLimit(1)
                 }
-                Spacer()
-                Text(arrivalStatusText(state, attrs))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(arrivalStatusColor(state, attrs))
-                    .contentTransition(.numericText())
+                Spacer(minLength: 6)
+                boardingChip(state)
+                gateBadge(state.departureGate)
             }
-            .padding(.top, 3)
-            .padding(.bottom, 10)
+            .padding(.top, 4)
+            .padding(.bottom, 12)
 
             // Long before boarding, the useful action is getting TO the
             // airport: one tap into Apple Maps with the terminal set. The
@@ -508,77 +510,12 @@ struct FlightLiveActivity: Widget {
                 .padding(.bottom, 8)
             }
 
-            // The smart line, when the Worker pushed one. It takes priority
-            // over the security-wait row below (same one-row rule).
+            // The smart line, when Arc has one (knock-on prediction, pushed
+            // insight) — boarding state lives in the chip row now, so this is
+            // the only remaining middle row and only when it has something.
             if !showsPill {
                 insightLine(state)
                     .padding(.bottom, 8)
-            }
-
-            // Security wait (Waitport live data or time-of-day estimate) —
-            // only meaningful while still landside, i.e. before boarding, and
-            // only for the traveler themself: the security queue at the
-            // FRIEND's airport is their problem, not the viewer's.
-            if !showsPill, attrs.friendName == nil,
-               (state.insight ?? "").isEmpty,
-               let wait = state.securityWaitMinutes, wait > 0,
-               state.status != "boarding", state.status != "gateClosed" {
-                HStack(spacing: 5) {
-                    Image(systemName: "figure.walk.motion")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                    Text("Security wait ~\(wait) min")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.bottom, 8)
-            }
-
-            // Row 4: Boarding status + gate badge
-            if !showsPill, state.status == "boarding" {
-                // Real boarding status from API
-                HStack {
-                    HStack(spacing: 5) {
-                        Image(systemName: "door.left.hand.open")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.green)
-                        Text("Now Boarding")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.green)
-                    }
-                    Spacer()
-                    gateBadge(state.departureGate)
-                }
-                .padding(.bottom, 8)
-            } else if !showsPill, state.status == "gateClosed" {
-                // Gate closed from API
-                HStack {
-                    HStack(spacing: 5) {
-                        Image(systemName: "door.left.hand.closed")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.red)
-                        Text("Gate Closed")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.red)
-                    }
-                    Spacer()
-                    gateBadge(state.departureGate)
-                }
-                .padding(.bottom, 8)
-            } else if !showsPill, let boardTime = state.boardingTime, Date.now < boardTime {
-                // Estimated boarding time (no API data)
-                HStack {
-                    HStack(spacing: 5) {
-                        Image(systemName: "door.left.hand.open")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                        Text("\(Text("Boarding ").font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary))\(Text(boardTime, style: .time).font(.system(size: 13, weight: .semibold)).foregroundStyle(.primary))")
-                    }
-                    Spacer()
-                    gateBadge(state.departureGate)
-                }
-                .padding(.bottom, 8)
             }
 
             // Departs Gate countdown + gate badge. The badge shows here ONLY
@@ -604,11 +541,6 @@ struct FlightLiveActivity: Widget {
                     }
                 }
                 Spacer()
-                if showsPill
-                    || (state.status != "boarding" && state.status != "gateClosed"
-                        && (state.boardingTime == nil || Date.now >= (state.boardingTime ?? .distantFuture))) {
-                    gateBadge(state.departureGate)
-                }
             }
         }
         // 17pt vertical: enough air that the card doesn't read as squeezed,
@@ -1000,6 +932,41 @@ struct FlightLiveActivity: Widget {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    /// Boarding state as a chip, not a sentence: NOW BOARDING (green) /
+    /// GATE CLOSED (red) while the airline reports one, else the estimated
+    /// boarding time behind a door glyph — same capsule grammar as the
+    /// landed card's LANDED chip.
+    @ViewBuilder
+    private func boardingChip(_ state: FlightActivityAttributes.ContentState) -> some View {
+        if state.status == "boarding" {
+            Text("NOW BOARDING")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.green)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(.green.opacity(0.12), in: Capsule())
+        } else if state.status == "gateClosed" {
+            Text("GATE CLOSED")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.red)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(.red.opacity(0.12), in: Capsule())
+        } else if let boardTime = state.boardingTime, Date.now < boardTime {
+            HStack(spacing: 4) {
+                Image(systemName: "door.left.hand.open")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text(boardTime, style: .time)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.primary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color(.secondarySystemFill).opacity(0.6), in: Capsule())
         }
     }
 
