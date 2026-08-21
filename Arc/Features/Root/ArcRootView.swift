@@ -189,6 +189,9 @@ struct ArcRootView: View {
             DemoSeed.seedIfRequested(into: modelContext, existing: allFlights)
             DemoSeed.seedStuckFlightIfRequested(into: modelContext, existing: allFlights)
             DemoSeed.startDemoLiveActivityIfRequested()
+            // One card per flight: sweep up any duplicates left by an older
+            // build or a relaunch race, once per app start.
+            Task { await LiveActivityManager.shared.reapDuplicateActivities() }
             DemoSeed.seedTripInviteIfRequested()
             refitMapForCurrentData()
             openDetailIfPending()

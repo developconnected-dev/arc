@@ -66,6 +66,9 @@ struct FlightActivityAttributes: ActivityAttributes {
         /// Friends on this same flight. Optional with a default so pushes
         /// from an older Worker and stored states still decode.
         var companions: [Companion]? = nil
+        /// When this state was built — the insight shimmer's sweep replays
+        /// from here on every update. Optional for older stored states.
+        var updatedAt: Date? = nil
         let departureGate: String?
         let departureTerminal: String?
         let arrivalGate: String?

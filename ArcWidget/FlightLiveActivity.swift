@@ -380,7 +380,7 @@ struct FlightLiveActivity: Widget {
     private func departingView(attrs: FlightActivityAttributes, state: FlightActivityAttributes.ContentState) -> some View {
         VStack(spacing: 0) {
             headerRow(attrs: attrs, state: state)
-                .padding(.bottom, 10)
+                .padding(.bottom, 12)
 
             routeRow(attrs: attrs, state: state)
 
@@ -424,7 +424,8 @@ struct FlightLiveActivity: Widget {
             }
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 17)
+        .padding(.top, 16)
+        .padding(.bottom, 16)
     }
 
     // ── PRE-DEPARTURE ──
@@ -434,7 +435,7 @@ struct FlightLiveActivity: Widget {
         VStack(spacing: 0) {
             // Row 1: Flight number + seat
             headerRow(attrs: attrs, state: state)
-                .padding(.bottom, 10)
+                .padding(.bottom, 12)
 
             // Row 2: SFO 10:26AM · · ✈ · · 16:45PM JFK
             routeRow(attrs: attrs, state: state)
@@ -599,7 +600,8 @@ struct FlightLiveActivity: Widget {
         // over just gets CLIPPED) — the row paddings above are trimmed to
         // buy the edges this room.
         .padding(.horizontal, 20)
-        .padding(.vertical, 17)
+        .padding(.top, 16)
+        .padding(.bottom, 16)
     }
 
     // ── IN FLIGHT ──
@@ -608,7 +610,7 @@ struct FlightLiveActivity: Widget {
     private func inFlightView(attrs: FlightActivityAttributes, state: FlightActivityAttributes.ContentState) -> some View {
         VStack(spacing: 0) {
             headerRow(attrs: attrs, state: state)
-                .padding(.bottom, 8)
+                .padding(.bottom, 12)
 
             routeRow(attrs: attrs, state: state)
 
@@ -640,7 +642,8 @@ struct FlightLiveActivity: Widget {
         // Same edge treatment as pre-departure: 17pt vertical air, bought by
         // trimming the flight path's height rather than the outer margins.
         .padding(.horizontal, 20)
-        .padding(.vertical, 17)
+        .padding(.top, 16)
+        .padding(.bottom, 16)
     }
 
     /// Big centered "1 hr, 20 min / UNTIL GATE ARRIVAL". `.relative` text is
@@ -945,16 +948,21 @@ struct FlightLiveActivity: Widget {
     @ViewBuilder
     private func insightLine(_ state: FlightActivityAttributes.ContentState) -> some View {
         if let insight = state.insight, !insight.isEmpty {
+            // The sweep window starts at the state's own timestamp: every
+            // update replays it (~once a minute while the app feeds updates,
+            // and the moment a prediction appears or changes), then it rests
+            // as the full gradient — the same grammar as the app's SmartLabel.
+            let from = state.updatedAt ?? state.departureTime
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Image(systemName: "sparkles")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(IntelligenceShimmerText.gradient)
-                Text(insight)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(.secondary)
+                IntelligenceShimmerText(
+                    text: insight,
+                    font: .system(size: 11.5, weight: .medium),
+                    sweep: from...from.addingTimeInterval(5))
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
-                    .contentTransition(.numericText())
             }
         }
     }
