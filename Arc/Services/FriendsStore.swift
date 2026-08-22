@@ -464,6 +464,11 @@ final class FriendsStore {
         flight.scheduledDeparture = scheduledDep
         flight.scheduledArrival = scheduledArr
         flight.estimatedArrival = DateHelpers.parseAPIDate(f.estimated_arrival)
+        // A reported take-off/landing is the difference between "Departed
+        // 15m ago" and "15m past schedule" — the reader must hedge exactly
+        // where the friend's own device hedges.
+        flight.actualDeparture = DateHelpers.parseAPIDate(f.actual_departure)
+        flight.actualArrival = DateHelpers.parseAPIDate(f.actual_arrival)
         flight.statusRaw = FlightStatus.heal(rawValue: f.status, scheduledArrival: scheduledArr).rawValue
         flight.delayMinutes = f.delay_minutes
         flight.departureGate = f.departure_gate
@@ -471,6 +476,24 @@ final class FriendsStore {
         flight.baggageClaim = f.baggage_claim
         flight.liveLat = f.live_lat
         flight.liveLon = f.live_lon
+        // The row IS this flight's last refresh — it was written by the
+        // friend's device at `updated_at`. Without carrying that across, the
+        // detail screen said "Schedule • No live data yet" about a row
+        // mirrored a minute ago, on every friend flight, forever.
+        flight.lastStatusUpdate = DateHelpers.parseAPIDate(f.updated_at)
+        if f.live_lat != nil || f.live_lon != nil {
+            flight.liveUpdatedAt = DateHelpers.parseAPIDate(f.updated_at)
+        }
+        // Same clock-healing the feed chip and map bubble already apply
+        // (`FriendFlightMath.isAirborne`): the row carries the SOURCE's
+        // status, which lags the clock, and the detail screen must not
+        // contradict the chip that opened it ("LANDS IN 1H" over a sheet
+        // saying "Departure not yet confirmed"). actualDeparture stays nil,
+        // so the detail hedges ("Departing", "past schedule") exactly like
+        // the friend's own device until a real departure is reported.
+        if flight.isUpcoming, FriendFlightMath.isAirborne(f) {
+            flight.statusRaw = FlightStatus.active.rawValue
+        }
         return flight
     }
 
