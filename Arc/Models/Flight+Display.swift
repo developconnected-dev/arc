@@ -131,6 +131,21 @@ extension Flight {
         isUpcoming && effectiveDeparture.addingTimeInterval(60) < .now
     }
 
+    /// Active by the clock alone: past the (delayed) departure, but no source
+    /// has confirmed a take-off yet. The 20-minute window matches the Live
+    /// Activity's departing grace — inside it EVERY surface must hedge
+    /// ("Departing", "Xm past schedule") rather than assert a departure
+    /// nobody reported; past it the app commits to the flight being underway.
+    /// One property so the banner, the endpoint row and the tracking line
+    /// can't drift apart — the detail screen used to say "Departing" and
+    /// "Departed 15m ago" at once.
+    var isDepartingUnconfirmed: Bool {
+        guard isActive, actualDeparture == nil else { return false }
+        let now = Date.now
+        return now >= effectiveDeparture
+            && now < effectiveDeparture.addingTimeInterval(20 * 60)
+    }
+
     var isDelayed: Bool { (reportsPunctuality && delayMinutes > 0) || status == .cancelled }
 
     /// True for 30 minutes after landing — kept visible in My Flights during
@@ -191,8 +206,7 @@ extension Flight {
             // Flipped to active by the clock, not by the source: for the first
             // 20 minutes say "Departing" — the same grace the Live Activity
             // gives an unconfirmed take-off — rather than "In Air" on faith.
-            if actualDeparture == nil, Date.now >= effectiveDeparture,
-               Date.now < effectiveDeparture.addingTimeInterval(20 * 60) {
+            if isDepartingUnconfirmed {
                 return "Departing"
             }
             let moving = mode.inTransitTitle
@@ -238,7 +252,7 @@ extension Flight {
     var cardTopRightColor: Color {
         if status == .gateClosed { return ArcTheme.late }   // urgency — gate is closing/closed
         if showsPrediction { return .orange }               // predicted, not airline-confirmed
-        if isDepartureUnconfirmed { return Color(.secondaryLabel) }
+        if isDepartureUnconfirmed || isDepartingUnconfirmed { return Color(.secondaryLabel) }
         return (isSoon || isActive || isRecentlyLanded || isBoarding) ? accentColor : Color(.secondaryLabel)
     }
 
@@ -314,8 +328,7 @@ extension Flight {
         case .diverted: return "Diverted"
         case .landed: return mode.arrivedVerb
         case .active:
-            if actualDeparture == nil, Date.now >= effectiveDeparture,
-               Date.now < effectiveDeparture.addingTimeInterval(20 * 60) { return "Departing" }
+            if isDepartingUnconfirmed { return "Departing" }
             if let t = compactUntil(effectiveArrival) { return "\(mode.arrivingVerb) in \(t)" }
             return "Arrival not yet confirmed"
         default:
@@ -331,8 +344,9 @@ extension Flight {
     var bannerColor: Color {
         if status == .cancelled || status == .diverted { return ArcTheme.late }
         if isDelayed { return ArcTheme.late }
-        // "Departure not yet confirmed" is not a green state.
-        if isDepartureUnconfirmed { return Color(.secondaryLabel) }
+        // "Departure not yet confirmed" is not a green state — and neither is
+        // "Departing" on the clock's word alone.
+        if isDepartureUnconfirmed || isDepartingUnconfirmed { return Color(.secondaryLabel) }
         // Green is the app saying "this is running to plan". A timetable has no
         // opinion on that, so a sailing gets the neutral treatment rather than
         // a reassurance nobody issued.
@@ -366,7 +380,12 @@ extension Flight {
         if let t = compactUntil(effectiveDeparture) { return "Departs in \(t)" }
         // Only a confirmed departure gets "ago"; an unconfirmed one already
         // says so in the status line and shouldn't add a past tense to it.
-        if isDepartureUnconfirmed { return "\(compactAgo(effectiveDeparture)) past schedule" }
+        // The clock-flipped "Departing" hedge is the same claim in a
+        // different status: while nobody has reported a take-off, "Departed
+        // 15m ago" is an assertion the app can't back.
+        if isDepartureUnconfirmed || isDepartingUnconfirmed {
+            return "\(compactAgo(effectiveDeparture)) past schedule"
+        }
         return "Departed \(compactAgo(effectiveDeparture)) ago"
     }
 

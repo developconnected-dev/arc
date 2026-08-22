@@ -506,6 +506,27 @@ final class FlightTenseTests: XCTestCase {
         XCTAssertEqual(later.statusText, "In Air")
     }
 
+    /// The hedge speaks with ONE voice. While the banner says "Departing"
+    /// (clock-flipped, unconfirmed) the endpoint row must not simultaneously
+    /// assert "Departed 15m ago" in on-time green — the exact contradiction
+    /// a lock screen saying "Waiting for takeoff confirmation" sat next to.
+    func testDepartingHedgeDoesNotClaimDepartedAsFact() {
+        let f = flight(depIn: -15 * 60, status: .active)
+        XCTAssertTrue(f.isDepartingUnconfirmed)
+        XCTAssertFalse(f.departureRelText.hasSuffix(" ago"))
+        XCTAssertTrue(f.departureRelText.hasSuffix("past schedule"))
+        XCTAssertNotEqual(f.bannerColor, ArcTheme.onTime)
+        XCTAssertNotEqual(f.cardTopRightColor, ArcTheme.onTime)
+        // A reported take-off ends the hedge: now "Departed … ago" is a fact.
+        f.actualDeparture = f.scheduledDeparture
+        XCTAssertFalse(f.isDepartingUnconfirmed)
+        XCTAssertTrue(f.departureRelText.hasSuffix(" ago"))
+        // And so does the hedge window simply running out.
+        let committed = flight(depIn: -40 * 60, status: .active)
+        XCTAssertFalse(committed.isDepartingUnconfirmed)
+        XCTAssertTrue(committed.departureRelText.hasSuffix(" ago"))
+    }
+
     /// An active flight past its ETA is not "Arrived" until the source says so.
     func testArrivalNotClaimedFromClock() {
         let f = flight(depIn: -4 * 3600, status: .active)   // ETA was 2h ago

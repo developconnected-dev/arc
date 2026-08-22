@@ -238,8 +238,10 @@ struct FlightDetailView: View {
             }
             // Airborne: the widget's system-animated progress bar lives INSIDE
             // the banner — one card says everything, instead of a second card
-            // repeating the countdown right below.
-            if flight.isActive {
+            // repeating the countdown right below. Not while the departure is
+            // still unconfirmed: a moving bar IS a claim the flight left, and
+            // the Live Activity's departing view draws none either.
+            if flight.isActive, !flight.isDepartingUnconfirmed {
                 let dep = flight.actualDeparture ?? flight.scheduledDeparture
                 let arr = max(flight.effectiveArrival, dep.addingTimeInterval(60))
                 HStack(spacing: 10) {
@@ -303,7 +305,17 @@ struct FlightDetailView: View {
         // Only claim "live" while the data actually is — saying "Live
         // tracking active" next to a 17-minute-old freshness pill reads as
         // a contradiction, because it is one.
-        if flight.isActive { return flight.isDataFresh ? "Live tracking active" : "Tracking — waiting for fresh data" }
+        if flight.isActive {
+            // Clock-flipped, nothing confirmed: the same words the Live
+            // Activity uses, so the lock screen and this screen can't tell
+            // the user two different stories about the same minute.
+            if flight.isDepartingUnconfirmed {
+                return flight.mode == .air
+                    ? "Waiting for takeoff confirmation"
+                    : "Waiting for departure confirmation"
+            }
+            return flight.isDataFresh ? "Live tracking active" : "Tracking — waiting for fresh data"
+        }
         guard flight.isUpcoming, flight.aircraftRegistration != nil else { return nil }
         if !flight.inboundChecked { return "Checking inbound aircraft" }
         // The best possible pre-departure news (Flighty parity): the tail
@@ -447,7 +459,7 @@ struct FlightDetailView: View {
                     // known — how far past the schedule, and that no delay
                     // has been published.
                     Text(flight.isCompleted ? statusText
-                         : (!isArrival && flight.isDepartureUnconfirmed)
+                         : (!isArrival && (flight.isDepartureUnconfirmed || flight.isDepartingUnconfirmed))
                             ? "\(relText) • no delay reported"
                             : "\(statusText) • \(relText)")
                         .font(.system(size: 13, weight: .semibold))
@@ -494,7 +506,7 @@ struct FlightDetailView: View {
     private func endpointColor(isArrival: Bool) -> Color {
         if flight.status == .cancelled || flight.status == .diverted { return ArcTheme.late }
         guard flight.reportsPunctuality else { return flight.bannerColor }
-        if !isArrival, flight.isDepartureUnconfirmed { return Color(.secondaryLabel) }
+        if !isArrival, flight.isDepartureUnconfirmed || flight.isDepartingUnconfirmed { return Color(.secondaryLabel) }
         let effective = isArrival ? flight.effectiveArrival : flight.effectiveDeparture
         let scheduled = isArrival ? flight.scheduledArrival : flight.scheduledDeparture
         return effective.timeIntervalSince(scheduled) >= 60 ? ArcTheme.late : ArcTheme.onTime

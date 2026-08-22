@@ -350,6 +350,11 @@ final class ArcSupabase: ObservableObject {
 
         // Optional with defaults so a friend still on an older build — whose
         // rows predate the migration and carry none of these — decodes fine.
+        /// Written by every `shareFlight` since migration 006 but never read
+        /// until now: without them a reader can't tell a CONFIRMED departure
+        /// from a clock guess, so a friend's flight hedged forever.
+        var actual_departure: String? = nil
+        var actual_arrival: String? = nil
         var mode: String? = nil
         var data_tier: String? = nil
         var departure_tz: String? = nil

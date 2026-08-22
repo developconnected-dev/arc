@@ -4,7 +4,8 @@ import XCTest
 @MainActor
 final class FriendsFeedTests: XCTestCase {
     private func flight(_ number: String, dep: String, arr: String,
-                        status: String = "scheduled", delay: Int = 0) -> ArcSupabase.SharedFlight {
+                        status: String = "scheduled", delay: Int = 0,
+                        updatedAt: String? = nil) -> ArcSupabase.SharedFlight {
         .init(id: UUID().uuidString, user_id: "ignored", flight_number: number,
               airline: "Swiss", departure_iata: "ZRH", arrival_iata: "JFK",
               departure_city: "Zurich", arrival_city: "New York",
@@ -13,7 +14,7 @@ final class FriendsFeedTests: XCTestCase {
               scheduled_departure: dep, scheduled_arrival: arr,
               estimated_arrival: nil, status: status, delay_minutes: delay,
               departure_gate: nil, arrival_gate: nil, baggage_claim: nil,
-              live_lat: nil, live_lon: nil, progress: 0, updated_at: nil)
+              live_lat: nil, live_lon: nil, progress: 0, updated_at: updatedAt)
     }
 
     private func entry(_ name: String, id: String,
@@ -117,5 +118,56 @@ final class FriendsFeedTests: XCTestCase {
             ]),
         ]
         XCTAssertEqual(store.feed(at: now).map(\.flight.flight_number), ["NEXTYEAR"])
+    }
+
+    // MARK: - transientFlight (the detail screen behind a friend row)
+
+    private func item(_ f: ArcSupabase.SharedFlight) -> FriendsStore.FeedItem {
+        .init(user: .init(id: "a", display_name: "Anna", handle: nil, avatar_url: nil,
+                          home_airport: nil, nationality: nil), flight: f)
+    }
+
+    /// The row was mirrored by the friend's device minutes ago — the detail
+    /// screen must say so, not "No live data yet" forever. (transientFlight
+    /// never carried `updated_at` across, so the freshness pill hit its
+    /// never-updated branch on every friend flight.)
+    func testTransientFlightCarriesRowFreshness() {
+        let iso = ISO8601DateFormatter()
+        let f = flight("LX1950", dep: iso.string(from: .now.addingTimeInterval(3600)),
+                       arr: iso.string(from: .now.addingTimeInterval(3 * 3600)),
+                       updatedAt: iso.string(from: .now.addingTimeInterval(-3 * 60)))
+        let transient = FriendsStore().transientFlight(for: item(f))
+        XCTAssertNotNil(transient.lastStatusUpdate)
+        XCTAssertTrue(transient.isDataFresh)
+        XCTAssertNotEqual(transient.dataFreshnessShort, "—")
+    }
+
+    /// Past the delayed departure with the row still saying "scheduled", the
+    /// detail must agree with the chip and map (which clock-heal via
+    /// FriendFlightMath) — and hedge, because no take-off was reported.
+    func testTransientFlightHealsToAirborneAndHedges() {
+        let iso = ISO8601DateFormatter()
+        let f = flight("LX1950", dep: iso.string(from: .now.addingTimeInterval(-15 * 60)),
+                       arr: iso.string(from: .now.addingTimeInterval(105 * 60)))
+        let transient = FriendsStore().transientFlight(for: item(f))
+        XCTAssertTrue(transient.isActive)
+        XCTAssertNil(transient.actualDeparture)
+        XCTAssertTrue(transient.isDepartingUnconfirmed)
+        XCTAssertEqual(transient.statusText, "Departing")
+        XCTAssertTrue(transient.departureRelText.hasSuffix("past schedule"))
+    }
+
+    /// A reported take-off crosses to the reader: the shared row's
+    /// `actual_departure` becomes the transient flight's, ending the hedge.
+    func testTransientFlightCarriesConfirmedDeparture() {
+        let iso = ISO8601DateFormatter()
+        let dep = Date.now.addingTimeInterval(-15 * 60)
+        var f = flight("LX1950", dep: iso.string(from: dep),
+                       arr: iso.string(from: .now.addingTimeInterval(105 * 60)), status: "active")
+        f.actual_departure = iso.string(from: dep.addingTimeInterval(4 * 60))
+        let transient = FriendsStore().transientFlight(for: item(f))
+        XCTAssertNotNil(transient.actualDeparture)
+        XCTAssertFalse(transient.isDepartingUnconfirmed)
+        XCTAssertTrue(transient.departureRelText.hasSuffix(" ago"))
     }
 }
