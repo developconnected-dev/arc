@@ -187,3 +187,19 @@ test("no runway time, no actual", () => {
   assert.equal(confirmedRunwayTime(null, "Departed", "dep", NOW), null);
   assert.equal(confirmedRunwayTime("", "Departed", "dep", NOW), null);
 });
+
+/// AeroDataBox flips status to Departed at off-block, while runwayTime can
+/// still be a projection for the taxi ahead. A take-off time that has not
+/// happened yet is an estimate by definition.
+test("a departure runway time still in the future is an estimate even when the status says Departed", () => {
+  assert.equal(confirmedRunwayTime("2026-09-18T10:20:00Z", "Departed", "dep", NOW), null);
+  assert.equal(confirmedRunwayTime("2026-09-18T09:58:00Z", "Departed", "dep", NOW), "2026-09-18T09:58:00.000Z");
+});
+
+import { movementIsLive } from "../src/legs.ts";
+
+test("movementIsLive reads AeroDataBox's quality array", () => {
+  assert.equal(movementIsLive(["Basic", "Live"]), true);
+  assert.equal(movementIsLive(["Basic", "Approximate"]), false);
+  assert.equal(movementIsLive(undefined), false);
+});

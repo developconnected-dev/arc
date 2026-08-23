@@ -209,9 +209,22 @@ export function confirmedRunwayTime(
   if (!iso) return null;
   const key = String(status ?? "unknown").toLowerCase();
   const confirmed = side === "dep" ? DEPARTED_STATUSES : ARRIVED_STATUSES;
-  if (confirmed.has(key)) return iso;
+  // "Departed" flips at off-block, while the runway time can still be a
+  // projection for the taxi ahead: a take-off that hasn't happened yet is an
+  // estimate by definition, whatever the status says.
+  if (confirmed.has(key)) {
+    return side === "dep" && new Date(iso).getTime() > now.getTime() ? null : iso;
+  }
   if (key === "unknown" || key === "") {
     return new Date(iso).getTime() <= now.getTime() - UNKNOWN_STATUS_GRACE_MS ? iso : null;
   }
   return null;
+}
+
+/// AeroDataBox's per-movement `quality` array says whether live data exists
+/// for that end of the flight at all. Without "Live", no confirmation will
+/// ever arrive and the clock is the only witness; with it, the *absence* of
+/// a confirmation is itself evidence the flight hasn't moved.
+export function movementIsLive(quality: unknown): boolean {
+  return Array.isArray(quality) && quality.some(q => String(q).toLowerCase() === "live");
 }
