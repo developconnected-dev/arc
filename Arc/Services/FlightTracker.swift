@@ -166,10 +166,24 @@ final class FlightTracker: ObservableObject {
                     // aircraft lookup returns some other vehicle's position and
                     // reports no error. (Trains have no free live-position feed,
                     // and AIS has no endpoint yet, so both simply have none.)
-                    if flight.isActive, case .openSky(let icao24)? = flight.livePositionSource {
+                    //
+                    // The watch starts BEFORE the gate time, not at "active":
+                    // the taxi is the part nobody publishes, and it is the
+                    // part that made a home screen announce "In Flight" while
+                    // its owner sat in a hold. While the aircraft is still on
+                    // the ground the samples are the only witness there is, so
+                    // they are taken every 60s; once airborne and confirmed,
+                    // the old 3-minute cadence is plenty.
+                    let watchingForTakeoff = flight.mode == .air
+                        && flight.actualDeparture == nil
+                        && !flight.isCompleted
+                        && now >= flight.offBlock.addingTimeInterval(-15 * 60)
+                        && now <= flight.expectedWheelsUp.addingTimeInterval(DepartureEvidence.hardCap)
+                    if flight.isActive || watchingForTakeoff, flight.mode == .air {
                         let lastPos = lastPositionPoll[flight.id] ?? .distantPast
-                        if now.timeIntervalSince(lastPos) >= 180 {
-                            await updateLivePosition(flight, icao24: icao24)
+                        let cadence: TimeInterval = watchingForTakeoff ? 60 : 180
+                        if now.timeIntervalSince(lastPos) >= cadence {
+                            await updateLivePosition(flight)
                             lastPositionPoll[flight.id] = now
                         }
                     }
@@ -199,6 +213,25 @@ final class FlightTracker: ObservableObject {
                         }
                     }
 
+                    // How long this airport actually taxis at this hour —
+                    // the grace every surface gives a departure before it
+                    // presumes wheels-up. One ask per flight per session
+                    // (the p85 moves daily, not hourly), inside the window
+                    // where it starts to matter.
+                    if flight.mode == .air, !flight.isCompleted,
+                       flight.actualDeparture == nil,
+                       hoursUntilDep <= 12,
+                       !taxiPriorTried.contains(flight.id) {
+                        taxiPriorTried.insert(flight.id)
+                        let hour = Calendar(identifier: .gregorian).dateComponents(
+                            in: TimeZone(identifier: "UTC")!, from: flight.offBlock).hour ?? 0
+                        if let minutes = await FlightAPIClient.shared.taxiPrior(
+                            iata: flight.departureIATA, hourUTC: hour) {
+                            guard !flight.isDeleted, flight.modelContext != nil else { continue }
+                            flight.taxiPriorMinutes = minutes
+                        }
+                    }
+
                     // Inbound check: max once per 15 min (saves API calls)
                     if flight.mode.hasAirportOperations, flight.isUpcoming, hoursUntilDep <= 6 {
                         let lastCheck = lastInboundCheck[flight.id] ?? .distantPast
@@ -212,7 +245,13 @@ final class FlightTracker: ObservableObject {
                 // Time-based status healing: if the API didn't update the status,
                 // detect it from the clock so the flight list and widget show correctly
                 for flight in flights {
-                    let depTime = flight.actualDeparture ?? flight.scheduledDeparture.addingTimeInterval(Double(flight.delayMinutes) * 60)
+                    // Not the gate time: the moment Arc expects the wheels to
+                    // leave the ground. Off-block plus this airport's taxi,
+                    // the provider's own estimate, or a taxi after the last
+                    // sighting on the ground — whichever is latest. Healing at
+                    // the gate time is what announced "In Flight" to someone
+                    // still in the queue for the runway.
+                    let depTime = flight.actualDeparture ?? flight.expectedWheelsUp
                     // The delay shifts the arrival too. Without it, a delayed
                     // airborne flight was force-"landed" at its ORIGINAL
                     // arrival time, then the next poll saw "active" from the
@@ -288,6 +327,7 @@ final class FlightTracker: ObservableObject {
     /// Flights whose usual-gate prediction has been asked for this session —
     /// same one-ask discipline: "no pattern yet" must not re-poll per minute.
     private var gatePredictionTried: Set<UUID> = []
+    private var taxiPriorTried: Set<UUID> = []
 
     private func preCacheIfNeeded(flight: Flight, modelContext: ModelContext) async {
         guard !preCached.contains(flight.id) else { return }
@@ -464,6 +504,20 @@ final class FlightTracker: ObservableObject {
             if let depActual = latest.dep_actual, let parsed = DateHelpers.parseAPIDate(depActual) {
                 flight.actualDeparture = parsed
             }
+            // The provider's own estimate of wheels-up, and whether it has
+            // live coverage of this departure at all — the two things that
+            // decide how long every surface hedges before presuming (see
+            // DepartureEvidence).
+            if let est = latest.dep_runway_estimated, let parsed = DateHelpers.parseAPIDate(est) {
+                flight.estimatedTakeoff = parsed
+            }
+            if let live = latest.dep_live { flight.departureLiveCovered = live }
+            // A source that WOULD have reported a take-off and didn't is a
+            // sighting on the ground: it rolls the expected wheels-up forward
+            // rather than letting a timetable decide in its absence.
+            if flight.actualDeparture == nil, latest.dep_live == true {
+                flight.lastSeenOnGround = .now
+            }
             if let arrActual = latest.arr_actual, let parsed = DateHelpers.parseAPIDate(arrActual) {
                 flight.actualArrival = parsed
                 flight.estimatedArrival = parsed
@@ -635,9 +689,20 @@ final class FlightTracker: ObservableObject {
 
     // MARK: - Live Position
 
-    private func updateLivePosition(_ flight: Flight, icao24: String) async {
+    private func updateLivePosition(_ flight: Flight) async {
+        // Dispatch on the leg's own source rather than on whichever id is
+        // populated: a ferry's nine-digit MMSI handed to the aircraft lookup
+        // returns some other vehicle and reports no error. Registration is
+        // accepted alongside the transponder address because before pushback
+        // the tail is often all the provider has given us.
+        let icao24: String?
+        if case .openSky(let id)? = flight.livePositionSource { icao24 = id } else { icao24 = nil }
+        let registration = flight.aircraftRegistration
+        guard icao24 != nil || (registration?.isEmpty == false), flight.mode == .air else { return }
         do {
-            guard let pos = try await FlightAPIClient.shared.livePosition(icao24: icao24) else { return }
+            guard let pos = try await FlightAPIClient.shared.livePosition(
+                icao24: icao24, registration: registration) else { return }
+            guard !pos.isStale else { return }
             flight.liveLat = pos.lat
             flight.liveLon = pos.lon
             flight.liveAltitude = pos.altitude
@@ -645,20 +710,30 @@ final class FlightTracker: ObservableObject {
             flight.liveHeading = pos.heading
             flight.liveUpdatedAt = .now
 
-            // Store breadcrumb for actual flight path visualization
-            flight.appendTrackPoint(lat: pos.lat, lon: pos.lon, altitude: pos.altitude)
+            // What this sample says about the gate-to-runway question. A
+            // first airborne sighting IS the take-off confirmation when
+            // nothing better has arrived — it is the whole reason the app
+            // watches the aircraft rather than the timetable.
+            let tookOff = flight.recordGroundSample(
+                onGround: pos.on_ground, velocity: pos.velocity, altitude: pos.altitude)
+            if tookOff, flight.statusRaw != FlightStatus.active.rawValue {
+                let oldStatus = flight.statusRaw
+                flight.statusRaw = FlightStatus.active.rawValue
+                await handleStatusChange(flight: flight, from: oldStatus)
+            }
 
-            // Compute smarter arrival ETA from live position + speed
-            if pos.velocity > 10, flight.arrivalLat != 0 {
+            // Only trace the flown path once it is flying — a taxi drawn as
+            // a track turns the map arc into a scribble around the apron.
+            if !pos.on_ground {
+                flight.appendTrackPoint(lat: pos.lat, lon: pos.lon, altitude: pos.altitude)
+            }
+            if pos.velocity > 10, !pos.on_ground, flight.arrivalLat != 0 {
                 let smartArrival = flight.smartETA
-                // Only update if meaningfully different from current estimate
                 let currentEst = flight.estimatedArrival ?? flight.scheduledArrival
-                if abs(smartArrival.timeIntervalSince(currentEst)) > 120 { // >2 min difference
+                if abs(smartArrival.timeIntervalSince(currentEst)) > 120 {
                     flight.estimatedArrival = smartArrival
                 }
             }
-        } catch {
-            // Silently skip
-        }
+        } catch { }
     }
 }

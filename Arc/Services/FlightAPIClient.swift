@@ -40,6 +40,13 @@ actor FlightAPIClient {
         /// a CONFIRMED landing — an estimate must never impersonate a fact.
         /// Optional with a default: older backends don't send it.
         var arr_estimated: String? = nil
+        /// The provider's estimated wheels-up, while it is still unconfirmed
+        /// — what the departure hedge is measured against instead of the
+        /// gate time (see DepartureEvidence).
+        var dep_runway_estimated: String? = nil
+        /// Whether the provider has live coverage of this departure. Without
+        /// it, no take-off confirmation will ever arrive.
+        var dep_live: Bool? = nil
         let status: String
         let dep_gate: String?
         let dep_terminal: String?
@@ -458,11 +465,115 @@ actor FlightAPIClient {
         if let icao24, !icao24.isEmpty { items.append(.init(name: "icao24", value: icao24)) }
         if let registration, !registration.isEmpty { items.append(.init(name: "reg", value: registration)) }
         guard !items.isEmpty else { return nil }
+        if !workerHasNoADSB {
+            let url = baseURL.appending(path: "/position").appending(queryItems: items)
+            let (data, response) = try await session.data(from: url)
+            if let http = response as? HTTPURLResponse, http.statusCode == 200,
+               let pos = try? JSONDecoder().decode(LivePosition.self, from: data) {
+                return pos
+            }
+            // The Worker can only read ADS-B once a source has whitelisted
+            // it: Cloudflare's shared egress IPs are rate-limited or blocked
+            // for anonymous callers. Stop asking for the rest of the session
+            // and read the aircraft from here instead — this device has its
+            // own address, which is the whole reason it can.
+            workerHasNoADSB = true
+        }
+        return await Self.directADSB(icao24: icao24, registration: registration)
+    }
 
-        let url = baseURL.appending(path: "/position").appending(queryItems: items)
-        let (data, response) = try await session.data(from: url)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-        return try? JSONDecoder().decode(LivePosition.self, from: data)
+    /// Ask the community aggregators directly. Same readsb payload from each;
+    /// one of them names the array `aircraft` rather than `ac`.
+    private static let adsbHosts = [
+        (base: "https://api.adsb.lol", prefix: "/v2"),
+        (base: "https://opendata.adsb.fi", prefix: "/api/v2"),
+    ]
+    /// Actor-isolated: one flag per session, flipped the first time the
+    /// Worker admits it cannot read ADS-B.
+    private var workerHasNoADSB = false
+
+    private static func directADSB(icao24: String?, registration: String?) async -> LivePosition? {
+        var lookups: [(String, String)] = []
+        if let icao24, !icao24.isEmpty { lookups.append(("icao", icao24)) }
+        if let registration, !registration.isEmpty { lookups.append(("reg", registration)) }
+        for host in adsbHosts {
+            for (kind, value) in lookups {
+                let key = value.trimmingCharacters(in: .whitespaces).lowercased()
+                guard !key.isEmpty,
+                      let url = URL(string: "\(host.base)\(host.prefix)/\(kind)/\(key)") else { continue }
+                var request = URLRequest(url: url)
+                request.setValue("application/json", forHTTPHeaderField: "Accept")
+                // The aggregators refuse anonymous-looking callers outright.
+                request.setValue("ArcFlightTracker/1.0 (+https://arc.app)", forHTTPHeaderField: "User-Agent")
+                request.timeoutInterval = 10
+                guard let (data, response) = try? await URLSession.shared.data(for: request),
+                      let http = response as? HTTPURLResponse, http.statusCode == 200,
+                      let raw = try? JSONDecoder().decode(ADSBResponse.self, from: data),
+                      let ac = (raw.ac ?? raw.aircraft ?? []).first(where: { $0.lat != nil && $0.lon != nil })
+                else { continue }
+                return ac.asLivePosition
+            }
+        }
+        return nil
+    }
+
+    private struct ADSBResponse: Decodable {
+        let ac: [ADSBAircraft]?
+        let aircraft: [ADSBAircraft]?
+    }
+
+    private struct ADSBAircraft: Decodable {
+        let hex: String?
+        let r: String?
+        let lat: Double?
+        let lon: Double?
+        let gs: Double?
+        let track: Double?
+        let seen_pos: Double?
+        /// feet, or the string "ground" when it is on the deck.
+        let alt_baro: AltBaro?
+
+        enum AltBaro: Decodable {
+            case feet(Double), ground
+            init(from decoder: Decoder) throws {
+                let c = try decoder.singleValueContainer()
+                if let d = try? c.decode(Double.self) { self = .feet(d) }
+                else { self = .ground }
+            }
+            var isGround: Bool { if case .ground = self { return true }; return false }
+            var metres: Double { if case .feet(let f) = self { return f * 0.3048 }; return 0 }
+        }
+
+        var asLivePosition: LivePosition {
+            LivePosition(
+                icao24: (hex ?? "").uppercased(),
+                lat: lat ?? 0, lon: lon ?? 0,
+                altitude: alt_baro?.metres ?? 0,
+                velocity: (gs ?? 0) * 0.514444,
+                heading: track ?? 0,
+                on_ground: alt_baro?.isGround ?? false,
+                registration: r,
+                age_seconds: seen_pos.map { Int($0.rounded()) })
+        }
+    }
+
+    /// This airport's learned taxi-out for an hour of the day — the grace a
+    /// departure gets before Arc presumes it is airborne.
+    func taxiPrior(iata: String, hourUTC: Int) async -> Int? {
+        guard !iata.isEmpty else { return nil }
+        let url = baseURL.appending(path: "/taxi/prior").appending(queryItems: [
+            .init(name: "iata", value: iata),
+            .init(name: "hour", value: String(hourUTC)),
+        ])
+        guard let (data, response) = try? await session.data(from: url),
+              let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let result = try? JSONDecoder().decode(TaxiPrior.self, from: data) else { return nil }
+        return result.minutes
+    }
+
+    struct TaxiPrior: Codable, Sendable {
+        let minutes: Int
+        let samples: Int
     }
 
     // MARK: - Security Wait Times

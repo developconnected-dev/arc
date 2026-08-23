@@ -147,3 +147,23 @@ public enum DeparturePhase: Equatable, Sendable {
     /// green, for "In Air", and for anything stated as fact.
     public var isConfirmed: Bool { self == .airborne }
 }
+
+/// What one ADS-B sample says the aircraft is doing. Mirror of the Worker's
+/// `classifyGround` (backend/src/ground.ts) — deliberately duplicated rather
+/// than derived, so a device and the server can never disagree about what
+/// "taxiing" means, and kept in the same units /position speaks (m/s, metres).
+public enum GroundState: String, Sendable {
+    case atGate = "at_gate"
+    case taxiing
+    case airborne
+    case unknown
+
+    public static func classify(onGround: Bool, velocity: Double, altitude: Double) -> GroundState {
+        if onGround {
+            // 3 m/s ≈ 6 kt: a pushback already reads as taxiing, which is
+            // what someone watching wants to know — they're moving.
+            return velocity >= 3 ? .taxiing : .atGate
+        }
+        return (altitude > 30 || velocity > 40) ? .airborne : .unknown
+    }
+}
