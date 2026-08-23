@@ -1,5 +1,5 @@
 import { apnsConfigured, sendLiveActivityPush } from "./apns";
-import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, shiftLegToDay, completeLeg } from "./legs";
+import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, shiftLegToDay, completeLeg, confirmedRunwayTime } from "./legs";
 import { predictGate, type GateObservation } from "./gates";
 import { verifiedRoute } from "./place";
 import { handleTransit } from "./routes-transit";
@@ -74,14 +74,17 @@ function mapLeg(f: Record<string, any>): Record<string, unknown> {
   const depRev = dep.revisedTime?.utc ?? dep.revisedTime?.local ?? depSched;
   const arrSched = arr.scheduledTime?.utc ?? arr.scheduledTime?.local;
   const arrRev = arr.revisedTime?.utc ?? arr.revisedTime?.local ?? arrSched;
-  // runwayTime is the wheels-up/wheels-down FACT; revisedTime is a published
-  // ESTIMATE that airlines file before anything has moved. The two used to be
-  // conflated into *_actual, so a delayed flight still sitting at the gate
-  // carried an "actual departure" — which is exactly the field the app treats
-  // as "confirmed departed" (it ends the Departing hedge and flips every
-  // surface to past tense). Facts and estimates now travel separately.
-  const depRunway = dep.runwayTime?.utc ?? dep.runwayTime?.local ?? null;
-  const arrRunway = arr.runwayTime?.utc ?? arr.runwayTime?.local ?? null;
+  // revisedTime is a published ESTIMATE that airlines file before anything has
+  // moved; runwayTime is the wheels-up/-down time — but AeroDataBox documents
+  // it as "actual / estimated", so it too can be a projection for a flight
+  // still at the gate. The two used to be conflated into *_actual, so a
+  // delayed flight carried an "actual departure" — exactly the field the app
+  // treats as "confirmed departed" (it ends the Departing hedge and flips
+  // every surface to past tense). Estimates now travel in *_estimated, and a
+  // runway time is only promoted to *_actual once the provider's status says
+  // the movement happened (see confirmedRunwayTime).
+  const depRunway = confirmedRunwayTime(dep.runwayTime?.utc ?? dep.runwayTime?.local, f.status, "dep");
+  const arrRunway = confirmedRunwayTime(arr.runwayTime?.utc ?? arr.runwayTime?.local, f.status, "arr");
   return {
     flight_number: String(f.number ?? "").replace(/\s+/g, ""),
     airline_name: air.name ?? "",
@@ -99,8 +102,8 @@ function mapLeg(f: Record<string, any>): Record<string, unknown> {
     arr_terminal: arr.terminal ?? null,
     arr_baggage: arr.baggageBelt ?? null,
     delay: delayMinutes(depSched, depRev),
-    dep_actual: depRunway ? toISO(depRunway) : null,
-    arr_actual: arrRunway ? toISO(arrRunway) : null,
+    dep_actual: depRunway,
+    arr_actual: arrRunway,
     dep_estimated: depRev !== depSched ? toISO(depRev) : null,
     arr_estimated: arrRev !== arrSched ? toISO(arrRev) : null,
     aircraft_type: ac.model ?? null,

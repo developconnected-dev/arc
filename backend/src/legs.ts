@@ -189,3 +189,29 @@ export function completeLeg(
   out["schedule_inferred_from"] = template["schedule_inferred_from"] ?? null;
   return out;
 }
+
+/// AeroDataBox's `runwayTime` is documented as "Actual / estimated time on the
+/// runway": the same field holds a projection while the flight still sits at
+/// the gate and the wheels-up/-down fact once it moved. Only the provider's
+/// status string tells them apart, so a runway time is promoted to *_actual
+/// only when the status says that movement happened. A flight with no status
+/// at all ("Unknown" — common outside live coverage) gets the benefit of the
+/// doubt once the time is comfortably in the past; a delayed flight's stale
+/// projection is caught by its "Delayed" status, not by the clock.
+const DEPARTED_STATUSES = new Set(["departed", "enroute", "approaching", "arrived", "diverted"]);
+const ARRIVED_STATUSES = new Set(["arrived", "diverted"]);
+const UNKNOWN_STATUS_GRACE_MS = 10 * 60_000;
+
+export function confirmedRunwayTime(
+  runway: unknown, status: unknown, side: "dep" | "arr", now: Date = new Date(),
+): string | null {
+  const iso = toISO(runway);
+  if (!iso) return null;
+  const key = String(status ?? "unknown").toLowerCase();
+  const confirmed = side === "dep" ? DEPARTED_STATUSES : ARRIVED_STATUSES;
+  if (confirmed.has(key)) return iso;
+  if (key === "unknown" || key === "") {
+    return new Date(iso).getTime() <= now.getTime() - UNKNOWN_STATUS_GRACE_MS ? iso : null;
+  }
+  return null;
+}
