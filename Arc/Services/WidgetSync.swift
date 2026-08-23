@@ -72,7 +72,8 @@ extension WidgetFlight {
             estimatedArrival: flight.reportsPunctuality ? flight.estimatedArrival : nil,
             departureTZ: flight.depTimeZone.identifier,
             arrivalTZ: flight.arrTimeZone.identifier,
-            updatedAt: flight.lastStatusUpdate
+            updatedAt: flight.lastStatusUpdate,
+            actualDeparture: flight.actualDeparture
         )
     }
 }
