@@ -415,6 +415,9 @@ extension Flight {
         if isDepartureUnconfirmed || isDepartingUnconfirmed || isPresumedAirborne {
             return "\(compactAgo(effectiveDeparture)) past schedule"
         }
+        // A device-observed take-off is confirmed the moment it happens, so
+        // "Departed 0m ago" is now a state people actually see.
+        if Date.now.timeIntervalSince(effectiveDeparture) < 60 { return "Just departed" }
         return "Departed \(compactAgo(effectiveDeparture)) ago"
     }
 

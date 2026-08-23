@@ -106,7 +106,13 @@ public struct DepartureEvidence: Equatable, Sendable {
         // inference below it.
         if sightingIsFresh {
             if groundState == "taxiing" { return .taxiing(since: taxiStartedAt) }
-            if groundState == "at_gate" { return .departing }
+            if groundState == "at_gate" {
+                // Once it has started rolling, a pause is still the taxi —
+                // most of a 35-minute taxi at a busy hub is spent stopped in
+                // the queue, and flickering between "Taxiing" and "Departing"
+                // every time the aircraft holds is worse than either.
+                return taxiStartedAt == nil ? .departing : .taxiing(since: taxiStartedAt)
+            }
         }
         return now < expectedWheelsUp ? .departing : .presumedAirborne
     }

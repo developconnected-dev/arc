@@ -455,12 +455,15 @@ struct FlightDetailView: View {
                     }
                     // Completed flights drop the relative clock ("39d 8h ago"
                     // says nothing useful about a flight already flown).
-                    // An unconfirmed departure can't be "On Time": say what's
-                    // known — how far past the schedule, and that no delay
-                    // has been published.
+                    // An unconfirmed departure can't be "On Time" — but it can
+                    // certainly be late: the airline publishing a revised gate
+                    // time IS a reported delay, and pairing "9m past schedule"
+                    // with "no delay reported" beside a struck-through 11:50
+                    // simply contradicted itself.
                     Text(flight.isCompleted ? statusText
                          : (!isArrival && (flight.isDepartureUnconfirmed || flight.isDepartingUnconfirmed))
-                            ? "\(relText) • no delay reported"
+                            ? (flight.isDelayed ? "\(relText) • \(statusText)"
+                                                : "\(relText) • no delay reported")
                             : "\(statusText) • \(relText)")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(tint)
