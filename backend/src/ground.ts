@@ -54,3 +54,41 @@ export function expectedWheelsUp(a: {
     a.lastOnGround ? a.lastOnGround + prior : 0,
   );
 }
+
+/// Below this height a report cannot be told apart from ground noise, so the
+/// aircraft is treated as still on the ground and its speed decides whether
+/// it is parked, taxiing or rolling. AeroDataBox reports 0 for aircraft on
+/// the deck (seen at ZRH, field elevation 1400 ft, reporting 0 ft), so this
+/// is a margin rather than a threshold — and erring low here is what keeps a
+/// take-off roll from being announced as flight.
+export const ADB_GROUND_CEILING_M = 150;
+
+/// AeroDataBox's `location` block (returned by `withLocation=true`, which the
+/// leg fetch already asks for) in the units the rest of Arc speaks.
+///
+/// This is the server's witness: same call, same key, no IP rate limit — the
+/// community ADS-B aggregators all refuse Cloudflare's shared egress, and
+/// this needs nobody to whitelist anything.
+export function adbPositionToSample(loc: Record<string, any> | null | undefined): {
+  on_ground: boolean; velocity: number; altitude: number;
+  lat: number | null; lon: number | null; reportedAt: string;
+} | null {
+  if (!loc || !loc.reportedAtUtc) return null;
+  const altitude = Number(loc.pressureAltitude?.meter ?? 0);
+  const velocity = Number(loc.groundSpeed?.meterPerSecond ?? 0);
+  if (!Number.isFinite(altitude) || !Number.isFinite(velocity)) return null;
+  // "2026-08-23 11:43" — minutes only and no zone marker, but the field is
+  // named ...Utc, so fill in the seconds and say so explicitly.
+  let stamp = String(loc.reportedAtUtc).trim().replace(" ", "T");
+  if (/T\d{2}:\d{2}$/.test(stamp)) stamp += ":00";
+  if (!/[Zz]|[+-]\d{2}:?\d{2}$/.test(stamp)) stamp += "Z";
+  const reportedAt = new Date(stamp);
+  if (isNaN(reportedAt.getTime())) return null;
+  return {
+    on_ground: altitude < ADB_GROUND_CEILING_M,
+    velocity, altitude,
+    lat: typeof loc.lat === "number" ? loc.lat : null,
+    lon: typeof loc.lon === "number" ? loc.lon : null,
+    reportedAt: reportedAt.toISOString(),
+  };
+}

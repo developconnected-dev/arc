@@ -1,6 +1,6 @@
 import { apnsConfigured, sendLiveActivityPush } from "./apns";
 import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, shiftLegToDay, completeLeg, confirmedRunwayTime, movementIsLive } from "./legs";
-import { classifyGround, taxiPriorMinutes, DEFAULT_TAXI_PRIOR } from "./ground";
+import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRIOR } from "./ground";
 import { predictGate, type GateObservation } from "./gates";
 import { verifiedRoute } from "./place";
 import { handleTransit } from "./routes-transit";
@@ -21,11 +21,11 @@ interface Env {
   APNS_P8?: string;              // full .p8 file contents
   AI_API_KEY?: string;           // Anthropic API key — booking-text parsing (claude-haiku-4-5)
   // Contact string the ADS-B aggregators demand of API callers, e.g.
-  // "you@example.com". Without it the Worker's own aircraft watch stays off:
-  // Cloudflare's shared egress IPs are rate-limited (adsb.lol 429) or blocked
-  // (adsb.fi, airplanes.live 403) for anonymous callers, so devices do the
-  // watching instead. Set it once a source has whitelisted this project and
-  // the server can witness take-offs with nobody's app open.
+  // "you@example.com". Only affects /position, which serves the app's live
+  // map: Cloudflare's shared egress IPs are rate-limited (adsb.lol 429) or
+  // blocked (adsb.fi, airplanes.live 403) for anonymous callers, so devices
+  // read the aggregators themselves. The server's own witness does not need
+  // it — it reads the position AeroDataBox returns on the leg call.
   ADSB_CONTACT?: string;
 }
 
@@ -119,6 +119,11 @@ function mapLeg(f: Record<string, any>): Record<string, unknown> {
     arr_actual: arrRunway,
     dep_runway_estimated: depRunwayEstimated,
     dep_live: movementIsLive(dep.quality),
+    // Where the aircraft actually is, from the same call (`withLocation=true`
+    // has always been in the URL — the answer was simply discarded). This is
+    // what lets the server tell taxiing from flying without an ADS-B
+    // aggregator, all of which refuse Cloudflare's shared egress IPs.
+    position: adbPositionToSample(f.location),
     dep_estimated: depRev !== depSched ? toISO(depRev) : null,
     arr_estimated: arrRev !== arrSched ? toISO(arrRev) : null,
     aircraft_type: ac.model ?? null,
@@ -2317,9 +2322,6 @@ async function runLiveActivityCron(env: Env): Promise<void> {
   // app — which is exactly when friends watch closest. Keep active-window
   // rows fresh server-side from the same provider cache the pushes use.
   try {
-    await watchAircraft(env);
-  } catch { /* best-effort */ }
-  try {
     await refreshSharedFlights(env);
   } catch { /* best-effort */ }
 }
@@ -2407,108 +2409,20 @@ async function taxiPriorFor(env: Env, iata: string, hourUTC: number): Promise<{ 
   };
 }
 
-/// The cron as a witness: for every shared air leg in its take-off window
-/// that nobody has confirmed departed, look at the aircraft itself. ADS-B
-/// says at-gate / taxiing / airborne within seconds, where the airline feed
-/// says "Departed" at off-block and confirms wheels-up minutes to tens of
-/// minutes later — if the traveller's phone is even online to fetch it.
-///
-/// Writes ground_state + observation time, a live position when the device
-/// has gone quiet, taxi_started_at on the first rolling sample, and on the
-/// first airborne sample the one fact every surface waits for:
-/// actual_departure. Each wheels-up also teaches the airport its taxi-out.
-async function watchAircraft(env: Env): Promise<void> {
-  // Anonymous callers are rate-limited or blocked from Cloudflare's shared
-  // egress IPs, so until a source has whitelisted this project the devices
-  // do the watching (they call from their own IPs and write what they see
-  // onto the shared row). One secret turns the server witness on.
-  if (!env.ADSB_CONTACT) return;
-  const now = Date.now();
-  const from = new Date(now - 3 * 3600_000).toISOString();
-  const to = new Date(now + 45 * 60_000).toISOString();
-  const rows = await sbSelect(env,
-    "/shared_flights?select=id,flight_number,departure_iata,arrival_iata,scheduled_departure,delay_minutes,status,mode,"
-    + "updated_at,aircraft_registration,aircraft_icao24,ground_state,taxi_started_at,live_source,actual_departure"
-    + `&actual_departure=is.null&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}`
-  ) as unknown as Record<string, any>[];
-
-  const due = rows.filter(r => {
-    if (((r.mode as string) ?? "air") !== "air") return false;
-    if (r.status === "landed" || r.status === "cancelled") return false;
-    const offBlock = new Date(r.scheduled_departure).getTime() + ((r.delay_minutes as number) ?? 0) * 60_000;
-    // From twenty minutes before off-block (pushback comes early sometimes)
-    // until long past it — the watch only ends with a wheels-up.
-    return now >= offBlock - 20 * 60_000 && now <= offBlock + 3 * 3600_000;
+/// Teach the airport its taxi-out from an observed wheels-up.
+async function recordTaxiObservation(env: Env, row: Record<string, any>, takeoffISO: string): Promise<void> {
+  const offBlock = new Date(row.scheduled_departure).getTime() + ((row.delay_minutes as number) ?? 0) * 60_000;
+  const taxiStart = row.taxi_started_at ? Date.parse(row.taxi_started_at) : offBlock;
+  const taxiMinutes = Math.round((Date.parse(takeoffISO) - taxiStart) / 60_000);
+  if (!(taxiMinutes >= 0 && taxiMinutes <= 120)) return;
+  await sbService(env, "POST", "/taxi_observations?on_conflict=flight_number,departure_iata,flight_date", {
+    departure_iata: row.departure_iata,
+    flight_number: row.flight_number,
+    flight_date: String(row.scheduled_departure).slice(0, 10),
+    hour_utc: new Date(offBlock).getUTCHours(),
+    taxi_minutes: taxiMinutes,
+    observed_at: takeoffISO,
   });
-  for (let i = due.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [due[i], due[j]] = [due[j], due[i]];
-  }
-
-  for (const row of due.slice(0, 10)) {
-    try {
-      let reg = row.aircraft_registration as string | null;
-      let icao = row.aircraft_icao24 as string | null;
-      const patch: Record<string, unknown> = {};
-      if (!reg && !icao) {
-        // The device didn't know the tail yet; one provider call (cached,
-        // budget-shared) tells us which aircraft to watch.
-        const day = String(row.scheduled_departure).slice(0, 10);
-        const { legs } = await fetchLegsCached(env, "flight", String(row.flight_number), day, "cron");
-        const leg = (legs ?? []).find(l => l["dep_iata"] === row.departure_iata) ?? (legs ?? [])[0];
-        reg = (leg?.["aircraft_registration"] as string) ?? null;
-        icao = (leg?.["aircraft_icao24"] as string) ?? null;
-        if (reg) patch.aircraft_registration = reg;
-        if (icao) patch.aircraft_icao24 = icao;
-        if (leg?.["dep_runway_estimated"]) patch.est_takeoff = leg["dep_runway_estimated"];
-        if (!reg && !icao) {
-          if (Object.keys(patch).length) await sbService(env, "PATCH", `/shared_flights?id=eq.${row.id}`, patch);
-          continue;
-        }
-      }
-      const pos = (icao ? await fetchADSB(env, "icao", icao) : null) ?? (reg ? await fetchADSB(env, "reg", reg) : null);
-      if (!pos || (pos.age_seconds ?? 0) > 300) {
-        if (Object.keys(patch).length) await sbService(env, "PATCH", `/shared_flights?id=eq.${row.id}`, patch);
-        continue;
-      }
-      const state = classifyGround(pos);
-      if (state === "unknown") continue;
-      const nowISO = new Date(now).toISOString();
-      patch.ground_state = state;
-      patch.ground_observed_at = nowISO;
-      if (state === "taxiing" && !row.taxi_started_at) patch.taxi_started_at = nowISO;
-      // The device owns the live position while it is talking; once it has
-      // gone quiet (boarded, airplane mode) the aircraft's own broadcast is
-      // the better witness and friends' maps keep moving.
-      const deviceQuiet = !row.updated_at || now - Date.parse(row.updated_at) > 3 * 60_000;
-      if (deviceQuiet || row.live_source === "adsb") {
-        patch.live_lat = pos.lat; patch.live_lon = pos.lon;
-        patch.live_altitude = pos.altitude; patch.live_speed = pos.velocity;
-        patch.live_source = "adsb";
-      }
-      if (state === "airborne") {
-        patch.actual_departure = nowISO;
-        patch.status = "active";
-        const offBlock = new Date(row.scheduled_departure).getTime() + ((row.delay_minutes as number) ?? 0) * 60_000;
-        const taxiStart = row.taxi_started_at ? Date.parse(row.taxi_started_at) : offBlock;
-        const taxiMinutes = Math.round((now - taxiStart) / 60_000);
-        if (taxiMinutes >= 0 && taxiMinutes <= 120) {
-          await sbService(env, "POST",
-            "/taxi_observations?on_conflict=flight_number,departure_iata,flight_date", {
-            departure_iata: row.departure_iata,
-            flight_number: row.flight_number,
-            flight_date: String(row.scheduled_departure).slice(0, 10),
-            hour_utc: new Date(offBlock).getUTCHours(),
-            taxi_minutes: taxiMinutes,
-            observed_at: nowISO,
-          });
-        }
-      }
-      await sbService(env, "PATCH", `/shared_flights?id=eq.${row.id}`, patch);
-    } catch (e) {
-      console.error("watchAircraft row failed:", row?.id, e);
-    }
-  }
 }
 
 /// Refresh provider-derived fields of shared_flights rows in their active
@@ -2522,7 +2436,8 @@ async function refreshSharedFlights(env: Env): Promise<void> {
   const rows = await sbSelect(env,
     "/shared_flights?select=id,flight_number,departure_iata,arrival_iata,scheduled_departure,scheduled_arrival," +
     "status,delay_minutes,departure_gate,arrival_gate,baggage_claim,updated_at,mode," +
-    "estimated_arrival,actual_departure,actual_arrival,est_takeoff,aircraft_registration,aircraft_icao24" +
+    "estimated_arrival,actual_departure,actual_arrival,est_takeoff,aircraft_registration,aircraft_icao24," +
+    "ground_state,ground_observed_at,taxi_started_at,live_source" +
     `&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}`
   ) as unknown as Record<string, any>[];
 
@@ -2573,10 +2488,46 @@ async function refreshSharedFlights(env: Env): Promise<void> {
       tsDiffers(leg["arr_actual"] ?? row.actual_arrival, row.actual_arrival) ||
       tsDiffers(leg["arr_actual"] ?? leg["arr_estimated"] ?? row.estimated_arrival, row.estimated_arrival) ||
       tsDiffers(leg["dep_runway_estimated"] ?? row.est_takeoff, row.est_takeoff) ||
-      (leg["aircraft_registration"] ?? row.aircraft_registration) !== row.aircraft_registration;
+      (leg["aircraft_registration"] ?? row.aircraft_registration) !== row.aircraft_registration ||
+      // A new sighting is itself news: it is what the friend's screen reads
+      // to say taxiing rather than flying.
+      (state !== "unknown" && (state !== row.ground_state || !row.ground_observed_at));
     if (!changed) continue;
+    // What the provider's own position block says the aircraft is doing.
+    // Same call, same key, no IP rate limit — this is how a friend sees
+    // "Taxiing" while the traveller's phone is in airplane mode, and how a
+    // take-off gets confirmed with nobody's app open at all.
+    const sample = leg["position"] as ReturnType<typeof adbPositionToSample>;
+    const sampleFresh = !!sample && now - Date.parse(sample.reportedAt) < 15 * 60_000;
+    const state = sampleFresh ? classifyGround(sample) : "unknown";
+    const ground: Record<string, unknown> = {};
+    if (state !== "unknown") {
+      ground.ground_state = state;
+      ground.ground_observed_at = sample!.reportedAt;
+      if (state === "taxiing" && !row.taxi_started_at) ground.taxi_started_at = sample!.reportedAt;
+      // The device owns the live position while it is still talking; once it
+      // has gone quiet the provider's is the better witness and friends'
+      // maps keep moving.
+      const deviceQuiet = !row.updated_at || now - Date.parse(row.updated_at) > 5 * 60_000;
+      if ((deviceQuiet || row.live_source === "provider") && sample!.lat != null) {
+        ground.live_lat = sample!.lat;
+        ground.live_lon = sample!.lon;
+        ground.live_altitude = sample!.altitude;
+        ground.live_speed = sample!.velocity;
+        ground.live_source = "provider";
+      }
+      if (state === "airborne" && !row.actual_departure) {
+        // First sighting off the ground IS the take-off, and it beats the
+        // provider's own runway time to the row by minutes.
+        ground.actual_departure = sample!.reportedAt;
+        await recordTaxiObservation(env, row, sample!.reportedAt);
+      }
+    }
+    const confirmedDeparture = (ground.actual_departure as string | undefined)
+      ?? row.actual_departure ?? leg["dep_actual"] ?? null;
     await sbService(env, "PATCH", `/shared_flights?id=eq.${row.id}`, {
-      status: row.actual_departure && leg["status"] !== "landed" && leg["status"] !== "cancelled"
+      ...ground,
+      status: confirmedDeparture && leg["status"] !== "landed" && leg["status"] !== "cancelled"
         && leg["status"] !== "diverted" ? "active" : leg["status"],
       delay_minutes: leg["delay"] ?? 0,
       // A provider null must not erase device-reported values — for ANY of
@@ -2587,9 +2538,10 @@ async function refreshSharedFlights(env: Env): Promise<void> {
       arrival_gate: leg["arr_gate"] ?? row.arrival_gate ?? null,
       baggage_claim: leg["arr_baggage"] ?? row.baggage_claim ?? null,
       estimated_arrival: leg["arr_actual"] ?? leg["arr_estimated"] ?? row.estimated_arrival ?? null,
-      // An ADS-B wheels-up already on the row is a better witness than the
-      // provider's (later, off-block-flavoured) fact: keep the earlier one.
-      actual_departure: row.actual_departure ?? leg["dep_actual"] ?? null,
+      // A wheels-up already established — by this cron's own sighting or by
+      // the traveller's device — is a better witness than the provider's
+      // (later, off-block-flavoured) fact: keep the earlier one.
+      actual_departure: confirmedDeparture,
       actual_arrival: leg["arr_actual"] ?? row.actual_arrival ?? null,
       est_takeoff: leg["dep_runway_estimated"] ?? row.est_takeoff ?? null,
       aircraft_registration: leg["aircraft_registration"] ?? row.aircraft_registration ?? null,

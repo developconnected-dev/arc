@@ -512,6 +512,30 @@ final class FlightTracker: ObservableObject {
                 flight.estimatedTakeoff = parsed
             }
             if let live = latest.dep_live { flight.departureLiveCovered = live }
+            // The provider's own position is a witness in its own right, and
+            // the only one available where a device cannot reach an ADS-B
+            // aggregator. Same path as a direct sighting: it can start the
+            // taxi clock, and it can confirm a take-off.
+            if let pos = latest.position,
+               let reported = DateHelpers.parseAPIDate(pos.reportedAt),
+               Date.now.timeIntervalSince(reported) < DepartureEvidence.freshWindow,
+               reported > (flight.groundObservedAt ?? .distantPast) {
+                let tookOff = flight.recordGroundSample(
+                    onGround: pos.on_ground, velocity: pos.velocity,
+                    altitude: pos.altitude, at: reported)
+                if let lat = pos.lat, let lon = pos.lon, flight.liveUpdatedAt ?? .distantPast < reported {
+                    flight.liveLat = lat
+                    flight.liveLon = lon
+                    flight.liveAltitude = pos.altitude
+                    flight.liveSpeed = pos.velocity
+                    flight.liveUpdatedAt = reported
+                }
+                if tookOff, flight.statusRaw != FlightStatus.active.rawValue {
+                    let oldStatus = flight.statusRaw
+                    flight.statusRaw = FlightStatus.active.rawValue
+                    await handleStatusChange(flight: flight, from: oldStatus)
+                }
+            }
             // A source that WOULD have reported a take-off and didn't is a
             // sighting on the ground: it rolls the expected wheels-up forward
             // rather than letting a timetable decide in its absence.

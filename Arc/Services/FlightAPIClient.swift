@@ -47,6 +47,12 @@ actor FlightAPIClient {
         /// Whether the provider has live coverage of this departure. Without
         /// it, no take-off confirmation will ever arrive.
         var dep_live: Bool? = nil
+        /// Where the aircraft actually is, per the provider's own position
+        /// block. A second witness to the gate-to-runway question that needs
+        /// no ADS-B aggregator — which matters because the aggregators are
+        /// unreachable from the Worker and can be unreachable from a device
+        /// on a restricted network too.
+        var position: ProviderPosition? = nil
         let status: String
         let dep_gate: String?
         let dep_terminal: String?
@@ -441,6 +447,18 @@ actor FlightAPIClient {
     }
 
     // MARK: - Live Position (ADS-B, via the Worker's /position)
+
+    /// The provider's own position for a leg, in the units Arc speaks
+    /// (metres, m/s). `on_ground` is derived server-side from the reported
+    /// altitude — see `adbPositionToSample` in the Worker.
+    struct ProviderPosition: Codable, Sendable {
+        let on_ground: Bool
+        let velocity: Double
+        let altitude: Double
+        let lat: Double?
+        let lon: Double?
+        let reportedAt: String
+    }
 
     struct LivePosition: Codable, Sendable {
         let icao24: String
