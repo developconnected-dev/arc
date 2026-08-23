@@ -157,7 +157,8 @@ enum DemoSeed {
         let args = ProcessInfo.processInfo.arguments
         guard args.contains("-laDemo") || args.contains("-laDemoLanding") || args.contains("-laDemoTakeoff")
                 || args.contains("-laDemoPreflight") || args.contains("-laDemoLanded")
-                || args.contains("-laDemoAtAirport") else { return }
+                || args.contains("-laDemoAtAirport") || args.contains("-laDemoTaxi")
+                || args.contains("-laDemoPresumed") else { return }
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         Task { @MainActor in
             // Relaunching the demo must replace the card, not stack another —
@@ -183,6 +184,42 @@ enum DemoSeed {
             flightNumber: "B6 416", departureIATA: "SFO", arrivalIATA: "JFK",
             departureCity: "San Francisco", arrivalCity: "New York",
             airline: "JetBlue", aircraftType: "Airbus A321", seat: "1A")
+
+        // -laDemoTaxi: pushed back 14 minutes ago at an airport that takes 35
+        // minutes to taxi, provider already saying "Departed" (off-block).
+        // The case that started all of this: everything used to read "In
+        // Air"; it must read "Taxiing…" with the elapsed time and the
+        // expected wheels-up.
+        // -laDemoPresumed: past the expected wheels-up with nothing
+        // confirmed — in-flight layout, but nothing stated as fact.
+        if args.contains("-laDemoTaxi") || args.contains("-laDemoPresumed") {
+            let presumed = args.contains("-laDemoPresumed")
+            let offBlock = Date.now.addingTimeInterval(presumed ? -52 * 60 : -14 * 60)
+            var state = FlightActivityAttributes.ContentState(
+                status: "active",
+                departureTime: offBlock,
+                arrivalTime: offBlock.addingTimeInterval(5 * 3600),
+                boardingTime: nil, securityWaitMinutes: nil,
+                delayMinutes: 0, arrivalDelayMinutes: 0,
+                insight: nil,
+                companions: [.init(name: "Anna", seat: "14B", avatarFile: demoAvatar("A", 0xE0876A))],
+                departureGate: "B7", departureTerminal: "2",
+                arrivalGate: nil, arrivalTerminal: "5", baggageClaim: nil,
+                altitude: nil, speed: nil, heading: nil, progress: 0)
+            state.offBlock = offBlock
+            state.taxiPriorMinutes = 35
+            if !presumed {
+                state.groundState = "taxiing"
+                state.taxiStartedAt = offBlock.addingTimeInterval(60)
+                state.groundObservedAt = .now.addingTimeInterval(-30)
+            }
+            _ = try? Activity.request(
+                attributes: attrs,
+                content: .init(state: state,
+                               staleDate: max(state.expectedWheelsUp, .now.addingTimeInterval(60))),
+                pushType: nil)
+            return
+        }
         // -laDemoAtAirport: inside the Directions cutoff (T-55min), gate
         // assigned, boarding in 20 — the "walk to your gate" face of the
         // pre-departure card: boarding time + yellow gate badge, no pill.
