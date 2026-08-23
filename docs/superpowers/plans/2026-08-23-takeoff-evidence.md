@@ -12,6 +12,21 @@
 
 ---
 
+## Status (2026-08-23)
+
+**Done and verified on real flights (KL1920 and LX638, both ZRH departures):**
+- Phase 1 — backend: `confirmedRunwayTime` tightened, `dep_runway_estimated`/`dep_live`, `ground.ts`, migration 016, `/taxi/prior`, share-page evidence. Deployed.
+- Phase 2 — `DepartureEvidence` + Flight/WidgetFlight/ContentState wiring; app, widget and Live Activity surfaces; search results and the aircraft card.
+- Phase 3 — friends: shared-row evidence, `FriendFlightMath.departurePhase`/`isUnderway`, feed chip and map bubble. Verified on two simulators with a real shared flight.
+
+**Blocked / changed from the original plan:**
+- The Worker cannot read any free ADS-B aggregator (adsb.lol 429, adsb.fi 403, airplanes.live 403 — Cloudflare shares egress IPs). `watchAircraft` is written and gated behind an `ADSB_CONTACT` secret; **devices do the watching instead**, from their own IPs. One whitelisting email to a source turns the server path on.
+- Consequence: with the app closed AND no friend watching, nobody observes the take-off. That gap is what Phase 4 closes for the flyer.
+
+**Not started:** Phase 4 (on-device barometer/motion take-off detection).
+
+---
+
 ## File map
 
 **Backend (`backend/`)**
