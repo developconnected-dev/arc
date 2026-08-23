@@ -40,7 +40,11 @@ struct NextFlightProvider: TimelineProvider {
         // works with the app closed AND the device offline.
         var entries = [NextFlightEntry(date: now, flight: next, all: flights)]
         if let f = next {
-            let flips = [f.effectiveDeparture, f.effectiveArrival]
+            // The third flip is the end of the departing grace: an
+            // unconfirmed departure reads "Departing" for 20 minutes and
+            // only then commits to "In Air" (see isDepartingUnconfirmed).
+            var flips = [f.effectiveDeparture, f.effectiveArrival]
+            if f.actualDeparture == nil { flips.append(f.effectiveDeparture.addingTimeInterval(20 * 60)) }
             for moment in flips where moment > now {
                 entries.append(NextFlightEntry(date: moment, flight: f, all: flights))
             }
@@ -160,7 +164,7 @@ struct NextFlightSmallView: View {
                         Circle()
                             .fill(statusColor(flight, phase: phase))
                             .frame(width: 6, height: 6)
-                        Text(flight.statusText(phase: phase))
+                        Text(flight.statusText(phase: phase, at: entry.date))
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.secondary)
                     }
@@ -210,6 +214,8 @@ struct NextFlightSmallView: View {
     private func statusColor(_ flight: WidgetFlight, phase: WidgetFlight.Phase) -> Color {
         if flight.isDisrupted { return .red }
         if !flight.reportsPunctuality { return .secondary }
+        // Green is "it left" — withheld while the departure is only the clock's word.
+        if flight.isDepartingUnconfirmed(at: entry.date) { return .secondary }
         if phase != .upcoming { return .green }
         if flight.showsPrediction || flight.delayMinutes > 0 { return .orange }
         return .green
@@ -442,7 +448,7 @@ struct NextFlightMediumView: View {
             let color = statusColor(f, phase: phase)
             HStack(spacing: 4) {
                 Circle().fill(color).frame(width: 6, height: 6)
-                Text(f.statusText(phase: phase))
+                Text(f.statusText(phase: phase, at: entry.date))
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(color)
             }
@@ -545,6 +551,8 @@ struct NextFlightMediumView: View {
     private func statusColor(_ flight: WidgetFlight, phase: WidgetFlight.Phase) -> Color {
         if flight.isDisrupted { return .red }
         if !flight.reportsPunctuality { return .secondary }
+        // Green is "it left" — withheld while the departure is only the clock's word.
+        if flight.isDepartingUnconfirmed(at: entry.date) { return .secondary }
         if phase != .upcoming { return .green }
         if flight.showsPrediction || flight.delayMinutes > 0 { return .orange }
         return .green

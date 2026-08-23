@@ -368,6 +368,68 @@ final class WidgetFlightTests: XCTestCase {
         XCTAssertEqual(f.phase(at: .now), .landed)
     }
 
+    // MARK: - Departing hedge — the home widget used to flip to "In Air" on
+    // the clock alone, while the app, the Live Activity and the friends feed
+    // all said "Departing" for 20 minutes. Same window, same rule, so the four
+    // surfaces can't disagree about whether the flight has left.
+
+    func testWidgetHedgesUnconfirmedDepartureForTwentyMinutes() {
+        let f = widgetFlight(status: "active", depOffset: -600)   // clock-flipped, no take-off reported
+        let dep = f.effectiveDeparture
+        XCTAssertTrue(f.isDepartingUnconfirmed(at: dep.addingTimeInterval(60)))
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: dep.addingTimeInterval(60)), "Departing")
+        XCTAssertTrue(f.isDepartingUnconfirmed(at: dep.addingTimeInterval(19 * 60)))
+        // Past the grace the widget commits, like every other surface.
+        XCTAssertFalse(f.isDepartingUnconfirmed(at: dep.addingTimeInterval(21 * 60)))
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: dep.addingTimeInterval(21 * 60)), "In Air")
+    }
+
+    func testWidgetHedgeAppliesToClockFlippedStaleStatusToo() {
+        // Stored status still "scheduled" (app not opened), entry date past departure.
+        let f = widgetFlight(status: "scheduled", depOffset: 3600)
+        let at = f.effectiveDeparture.addingTimeInterval(5 * 60)
+        XCTAssertEqual(f.phase(at: at), .inFlight)
+        XCTAssertTrue(f.isDepartingUnconfirmed(at: at))
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: at), "Departing")
+    }
+
+    func testWidgetConfirmedTakeoffEndsTheHedge() {
+        var f = widgetFlight(status: "active", depOffset: -600)
+        f.actualDeparture = f.scheduledDeparture.addingTimeInterval(120)
+        let at = f.effectiveDeparture.addingTimeInterval(60)
+        XCTAssertFalse(f.isDepartingUnconfirmed(at: at))
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: at), "In Air")
+    }
+
+    func testWidgetHedgeNeverBeforeDepartureOrAfterArrival() {
+        let f = widgetFlight(status: "scheduled", depOffset: 3600)
+        XCTAssertFalse(f.isDepartingUnconfirmed(at: f.effectiveDeparture.addingTimeInterval(-60)))
+        XCTAssertFalse(f.isDepartingUnconfirmed(at: f.effectiveArrival.addingTimeInterval(60)))
+    }
+
+    func testWidgetSnapshotWithoutActualDepartureStillDecodes() throws {
+        // Snapshots written before the field existed must keep loading —
+        // a decode failure renders as an empty widget the user can't fix.
+        let f = widgetFlight(status: "active", depOffset: -600)
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(f)) as! [String: Any]
+        XCTAssertNil(json["actualDeparture"])
+        json.removeValue(forKey: "actualDeparture")
+        let decoded = try JSONDecoder().decode(WidgetFlight.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertNil(decoded.actualDeparture)
+
+        var confirmed = f
+        confirmed.actualDeparture = f.scheduledDeparture
+        let round = try JSONDecoder().decode(WidgetFlight.self, from: JSONEncoder().encode(confirmed))
+        XCTAssertEqual(round.actualDeparture?.timeIntervalSince1970 ?? -1, f.scheduledDeparture.timeIntervalSince1970, accuracy: 0.001)
+    }
+
+    func testWidgetSnapshotCarriesTheAppsActualDeparture() {
+        let flight = Flight(flightNumber: "LX14", date: .now)
+        flight.status = .active
+        flight.actualDeparture = flight.scheduledDeparture.addingTimeInterval(180)
+        XCTAssertEqual(WidgetFlight(flight).actualDeparture, flight.actualDeparture)
+    }
+
     func testStatusTextShowsArcPredictionWhenAheadOfAirline() {
         var f = widgetFlight(status: "scheduled", depOffset: 3600)
         f.predictedDelayMinutes = 32

@@ -70,6 +70,10 @@ struct WidgetFlight: Identifiable {
     /// When these facts were last confirmed against a source. Drives the
     /// "as of" honesty line and the widget's own refresh decisions.
     var updatedAt: Date? = nil
+    /// A take-off some source actually reported. Its absence is what keeps
+    /// the widget saying "Departing" for the first 20 minutes instead of
+    /// asserting "In Air" on the strength of the clock alone.
+    var actualDeparture: Date? = nil
 
     /// Status-only, no clock comparison — mirrors Flight.isUpcoming. The old
     /// `&& scheduledDeparture > .now` had the same dead zone the app model
@@ -122,11 +126,23 @@ struct WidgetFlight: Identifiable {
         return status == "landed" ? mode.arrivedVerb : "Arriving"
     }
 
-    func statusText(phase: Phase) -> String {
+    /// Past the (delayed) departure by the clock, but nobody has reported a
+    /// take-off. Same 20-minute window as `Flight.isDepartingUnconfirmed` and
+    /// the Live Activity's departing grace: inside it the widget hedges
+    /// ("Departing", no green), past it it commits to the leg being underway.
+    /// Takes the moment explicitly because widget entries render at future
+    /// dates, never at Date.now.
+    func isDepartingUnconfirmed(at date: Date) -> Bool {
+        guard actualDeparture == nil, phase(at: date) == .inFlight else { return false }
+        return date >= effectiveDeparture
+            && date < effectiveDeparture.addingTimeInterval(20 * 60)
+    }
+
+    func statusText(phase: Phase, at date: Date = .now) -> String {
         if status == "cancelled" { return "Cancelled" }
         if status == "diverted" { return "Diverted" }
         switch phase {
-        case .inFlight: return mode.inTransitTitle
+        case .inFlight: return isDepartingUnconfirmed(at: date) ? "Departing" : mode.inTransitTitle
         case .landed: return status == "landed" ? mode.arrivedVerb : "\(mode.arrivingVerb) soon"
         case .upcoming:
             if showsPrediction { return "Arc +\(predictedDelayMinutes)m" }
@@ -210,7 +226,7 @@ extension WidgetFlight: Codable {
         case status, delayMinutes, departureGate, progress, predictedDelayMinutes
         case mode, dataTier
         case departureTerminal, arrivalGate, arrivalTerminal, baggageClaim
-        case estimatedArrival, departureTZ, arrivalTZ, updatedAt
+        case estimatedArrival, departureTZ, arrivalTZ, updatedAt, actualDeparture
     }
 
     init(from decoder: Decoder) throws {
@@ -239,6 +255,7 @@ extension WidgetFlight: Codable {
         departureTZ = try c.decodeIfPresent(String.self, forKey: .departureTZ)
         arrivalTZ = try c.decodeIfPresent(String.self, forKey: .arrivalTZ)
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
+        actualDeparture = try c.decodeIfPresent(Date.self, forKey: .actualDeparture)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -267,5 +284,6 @@ extension WidgetFlight: Codable {
         try c.encodeIfPresent(departureTZ, forKey: .departureTZ)
         try c.encodeIfPresent(arrivalTZ, forKey: .arrivalTZ)
         try c.encodeIfPresent(updatedAt, forKey: .updatedAt)
+        try c.encodeIfPresent(actualDeparture, forKey: .actualDeparture)
     }
 }
