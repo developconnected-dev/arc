@@ -536,6 +536,22 @@ final class FlightTenseTests: XCTestCase {
         XCTAssertEqual(f.arrivalRelText, "Arrived")
     }
 
+    /// A habit is not an assignment: the usual-gate guess shows only while
+    /// the airline hasn't gated the flight, and a filed gate replaces it.
+    func testPredictedGateYieldsToRealGate() {
+        let f = flight(depIn: 5 * 3600)
+        f.predictedDepartureGate = "B39"
+        XCTAssertTrue(f.showsPredictedGate)
+        f.departureGate = "A54"
+        XCTAssertFalse(f.showsPredictedGate)
+        f.departureGate = nil
+        f.status = .active
+        XCTAssertFalse(f.showsPredictedGate, "once underway there is no walk to plan")
+        f.status = .scheduled
+        f.mode = .rail
+        XCTAssertFalse(f.showsPredictedGate, "the flywheel only knows airports")
+    }
+
     /// What happened beats what was predicted.
     func testActualArrivalBeatsStaleEstimate() {
         let f = flight(depIn: -4 * 3600, status: .landed)
@@ -573,5 +589,23 @@ final class FlightTenseTests: XCTestCase {
         let live = flight(depIn: 3600, tier: .live)
         live.lastStatusUpdate = .now
         XCTAssertTrue(live.dataFreshnessText.hasPrefix("Live"))
+    }
+}
+
+// MARK: - Gate prediction confidence
+
+final class GatePredictionTests: XCTestCase {
+    private typealias P = FlightAPIClient.GatePrediction
+
+    /// The one confidence bar every consumer shares: three sightings and half
+    /// agreement, or the "usual gate" is noise dressed as knowledge.
+    func testConfidenceBar() {
+        XCTAssertTrue(P(gate: "B39", terminal: "1", agreeing: 3, samples: 4, confidence: 0.75).isConfident)
+        XCTAssertFalse(P(gate: "B39", terminal: nil, agreeing: 2, samples: 2, confidence: 1.0).isConfident,
+                       "two sightings prove nothing, however unanimous")
+        XCTAssertFalse(P(gate: "B39", terminal: nil, agreeing: 2, samples: 5, confidence: 0.4).isConfident,
+                       "a gate seen twice in five is not a pattern")
+        XCTAssertFalse(P(gate: nil, terminal: "1", agreeing: 0, samples: 0, confidence: 0).isConfident)
+        XCTAssertFalse(P(gate: "", terminal: nil, agreeing: 3, samples: 3, confidence: 1.0).isConfident)
     }
 }

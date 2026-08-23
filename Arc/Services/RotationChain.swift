@@ -84,7 +84,12 @@ enum RotationChain {
                 depIATA: leg.dep_iata,
                 arrIATA: leg.arr_iata,
                 scheduledArrival: DateHelpers.parseAPIDate(leg.arr_scheduled),
-                actualArrival: DateHelpers.parseAPIDate(leg.arr_actual),
+                // This field is the chain's best-known arrival, not a landing
+                // claim (the doc on the struct says so): a published revision
+                // serves that purpose exactly as well as a runway time, so
+                // keep feeding it now that the two travel separately.
+                actualArrival: DateHelpers.parseAPIDate(leg.arr_actual)
+                    ?? DateHelpers.parseAPIDate(leg.arr_estimated),
                 delayMinutes: leg.delay ?? 0,
                 status: leg.status,
                 scheduledDeparture: DateHelpers.parseAPIDate(leg.dep_scheduled)))

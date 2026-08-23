@@ -74,6 +74,14 @@ function mapLeg(f: Record<string, any>): Record<string, unknown> {
   const depRev = dep.revisedTime?.utc ?? dep.revisedTime?.local ?? depSched;
   const arrSched = arr.scheduledTime?.utc ?? arr.scheduledTime?.local;
   const arrRev = arr.revisedTime?.utc ?? arr.revisedTime?.local ?? arrSched;
+  // runwayTime is the wheels-up/wheels-down FACT; revisedTime is a published
+  // ESTIMATE that airlines file before anything has moved. The two used to be
+  // conflated into *_actual, so a delayed flight still sitting at the gate
+  // carried an "actual departure" — which is exactly the field the app treats
+  // as "confirmed departed" (it ends the Departing hedge and flips every
+  // surface to past tense). Facts and estimates now travel separately.
+  const depRunway = dep.runwayTime?.utc ?? dep.runwayTime?.local ?? null;
+  const arrRunway = arr.runwayTime?.utc ?? arr.runwayTime?.local ?? null;
   return {
     flight_number: String(f.number ?? "").replace(/\s+/g, ""),
     airline_name: air.name ?? "",
@@ -91,8 +99,10 @@ function mapLeg(f: Record<string, any>): Record<string, unknown> {
     arr_terminal: arr.terminal ?? null,
     arr_baggage: arr.baggageBelt ?? null,
     delay: delayMinutes(depSched, depRev),
-    dep_actual: depRev !== depSched ? toISO(depRev) : null,
-    arr_actual: arrRev !== arrSched ? toISO(arrRev) : null,
+    dep_actual: depRunway ? toISO(depRunway) : null,
+    arr_actual: arrRunway ? toISO(arrRunway) : null,
+    dep_estimated: depRev !== depSched ? toISO(depRev) : null,
+    arr_estimated: arrRev !== arrSched ? toISO(arrRev) : null,
     aircraft_type: ac.model ?? null,
     aircraft_registration: ac.reg ?? null,
     aircraft_icao24: ac.modeS ?? null,
@@ -1553,7 +1563,11 @@ export default {
   // most every 5 minutes per flight (metered), and phase transitions
   // (scheduled→active→landed) are derived from the clock in between.
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    if (!apnsConfigured(env) || !env.SUPABASE_SERVICE_KEY) return;
+    // Only Supabase is required to run at all. APNs gates the PUSH loops
+    // inside — it used to gate everything, which also silenced the
+    // shared_flights refresher, so friends' rows froze whenever the traveler
+    // closed the app, for a key the refresher never needed.
+    if (!env.SUPABASE_SERVICE_KEY) return;
     ctx.waitUntil(runLiveActivityCron(env));
   },
 };
@@ -2244,34 +2258,37 @@ interface TokenRow {
 }
 
 async function runLiveActivityCron(env: Env): Promise<void> {
-  const rows = await sbSelect(env, "/live_activity_tokens?select=*") as unknown as TokenRow[];
-  const updateRows = rows.filter(r => r.token_type === "update" && r.flight_number && r.scheduled_departure);
+  // The push loops need APNs; the shared_flights refresher below does not.
+  if (apnsConfigured(env)) {
+    const rows = await sbSelect(env, "/live_activity_tokens?select=*") as unknown as TokenRow[];
+    const updateRows = rows.filter(r => r.token_type === "update" && r.flight_number && r.scheduled_departure);
 
-  // Stay under Cloudflare's 50-subrequests-per-invocation cap: a refresh
-  // tick costs up to ~8 subrequests per row, and rows come back in stable DB
-  // order — an unbounded loop over many tokens starved the SAME tail of
-  // users on every single invocation once the cap threw. Shuffle and cap;
-  // the cron runs every minute, so the rest are simply next in line.
-  const shuffled = [...updateRows];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  for (const row of shuffled.slice(0, 15)) {
-    try {
-      await pushUpdateForRow(env, row);
-    } catch { /* keep the loop alive for other rows */ }
-  }
+    // Stay under Cloudflare's 50-subrequests-per-invocation cap: a refresh
+    // tick costs up to ~8 subrequests per row, and rows come back in stable DB
+    // order — an unbounded loop over many tokens starved the SAME tail of
+    // users on every single invocation once the cap threw. Shuffle and cap;
+    // the cron runs every minute, so the rest are simply next in line.
+    const shuffled = [...updateRows];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    for (const row of shuffled.slice(0, 15)) {
+      try {
+        await pushUpdateForRow(env, row);
+      } catch { /* keep the loop alive for other rows */ }
+    }
 
-  // Push-to-start: begin a Live Activity server-side for flights entering the
-  // 3h window, even if the app hasn't been opened. Upcoming flights come from
-  // user_flights (the signed-in cloud mirror); without sign-in the app's own
-  // local 3h check still covers the app-was-opened-recently case.
-  const startRows = rows.filter(r => r.token_type === "start");
-  if (startRows.length > 0) {
-    try {
-      await pushStarts(env, startRows, updateRows);
-    } catch { /* best-effort */ }
+    // Push-to-start: begin a Live Activity server-side for flights entering the
+    // 3h window, even if the app hasn't been opened. Upcoming flights come from
+    // user_flights (the signed-in cloud mirror); without sign-in the app's own
+    // local 3h check still covers the app-was-opened-recently case.
+    const startRows = rows.filter(r => r.token_type === "start");
+    if (startRows.length > 0) {
+      try {
+        await pushStarts(env, startRows, updateRows);
+      } catch { /* best-effort */ }
+    }
   }
 
   // Friend-facing flight rows: shared_flights is only ever written by the
@@ -2293,7 +2310,8 @@ async function refreshSharedFlights(env: Env): Promise<void> {
   const to = new Date(now + 4 * 3600_000).toISOString();
   const rows = await sbSelect(env,
     "/shared_flights?select=id,flight_number,departure_iata,arrival_iata,scheduled_departure,scheduled_arrival," +
-    `status,delay_minutes,departure_gate,arrival_gate,baggage_claim,updated_at,mode&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}`
+    "status,delay_minutes,departure_gate,arrival_gate,baggage_claim,updated_at,mode," +
+    `estimated_arrival,actual_departure,actual_arrival&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}`
   ) as unknown as Record<string, any>[];
 
   const active = rows.filter(r => {
@@ -2325,22 +2343,37 @@ async function refreshSharedFlights(env: Env): Promise<void> {
       l["dep_iata"] === row.departure_iata && l["arr_iata"] === row.arrival_iata
     ) ?? (legs && legs.length > 0 ? legs[0] : null);
     if (!leg) continue;
+    // Timestamps compare by instant, not string: the provider writes "…Z",
+    // PostgREST reads back "…+00:00", and a string comparison would call
+    // every unchanged row changed on every tick.
+    const tsDiffers = (a: unknown, b: unknown): boolean => {
+      const ta = a ? Date.parse(String(a)) : NaN;
+      const tb = b ? Date.parse(String(b)) : NaN;
+      return (isNaN(ta) ? null : ta) !== (isNaN(tb) ? null : tb);
+    };
     const changed =
       leg["status"] !== row.status ||
       (leg["delay"] ?? 0) !== row.delay_minutes ||
       (leg["dep_gate"] ?? row.departure_gate) !== row.departure_gate ||
       (leg["arr_gate"] ?? row.arrival_gate) !== row.arrival_gate ||
-      (leg["arr_baggage"] ?? row.baggage_claim) !== row.baggage_claim;
+      (leg["arr_baggage"] ?? row.baggage_claim) !== row.baggage_claim ||
+      tsDiffers(leg["dep_actual"] ?? row.actual_departure, row.actual_departure) ||
+      tsDiffers(leg["arr_actual"] ?? row.actual_arrival, row.actual_arrival) ||
+      tsDiffers(leg["arr_actual"] ?? leg["arr_estimated"] ?? row.estimated_arrival, row.estimated_arrival);
     if (!changed) continue;
     await sbService(env, "PATCH", `/shared_flights?id=eq.${row.id}`, {
       status: leg["status"],
       delay_minutes: leg["delay"] ?? 0,
-      // A provider null must not erase device-reported values.
+      // A provider null must not erase device-reported values — for ANY of
+      // these. estimated/actual used to be written `?? null`, so one provider
+      // response without them blanked what the traveler's device had already
+      // reported, and their friends watched a confirmed departure un-confirm.
       departure_gate: leg["dep_gate"] ?? row.departure_gate ?? null,
       arrival_gate: leg["arr_gate"] ?? row.arrival_gate ?? null,
       baggage_claim: leg["arr_baggage"] ?? row.baggage_claim ?? null,
-      estimated_arrival: leg["arr_actual"] ?? null,
-      actual_departure: leg["dep_actual"] ?? null,
+      estimated_arrival: leg["arr_actual"] ?? leg["arr_estimated"] ?? row.estimated_arrival ?? null,
+      actual_departure: leg["dep_actual"] ?? row.actual_departure ?? null,
+      actual_arrival: leg["arr_actual"] ?? row.actual_arrival ?? null,
       updated_at: new Date().toISOString(),
     });
     } catch (e) {
@@ -2354,7 +2387,13 @@ async function refreshSharedFlights(env: Env): Promise<void> {
 /// ticks between refreshes cost nothing — they're computed from stored
 /// times. Only the windows where data really moves get tight cadence.
 function cronRefreshIntervalMs(depMs: number, arrMs: number, now: number): number {
-  if (now < depMs + 20 * 60_000) return 10 * 60_000;        // pre-dep + departure
+  if (now < depMs - 90 * 60_000) return 10 * 60_000;        // pre-departure, far
+  // Gate assignment and boarding land in the last ~hour; a 10-minute cron
+  // hold on top of the 5-minute cache TTL is how Arc told someone their
+  // gate a quarter hour after the airline's own app did. The fetch rides
+  // the shared cache, so tightening here costs one provider call per TTL
+  // window at most, shared with every device asking about the same flight.
+  if (now < depMs + 20 * 60_000) return 5 * 60_000;         // gate/boarding/departure
   if (now < arrMs - 45 * 60_000) return 30 * 60_000;        // cruise
   return 10 * 60_000;                                        // arrival window
 }

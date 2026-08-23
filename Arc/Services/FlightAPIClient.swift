@@ -35,6 +35,11 @@ actor FlightAPIClient {
         let arr_scheduled: String
         let dep_actual: String?
         let arr_actual: String?
+        /// The provider's revised (estimated) arrival, when one is published.
+        /// Kept apart from `arr_actual`, which since the runway-time fix means
+        /// a CONFIRMED landing — an estimate must never impersonate a fact.
+        /// Optional with a default: older backends don't send it.
+        var arr_estimated: String? = nil
         let status: String
         let dep_gate: String?
         let dep_terminal: String?
@@ -586,6 +591,36 @@ actor FlightAPIClient {
     /// is free-tier-safe by design.
     func observeGates(_ bodyJSON: Data) async {
         await postJSON(path: "/gates/observe", data: bodyJSON)
+    }
+
+    /// What the flywheel knows about a flight number's usual gate at an
+    /// airport, per the Worker's `/gates/predict`.
+    struct GatePrediction: Codable, Sendable {
+        let gate: String?
+        let terminal: String?
+        let agreeing: Int
+        let samples: Int
+        let confidence: Double
+
+        /// One bar for every consumer (flight detail, Connection Assistant):
+        /// below three sightings or half agreement, the "usual gate" is noise
+        /// rather than a pattern, and showing it would be inventing a fact.
+        var isConfident: Bool {
+            gate?.isEmpty == false && samples >= 3 && confidence >= 0.5
+        }
+    }
+
+    /// The observed-gate history's verdict for one flight at one airport.
+    /// `direction` is "dep" or "arr" — which end of the leg the airport is.
+    func gatePrediction(flight: String, airport: String,
+                        direction: String) async -> GatePrediction? {
+        let url = baseURL.appending(path: "/gates/predict").appending(queryItems: [
+            .init(name: "flight", value: flight.replacingOccurrences(of: " ", with: "")),
+            .init(name: direction, value: airport),
+        ])
+        guard let (data, response) = try? await session.data(from: url),
+              let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+        return try? JSONDecoder().decode(GatePrediction.self, from: data)
     }
 
     /// Matches an airline-reported gate ("A54", "54", "B 12") against OSM
