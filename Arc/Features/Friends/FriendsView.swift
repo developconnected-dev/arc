@@ -714,6 +714,10 @@ struct FriendFlightRow: View {
                     .font(.system(size: 9, weight: .heavy)).tracking(0.5)
                     .foregroundStyle(airborne ? ArcTheme.action : .secondary)
                     .lineLimit(1)
+                    // "DEPARTING" and "TAXIING" are longer than the "IN AIR"
+                    // this column was sized for, and a truncated status word
+                    // is worse than a slightly smaller one.
+                    .minimumScaleFactor(0.7)
                     .contentTransition(.numericText())
                     .animation(.default, value: statusMini(at: context.date))
             }
