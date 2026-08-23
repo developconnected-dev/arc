@@ -9,18 +9,25 @@ struct FlightLiveActivity: Widget {
             lockScreenView(context: context)
                 // Tap the card (not the Directions pill) → that flight.
                 .widgetURL(ArcDeepLink.url(for: context.attributes))
-                // Without a tint iOS falls back to its default dark material,
-                // so the card was dark even for light-mode users. The tint is
-                // trait-resolved: near-opaque WHITE in light (translucent
-                // white over the system's dark blur just looked gray), and a
-                // frosted translucent black in dark that keeps the wallpaper
-                // glow.
-                .activityBackgroundTint(Color(uiColor: UIColor { traits in
-                    traits.userInterfaceStyle == .dark
-                        ? UIColor.black.withAlphaComponent(0.6)
-                        : UIColor.white.withAlphaComponent(0.95)
-                }))
-                .activitySystemActionForegroundColor(.primary)
+                // ONE appearance, always the dark card.
+                //
+                // The tint used to be trait-resolved — near-white in light
+                // mode, frosted black in dark — and that produced the bug:
+                // iOS resolves this tint against the SYSTEM appearance, but
+                // renders the card's CONTENT against the surface it is drawn
+                // on, which on the lock screen and in Notification Center is
+                // treated as dark. A light-mode user got white text on a
+                // near-white card and could read none of it.
+                //
+                // Keeping two palettes in sync across every state of this
+                // view (departing, taxiing, in-flight, landed, plus the
+                // intelligence gradients) is a standing invitation for that
+                // mismatch to come back, so there is now one card. The 0.6
+                // black stays translucent, which keeps the wallpaper glow on
+                // both light and dark wallpapers.
+                .environment(\.colorScheme, .dark)
+                .activityBackgroundTint(Color.black.opacity(0.6))
+                .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             let phase = effectivePhase(context.state)
             return DynamicIsland {
