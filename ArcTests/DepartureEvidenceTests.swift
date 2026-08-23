@@ -81,6 +81,13 @@ final class DepartureEvidenceTests: XCTestCase {
         XCTAssertEqual(e.phase(at: at(55)), .departing)
     }
 
+    /// Most of a long taxi is spent stopped in the queue for the runway.
+    /// Having started to roll, a stationary sample is still the taxi.
+    func testAPauseInTheQueueIsStillTaxiing() {
+        let e = evidence(groundState: "at_gate", groundObservedAt: at(20), taxiStartedAt: at(6))
+        XCTAssertEqual(e.phase(at: at(21)), .taxiing(since: at(6)))
+    }
+
     /// Evidence rots. An hour-old sighting says nothing about now, so the
     /// clock takes over again rather than pinning the flight to the gate.
     func testStaleGroundObservationStopsCounting() {
