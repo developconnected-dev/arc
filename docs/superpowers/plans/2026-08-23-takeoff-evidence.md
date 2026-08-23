@@ -19,9 +19,10 @@
 - Phase 2 — `DepartureEvidence` + Flight/WidgetFlight/ContentState wiring; app, widget and Live Activity surfaces; search results and the aircraft card.
 - Phase 3 — friends: shared-row evidence, `FriendFlightMath.departurePhase`/`isUnderway`, feed chip and map bubble. Verified on two simulators with a real shared flight.
 
-**Blocked / changed from the original plan:**
-- The Worker cannot read any free ADS-B aggregator (adsb.lol 429, adsb.fi 403, airplanes.live 403 — Cloudflare shares egress IPs). `watchAircraft` is written and gated behind an `ADSB_CONTACT` secret; **devices do the watching instead**, from their own IPs. One whitelisting email to a source turns the server path on.
-- Consequence: with the app closed AND no friend watching, nobody observes the take-off. That gap is what Phase 4 closes for the flyer.
+**Changed from the original plan — the server witness needed no aggregator at all:**
+- Every free ADS-B aggregator refuses Cloudflare's shared egress (adsb.lol 429, adsb.fi 403, airplanes.live 403). Rather than wait on a whitelisting email, the witness now reads the `location` block **AeroDataBox already returns** on the leg call (`withLocation=true` was always in the URL; the answer was discarded). It covers aircraft on the ground, costs no extra quota, and is authenticated by the existing key.
+- `watchAircraft` and its ADS-B dependency are deleted; `refreshSharedFlights` does the watching. Verified live: with the flyer's app killed, the friend's sheet read "Live • 4m ago" — the row was being written by the cron.
+- Devices remain the faster witness (device ADS-B confirmed a take-off ~1 min before the provider), with the provider position as the fallback for networks that cannot reach an aggregator.
 
 **Not started:** Phase 4 (on-device barometer/motion take-off detection).
 
