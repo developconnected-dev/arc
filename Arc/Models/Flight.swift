@@ -112,6 +112,26 @@ final class Flight {
     var predictedDepartureGate: String?
     var predictedDepartureTerminal: String?
 
+    // MARK: - Departure evidence
+    //
+    // What Arc actually knows about whether this leg has left the ground —
+    // see `DepartureEvidence`. All optional: SwiftData migrates them in as
+    // nil, and nil simply means "no evidence, fall back to the clock".
+
+    /// The provider's own estimate of wheels-up, while it is still unconfirmed.
+    var estimatedTakeoff: Date?
+    /// Last ADS-B classification: at_gate / taxiing / airborne.
+    var groundStateRaw: String?
+    var groundObservedAt: Date?
+    /// When the aircraft was first seen rolling — what "Taxiing for 14m" counts from.
+    var taxiStartedAt: Date?
+    /// The last moment a source that could have reported a departure showed none.
+    var lastSeenOnGround: Date?
+    /// This airport's learned taxi-out for this hour, from /taxi/prior.
+    var taxiPriorMinutes: Int?
+    /// Whether the provider has live coverage of this departure at all.
+    var departureLiveCovered: Bool?
+
     // Aircraft
     var aircraftType: String?            // e.g. "Airbus A340-300"
     var aircraftRegistration: String?    // e.g. "HB-JMB"
