@@ -1,5 +1,6 @@
 import XCTest
 @testable import Arc
+import SwiftUI
 
 /// The question every Arc surface has to answer honestly: has this flight
 /// actually left the ground?
@@ -150,5 +151,73 @@ final class DepartureEvidenceTests: XCTestCase {
         XCTAssertFalse(evidence(groundState: "taxiing", groundObservedAt: at(5)).phase(at: at(6)).isOffTheGround)
         XCTAssertTrue(evidence().phase(at: at(60)).isOffTheGround)
         XCTAssertTrue(evidence(actualDeparture: at(24)).phase(at: at(25)).isOffTheGround)
+    }
+}
+
+/// The same evidence, as the app's own screens read it.
+final class FlightDepartureDisplayTests: XCTestCase {
+
+    private func flight(minutesPastGate: Double, taxiPrior: Int = 20) -> Flight {
+        let f = Flight(flightNumber: "LX1950", date: .now.addingTimeInterval(-minutesPastGate * 60))
+        f.scheduledArrival = .now.addingTimeInterval(90 * 60)
+        f.status = .active
+        f.taxiPriorMinutes = taxiPrior
+        return f
+    }
+
+    /// The incident, on the detail screen: 25 minutes past the gate time at
+    /// an airport that takes 35 minutes to taxi. Nothing may read as flying.
+    func testALongTaxiNeverReadsAsInAir() {
+        let f = flight(minutesPastGate: 25, taxiPrior: 35)
+        XCTAssertEqual(f.departurePhase, .departing)
+        XCTAssertEqual(f.statusText, "Departing")
+        XCTAssertEqual(f.bannerHeadline, "Departing")
+        XCTAssertTrue(f.isDepartingUnconfirmed)
+        XCTAssertFalse(f.departurePhase.isOffTheGround)
+    }
+
+    func testSeenRollingSaysTaxiing() {
+        let f = flight(minutesPastGate: 12)
+        f.recordGroundSample(onGround: true, velocity: 8, altitude: 0)
+        XCTAssertEqual(f.statusText, "Taxiing")
+        XCTAssertEqual(f.bannerHeadline, "Taxiing", "no duration worth printing in the first minute")
+        XCTAssertNotNil(f.taxiElapsed)
+        // Once it has gone on a while, the banner carries the number a person
+        // in seat 14B actually wants.
+        f.taxiStartedAt = .now.addingTimeInterval(-13 * 60)
+        XCTAssertEqual(f.bannerHeadline, "Taxiing · 13m")
+    }
+
+    /// Past the expected wheels-up with nobody confirming: Arc says it is
+    /// flying, but as a presumption — muted, and never as a fact.
+    func testPresumedAirborneIsSaidQuietly() {
+        let f = flight(minutesPastGate: 45)
+        XCTAssertEqual(f.departurePhase, .presumedAirborne)
+        XCTAssertEqual(f.statusText, "In Air")
+        XCTAssertEqual(f.bannerColor, Color(.secondaryLabel))
+        XCTAssertFalse(f.isDepartureConfirmed)
+    }
+
+    func testAConfirmedTakeoffIsStatedPlainly() {
+        let f = flight(minutesPastGate: 45)
+        f.actualDeparture = .now.addingTimeInterval(-20 * 60)
+        XCTAssertEqual(f.departurePhase, .airborne)
+        XCTAssertEqual(f.statusText, "In Air")
+        XCTAssertTrue(f.isDepartureConfirmed)
+        XCTAssertFalse(f.isDepartingUnconfirmed)
+        XCTAssertEqual(f.bannerColor, ArcTheme.onTime)
+    }
+
+    /// An unconfirmed departure must never claim a past tense, whether it is
+    /// still taxiing or only presumed airborne.
+    func testDepartureRelTextNeverClaimsDepartedWithoutConfirmation() {
+        let taxiing = flight(minutesPastGate: 12)
+        taxiing.recordGroundSample(onGround: true, velocity: 8, altitude: 0)
+        XCTAssertTrue(taxiing.departureRelText.contains("past schedule"))
+        let presumed = flight(minutesPastGate: 45)
+        XCTAssertTrue(presumed.departureRelText.contains("past schedule"))
+        let confirmed = flight(minutesPastGate: 45)
+        confirmed.actualDeparture = .now.addingTimeInterval(-20 * 60)
+        XCTAssertTrue(confirmed.departureRelText.contains("Departed"))
     }
 }
