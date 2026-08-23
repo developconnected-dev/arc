@@ -2694,6 +2694,12 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   // Not yet in the window where updates matter (>4h before departure): skip.
   if (now < depMs - 4 * 60 * 60 * 1000) return;
 
+  // What this airport's taxi actually takes at this hour — the grace the
+  // lock screen gives a departure before it may presume wheels-up.
+  const taxiPrior = (flight?.["dep_iata"])
+    ? (await taxiPriorFor(env, String(flight["dep_iata"]), new Date(depMs).getUTCHours())).minutes
+    : DEFAULT_TAXI_PRIOR;
+
   // stale-date = next phase boundary: iOS re-renders the Live Activity once
   // when content goes stale, and that render re-evaluates the clock-based
   // phase — so the pre→during→after layout flips on time even if this was
@@ -2701,11 +2707,22 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   // CLOCK, not status (status is no longer clock-healed): the boundary
   // after an unconfirmed departure is the end of the widget's 20-min
   // "Departing…" hedge.
-  const unconfirmedDep = status === "scheduled" || status === "boarding" || status === "gateClosed";
+  // The boundary after an unconfirmed departure is the EXPECTED WHEELS-UP —
+  // off-block plus this airport's learned taxi-out, or the provider's own
+  // estimate — not the gate time plus a constant. A 20-minute grace expires
+  // mid-taxi at any busy hub, and the re-render it schedules is what flipped
+  // a lock screen to "In Air" while its owner sat in an ATC hold.
+  const depActualMs = flight?.["dep_actual"] ? Date.parse(String(flight["dep_actual"])) : NaN;
+  const estTakeoffMs = flight?.["dep_runway_estimated"]
+    ? Date.parse(String(flight["dep_runway_estimated"])) : NaN;
+  const wheelsUpMs = Math.max(
+    depMs + taxiPrior * 60_000,
+    Number.isFinite(estTakeoffMs) ? estTakeoffMs : 0,
+  );
   const staleAt = now < depMs
     ? Math.floor(depMs / 1000)
-    : unconfirmedDep && now < depMs + 20 * 60_000
-      ? Math.floor((depMs + 20 * 60_000) / 1000)
+    : !Number.isFinite(depActualMs) && now < wheelsUpMs
+      ? Math.floor(wheelsUpMs / 1000)
       : Math.floor(Math.max(arrMs, now + 60_000) / 1000);
   // Routine progress ticks every 5 minutes (they cost no provider calls —
   // progress comes from stored times); real changes push immediately at
@@ -2751,7 +2768,8 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
       timestamp: Math.floor(now / 1000),
       event: "update",
       "stale-date": staleAt,
-      "content-state": contentState(status, depMs, arrMs, delay, arrDelay, flight, insight),
+      "content-state": contentState(status, depMs, arrMs, delay, arrDelay, flight, insight,
+                                    { offBlockMs: depMs, taxiPrior }),
       ...(dataChanged && flight?.["dep_gate"] ? {
         alert: {
           title: `${row.flight_number} update`,
@@ -2830,11 +2848,17 @@ async function generateInsight(env: Env, signals: Record<string, unknown>): Prom
 
 function contentState(
   status: string, depMs: number, arrMs: number, delay: number, arrDelay: number,
-  flight: Record<string, any> | null, insight: string | null = null
+  flight: Record<string, any> | null, insight: string | null = null,
+  evidence: { offBlockMs: number; taxiPrior: number } | null = null
 ): Record<string, unknown> {
   const now = Date.now();
   const total = arrMs - depMs;
   const progress = total > 0 ? Math.min(1, Math.max(0, (now - depMs) / total)) : 0;
+  const appleEpoch = (ms: number | null | undefined) =>
+    ms == null ? null : ms / 1000 - 978307200;
+  const estTakeoff = flight?.["dep_runway_estimated"]
+    ? Date.parse(String(flight["dep_runway_estimated"])) : null;
+  const depActual = flight?.["dep_actual"] ? Date.parse(String(flight["dep_actual"])) : null;
   return {
     status,
     departureTime: depMs / 1000 - 978307200,
@@ -2853,6 +2877,14 @@ function contentState(
     speed: null,
     heading: null,
     progress,
+    // The gate-to-runway evidence. offBlock travels separately from
+    // departureTime because that one prefers a confirmed take-off, and the
+    // taxi is measured from the gate — the distinction that stopped a lock
+    // screen announcing "In Air" to someone still queueing for the runway.
+    offBlock: appleEpoch(evidence?.offBlockMs ?? depMs),
+    estimatedTakeoff: appleEpoch(Number.isFinite(estTakeoff as number) ? estTakeoff : null),
+    actualDeparture: appleEpoch(Number.isFinite(depActual as number) ? depActual : null),
+    taxiPriorMinutes: evidence?.taxiPrior ?? null,
   };
 }
 

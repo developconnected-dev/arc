@@ -348,23 +348,45 @@ struct FlightLiveActivity: Widget {
 
     private func effectivePhase(_ state: FlightActivityAttributes.ContentState) -> Phase {
         if state.status == "landed" { return .landed }
-        // "active" must NOT bypass the clock: offline nobody flips the status
-        // to landed, so the staleDate re-render at arrival has to be able to
-        // conclude "landed" from the time alone — otherwise the island wears
-        // its in-flight clothes forever.
-        if state.status == "active" { return Date.now >= state.arrivalTime ? .landed : .inFlight }
-        // Status still pre-departure but the clock passed the last known
-        // departure time: nobody CONFIRMED a takeoff — the data may just be
-        // stale (an unreported extra delay). Hedge with "Departing…" for a
-        // grace window instead of claiming the traveler is airborne while
-        // they may be sitting at the gate.
-        if Date.now >= state.departureTime && Date.now < state.departureTime + Self.departureGrace,
-           Date.now < state.arrivalTime {
+        // The departure question is answered from evidence, never from the
+        // clock alone — and NOT from the status either: providers flip to
+        // "Departed" at off-block, which is the gate, not the runway. The
+        // lock screen of someone in a 35-minute taxi read "In Air" because
+        // an off-block status walked straight past this check.
+        switch state.departurePhase(at: .now) {
+        case .beforeDeparture:
+            return .preDeparture
+        case .departing, .taxiing:
+            // Past the arrival time with the aircraft still on the ground
+            // there is nothing sensible left to say about arriving; the
+            // hedge itself expires via DepartureEvidence's own cap.
             return .departing
+        case .presumedAirborne, .airborne:
+            // "active" must NOT bypass the clock: offline nobody flips the
+            // status to landed, so the staleDate re-render at arrival has to
+            // conclude "landed" from the time alone — otherwise the island
+            // wears its in-flight clothes forever.
+            return Date.now >= state.arrivalTime ? .landed : .inFlight
         }
-        if Date.now >= state.departureTime && Date.now < state.arrivalTime { return .inFlight }
-        if Date.now >= state.arrivalTime { return .landed }
-        return .preDeparture
+    }
+
+    /// Whether a source actually reported the take-off. Everything the lock
+    /// screen states in green depends on it: past the expected wheels-up with
+    /// nobody confirming, Arc still shows the in-flight layout (that IS the
+    /// best guess) but in secondary, the same way every other Arc surface
+    /// marks a fact it cannot back. No standing "not confirmed" label: for a
+    /// traveller who went offline at the door that would sit there for five
+    /// hours, which is noise rather than honesty. The colour carries it.
+    private func departureConfirmed(_ state: FlightActivityAttributes.ContentState) -> Bool {
+        state.departurePhase(at: .now).isConfirmed
+    }
+
+    /// Whether the aircraft has been seen rolling — the lock screen says so
+    /// outright, with how long it has gone on, because that is the number a
+    /// person in seat 14B is actually counting.
+    private func taxiSince(_ state: FlightActivityAttributes.ContentState) -> Date? {
+        if case .taxiing(let since) = state.departurePhase(at: .now) { return since }
+        return nil
     }
 
     // MARK: - Lock Screen
@@ -418,12 +440,23 @@ struct FlightLiveActivity: Widget {
                         // WAITING on confirmation, and the gradient sweeps
                         // across the text over the hedge window.
                         IntelligenceShimmerText(
-                            text: "Departing…",
+                            text: taxiSince(state) != nil ? "Taxiing…" : "Departing…",
                             font: .system(size: 14, weight: .bold),
-                            sweep: state.departureTime...state.departureTime.addingTimeInterval(Self.departureGrace))
-                        Text(attrs.mode == .air ? "Waiting for takeoff confirmation" : "Waiting for departure confirmation")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.tertiary)
+                            sweep: (state.offBlock ?? state.departureTime)...max(
+                                state.expectedWheelsUp,
+                                (state.offBlock ?? state.departureTime).addingTimeInterval(60)))
+                        // Seen rolling: say for how long, and when the wheels
+                        // are expected up. Otherwise say plainly that nobody
+                        // has confirmed anything yet.
+                        if let since = taxiSince(state) {
+                            Text("\(Text(since, style: .timer)) · takeoff expected \(state.expectedWheelsUp, style: .time)")
+                                .font(.system(size: 10, weight: .medium).monospacedDigit())
+                                .foregroundStyle(.tertiary)
+                        } else {
+                            Text(attrs.mode == .air ? "Waiting for takeoff confirmation" : "Waiting for departure confirmation")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.tertiary)
+                        }
                     }
                 }
                 Spacer()
@@ -627,7 +660,7 @@ struct FlightLiveActivity: Widget {
                     // it could start counting up.
                     Text(state.arrivalTime, style: .relative)
                         .font(.system(size: 16, weight: .bold).monospacedDigit())
-                        .foregroundStyle(.green)
+                        .foregroundStyle(departureConfirmed(state) ? Color.green : Color.secondary)
                         .multilineTextAlignment(.center)
                     // Deliberately NO estimated/confirmed hedge at the departure
                     // side (unlike landing): departure confirmation almost always
@@ -1050,6 +1083,13 @@ struct FlightLiveActivity: Widget {
 struct FlightPathProgress: View {
     let state: FlightActivityAttributes.ContentState
 
+    /// Green means a source said this flight left the ground. Where Arc has
+    /// only presumed it, the arc still draws — it is still the best estimate
+    /// of where they are — but without the claim.
+    private var tint: Color {
+        state.departurePhase(at: .now).isConfirmed ? .green : .secondary
+    }
+
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
@@ -1058,8 +1098,8 @@ struct FlightPathProgress: View {
                     .stroke(Color.secondary.opacity(0.25),
                             style: StrokeStyle(lineWidth: 2, lineCap: .round))
                 flightPath(in: size)
-                    .stroke(Color.green, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .shadow(color: .green.opacity(0.7), radius: 3)
+                    .stroke(tint, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .shadow(color: tint.opacity(0.7), radius: 3)
                     .mask(
                         ProgressView(
                             timerInterval: state.departureTime...max(state.arrivalTime, state.departureTime.addingTimeInterval(60)),

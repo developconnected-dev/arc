@@ -78,6 +78,46 @@ struct FlightActivityAttributes: ActivityAttributes {
         let speed: Double?
         let heading: Double?
         let progress: Double
+        // What Arc knows about the gate-to-runway gap (see DepartureEvidence).
+        // All optional with defaults so pushes from an older Worker, and
+        // states stored before any of this existed, still decode. `offBlock`
+        // is carried separately from `departureTime` because that one prefers
+        // a confirmed take-off, and the taxi is measured from the gate.
+        var offBlock: Date? = nil
+        var estimatedTakeoff: Date? = nil
+        var actualDeparture: Date? = nil
+        var groundState: String? = nil
+        var groundObservedAt: Date? = nil
+        var taxiStartedAt: Date? = nil
+        var lastSeenOnGround: Date? = nil
+        var taxiPriorMinutes: Int? = nil
+
+        /// The lock screen's own copy of the question every Arc surface
+        /// answers the same way.
+        var departureEvidence: DepartureEvidence {
+            DepartureEvidence(
+                offBlock: offBlock ?? departureTime,
+                estimatedTakeoff: estimatedTakeoff,
+                actualDeparture: actualDeparture,
+                groundState: groundState,
+                groundObservedAt: groundObservedAt,
+                taxiStartedAt: taxiStartedAt,
+                lastSeenOnGround: lastSeenOnGround,
+                taxiPriorMinutes: taxiPriorMinutes ?? DepartureEvidence.defaultTaxiPrior)
+        }
+
+        func departurePhase(at date: Date) -> DeparturePhase {
+            if status == "landed" || status == "diverted" { return .airborne }
+            if status == "cancelled" { return .beforeDeparture }
+            let phase = departureEvidence.phase(at: date)
+            if status == "active", phase == .beforeDeparture { return .airborne }
+            return phase
+        }
+
+        /// When the wheels are expected to leave the ground — what staleDate
+        /// is pointed at, so the lock screen changes its mind at the right
+        /// moment with no app running and no network.
+        var expectedWheelsUp: Date { departureEvidence.expectedWheelsUp }
     }
 }
 
