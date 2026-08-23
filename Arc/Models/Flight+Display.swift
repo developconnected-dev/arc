@@ -131,20 +131,28 @@ extension Flight {
         isUpcoming && effectiveDeparture.addingTimeInterval(60) < .now
     }
 
-    /// Active by the clock alone: past the (delayed) departure, but no source
-    /// has confirmed a take-off yet. The 20-minute window matches the Live
-    /// Activity's departing grace — inside it EVERY surface must hedge
-    /// ("Departing", "Xm past schedule") rather than assert a departure
-    /// nobody reported; past it the app commits to the flight being underway.
+    /// Believed to be on the ground still: past the gate time, but the
+    /// evidence says taxiing — or says nothing yet, and wheels-up isn't even
+    /// expected. Inside this, EVERY surface hedges ("Departing", "Taxiing",
+    /// "Xm past schedule") rather than assert a departure nobody reported.
     /// One property so the banner, the endpoint row and the tracking line
     /// can't drift apart — the detail screen used to say "Departing" and
     /// "Departed 15m ago" at once.
     var isDepartingUnconfirmed: Bool {
         guard isActive, actualDeparture == nil else { return false }
-        let now = Date.now
-        return now >= effectiveDeparture
-            && now < effectiveDeparture.addingTimeInterval(20 * 60)
+        return !departurePhase.isOffTheGround
     }
+
+    /// A take-off some source actually reported. The bar for green, for the
+    /// past tense, and for anything the app states as fact — a flight Arc
+    /// merely *presumes* is airborne (past the expected wheels-up, nobody
+    /// confirming) clears none of them.
+    var isDepartureConfirmed: Bool { departurePhase.isConfirmed }
+
+    /// Airborne only by inference. Renders in the same muted idiom as the
+    /// other hedges: the word can stay natural ("In Air") as long as the
+    /// colour never claims the airline said so.
+    var isPresumedAirborne: Bool { departurePhase == .presumedAirborne }
 
     var isDelayed: Bool { (reportsPunctuality && delayMinutes > 0) || status == .cancelled }
 
@@ -203,11 +211,13 @@ extension Flight {
         case .cancelled: return "Cancelled"
         case .landed: return mode == .air ? "Landed" : "Arrived"
         case .active:
-            // Flipped to active by the clock, not by the source: for the first
-            // 20 minutes say "Departing" — the same grace the Live Activity
-            // gives an unconfirmed take-off — rather than "In Air" on faith.
-            if isDepartingUnconfirmed {
-                return "Departing"
+            // Flipped to active by the clock, not by a source. Until the
+            // evidence puts it off the ground, name what it is actually
+            // doing — rolling, or waiting to — rather than "In Air" on faith.
+            switch departurePhase {
+            case .taxiing: return mode == .air ? "Taxiing" : "Departing"
+            case .beforeDeparture, .departing: return "Departing"
+            case .presumedAirborne, .airborne: break
             }
             let moving = mode.inTransitTitle
             guard reportsPunctuality, delayMinutes > 0 else { return moving }
@@ -252,7 +262,9 @@ extension Flight {
     var cardTopRightColor: Color {
         if status == .gateClosed { return ArcTheme.late }   // urgency — gate is closing/closed
         if showsPrediction { return .orange }               // predicted, not airline-confirmed
-        if isDepartureUnconfirmed || isDepartingUnconfirmed { return Color(.secondaryLabel) }
+        if isDepartureUnconfirmed || isDepartingUnconfirmed || isPresumedAirborne {
+            return Color(.secondaryLabel)
+        }
         return (isSoon || isActive || isRecentlyLanded || isBoarding) ? accentColor : Color(.secondaryLabel)
     }
 
@@ -328,7 +340,18 @@ extension Flight {
         case .diverted: return "Diverted"
         case .landed: return mode.arrivedVerb
         case .active:
-            if isDepartingUnconfirmed { return "Departing" }
+            switch departurePhase {
+            case .taxiing(let since):
+                guard mode == .air else { return "Departing" }
+                // Flighty's framing, and the right one: the number a person
+                // in seat 14B actually wants is how long this has gone on.
+                // "Taxiing · 0m" is noise; the number earns its place once
+                // there is a number worth reading.
+                guard let since, Date.now.timeIntervalSince(since) >= 60 else { return "Taxiing" }
+                return "Taxiing · \(compactAgo(since))"
+            case .beforeDeparture, .departing: return "Departing"
+            case .presumedAirborne, .airborne: break
+            }
             if let t = compactUntil(effectiveArrival) { return "\(mode.arrivingVerb) in \(t)" }
             return "Arrival not yet confirmed"
         default:
@@ -345,8 +368,10 @@ extension Flight {
         if status == .cancelled || status == .diverted { return ArcTheme.late }
         if isDelayed { return ArcTheme.late }
         // "Departure not yet confirmed" is not a green state — and neither is
-        // "Departing" on the clock's word alone.
-        if isDepartureUnconfirmed || isDepartingUnconfirmed { return Color(.secondaryLabel) }
+        // "Departing", "Taxiing", or an airborne Arc has only presumed.
+        if isDepartureUnconfirmed || isDepartingUnconfirmed || isPresumedAirborne {
+            return Color(.secondaryLabel)
+        }
         // Green is the app saying "this is running to plan". A timetable has no
         // opinion on that, so a sailing gets the neutral treatment rather than
         // a reassurance nobody issued.
@@ -383,7 +408,7 @@ extension Flight {
         // The clock-flipped "Departing" hedge is the same claim in a
         // different status: while nobody has reported a take-off, "Departed
         // 15m ago" is an assertion the app can't back.
-        if isDepartureUnconfirmed || isDepartingUnconfirmed {
+        if isDepartureUnconfirmed || isDepartingUnconfirmed || isPresumedAirborne {
             return "\(compactAgo(effectiveDeparture)) past schedule"
         }
         return "Departed \(compactAgo(effectiveDeparture)) ago"

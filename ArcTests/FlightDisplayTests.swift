@@ -583,10 +583,15 @@ final class FlightTenseTests: XCTestCase {
         f.actualDeparture = f.scheduledDeparture
         XCTAssertFalse(f.isDepartingUnconfirmed)
         XCTAssertTrue(f.departureRelText.hasSuffix(" ago"))
-        // And so does the hedge window simply running out.
-        let committed = flight(depIn: -40 * 60, status: .active)
-        XCTAssertFalse(committed.isDepartingUnconfirmed)
-        XCTAssertTrue(committed.departureRelText.hasSuffix(" ago"))
+        // The window running out is NOT a confirmation. Past the expected
+        // wheels-up Arc presumes the flight is airborne — it stops saying
+        // "Departing", but "Departed 40m ago" remains a claim no source has
+        // made, so the row still measures from the schedule.
+        let presumed = flight(depIn: -40 * 60, status: .active)
+        XCTAssertFalse(presumed.isDepartingUnconfirmed)
+        XCTAssertTrue(presumed.isPresumedAirborne)
+        XCTAssertTrue(presumed.departureRelText.hasSuffix("past schedule"))
+        XCTAssertNotEqual(presumed.bannerColor, ArcTheme.onTime)
     }
 
     /// An active flight past its ETA is not "Arrived" until the source says so.

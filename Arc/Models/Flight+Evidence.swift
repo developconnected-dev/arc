@@ -27,7 +27,23 @@ extension Flight {
             isLiveCovered: mode == .air ? (departureLiveCovered ?? true) : true)
     }
 
-    var departurePhase: DeparturePhase { departureEvidence.phase(at: .now) }
+    /// The evidence, read through what the app already knows about the leg.
+    ///
+    /// A completed flight settles the question by itself — it landed, so it
+    /// flew — and a cancelled one never faces it. And a source that calls a
+    /// leg active *before* its gate time is reporting an early departure:
+    /// a trusted status ahead of the clock wins here exactly as it does in
+    /// the widget's own phase.
+    var departurePhase: DeparturePhase {
+        switch status {
+        case .landed, .diverted: return .airborne
+        case .cancelled: return .beforeDeparture
+        default: break
+        }
+        let phase = departureEvidence.phase(at: .now)
+        if isActive, phase == .beforeDeparture { return .airborne }
+        return phase
+    }
 
     /// When Arc expects the wheels to leave the ground — what the widget's
     /// timeline and the Live Activity's staleDate are scheduled against.
