@@ -495,14 +495,29 @@ export default {
           airplaneslive: true,
           waitport: true,
         },
-        budget: budget ? {
-          month: budget.month,
-          adb_used: `${(budget.adb_cron ?? 0) + (budget.adb_interactive ?? 0)}/${ADB_MONTHLY_CALLS}`,
-          adb_cron: `${budget.adb_cron}/${Math.floor(ADB_MONTHLY_CALLS * ADB_CRON_SHARE)}`,
-          // What RapidAPI itself last reported — the authority, unlike our count.
-          adb_remaining_per_rapidapi: budget.adb_remaining ?? null,
-          airlabs: `${budget.airlabs_calls}/${AIRLABS_BUDGET}`,
-        } : null,
+        budget: budget ? (() => {
+          // Report against the REAL plan, not the bootstrap constant. Dividing
+          // by ADB_MONTHLY_CALLS made a healthy account read "2246/900" — an
+          // alarming number for something nothing was actually gating on,
+          // since the gate is RapidAPI's own `remaining` (see fetchLegsCached).
+          const used = (budget.adb_cron ?? 0) + (budget.adb_interactive ?? 0);
+          const remaining = budget.adb_remaining as number | null | undefined;
+          const planQuota = typeof remaining === "number" ? used + remaining : ADB_MONTHLY_CALLS;
+          const cronReserve = Math.max(50, Math.floor(planQuota * ADB_CRON_RESERVE_SHARE));
+          return {
+            month: budget.month,
+            adb_used: `${used}/${planQuota}`,
+            adb_cron: `${budget.adb_cron}/${planQuota}`,
+            // What RapidAPI itself last reported — the authority, unlike our count.
+            adb_remaining_per_rapidapi: remaining ?? null,
+            // Where each caller actually stops. The cron yields first so an
+            // interactive search still works on the last of the quota.
+            adb_plan_known: typeof remaining === "number",
+            adb_cron_stops_below: typeof remaining === "number" ? cronReserve : null,
+            adb_throttled: typeof remaining === "number" ? remaining <= cronReserve : used >= ADB_MONTHLY_CALLS,
+            airlabs: `${budget.airlabs_calls}/${AIRLABS_BUDGET}`,
+          };
+        })() : null,
       }, { headers: cors });
     }
 
