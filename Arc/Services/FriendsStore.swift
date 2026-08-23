@@ -491,6 +491,15 @@ final class FriendsStore {
         // saying "Departure not yet confirmed"). actualDeparture stays nil,
         // so the detail hedges ("Departing", "past schedule") exactly like
         // the friend's own device until a real departure is reported.
+        // The evidence itself crosses, so the detail sheet reaches the same
+        // conclusion as the chip that opened it rather than re-deriving one
+        // from the clock.
+        flight.estimatedTakeoff = DateHelpers.parseAPIDate(f.est_takeoff)
+        flight.groundStateRaw = f.ground_state
+        flight.groundObservedAt = DateHelpers.parseAPIDate(f.ground_observed_at)
+        flight.taxiStartedAt = DateHelpers.parseAPIDate(f.taxi_started_at)
+        flight.aircraftRegistration = f.aircraft_registration
+        flight.aircraftICAO24 = f.aircraft_icao24
         if flight.isUpcoming, FriendFlightMath.isAirborne(f) {
             flight.statusRaw = FlightStatus.active.rawValue
         }
@@ -617,11 +626,44 @@ enum FriendFlightMath {
     }
 
     /// Is this flight in the air right now (clock-healed)?
+    /// The same question the traveller's own app answers, from the row a
+    /// friend can see. Their phone is online while hers is in airplane mode,
+    /// so this is where "Taxiing for 14m" comes from.
+    static func evidence(_ f: ArcSupabase.SharedFlight) -> DepartureEvidence {
+        DepartureEvidence(
+            offBlock: departure(f) ?? .distantPast,
+            estimatedTakeoff: DateHelpers.parseAPIDate(f.est_takeoff),
+            actualDeparture: DateHelpers.parseAPIDate(f.actual_departure),
+            groundState: f.ground_state,
+            groundObservedAt: DateHelpers.parseAPIDate(f.ground_observed_at),
+            taxiStartedAt: DateHelpers.parseAPIDate(f.taxi_started_at),
+            lastSeenOnGround: nil,
+            taxiPriorMinutes: DepartureEvidence.defaultTaxiPrior,
+            isLiveCovered: f.tripMode == .air)
+    }
+
+    static func departurePhase(_ f: ArcSupabase.SharedFlight, at now: Date = .now) -> DeparturePhase {
+        if f.status == "landed" || f.status == "diverted" { return .airborne }
+        if f.status == "cancelled" { return .beforeDeparture }
+        let phase = evidence(f).phase(at: now)
+        if f.status == "active", phase == .beforeDeparture { return .airborne }
+        return phase
+    }
+
+    /// How long the aircraft has been rolling, when someone has seen it.
+    static func taxiElapsed(_ f: ArcSupabase.SharedFlight, at now: Date = .now) -> TimeInterval? {
+        guard case .taxiing(let since) = departurePhase(f, at: now), let since else { return nil }
+        return max(0, now.timeIntervalSince(since))
+    }
+
     static func isAirborne(_ f: ArcSupabase.SharedFlight, at now: Date = .now) -> Bool {
         if f.status == "cancelled" { return false }
-        guard let dep = departure(f), let arr = arrival(f) else { return f.status == "active" }
+        guard departure(f) != nil, let arr = arrival(f) else { return f.status == "active" }
         if f.status == "landed" { return false }
-        return now >= dep && now <= arr
+        // Off the ground means off the ground: past the gate time is not the
+        // same claim, and the difference is the taxi. The feed chip used to
+        // say "IN FLIGHT" the instant the clock passed the schedule.
+        return departurePhase(f, at: now).isOffTheGround && now <= arr
     }
 
     /// 0…1 along the route, derived from times — moves smoothly even though
