@@ -20,6 +20,13 @@ interface Env {
   APNS_KEY_ID?: string;          // APNs auth key ID
   APNS_P8?: string;              // full .p8 file contents
   AI_API_KEY?: string;           // Anthropic API key — booking-text parsing (claude-haiku-4-5)
+  // Contact string the ADS-B aggregators demand of API callers, e.g.
+  // "you@example.com". Without it the Worker's own aircraft watch stays off:
+  // Cloudflare's shared egress IPs are rate-limited (adsb.lol 429) or blocked
+  // (adsb.fi, airplanes.live 403) for anonymous callers, so devices do the
+  // watching instead. Set it once a source has whitelisted this project and
+  // the server can witness take-offs with nobody's app open.
+  ADSB_CONTACT?: string;
 }
 
 const APP_BUNDLE_ID = "com.arc.flighttracker";
@@ -1060,8 +1067,29 @@ export default {
 
       if (attempts.length === 0) return new Response("missing icao24, reg or flight", { status: 400 });
 
+      // ?debug=1 — which host answered what. Cloudflare egress has been
+      // rejected by ADS-B aggregators before (OpenSky), and a silent null
+      // is indistinguishable from "nothing is flying".
+      if (url.searchParams.get("debug")) {
+        const diag: Record<string, unknown> = {};
+        for (const host of ADSB_HOSTS) {
+          for (const [kind, value] of attempts) {
+            const key = value.trim().replace(/\s+/g, "").toLowerCase();
+            try {
+              const res = await fetch(`${host.base}${host.prefix}/${kind}/${encodeURIComponent(key)}`,
+                                      { headers: { Accept: "application/json", "User-Agent": adsbUA(env) } });
+              const body = await res.text();
+              diag[`${host.base} ${kind}`] = { status: res.status, body: body.slice(0, 140) };
+            } catch (e) {
+              diag[`${host.base} ${kind}`] = { error: String(e) };
+            }
+          }
+        }
+        return Response.json(diag, { headers: cors });
+      }
+
       for (const [kind, value] of attempts) {
-        const pos = await fetchADSB(kind, value);
+        const pos = await fetchADSB(env, kind, value);
         if (pos) return Response.json(pos, { headers: cors });
       }
       return Response.json(null, { status: 404, headers: cors });
@@ -2297,23 +2325,58 @@ async function runLiveActivityCron(env: Env): Promise<void> {
 }
 
 
-/// One aircraft from airplanes.live, in the units every Arc client speaks
-/// (metres, m/s). `kind` is icao | reg | callsign. null when nothing is
-/// broadcasting under that identifier right now.
-interface ADSBPosition {
-  icao24: string; lat: number; lon: number; altitude: number; velocity: number;
-  heading: number; on_ground: boolean; registration: string | null; age_seconds: number | null;
+/// One aircraft from the ADS-B aggregators, in the units every Arc client
+/// speaks (metres, m/s). `kind` is icao | reg | callsign. Both hosts serve
+/// the same readsb /v2 shape; adsb.lol is open, airplanes.live started
+/// gating unregistered callers (403 "contact us") in 2026-08, so it is the
+/// fallback. null when nothing is broadcasting under that identifier.
+/// The community ADS-B aggregators, in preference order. Same readsb /v2
+/// payload, different prefixes and different rate-limit moods — Workers share
+/// egress IPs with everyone else on Cloudflare, so a per-IP limiter can lock
+/// us out through no fault of ours. Trying several is the cheap insurance.
+const ADSB_HOSTS = [
+  { base: "https://api.adsb.lol", prefix: "/v2" },
+  { base: "https://opendata.adsb.fi", prefix: "/api/v2" },
+  { base: "https://api.airplanes.live", prefix: "/v2" },
+];
+/// Both aggregators reject anonymous callers — adsb.lol answers a bare
+/// Worker fetch with 403 "User-Agent too generic; include valid contact
+/// info." Cloudflare sends no UA of its own, which is why live position
+/// silently returned null in production. Identify the project and where to
+/// reach it; no personal data belongs in an outbound header.
+const ADSB_UA_BASE = "ArcFlightTracker/1.0 (+https://your-worker.workers.dev";
+function adsbUA(env: Env): string {
+  return env.ADSB_CONTACT ? `${ADSB_UA_BASE}; ${env.ADSB_CONTACT})` : `${ADSB_UA_BASE})`;
 }
-async function fetchADSB(kind: string, value: string): Promise<ADSBPosition | null> {
+async function fetchADSB(env: Env, kind: string, value: string): Promise<ADSBPosition | null> {
+  const key = value.trim().replace(/\s+/g, "").toLowerCase();
+  if (!key) return null;
+  for (const host of ADSB_HOSTS) {
+    const hit = await fetchADSBFrom(env, host, `/${kind}/${encodeURIComponent(key)}`);
+    if (hit) return hit;
+  }
+  return null;
+}
+async function fetchADSBFrom(env: Env, host: { base: string; prefix: string }, path: string): Promise<ADSBPosition | null> {
+  const list = await fetchADSBList(env, host, path);
+  const ac = list.find(a => typeof a?.lat === "number" && typeof a?.lon === "number");
+  return ac ? toADSBPosition(ac) : null;
+}
+
+/// Every aircraft a query returns. adsb.lol calls the array `ac`, adsb.fi
+/// calls it `aircraft` on some routes — accept either.
+async function fetchADSBList(env: Env, host: { base: string; prefix: string }, path: string): Promise<Record<string, any>[]> {
   try {
-    const key = value.trim().replace(/\s+/g, "").toLowerCase();
-    if (!key) return null;
-    const res = await fetch(`https://api.airplanes.live/v2/${kind}/${encodeURIComponent(key)}`,
-                            { headers: { Accept: "application/json" } });
-    if (!res.ok) return null;
-    const raw = await res.json() as { ac?: Record<string, any>[] };
-    const ac = (raw.ac ?? []).find(a => typeof a?.lat === "number" && typeof a?.lon === "number");
-    if (!ac) return null;
+    const res = await fetch(`${host.base}${host.prefix}${path}`,
+                            { headers: { Accept: "application/json", "User-Agent": adsbUA(env) } });
+    if (!res.ok) return [];
+    const raw = await res.json() as { ac?: Record<string, any>[]; aircraft?: Record<string, any>[] };
+    return raw.ac ?? raw.aircraft ?? [];
+  } catch { return []; }
+}
+
+function toADSBPosition(ac: Record<string, any>): ADSBPosition | null {
+  try {
     // alt_baro is feet, or the string "ground" when it's on the deck; gs is knots.
     const onGround = ac.alt_baro === "ground";
     const altFt = typeof ac.alt_baro === "number" ? ac.alt_baro : 0;
@@ -2355,6 +2418,11 @@ async function taxiPriorFor(env: Env, iata: string, hourUTC: number): Promise<{ 
 /// first airborne sample the one fact every surface waits for:
 /// actual_departure. Each wheels-up also teaches the airport its taxi-out.
 async function watchAircraft(env: Env): Promise<void> {
+  // Anonymous callers are rate-limited or blocked from Cloudflare's shared
+  // egress IPs, so until a source has whitelisted this project the devices
+  // do the watching (they call from their own IPs and write what they see
+  // onto the shared row). One secret turns the server witness on.
+  if (!env.ADSB_CONTACT) return;
   const now = Date.now();
   const from = new Date(now - 3 * 3600_000).toISOString();
   const to = new Date(now + 45 * 60_000).toISOString();
@@ -2398,7 +2466,7 @@ async function watchAircraft(env: Env): Promise<void> {
           continue;
         }
       }
-      const pos = (icao ? await fetchADSB("icao", icao) : null) ?? (reg ? await fetchADSB("reg", reg) : null);
+      const pos = (icao ? await fetchADSB(env, "icao", icao) : null) ?? (reg ? await fetchADSB(env, "reg", reg) : null);
       if (!pos || (pos.age_seconds ?? 0) > 300) {
         if (Object.keys(patch).length) await sbService(env, "PATCH", `/shared_flights?id=eq.${row.id}`, patch);
         continue;
