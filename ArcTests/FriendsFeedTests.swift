@@ -142,6 +142,25 @@ final class FriendsFeedTests: XCTestCase {
         XCTAssertNotEqual(transient.dataFreshnessShort, "—")
     }
 
+    /// A friend whose aircraft has pushed back but not yet left the ground
+    /// must stay on the feed and on the map. The old code kept them visible
+    /// by calling them airborne at the gate time; the honest phases must not
+    /// lose them instead — the taxi is exactly when people watch.
+    func testFeedAndMapKeepAFlightThatHasLeftTheGateButNotTheGround() {
+        let iso = ISO8601DateFormatter()
+        let f = flight("LX638", dep: iso.string(from: .now.addingTimeInterval(-8 * 60)),
+                       arr: iso.string(from: .now.addingTimeInterval(80 * 60)),
+                       status: "gateClosed")
+        XCTAssertEqual(FriendFlightMath.departurePhase(f), .departing)
+        XCTAssertFalse(FriendFlightMath.isAirborne(f))
+
+        let store = FriendsStore()
+        store.friends = [entry("Anna", id: "anna", [f])]
+        XCTAssertEqual(store.feed(at: .now).count, 1, "the taxiing friend vanished from the feed")
+        XCTAssertNotNil(FriendFlightMath.spotlight(from: [f]), "and from the map")
+        XCTAssertTrue(store.pastFeed(at: .now).isEmpty, "and must not be filed as past")
+    }
+
     /// Fifteen minutes past the gate time with the row still saying
     /// "scheduled": the friend's screens must not call that flying. The chip
     /// says DEPARTING, the sheet says it has not departed, and neither
