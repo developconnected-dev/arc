@@ -161,6 +161,8 @@ export function shiftLegToDay(
     arr_scheduled: shift(leg["arr_scheduled"]),
     dep_actual: null,
     arr_actual: null,
+    dep_estimated: null,
+    arr_estimated: null,
     status: "scheduled",
     delay: 0,
     dep_gate: null,

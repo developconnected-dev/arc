@@ -487,13 +487,31 @@ struct FlightDetailView: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("Show plane at gate \(gate)")
+                        } else if !isArrival, flight.showsPredictedGate,
+                                  let predicted = flight.predictedDepartureGate {
+                            // The airline hasn't gated this yet, but the
+                            // flywheel knows what this number usually gets.
+                            // Muted pill + the smart mark — a habit wears the
+                            // prediction idiom, never the yellow of a fact.
+                            VStack(alignment: .trailing, spacing: 3) {
+                                GatePill(arrow: arrow, gate: predicted, pending: true)
+                                SmartLabel(text: "Predicted", size: 11)
+                            }
+                            .accessibilityLabel("Predicted gate \(predicted), not yet confirmed")
                         } else {
                             // No gate yet: a quiet placeholder, not a yellow
                             // chip that reads like an assignment.
                             GatePill(arrow: arrow, gate: gate ?? "--", pending: gate == nil)
                         }
                     }
-                    if let terminal { Text("Terminal \(terminal)").font(.system(size: 13)).foregroundStyle(.secondary) }
+                    if let terminal {
+                        Text("Terminal \(terminal)").font(.system(size: 13)).foregroundStyle(.secondary)
+                    } else if !isArrival, flight.showsPredictedGate,
+                              let predictedTerminal = flight.predictedDepartureTerminal,
+                              !predictedTerminal.isEmpty {
+                        Text("Usually Terminal \(predictedTerminal)")
+                            .font(.system(size: 13)).foregroundStyle(.secondary)
+                    }
                 }
             }
         }

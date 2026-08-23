@@ -79,6 +79,26 @@ final class FlightTracker: ObservableObject {
 
                     let hoursUntilDep = flight.scheduledDeparture.timeIntervalSince(now) / 3600
 
+                    // Predicted gate: what this number usually gets, shown
+                    // BEFORE the airline publishes one — the flywheel's whole
+                    // purpose. One ask per flight per session (history moves
+                    // daily, not hourly), only while there is no real gate,
+                    // and never overwriting one: display always prefers fact.
+                    if flight.mode == .air, flight.isUpcoming,
+                       flight.departureGate == nil, flight.predictedDepartureGate == nil,
+                       hoursUntilDep > 0, hoursUntilDep <= 48,
+                       !gatePredictionTried.contains(flight.id) {
+                        gatePredictionTried.insert(flight.id)
+                        if let p = await FlightAPIClient.shared.gatePrediction(
+                            flight: flight.flightNumber,
+                            airport: flight.departureIATA, direction: "dep"),
+                           p.isConfident {
+                            guard !flight.isDeleted, flight.modelContext != nil else { continue }
+                            flight.predictedDepartureGate = p.gate
+                            flight.predictedDepartureTerminal = p.terminal
+                        }
+                    }
+
                     // Smart polling. Status/ETA barely move mid-cruise — the
                     // things that visibly change (position, progress) come
                     // from OpenSky and clock math, both free. Tight cadence
@@ -265,6 +285,9 @@ final class FlightTracker: ObservableObject {
     /// Sea legs whose OSM line has been asked for this session — one ask per
     /// leg; a null answer (no line mapped) must not become a poll every minute.
     private var seaRouteTried: Set<UUID> = []
+    /// Flights whose usual-gate prediction has been asked for this session —
+    /// same one-ask discipline: "no pattern yet" must not re-poll per minute.
+    private var gatePredictionTried: Set<UUID> = []
 
     private func preCacheIfNeeded(flight: Flight, modelContext: ModelContext) async {
         guard !preCached.contains(flight.id) else { return }
@@ -435,12 +458,16 @@ final class FlightTracker: ObservableObject {
             flight.statusRaw = FlightStatus.heal(rawValue: latest.status, scheduledArrival: flight.scheduledArrival).rawValue
             flight.delayMinutes = latest.delay ?? 0
 
-            // Update actual times when available
+            // Update actual times when available. Since the runway-time fix,
+            // *_actual is a wheels-up/down FACT; the published revision rides
+            // arr_estimated and only ever feeds the estimate.
             if let depActual = latest.dep_actual, let parsed = DateHelpers.parseAPIDate(depActual) {
                 flight.actualDeparture = parsed
             }
             if let arrActual = latest.arr_actual, let parsed = DateHelpers.parseAPIDate(arrActual) {
                 flight.actualArrival = parsed
+                flight.estimatedArrival = parsed
+            } else if let arrEst = latest.arr_estimated, let parsed = DateHelpers.parseAPIDate(arrEst) {
                 flight.estimatedArrival = parsed
             }
 
