@@ -394,7 +394,13 @@ final class FriendsStore {
         for entry in friends {
             for f in entry.flights where f.status != "cancelled" {
                 let item = FeedItem(user: entry.user, flight: f)
-                if FriendFlightMath.isAirborne(f, at: now), let arr = FriendFlightMath.arrival(f) {
+                // Bucket 0 is "happening now", and that starts at the gate,
+                // not at wheels-up: a friend whose aircraft has pushed back
+                // and is queueing for the runway used to qualify only because
+                // isAirborne lied about them. With honest phases they would
+                // have fallen through every bucket and disappeared from the
+                // feed for the whole taxi — the exact minutes people watch.
+                if FriendFlightMath.isUnderway(f, at: now), let arr = FriendFlightMath.arrival(f) {
                     ranked.append((item, 0, arr.timeIntervalSince1970))
                 } else if let dep = FriendFlightMath.departure(f), dep > now {
                     ranked.append((item, 1, dep.timeIntervalSince1970))
@@ -418,7 +424,7 @@ final class FriendsStore {
         var out: [(item: FeedItem, arr: Date)] = []
         for entry in friends {
             for f in entry.flights where f.status != "cancelled" {
-                guard !FriendFlightMath.isAirborne(f, at: now),
+                guard !FriendFlightMath.isUnderway(f, at: now),
                       let arr = FriendFlightMath.arrival(f),
                       arr <= now.addingTimeInterval(-FriendFlightMath.landedGrace),
                       arr > now.addingTimeInterval(-14 * 24 * 3600)
@@ -656,6 +662,16 @@ enum FriendFlightMath {
         return max(0, now.timeIntervalSince(since))
     }
 
+    /// Under way in the sense the feed and the map care about: the journey
+    /// has started and hasn't ended. Includes the taxi, which `isAirborne`
+    /// deliberately does not — being off the ground is a stronger claim, and
+    /// the surfaces that state it need the stronger one.
+    static func isUnderway(_ f: ArcSupabase.SharedFlight, at now: Date = .now) -> Bool {
+        if f.status == "cancelled" || f.status == "landed" { return false }
+        guard let dep = departure(f), let arr = arrival(f) else { return f.status == "active" }
+        return now >= dep && now <= arr
+    }
+
     static func isAirborne(_ f: ArcSupabase.SharedFlight, at now: Date = .now) -> Bool {
         if f.status == "cancelled" { return false }
         guard departure(f) != nil, let arr = arrival(f) else { return f.status == "active" }
@@ -694,7 +710,7 @@ enum FriendFlightMath {
     static func spotlight(from flights: [ArcSupabase.SharedFlight],
                           at now: Date = .now) -> ArcSupabase.SharedFlight? {
         let valid = flights.filter { $0.status != "cancelled" }
-        if let flying = valid.first(where: { isAirborne($0, at: now) }) { return flying }
+        if let flying = valid.first(where: { isUnderway($0, at: now) }) { return flying }
         let upcoming = valid
             .compactMap { f in departure(f).map { (f, $0) } }
             .filter { $0.1 > now && $0.1 < now.addingTimeInterval(36 * 3600) }
