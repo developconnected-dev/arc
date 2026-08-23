@@ -226,6 +226,10 @@ extension Flight {
         case .boarding: return "Boarding"
         case .gateClosed: return mode == .air ? "Gate Closed" : "Departing"
         default:
+            // A source may still call it scheduled while something has
+            // watched the aircraft push back and roll. Saying so beats both
+            // "Boarding" and "Not yet departed".
+            if case .taxiing = departurePhase { return mode == .air ? "Taxiing" : "Departing" }
             if isDepartureUnconfirmed { return "Not yet departed" }
             // Nothing published a revised time, so say where the time came from
             // rather than claiming it is being kept to.

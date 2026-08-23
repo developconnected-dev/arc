@@ -142,19 +142,50 @@ final class FriendsFeedTests: XCTestCase {
         XCTAssertNotEqual(transient.dataFreshnessShort, "—")
     }
 
-    /// Past the delayed departure with the row still saying "scheduled", the
-    /// detail must agree with the chip and map (which clock-heal via
-    /// FriendFlightMath) — and hedge, because no take-off was reported.
-    func testTransientFlightHealsToAirborneAndHedges() {
+    /// Fifteen minutes past the gate time with the row still saying
+    /// "scheduled": the friend's screens must not call that flying. The chip
+    /// says DEPARTING, the sheet says it has not departed, and neither
+    /// invents a take-off — the clock heal that used to run here is exactly
+    /// what announced "IN FLIGHT" to someone watching a taxiing aircraft.
+    func testTransientFlightDoesNotInventATakeoffFromTheClock() {
         let iso = ISO8601DateFormatter()
         let f = flight("LX1950", dep: iso.string(from: .now.addingTimeInterval(-15 * 60)),
                        arr: iso.string(from: .now.addingTimeInterval(105 * 60)))
+        XCTAssertEqual(FriendFlightMath.departurePhase(f), .departing)
+        XCTAssertFalse(FriendFlightMath.isAirborne(f))
         let transient = FriendsStore().transientFlight(for: item(f))
-        XCTAssertTrue(transient.isActive)
+        XCTAssertFalse(transient.isActive)
         XCTAssertNil(transient.actualDeparture)
-        XCTAssertTrue(transient.isDepartingUnconfirmed)
-        XCTAssertEqual(transient.statusText, "Departing")
+        XCTAssertEqual(transient.statusText, "Not yet departed")
         XCTAssertTrue(transient.departureRelText.hasSuffix("past schedule"))
+    }
+
+    /// The server (or the traveller's own phone, before it went dark) saw the
+    /// aircraft rolling. That crosses to the friend, chip and sheet alike.
+    func testTransientFlightCarriesTaxiingFromTheSharedRow() {
+        let iso = ISO8601DateFormatter()
+        var f = flight("LX1950", dep: iso.string(from: .now.addingTimeInterval(-14 * 60)),
+                       arr: iso.string(from: .now.addingTimeInterval(105 * 60)))
+        f.ground_state = "taxiing"
+        f.taxi_started_at = iso.string(from: .now.addingTimeInterval(-12 * 60))
+        f.ground_observed_at = iso.string(from: .now.addingTimeInterval(-60))
+        XCTAssertEqual(FriendFlightMath.departurePhase(f),
+                       .taxiing(since: DateHelpers.parseAPIDate(f.taxi_started_at)))
+        XCTAssertFalse(FriendFlightMath.isAirborne(f), "taxiing is not flying")
+        XCTAssertEqual(Int((FriendFlightMath.taxiElapsed(f) ?? 0) / 60), 12)
+        XCTAssertEqual(FriendsStore().transientFlight(for: item(f)).statusText, "Taxiing")
+    }
+
+    /// Past the expected wheels-up with nothing confirmed, the feed does
+    /// treat the leg as under way — a friend still wants the arrival
+    /// countdown — but it got there by evidence, not by the gate clock.
+    func testTransientFlightPresumesAirborneOnlyAfterTheTaxiWindow() {
+        let iso = ISO8601DateFormatter()
+        let f = flight("LX1950", dep: iso.string(from: .now.addingTimeInterval(-45 * 60)),
+                       arr: iso.string(from: .now.addingTimeInterval(75 * 60)))
+        XCTAssertEqual(FriendFlightMath.departurePhase(f), .presumedAirborne)
+        XCTAssertTrue(FriendFlightMath.isAirborne(f))
+        XCTAssertTrue(FriendsStore().transientFlight(for: item(f)).isActive)
     }
 
     /// A reported take-off crosses to the reader: the shared row's
