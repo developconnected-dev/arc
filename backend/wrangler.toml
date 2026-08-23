@@ -23,6 +23,14 @@ crons = ["* * * * *"]
 #                        Without it the flight endpoints 404 and the app falls
 #                        back to manual entry. Rail and sea don't need it.
 #   AIRLABS_KEY          Route-schedule fallback when AeroDataBox has no leg.
+#   ADSB_CONTACT         Contact string (e.g. an email) for the ADS-B
+#                        aggregators. Without it the Worker's own aircraft
+#                        watch stays off — Cloudflare's shared egress IPs are
+#                        rate-limited (adsb.lol 429) or blocked (adsb.fi and
+#                        airplanes.live 403) for anonymous callers, so the
+#                        devices do the watching from their own IPs. Ask a
+#                        source to whitelist the project, then set this and
+#                        the server witnesses take-offs with no app open.
 #   AI_API_KEY           Anthropic key (claude-haiku-4-5) for /parse-booking,
 #                        which reads a forwarded confirmation email. 503s
 #                        without it. NOT an OpenAI key.
