@@ -1,5 +1,5 @@
 import { apnsConfigured, sendLiveActivityPush } from "./apns";
-import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, shiftLegToDay, completeLeg, confirmedRunwayTime } from "./legs";
+import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, shiftLegToDay, completeLeg, confirmedRunwayTime, movementIsLive } from "./legs";
 import { predictGate, type GateObservation } from "./gates";
 import { verifiedRoute } from "./place";
 import { handleTransit } from "./routes-transit";
@@ -83,8 +83,13 @@ function mapLeg(f: Record<string, any>): Record<string, unknown> {
   // every surface to past tense). Estimates now travel in *_estimated, and a
   // runway time is only promoted to *_actual once the provider's status says
   // the movement happened (see confirmedRunwayTime).
-  const depRunway = confirmedRunwayTime(dep.runwayTime?.utc ?? dep.runwayTime?.local, f.status, "dep");
+  const depRunwayRaw = dep.runwayTime?.utc ?? dep.runwayTime?.local;
+  const depRunway = confirmedRunwayTime(depRunwayRaw, f.status, "dep");
   const arrRunway = confirmedRunwayTime(arr.runwayTime?.utc ?? arr.runwayTime?.local, f.status, "arr");
+  // The unconfirmed runway time is still useful: it is the provider's own
+  // estimate of wheels-up, which every surface hedges against instead of
+  // the gate time (taxi-out at a hub is routinely 20–40 minutes).
+  const depRunwayEstimated = depRunway ? null : (toISO(depRunwayRaw) || null);
   return {
     flight_number: String(f.number ?? "").replace(/\s+/g, ""),
     airline_name: air.name ?? "",
@@ -104,6 +109,8 @@ function mapLeg(f: Record<string, any>): Record<string, unknown> {
     delay: delayMinutes(depSched, depRev),
     dep_actual: depRunway,
     arr_actual: arrRunway,
+    dep_runway_estimated: depRunwayEstimated,
+    dep_live: movementIsLive(dep.quality),
     dep_estimated: depRev !== depSched ? toISO(depRev) : null,
     arr_estimated: arrRev !== arrSched ? toISO(arrRev) : null,
     aircraft_type: ac.model ?? null,
