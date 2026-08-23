@@ -70,10 +70,19 @@ struct WidgetFlight: Identifiable {
     /// When these facts were last confirmed against a source. Drives the
     /// "as of" honesty line and the widget's own refresh decisions.
     var updatedAt: Date? = nil
-    /// A take-off some source actually reported. Its absence is what keeps
-    /// the widget saying "Departing" for the first 20 minutes instead of
-    /// asserting "In Air" on the strength of the clock alone.
+    /// A take-off some source actually reported — the one thing that lets
+    /// the widget state the leg is flying rather than hedge about it.
     var actualDeparture: Date? = nil
+    // What Arc knows about the gate-to-runway gap, carried so the home
+    // screen can reason about it with the app dead and the device offline
+    // (see DepartureEvidence). All optional: older snapshots decode as nil,
+    // which simply means "no evidence, fall back to the clock".
+    var estimatedTakeoff: Date? = nil
+    var groundState: String? = nil
+    var groundObservedAt: Date? = nil
+    var taxiStartedAt: Date? = nil
+    var lastSeenOnGround: Date? = nil
+    var taxiPriorMinutes: Int? = nil
 
     /// Status-only, no clock comparison — mirrors Flight.isUpcoming. The old
     /// `&& scheduledDeparture > .now` had the same dead zone the app model
@@ -126,23 +135,76 @@ struct WidgetFlight: Identifiable {
         return status == "landed" ? mode.arrivedVerb : "Arriving"
     }
 
-    /// Past the (delayed) departure by the clock, but nobody has reported a
-    /// take-off. Same 20-minute window as `Flight.isDepartingUnconfirmed` and
-    /// the Live Activity's departing grace: inside it the widget hedges
-    /// ("Departing", no green), past it it commits to the leg being underway.
+    /// Gate departure — the schedule plus the airline's own delay. The taxi
+    /// is measured from here, not from `effectiveDeparture` (which prefers a
+    /// confirmed take-off, the wrong anchor for this question).
+    var offBlock: Date {
+        scheduledDeparture.addingTimeInterval(Double(max(0, delayMinutes)) * 60)
+    }
+
+    /// Everything the home screen knows about whether this leg has left the
+    /// ground. Same type the app and the friends feed consult, so the widget
+    /// cannot drift from them.
+    var departureEvidence: DepartureEvidence {
+        DepartureEvidence(
+            offBlock: offBlock,
+            estimatedTakeoff: estimatedTakeoff,
+            actualDeparture: actualDeparture,
+            groundState: groundState,
+            groundObservedAt: groundObservedAt,
+            taxiStartedAt: taxiStartedAt,
+            lastSeenOnGround: lastSeenOnGround,
+            taxiPriorMinutes: taxiPriorMinutes ?? DepartureEvidence.defaultTaxiPrior,
+            isLiveCovered: mode == .air)
+    }
+
     /// Takes the moment explicitly because widget entries render at future
     /// dates, never at Date.now.
+    func departurePhase(at date: Date) -> DeparturePhase {
+        if status == "landed" || status == "diverted" { return .airborne }
+        if status == "cancelled" { return .beforeDeparture }
+        let phase = departureEvidence.phase(at: date)
+        if status == "active", phase == .beforeDeparture { return .airborne }
+        return phase
+    }
+
+    /// Believed still on the ground: taxiing, or not yet expected to be off
+    /// it. The widget hedges here — "Departing"/"Taxiing", never green.
     func isDepartingUnconfirmed(at date: Date) -> Bool {
         guard actualDeparture == nil, phase(at: date) == .inFlight else { return false }
-        return date >= effectiveDeparture
-            && date < effectiveDeparture.addingTimeInterval(20 * 60)
+        return !departurePhase(at: date).isOffTheGround
+    }
+
+    /// When the wheels are expected to leave the ground — the moment the
+    /// timeline has to schedule an entry for, because it is the only moment
+    /// the label may change without any new data arriving.
+    var expectedWheelsUp: Date { departureEvidence.expectedWheelsUp }
+
+    /// Every moment this leg's layout can change on its own.
+    ///
+    /// Widget entries are rendered once, at timeline-build time, so anything
+    /// the view derives from the entry's date has to have an entry at the
+    /// moment it changes — otherwise the home screen keeps showing the last
+    /// render, with the app dead and the device offline, which is exactly
+    /// the situation this whole hedge exists for. Three moments: the gate
+    /// time, the expected wheels-up (while nobody has confirmed one), and
+    /// the arrival.
+    func layoutFlips(after now: Date) -> [Date] {
+        var flips = [effectiveDeparture, effectiveArrival]
+        if actualDeparture == nil { flips.append(expectedWheelsUp) }
+        return flips.filter { $0 > now }.sorted()
     }
 
     func statusText(phase: Phase, at date: Date = .now) -> String {
         if status == "cancelled" { return "Cancelled" }
         if status == "diverted" { return "Diverted" }
         switch phase {
-        case .inFlight: return isDepartingUnconfirmed(at: date) ? "Departing" : mode.inTransitTitle
+        case .inFlight:
+            switch departurePhase(at: date) {
+            case .taxiing: return mode == .air ? "Taxiing" : "Departing"
+            case .departing: return "Departing"
+            case .beforeDeparture, .presumedAirborne, .airborne: return mode.inTransitTitle
+            }
         case .landed: return status == "landed" ? mode.arrivedVerb : "\(mode.arrivingVerb) soon"
         case .upcoming:
             if showsPrediction { return "Arc +\(predictedDelayMinutes)m" }
@@ -227,6 +289,8 @@ extension WidgetFlight: Codable {
         case mode, dataTier
         case departureTerminal, arrivalGate, arrivalTerminal, baggageClaim
         case estimatedArrival, departureTZ, arrivalTZ, updatedAt, actualDeparture
+        case estimatedTakeoff, groundState, groundObservedAt, taxiStartedAt
+        case lastSeenOnGround, taxiPriorMinutes
     }
 
     init(from decoder: Decoder) throws {
@@ -256,6 +320,12 @@ extension WidgetFlight: Codable {
         arrivalTZ = try c.decodeIfPresent(String.self, forKey: .arrivalTZ)
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
         actualDeparture = try c.decodeIfPresent(Date.self, forKey: .actualDeparture)
+        estimatedTakeoff = try c.decodeIfPresent(Date.self, forKey: .estimatedTakeoff)
+        groundState = try c.decodeIfPresent(String.self, forKey: .groundState)
+        groundObservedAt = try c.decodeIfPresent(Date.self, forKey: .groundObservedAt)
+        taxiStartedAt = try c.decodeIfPresent(Date.self, forKey: .taxiStartedAt)
+        lastSeenOnGround = try c.decodeIfPresent(Date.self, forKey: .lastSeenOnGround)
+        taxiPriorMinutes = try c.decodeIfPresent(Int.self, forKey: .taxiPriorMinutes)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -285,5 +355,11 @@ extension WidgetFlight: Codable {
         try c.encodeIfPresent(arrivalTZ, forKey: .arrivalTZ)
         try c.encodeIfPresent(updatedAt, forKey: .updatedAt)
         try c.encodeIfPresent(actualDeparture, forKey: .actualDeparture)
+        try c.encodeIfPresent(estimatedTakeoff, forKey: .estimatedTakeoff)
+        try c.encodeIfPresent(groundState, forKey: .groundState)
+        try c.encodeIfPresent(groundObservedAt, forKey: .groundObservedAt)
+        try c.encodeIfPresent(taxiStartedAt, forKey: .taxiStartedAt)
+        try c.encodeIfPresent(lastSeenOnGround, forKey: .lastSeenOnGround)
+        try c.encodeIfPresent(taxiPriorMinutes, forKey: .taxiPriorMinutes)
     }
 }

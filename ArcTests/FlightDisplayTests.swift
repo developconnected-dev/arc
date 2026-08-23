@@ -396,9 +396,15 @@ final class WidgetFlightTests: XCTestCase {
     func testWidgetConfirmedTakeoffEndsTheHedge() {
         var f = widgetFlight(status: "active", depOffset: -600)
         f.actualDeparture = f.scheduledDeparture.addingTimeInterval(120)
-        let at = f.effectiveDeparture.addingTimeInterval(60)
+        // After the reported take-off, not before it: a confirmation
+        // timestamped in the future is a filing, not a fact, and asking
+        // early is how the old rule talked itself into "In Air".
+        let at = f.actualDeparture!.addingTimeInterval(60)
         XCTAssertFalse(f.isDepartingUnconfirmed(at: at))
         XCTAssertEqual(f.statusText(phase: .inFlight, at: at), "In Air")
+
+        let beforeItLeft = f.actualDeparture!.addingTimeInterval(-60)
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: beforeItLeft), "Departing")
     }
 
     func testWidgetHedgeNeverBeforeDepartureOrAfterArrival() {
@@ -428,6 +434,91 @@ final class WidgetFlightTests: XCTestCase {
         flight.status = .active
         flight.actualDeparture = flight.scheduledDeparture.addingTimeInterval(180)
         XCTAssertEqual(WidgetFlight(flight).actualDeparture, flight.actualDeparture)
+    }
+
+    // MARK: - The taxi, on the home screen
+    //
+    // The widget is the surface that told someone she was flying while she
+    // sat in a hold: it flipped to "In Air" twenty minutes after the GATE
+    // time, on a pre-rendered timeline entry, with her phone in airplane
+    // mode and nothing able to correct it.
+
+    func testWidgetHoldsTheHedgeForTheAirportsRealTaxiTime() {
+        var f = widgetFlight(status: "active", depOffset: -25 * 60)
+        f.taxiPriorMinutes = 35                                   // a slow hub
+        let at = f.offBlock.addingTimeInterval(25 * 60)
+        XCTAssertEqual(f.departurePhase(at: at), .departing)
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: at), "Departing")
+        XCTAssertTrue(f.isDepartingUnconfirmed(at: at))
+    }
+
+    func testWidgetSaysTaxiingWhenSomethingSawItRolling() {
+        var f = widgetFlight(status: "active", depOffset: -12 * 60)
+        f.groundState = "taxiing"
+        f.taxiStartedAt = f.offBlock.addingTimeInterval(2 * 60)
+        f.groundObservedAt = f.offBlock.addingTimeInterval(11 * 60)
+        let at = f.offBlock.addingTimeInterval(12 * 60)
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: at), "Taxiing")
+        XCTAssertFalse(f.departurePhase(at: at).isOffTheGround)
+    }
+
+    /// Past the expected wheels-up the widget stops hedging and says the leg
+    /// is under way — but as a presumption, so nothing goes green.
+    func testWidgetPresumesAirborneWithoutClaimingConfirmation() {
+        let f = widgetFlight(status: "active", depOffset: -45 * 60)
+        let at = f.offBlock.addingTimeInterval(45 * 60)
+        XCTAssertEqual(f.departurePhase(at: at), .presumedAirborne)
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: at), "In Air")
+        XCTAssertFalse(f.departurePhase(at: at).isConfirmed)
+    }
+
+    func testWidgetConfirmedTakeoffIsTheOnlyConfirmedState() {
+        var f = widgetFlight(status: "active", depOffset: -45 * 60)
+        f.actualDeparture = f.offBlock.addingTimeInterval(31 * 60)
+        let at = f.offBlock.addingTimeInterval(45 * 60)
+        XCTAssertTrue(f.departurePhase(at: at).isConfirmed)
+        XCTAssertFalse(f.isDepartingUnconfirmed(at: at))
+    }
+
+    /// The flips are pre-rendered while the app is dead and the device
+    /// offline, so the expected wheels-up has to be one of them — otherwise
+    /// the layout would change on the old gate-plus-twenty schedule.
+    func testWidgetTimelineFlipsAtExpectedWheelsUp() {
+        var f = widgetFlight(status: "scheduled", depOffset: 30 * 60)
+        f.taxiPriorMinutes = 35
+        let flips = f.layoutFlips(after: .now)
+        XCTAssertTrue(flips.contains { abs($0.timeIntervalSince(f.expectedWheelsUp)) < 1 },
+                      "no entry at the moment the label may finally change")
+        XCTAssertEqual(f.expectedWheelsUp, f.offBlock.addingTimeInterval(35 * 60))
+        // Once a take-off is confirmed there is nothing left to flip to.
+        f.actualDeparture = f.offBlock
+        XCTAssertFalse(f.layoutFlips(after: .now).contains {
+            abs($0.timeIntervalSince(f.expectedWheelsUp)) < 1 })
+    }
+
+    func testWidgetSnapshotCarriesTheEvidenceAndSurvivesOldSnapshots() throws {
+        var f = widgetFlight(status: "active", depOffset: -20 * 60)
+        f.groundState = "taxiing"
+        f.taxiStartedAt = f.offBlock
+        f.groundObservedAt = f.offBlock.addingTimeInterval(60)
+        f.taxiPriorMinutes = 31
+        let round = try JSONDecoder().decode(WidgetFlight.self, from: JSONEncoder().encode(f))
+        XCTAssertEqual(round.groundState, "taxiing")
+        XCTAssertEqual(round.taxiPriorMinutes, 31)
+        XCTAssertNotNil(round.taxiStartedAt)
+
+        // A snapshot written before any of this existed must still load — a
+        // decode failure renders as an empty widget the user cannot fix.
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(f)) as! [String: Any]
+        for key in ["groundState", "groundObservedAt", "taxiStartedAt", "taxiPriorMinutes",
+                    "estimatedTakeoff", "lastSeenOnGround", "actualDeparture"] {
+            json.removeValue(forKey: key)
+        }
+        let old = try JSONDecoder().decode(
+            WidgetFlight.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertNil(old.groundState)
+        XCTAssertNil(old.taxiPriorMinutes)
+        XCTAssertEqual(old.flightNumber, f.flightNumber)
     }
 
     func testStatusTextShowsArcPredictionWhenAheadOfAirline() {

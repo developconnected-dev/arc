@@ -73,7 +73,13 @@ extension WidgetFlight {
             departureTZ: flight.depTimeZone.identifier,
             arrivalTZ: flight.arrTimeZone.identifier,
             updatedAt: flight.lastStatusUpdate,
-            actualDeparture: flight.actualDeparture
+            actualDeparture: flight.actualDeparture,
+            estimatedTakeoff: flight.estimatedTakeoff,
+            groundState: flight.groundStateRaw,
+            groundObservedAt: flight.groundObservedAt,
+            taxiStartedAt: flight.taxiStartedAt,
+            lastSeenOnGround: flight.lastSeenOnGround,
+            taxiPriorMinutes: flight.taxiPriorMinutes
         )
     }
 }
