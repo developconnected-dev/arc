@@ -1,4 +1,4 @@
-import { apnsConfigured, sendLiveActivityPush } from "./apns";
+import { apnsConfigured, sendLiveActivityPush, apnsJwt } from "./apns";
 import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, shiftLegToDay, completeLeg, confirmedRunwayTime, movementIsLive } from "./legs";
 import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRIOR } from "./ground";
 import { predictGate, type GateObservation } from "./gates";
@@ -1422,6 +1422,28 @@ export default {
     // same pier often enough that its history beats a flat airport average.
     // The airport's learned taxi-out for an hour of day — the grace every
     // surface gives a departure before assuming wheels-up.
+    // Does APNs accept our credentials? Pushes to a deliberately invalid
+    // device token: Apple authenticates the JWT and the topic BEFORE it
+    // looks at the token, so "BadDeviceToken" is a pass (key, team and topic
+    // are right) while InvalidProviderToken or TopicDisallowed name exactly
+    // what is wrong. No device and no live flight needed.
+    if (url.pathname === "/apns-selftest") {
+      if (!apnsConfigured(env)) {
+        return Response.json({ ok: false, reason: "APNS_TEAM_ID, APNS_KEY_ID and APNS_P8 must all be set" },
+                             { headers: cors });
+      }
+      const out: Record<string, unknown> = {};
+      for (const host of ["sandbox", "production"] as const) {
+        try {
+          const status = await apnsProbe(env, host);
+          out[host] = status;
+        } catch (e) {
+          out[host] = { error: String(e) };
+        }
+      }
+      return Response.json(out, { headers: cors });
+    }
+
     if (url.pathname === "/taxi/prior") {
       const iata = (url.searchParams.get("iata") ?? "").toUpperCase();
       const hour = Number(url.searchParams.get("hour") ?? new Date().getUTCHours());
@@ -2296,6 +2318,34 @@ interface TokenRow {
   scheduled_departure: string | null;
   scheduled_arrival: string | null;
   last_state: Record<string, any>;
+}
+
+/// One throwaway push at an invalid token, reporting what APNs said.
+async function apnsProbe(env: Env, hostEnv: "sandbox" | "production"): Promise<Record<string, unknown>> {
+  const host = hostEnv === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com";
+  const jwt = await apnsJwt(env);
+  const res = await fetch(`https://${host}/3/device/${"0".repeat(64)}`, {
+    method: "POST",
+    headers: {
+      authorization: `bearer ${jwt}`,
+      "apns-topic": `${APP_BUNDLE_ID}.push-type.liveactivity`,
+      "apns-push-type": "liveactivity",
+      "apns-priority": "5",
+      "apns-expiration": "0",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ aps: { timestamp: Math.floor(Date.now() / 1000), event: "update", "content-state": {} } }),
+  });
+  const body = await res.text();
+  let reason = "";
+  try { reason = (JSON.parse(body) as { reason?: string }).reason ?? ""; } catch { reason = body.slice(0, 120); }
+  return {
+    status: res.status,
+    reason,
+    // Apple checks the token last: anything BUT a credential complaint means
+    // the key, team and topic were accepted.
+    credentialsAccepted: reason === "BadDeviceToken" || res.status === 200,
+  };
 }
 
 async function runLiveActivityCron(env: Env): Promise<void> {
