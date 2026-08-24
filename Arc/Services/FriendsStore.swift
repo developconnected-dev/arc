@@ -435,10 +435,6 @@ final class FriendsStore {
         return out.sorted { $0.arr > $1.arr }.map(\.item)
     }
 
-    /// A display-only Flight model — NOT inserted into SwiftData — so a
-    /// friend's flight opens the exact same detail screen as the user's own
-    /// flights. Edits made there (seat, notes) simply don't persist, which
-    /// is correct: it isn't your flight.
     /// Ask the server to re-check this friend's flight against the provider,
     /// then re-read the feed.
     ///
@@ -491,6 +487,10 @@ final class FriendsStore {
             && now < arr.addingTimeInterval(FriendFlightMath.landedGrace)
     }
 
+    /// A display-only Flight model — NOT inserted into SwiftData — so a
+    /// friend's flight opens the exact same detail screen as the user's own
+    /// flights. Edits made there (seat, notes) simply don't persist, which
+    /// is correct: it isn't your flight.
     func transientFlight(for item: FeedItem) -> Flight {
         let f = item.flight
         let scheduledDep = DateHelpers.parseAPIDate(f.scheduled_departure) ?? .now
