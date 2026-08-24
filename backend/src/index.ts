@@ -5,6 +5,7 @@ import { predictGate, type GateObservation } from "./gates";
 import { contentState } from "./activity";
 import { flightNews, type WatchState } from "./alerts";
 import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered } from "./freshness";
+import { pickLeg, plausibleActualDeparture } from "./legmatch";
 import { verifiedRoute } from "./place";
 import { handleTransit } from "./routes-transit";
 import { modesToQuery, routeFromQuery, dateFromQuery } from "./classify";
@@ -2658,9 +2659,10 @@ async function refreshOneSharedRow(env: Env, row: Record<string, any>, now: numb
     if (!row.flight_number) return;
     const day = String(row.scheduled_departure).slice(0, 10);
     const { legs, cache } = await fetchLegsCached(env, "flight", String(row.flight_number), day, "cron");
-    const leg = (legs ?? []).find(l =>
-      l["dep_iata"] === row.departure_iata && l["arr_iata"] === row.arrival_iata
-    ) ?? (legs && legs.length > 0 ? legs[0] : null);
+    const leg = pickLeg(legs, {
+      depIata: row.departure_iata, arrIata: row.arrival_iata,
+      scheduledDepMs: Date.parse(String(row.scheduled_departure)),
+    });
     if (!leg) {
       // We looked and the provider had nothing to say — which, for a flight
       // further out than it publishes schedules for, is the ordinary answer
@@ -2749,8 +2751,14 @@ async function refreshOneSharedRow(env: Env, row: Record<string, any>, now: numb
         await recordTaxiObservation(env, row, sample!.reportedAt);
       }
     }
+    // Screened, not trusted: a departure that precedes its own schedule by
+    // hours is another operation's timestamp that reached this row, and the
+    // carry-forward below would otherwise pin it here for ever. Dropping it
+    // lets a row contaminated by the old route-only leg match heal itself on
+    // the next tick.
+    const carried = plausibleActualDeparture(row.actual_departure, Date.parse(String(row.scheduled_departure)));
     const confirmedDeparture = (ground.actual_departure as string | undefined)
-      ?? row.actual_departure ?? leg["dep_actual"] ?? null;
+      ?? carried ?? leg["dep_actual"] ?? null;
     await sbService(env, "PATCH", `/shared_flights?id=eq.${row.id}`, {
       ...ground,
       status: confirmedDeparture && leg["status"] !== "landed" && leg["status"] !== "cancelled"
@@ -2888,9 +2896,10 @@ async function watchUpcoming(env: Env): Promise<void> {
     try {
       const day = String(row.scheduled_departure).slice(0, 10);
       const { legs } = await fetchLegsCached(env, "flight", String(row.flight_number), day, "cron");
-      const leg = (legs ?? []).find(l =>
-        l["dep_iata"] === row.departure_iata && l["arr_iata"] === row.arrival_iata
-      ) ?? (legs && legs.length > 0 ? legs[0] : null);
+      const leg = pickLeg(legs, {
+        depIata: row.departure_iata, arrIata: row.arrival_iata,
+        scheduledDepMs: Date.parse(String(row.scheduled_departure)),
+      });
       // Stamp the check even when the provider had nothing, so one unanswerable
       // flight does not occupy a slot on every tick from now on.
       const checked: Record<string, unknown> = { watch_checked_at: new Date(now).toISOString() };
@@ -2981,10 +2990,13 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   if (now - fetchedAt > cronRefreshIntervalMs(knownDep, knownArr, now)) {
     const day = row.scheduled_departure!.slice(0, 10);
     const { legs } = await fetchLegsCached(env, "flight", row.flight_number!, day, "cron");
-    // A flight number can have multiple legs that day — match ours by route.
-    const leg = (legs ?? []).find(l =>
-      l["dep_iata"] === row.departure_iata && l["arr_iata"] === row.arrival_iata
-    ) ?? (legs && legs.length > 0 ? legs[0] : null);
+    // A flight number can have multiple legs that day — and on a route that
+    // lands after local midnight, two of them are the SAME route on
+    // consecutive days. Match by route AND scheduled time.
+    const leg = pickLeg(legs, {
+      depIata: row.departure_iata, arrIata: row.arrival_iata,
+      scheduledDepMs: schedDepGuess,
+    });
     if (leg) {
       dataChanged = !!flight && (
         leg["status"] !== flight["status"] ||
