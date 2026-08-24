@@ -3379,17 +3379,29 @@ function lastOnGroundT(){
   if(PRE.indexOf(f.status)>=0&&!f.dep.actual&&f.updated)t=Math.max(t,P(f.updated)||0);
   return t;
 }
+// 90 minutes past off-block, the hedge stops. Without this the slide below
+// re-anchors on every row update, so a flight the provider never confirms
+// stays "Departing" for ever and this page can never reach "Presumed
+// airborne" at all — the mirror image of the bug the whole feature exists to
+// prevent. Mirrors DepartureEvidence.hardCap / .freshWindow.
+var HARD_CAP=90*60000,FRESH=15*60000;
 function wheelsUpT(){
   var f=D.flight,prior=(f.taxiPrior||0)*60000,lg=lastOnGroundT();
-  return Math.max(offBlockT()+prior,P(f.dep.estTakeoff)||0,lg?lg+prior:0);
+  return Math.max(offBlockT()+prior,P(f.dep.estTakeoff)||0,
+                  lg?Math.min(lg+prior,offBlockT()+HARD_CAP):0);
 }
 function depPhase(){
-  var f=D.flight,now=Date.now(),g=f.ground||{};
-  if(f.dep.actual||g.state==='airborne')return 'airborne';
+  var f=D.flight,now=Date.now(),g=f.ground||{},dep=P(f.dep.actual);
+  var fresh=g.observedAt&&(now-P(g.observedAt))<FRESH&&P(g.observedAt)<=now;
+  // A confirmation that hasn't happened yet is a filing, not a fact — and a
+  // sighting older than the fresh window says nothing about now.
+  if((dep&&dep<=now)||(fresh&&g.state==='airborne'))return 'airborne';
   if(now<offBlockT())return 'before';
-  var fresh=g.observedAt&&(now-P(g.observedAt))<15*60000;
   if(fresh&&g.state==='taxiing')return 'taxiing';
-  if(fresh&&g.state==='at_gate')return 'departing';
+  // Once it has started rolling, a pause is still the taxi: most of a
+  // 35-minute taxi at a busy hub is spent stopped in the queue, and
+  // flickering between Taxiing and Departing on every hold is worse.
+  if(fresh&&g.state==='at_gate')return g.taxiStartedAt?'taxiing':'departing';
   return now<wheelsUpT()?'departing':'presumed';
 }
 function phase(){
