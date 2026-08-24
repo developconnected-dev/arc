@@ -58,6 +58,47 @@ function b64urlBytes(bytes: Uint8Array): string {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+/// Sends one ordinary alert notification. Same credentials, same connection,
+/// different push type — and the same reason it reaches a phone at 38,000 feet
+/// that free airline messaging Wi-Fi whitelists Apple's push endpoints.
+///
+/// `collapseId` lets a newer statement about the same fact replace an older
+/// one still queued, instead of stacking two contradictory banners.
+export async function sendAlertPush(
+  env: ApnsEnv,
+  deviceToken: string,
+  apnsHostEnv: "sandbox" | "production",
+  bundleId: string,
+  alert: { title: string; body: string },
+  collapseId?: string,
+  threadId?: string
+): Promise<number> {
+  const host = apnsHostEnv === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com";
+  const jwt = await apnsJwt(env);
+  const res = await fetch(`https://${host}/3/device/${deviceToken}`, {
+    method: "POST",
+    headers: {
+      authorization: `bearer ${jwt}`,
+      "apns-topic": bundleId,
+      "apns-push-type": "alert",
+      "apns-priority": "10",
+      // A flight fact is worth waking the screen for, but not worth waking it
+      // a week from now: an undeliverable alert should die, not queue.
+      "apns-expiration": String(Math.floor(Date.now() / 1000) + 6 * 3600),
+      ...(collapseId ? { "apns-collapse-id": collapseId.slice(0, 64) } : {}),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      aps: {
+        alert: { title: alert.title, body: alert.body },
+        sound: "default",
+        ...(threadId ? { "thread-id": threadId } : {}),
+      },
+    }),
+  });
+  return res.status;
+}
+
 /// Sends one Live Activity push. Returns the APNs HTTP status —
 /// 410 (or 400 BadDeviceToken) means the token is dead and should be deleted.
 export async function sendLiveActivityPush(

@@ -52,7 +52,6 @@ struct FlightActivityAttributes: ActivityAttributes {
         let departureTime: Date
         let arrivalTime: Date
         let boardingTime: Date?     // typically 30-45 min before departure
-        let securityWaitMinutes: Int?  // live security queue estimate
         let delayMinutes: Int
         /// Arrival-side delay, from the provider's revised arrival time.
         /// Optional so pushes from an older Worker still decode (falls back
@@ -74,9 +73,6 @@ struct FlightActivityAttributes: ActivityAttributes {
         let arrivalGate: String?
         let arrivalTerminal: String?
         let baggageClaim: String?
-        let altitude: Double?
-        let speed: Double?
-        let heading: Double?
         let progress: Double
         // What Arc knows about the gate-to-runway gap (see DepartureEvidence).
         // All optional with defaults so pushes from an older Worker, and

@@ -100,6 +100,7 @@
 		C8FFD2D8D6BF9BD7326C11AF /* RotationChainTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38329F5149CBA92432A823C7 /* RotationChainTests.swift */; };
 		C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6203F2E6D1096F29FA5083FC /* ArcApp.swift */; };
 		C95804ADD76EDEB2671A5121 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */; };
+		A1C0DE0000000000000001A1 /* RemotePush.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C0DE0000000000000001B2 /* RemotePush.swift */; };
 		CAD442F2201C5E0593480795 /* GeoMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CCB5157053AA1F3BD9AF495 /* GeoMath.swift */; };
 		CE8EDCF06AF9286001FAB953 /* airports.json in Resources */ = {isa = PBXBuildFile; fileRef = 3104AD04269DDBC745E354F1 /* airports.json */; };
 		CF6320F47EB82BD75EA23A56 /* TravelCompanionsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFCE4AEB3F85D01514383989 /* TravelCompanionsSheet.swift */; };
@@ -111,7 +112,6 @@
 		E2AC5D165AA0A0A30D638EB2 /* TripInviteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AAA85683251E0048E5FBC31 /* TripInviteTests.swift */; };
 		E64226C8F2F29728DFB84855 /* WidgetSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = E909886CA15B1B79B6D631A0 /* WidgetSync.swift */; };
 		E66A60BDC3290A6FBD47C2B4 /* FlightTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 234B3612AF40D9B0CBA15CBE /* FlightTracker.swift */; };
-		E6F67237EDC556551CEAEE73 /* AirportDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2689BBDC633D503741A61075 /* AirportDatabase.swift */; };
 		E84B095C2CDB1EAAB5567249 /* PassportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DDC05441C6505A7B01620F3 /* PassportView.swift */; };
 		F426D81F00E9F6FAF3A09D17 /* BackgroundFlightUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = D055CC753814BAE54C3C7094 /* BackgroundFlightUpdater.swift */; };
 		F4EF39911CBB7F824BE309E4 /* FriendAvatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B473AA396AFB87F8FA33DBD /* FriendAvatar.swift */; };
@@ -171,7 +171,6 @@
 		210826009A37E90654E69671 /* Flight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Flight.swift; sourceTree = "<group>"; };
 		234B3612AF40D9B0CBA15CBE /* FlightTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightTracker.swift; sourceTree = "<group>"; };
 		265784352B3CDD1B671088AA /* RotationChain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationChain.swift; sourceTree = "<group>"; };
-		2689BBDC633D503741A61075 /* AirportDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirportDatabase.swift; sourceTree = "<group>"; };
 		283EE3258EC82F97B3FD8892 /* ScheduleBackfillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleBackfillTests.swift; sourceTree = "<group>"; };
 		2AAA85683251E0048E5FBC31 /* TripInviteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripInviteTests.swift; sourceTree = "<group>"; };
 		2AD3936B9A068A6D1B734331 /* SupabaseErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseErrorTests.swift; sourceTree = "<group>"; };
@@ -182,6 +181,7 @@
 		350CDBD64C98220C09B88C41 /* StatsDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsDetailView.swift; sourceTree = "<group>"; };
 		3656C3156166F8E024EE5B7D /* ReferenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceModels.swift; sourceTree = "<group>"; };
 		37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		A1C0DE0000000000000001B2 /* RemotePush.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePush.swift; sourceTree = "<group>"; };
 		38329F5149CBA92432A823C7 /* RotationChainTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationChainTests.swift; sourceTree = "<group>"; };
 		3982B16A2E83D23E09279400 /* InboundSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboundSelectionTests.swift; sourceTree = "<group>"; };
 		3B473AA396AFB87F8FA33DBD /* FriendAvatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendAvatar.swift; sourceTree = "<group>"; };
@@ -377,7 +377,6 @@
 			children = (
 				1A223847338A51B850FB3B5A /* AircraftImage.swift */,
 				0E523F671AB6E8AFA8FCF1C3 /* AirlineBranding.swift */,
-				2689BBDC633D503741A61075 /* AirportDatabase.swift */,
 				D055CC753814BAE54C3C7094 /* BackgroundFlightUpdater.swift */,
 				4C1301041A06C6716593057B /* ConnectionPlanner.swift */,
 				B2ED974C878C66DFB8E89AFE /* DateHelpers.swift */,
@@ -396,6 +395,7 @@
 				68633311E781A8154C5A2CA5 /* LiveActivityPushSync.swift */,
 				7219FA5EF2671212E6AFBC29 /* NetworkMonitor.swift */,
 				37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */,
+				A1C0DE0000000000000001B2 /* RemotePush.swift */,
 				178D23CC53F67645C9230260 /* ReferenceData.swift */,
 				265784352B3CDD1B671088AA /* RotationChain.swift */,
 				FB709548B711E7098E93A102 /* ScheduleBackfill.swift */,
@@ -715,7 +715,6 @@
 				B25EC52E0FA211AB82FC6644 /* AirlineBranding.swift in Sources */,
 				782E9CE6FC733FBD77E43A5E /* AirlineLogoView.swift in Sources */,
 				A0CFDAC70BB886B090D73B83 /* Airport.swift in Sources */,
-				E6F67237EDC556551CEAEE73 /* AirportDatabase.swift in Sources */,
 				2AEA6A4A50AA735658212B7D /* AirportOverlapRow.swift in Sources */,
 				BDA9D40E00E8F38131B3C8FD /* AirportStatusView.swift in Sources */,
 				C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */,
@@ -762,6 +761,7 @@
 				3C9CBF3FB7BC17B415D90698 /* MyFlightsView.swift in Sources */,
 				4FE84FF36951222122D6AFFE /* NetworkMonitor.swift in Sources */,
 				C95804ADD76EDEB2671A5121 /* NotificationService.swift in Sources */,
+				A1C0DE0000000000000001A1 /* RemotePush.swift in Sources */,
 				74C10FB358EFB074FC86CBA5 /* PassportStats.swift in Sources */,
 				E84B095C2CDB1EAAB5567249 /* PassportView.swift in Sources */,
 				AD144643F6272369E3A1D584 /* ReferenceData.swift in Sources */,

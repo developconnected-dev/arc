@@ -1,7 +1,10 @@
-import { apnsConfigured, sendLiveActivityPush, apnsJwt } from "./apns";
+import { apnsConfigured, sendLiveActivityPush, sendAlertPush, apnsJwt } from "./apns";
 import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, shiftLegToDay, completeLeg, confirmedRunwayTime, movementIsLive } from "./legs";
 import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRIOR } from "./ground";
 import { predictGate, type GateObservation } from "./gates";
+import { contentState } from "./activity";
+import { flightNews, type WatchState } from "./alerts";
+import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval } from "./freshness";
 import { verifiedRoute } from "./place";
 import { handleTransit } from "./routes-transit";
 import { modesToQuery, routeFromQuery, dateFromQuery } from "./classify";
@@ -1571,7 +1574,11 @@ export default {
     if (url.pathname === "/la/register" && req.method === "POST") {
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, reason: "unconfigured" }, { headers: cors });
       try {
-        const body = await req.json() as { token?: string; type?: string; env?: string; user_id?: string; flight?: Record<string, unknown> };
+        const body = await req.json() as {
+          token?: string; type?: string; env?: string; user_id?: string;
+          flight?: Record<string, unknown>;
+          local?: { boarding_lead_minutes?: number; companions?: unknown[] };
+        };
         if (!body.token || (body.type !== "update" && body.type !== "start")) {
           return new Response("bad request", { status: 400, headers: cors });
         }
@@ -1598,8 +1605,109 @@ export default {
           scheduled_arrival: f["scheduled_arrival"] ?? null,
           updated_at: new Date().toISOString(),
         };
+        // Facts only the device can know — the airline's boarding lead and the
+        // friends on this flight — parked where every push can echo them back.
+        // A Live Activity push REPLACES the content state wholesale, so
+        // whatever the Worker cannot restate is erased from the lock screen
+        // until the app next runs; these two were being erased every tick.
+        if (body.local) {
+          const lead = Number(body.local.boarding_lead_minutes);
+          const local: Record<string, unknown> = {};
+          if (Number.isFinite(lead) && lead >= 0 && lead <= 240) local.boarding_lead_minutes = Math.round(lead);
+          if (Array.isArray(body.local.companions)) local.companions = body.local.companions.slice(0, 8);
+          // Merge rather than overwrite: last_state also carries the cached
+          // leg, the insight and the taxi evidence between ticks.
+          const existing = await sbSelect(env,
+            `/live_activity_tokens?select=last_state&token=eq.${encodeURIComponent(body.token)}`);
+          row.last_state = { ...((existing[0] as any)?.last_state ?? {}), local };
+        }
         const res = await sbService(env, "POST", "/live_activity_tokens?on_conflict=token", row);
         return Response.json({ ok: res.ok }, { headers: cors });
+      } catch {
+        return new Response("bad request", { status: 400, headers: cors });
+      }
+    }
+
+    // ── Ordinary push registration ──
+    // Separate from /la/register: that token belongs to ONE Live Activity and
+    // dies with it. This one belongs to the device, and is what lets Arc say
+    // anything at all about a flight that has no card running — which, more
+    // than three hours before departure, is every flight.
+    if (url.pathname === "/push/register" && req.method === "POST") {
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, reason: "unconfigured" }, { headers: cors });
+      try {
+        const body = await req.json() as { token?: string; env?: string; user_id?: string };
+        const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        // No owner, no registration. The watcher looks up flights BY owner, so
+        // an ownerless token could only ever be sent someone else's news.
+        if (!body.token || !/^[0-9a-f]{64,200}$/i.test(body.token)
+            || typeof body.user_id !== "string" || !uuid.test(body.user_id)) {
+          return new Response("bad request", { status: 400, headers: cors });
+        }
+        const res = await sbService(env, "POST", "/device_tokens?on_conflict=token", {
+          token: body.token,
+          user_id: body.user_id,
+          apns_env: body.env === "sandbox" ? "sandbox" : "production",
+          updated_at: new Date().toISOString(),
+        });
+        return Response.json({ ok: res.ok }, { headers: cors });
+      } catch {
+        return new Response("bad request", { status: 400, headers: cors });
+      }
+    }
+
+    if (url.pathname === "/push/unregister" && req.method === "POST") {
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false }, { headers: cors });
+      try {
+        const body = await req.json() as { token?: string };
+        if (!body.token) return new Response("bad request", { status: 400, headers: cors });
+        await sbService(env, "DELETE", `/device_tokens?token=eq.${encodeURIComponent(body.token)}`);
+        return Response.json({ ok: true }, { headers: cors });
+      } catch {
+        return new Response("bad request", { status: 400, headers: cors });
+      }
+    }
+
+    // ── Refresh one friend's flight, now, because someone is looking at it ──
+    //
+    // The viewer has a working connection — that is WHY they are looking — but
+    // until this endpoint the friend path made no network call of any kind. It
+    // read the mirrored row and nothing else, so a friend's flight was only
+    // ever as fresh as the last cron tick or the traveller's own phone. The
+    // one device that is definitely awake and definitely interested could not
+    // ask.
+    //
+    // It cannot write the row itself: RLS lets a friend SELECT but only the
+    // owner UPDATE, which is right — you should not be able to edit someone
+    // else's flight. So it asks the Worker, which holds the service key and
+    // therefore has to re-check the friendship the policy would have enforced.
+    if (url.pathname === "/shared/refresh" && req.method === "POST") {
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, reason: "unconfigured" }, { headers: cors });
+      const viewer = await supabaseUserId(env, req);
+      if (!viewer) return new Response("unauthorized", { status: 401, headers: cors });
+      try {
+        const body = await req.json() as { id?: string };
+        const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!body.id || !uuid.test(body.id)) {
+          return new Response("bad request", { status: 400, headers: cors });
+        }
+        const rows = await sbSelect(env, `/shared_flights?id=eq.${body.id}&select=*`) as unknown as Record<string, any>[];
+        if (!rows.length) return new Response("not found", { status: 404, headers: cors });
+        const row = rows[0];
+        // Same answer the RLS policy would give, restated because the service
+        // key bypasses it.
+        if (!await areFriends(env, viewer, String(row.user_id))) {
+          return new Response("not found", { status: 404, headers: cors });
+        }
+        const now = Date.now();
+        // Somebody already asked in the last minute — for this row, or because
+        // several friends opened it at once. Their answer is this answer.
+        const recent = row.checked_at && now - Date.parse(row.checked_at) < 60_000;
+        if (!recent && ((row.mode as string) ?? "air") === "air") {
+          await refreshOneSharedRow(env, row, now);
+        }
+        const after = await sbSelect(env, `/shared_flights?id=eq.${body.id}&select=*`);
+        return Response.json({ ok: true, refreshed: !recent, flight: after[0] ?? row }, { headers: cors });
       } catch {
         return new Response("bad request", { status: 400, headers: cors });
       }
@@ -2247,14 +2355,33 @@ async function cacheAirlabsResult(env: Env, ident: string, date: string,
 /// check WHO is asking: any signed-in user may contribute, nobody anonymous
 /// may wipe an airport's gate map or poison the prediction history.
 async function requireSupabaseUser(env: Env, req: Request): Promise<boolean> {
+  return (await supabaseUserId(env, req)) !== null;
+}
+
+/// WHICH signed-in user is asking, or null. Needed wherever the answer depends
+/// on the caller's identity rather than merely on their being signed in — the
+/// service key bypasses RLS, so any row-level rule has to be re-stated here.
+async function supabaseUserId(env: Env, req: Request): Promise<string | null> {
   const auth = req.headers.get("authorization");
-  if (!auth?.startsWith("Bearer ") || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY) return false;
+  if (!auth?.startsWith("Bearer ") || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY) return null;
   try {
     const res = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
       headers: { apikey: env.SUPABASE_SERVICE_KEY, authorization: auth },
     });
-    return res.ok;
-  } catch { return false; }
+    if (!res.ok) return null;
+    const body = await res.json() as { id?: unknown };
+    return typeof body.id === "string" ? body.id : null;
+  } catch { return null; }
+}
+
+/// Whether these two are actually friends — the `Friends can view shared
+/// flights` policy from migration 001, restated for the service key.
+async function areFriends(env: Env, a: string, b: string): Promise<boolean> {
+  if (a === b) return true;
+  const rows = await sbSelect(env,
+    "/friendships?select=id&status=eq.accepted"
+    + `&or=(and(requester_id.eq.${a},addressee_id.eq.${b}),and(requester_id.eq.${b},addressee_id.eq.${a}))`);
+  return rows.length > 0;
 }
 
 async function sbService(env: Env, method: string, path: string, body?: unknown): Promise<Response> {
@@ -2389,6 +2516,18 @@ async function runLiveActivityCron(env: Env): Promise<void> {
   try {
     await refreshSharedFlights(env);
   } catch { /* best-effort */ }
+
+  // LAST, deliberately. Flights that are still too far out for a Live Activity
+  // to exist are the only path by which a cancellation the night before
+  // reaches anyone — but they are also the least time-critical thing this tick
+  // does, and Cloudflare caps subrequests per invocation. Running the watcher
+  // after the live work means a busy minute costs a far-out flight one hour of
+  // latency, rather than costing a taxiing aircraft its sighting.
+  if (apnsConfigured(env)) {
+    try {
+      await watchUpcoming(env);
+    } catch { /* best-effort — never take the rest of the tick down with it */ }
+  }
 }
 
 
@@ -2401,6 +2540,23 @@ async function runLiveActivityCron(env: Env): Promise<void> {
 /// payload, different prefixes and different rate-limit moods — Workers share
 /// egress IPs with everyone else on Cloudflare, so a per-IP limiter can lock
 /// us out through no fault of ours. Trying several is the cheap insurance.
+/// What `/position` answers with. The interface went out with `watchAircraft`
+/// when the server witness moved to the provider's own location block, but
+/// three signatures below kept naming it — a type error that neither node's
+/// type-stripping nor esbuild ever evaluates, so it survived as a lie about
+/// a shape nothing checked.
+interface ADSBPosition {
+  icao24: string;
+  lat: number;
+  lon: number;
+  altitude: number;
+  velocity: number;
+  heading: number;
+  on_ground: boolean;
+  registration: string | null;
+  age_seconds: number | null;
+}
+
 const ADSB_HOSTS = [
   { base: "https://api.adsb.lol", prefix: "/v2" },
   { base: "https://opendata.adsb.fi", prefix: "/api/v2" },
@@ -2490,51 +2646,22 @@ async function recordTaxiObservation(env: Env, row: Record<string, any>, takeoff
   });
 }
 
-/// Refresh provider-derived fields of shared_flights rows in their active
-/// window (4 h before departure → 45 min past delay-adjusted arrival), so a
-/// friend's view keeps moving when the traveler's device goes quiet. Never
-/// touches live position/progress — those stay device-reported.
-async function refreshSharedFlights(env: Env): Promise<void> {
-  const now = Date.now();
-  const from = new Date(now - 24 * 3600_000).toISOString();
-  const to = new Date(now + 4 * 3600_000).toISOString();
-  const rows = await sbSelect(env,
-    "/shared_flights?select=id,flight_number,departure_iata,arrival_iata,scheduled_departure,scheduled_arrival," +
-    "status,delay_minutes,departure_gate,arrival_gate,baggage_claim,updated_at,mode," +
-    "estimated_arrival,actual_departure,actual_arrival,est_takeoff,aircraft_registration,aircraft_icao24," +
-    "ground_state,ground_observed_at,taxi_started_at,live_source" +
-    `&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}`
-  ) as unknown as Record<string, any>[];
-
-  const active = rows.filter(r => {
-    // AeroDataBox only answers for air legs; a rail/sea row would burn a
-    // budget-guarded call on a guaranteed miss and crowd flights out of the cap.
-    if (((r.mode as string) ?? "air") !== "air") return false;
-    const delayMs = ((r.delay_minutes as number) ?? 0) * 60_000;
-    const dep = new Date(r.scheduled_departure).getTime();
-    const arr = new Date(r.scheduled_arrival ?? r.scheduled_departure).getTime() + delayMs;
-    return now >= dep - 4 * 3600_000 && now <= arr + 45 * 60_000
-      && r.status !== "landed" && r.status !== "cancelled"
-      // The traveler's own device may be updating this row right now —
-      // only step in once it has gone quiet.
-      && (!r.updated_at || now - Date.parse(r.updated_at) > 5 * 60_000);
-  });
-
-  // Same shuffle-and-cap as the token loop: bounded subrequests per tick,
-  // nobody starved — the cron runs every minute.
-  for (let i = active.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [active[i], active[j]] = [active[j], active[i]];
-  }
-  for (const row of active.slice(0, 5)) {
-    try {
-    if (!row.flight_number) continue;
+/// Bring ONE shared row up to date against the provider, applying the merge
+/// rules that decide what a friend is allowed to be told.
+///
+/// Extracted so the cron and the on-demand endpoint cannot drift: a viewer
+/// refreshing a friend's flight by hand must get exactly the same answer the
+/// cron would have written, including "a provider null never erases a
+/// device-reported value" and "a wheels-up already established is never
+/// un-confirmed".
+async function refreshOneSharedRow(env: Env, row: Record<string, any>, now: number): Promise<void> {
+    if (!row.flight_number) return;
     const day = String(row.scheduled_departure).slice(0, 10);
     const { legs } = await fetchLegsCached(env, "flight", String(row.flight_number), day, "cron");
     const leg = (legs ?? []).find(l =>
       l["dep_iata"] === row.departure_iata && l["arr_iata"] === row.arrival_iata
     ) ?? (legs && legs.length > 0 ? legs[0] : null);
-    if (!leg) continue;
+    if (!leg) return;
     // Timestamps compare by instant, not string: the provider writes "…Z",
     // PostgREST reads back "…+00:00", and a string comparison would call
     // every unchanged row changed on every tick.
@@ -2543,6 +2670,20 @@ async function refreshSharedFlights(env: Env): Promise<void> {
       const tb = b ? Date.parse(String(b)) : NaN;
       return (isNaN(ta) ? null : ta) !== (isNaN(tb) ? null : tb);
     };
+    // What the provider's own position block says the aircraft is doing.
+    // Same call, same key, no IP rate limit — this is how a friend sees
+    // "Taxiing" while the traveller's phone is in airplane mode, and how a
+    // take-off gets confirmed with nobody's app open at all.
+    //
+    // Computed BEFORE `changed`, which reads it: declared after, `state` sat
+    // in the temporal dead zone, so the moment every other operand was false
+    // — i.e. precisely when the new sighting was the only news — evaluating
+    // `changed` threw ReferenceError, the catch below swallowed it, and the
+    // row was skipped. The server witness never wrote a taxi state it had
+    // observed unless something unrelated changed in the same tick.
+    const sample = leg["position"] as ReturnType<typeof adbPositionToSample>;
+    const sampleFresh = !!sample && now - Date.parse(sample.reportedAt) < 15 * 60_000;
+    const state = sampleFresh ? classifyGround(sample) : "unknown";
     const changed =
       leg["status"] !== row.status ||
       (leg["delay"] ?? 0) !== row.delay_minutes ||
@@ -2557,14 +2698,12 @@ async function refreshSharedFlights(env: Env): Promise<void> {
       // A new sighting is itself news: it is what the friend's screen reads
       // to say taxiing rather than flying.
       (state !== "unknown" && (state !== row.ground_state || !row.ground_observed_at));
-    if (!changed) continue;
-    // What the provider's own position block says the aircraft is doing.
-    // Same call, same key, no IP rate limit — this is how a friend sees
-    // "Taxiing" while the traveller's phone is in airplane mode, and how a
-    // take-off gets confirmed with nobody's app open at all.
-    const sample = leg["position"] as ReturnType<typeof adbPositionToSample>;
-    const sampleFresh = !!sample && now - Date.parse(sample.reportedAt) < 15 * 60_000;
-    const state = sampleFresh ? classifyGround(sample) : "unknown";
+    // Even an unchanged answer is worth recording: it is how the friend's
+    // screen knows this was VERIFIED a minute ago rather than left alone for
+    // nine hours. Throttled so a stable row costs one small write every few
+    // minutes rather than one a minute — comfortably inside the ten-minute
+    // window in which the app will still say "Live".
+    if (!shouldWriteSharedRow({ changed, checkedAt: row.checked_at, now })) return;
     const ground: Record<string, unknown> = {};
     if (state !== "unknown") {
       ground.ground_state = state;
@@ -2573,6 +2712,9 @@ async function refreshSharedFlights(env: Env): Promise<void> {
       // The device owns the live position while it is still talking; once it
       // has gone quiet the provider's is the better witness and friends'
       // maps keep moving.
+      // Measured against `updated_at`, which only a real change writes — so
+      // this still means "the traveller's device has stopped talking", not
+      // "the cron stamped checked_at a minute ago".
       const deviceQuiet = !row.updated_at || now - Date.parse(row.updated_at) > 5 * 60_000;
       if ((deviceQuiet || row.live_source === "provider") && sample!.lat != null) {
         ground.live_lat = sample!.lat;
@@ -2611,11 +2753,167 @@ async function refreshSharedFlights(env: Env): Promise<void> {
       est_takeoff: leg["dep_runway_estimated"] ?? row.est_takeoff ?? null,
       aircraft_registration: leg["aircraft_registration"] ?? row.aircraft_registration ?? null,
       aircraft_icao24: leg["aircraft_icao24"] ?? row.aircraft_icao24 ?? null,
-      updated_at: new Date().toISOString(),
+      // We looked, and this is when. Written every time, so a friend's screen
+      // can tell "verified a minute ago" from "abandoned nine hours ago".
+      checked_at: new Date(now).toISOString(),
+      // Only a real change touches `updated_at`. It is the signal that the
+      // traveller's own device is still writing this row, and stamping it on
+      // every consultation would make the cron mistake itself for the device
+      // and then stand aside for a phone that is not there.
+      ...(changed ? { updated_at: new Date(now).toISOString() } : {}),
     });
+}
+
+/// Refresh provider-derived fields of shared_flights rows in their active
+/// window (4 h before departure → 45 min past delay-adjusted arrival), so a
+/// friend's view keeps moving when the traveler's device goes quiet. Never
+/// touches live position/progress — those stay device-reported.
+async function refreshSharedFlights(env: Env): Promise<void> {
+  const now = Date.now();
+  const from = new Date(now - 24 * 3600_000).toISOString();
+  // Out to thirty hours, not four: before that the ONLY writer of these rows
+  // was the traveller's own device, on its tracker poll, while their app was
+  // open. See sharedRowCheckInterval — far-out rows are consulted hourly, so
+  // widening the net costs a fraction of a call per flight per hour.
+  const to = new Date(now + 30 * 3600_000).toISOString();
+  const rows = await sbSelect(env,
+    "/shared_flights?select=id,flight_number,departure_iata,arrival_iata,scheduled_departure,scheduled_arrival," +
+    "status,delay_minutes,departure_gate,arrival_gate,baggage_claim,updated_at,mode," +
+    "estimated_arrival,actual_departure,actual_arrival,est_takeoff,aircraft_registration,aircraft_icao24," +
+    "ground_state,ground_observed_at,taxi_started_at,live_source,checked_at" +
+    `&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}`
+  ) as unknown as Record<string, any>[];
+
+  const active = rows.filter(r => {
+    // AeroDataBox only answers for air legs; a rail/sea row would burn a
+    // budget-guarded call on a guaranteed miss and crowd flights out of the cap.
+    if (((r.mode as string) ?? "air") !== "air") return false;
+    const delayMs = ((r.delay_minutes as number) ?? 0) * 60_000;
+    const dep = new Date(r.scheduled_departure).getTime();
+    const arr = new Date(r.scheduled_arrival ?? r.scheduled_departure).getTime() + delayMs;
+    return sharedRowIsDue({ depMs: dep, arrMs: arr, checkedAt: r.checked_at, now })
+      && r.status !== "landed" && r.status !== "cancelled"
+      // The traveler's own device may be updating this row right now —
+      // only step in once it has gone quiet.
+      && (!r.updated_at || now - Date.parse(r.updated_at) > 5 * 60_000);
+  });
+
+  // Shuffle so nobody is starved by stable DB order, then put the flights
+  // closest to departure first: with a thirty-hour net there are far more
+  // candidates than the per-tick cap, and a row taxiing right now must never
+  // wait behind one leaving tomorrow morning.
+  for (let i = active.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [active[i], active[j]] = [active[j], active[i]];
+  }
+  const urgency = (r: Record<string, any>) => {
+    const delayMs = ((r.delay_minutes as number) ?? 0) * 60_000;
+    const dep = new Date(r.scheduled_departure).getTime() + delayMs;
+    // The REAL arrival, not the departure: passing dep for both would put an
+    // aircraft currently in the air past its own arrival grace, scoring it as
+    // out of scope and sorting the most urgent row in the list dead last.
+    const arr = new Date(r.scheduled_arrival ?? r.scheduled_departure).getTime() + delayMs;
+    return sharedRowCheckInterval({ depMs: dep, arrMs: arr, now }) ?? Number.MAX_SAFE_INTEGER;
+  };
+  active.sort((a, b) => urgency(a) - urgency(b));
+  for (const row of active.slice(0, 5)) {
+    try {
+      await refreshOneSharedRow(env, row, now);
     } catch (e) {
       // One malformed row must not kill the refreshes behind it this tick.
       console.error("refreshSharedFlights row failed:", row?.id, e);
+    }
+  }
+}
+
+/// Watch upcoming flights that no Live Activity covers yet, and say something
+/// when the answer changes.
+///
+/// The three hours before departure are already covered: push-to-start opens a
+/// card and `pushUpdateForRow` keeps it moving. Everything EARLIER had no
+/// channel at all — Arc's alerts were local notifications, scheduled on the
+/// device, so they could only fire while the app was awake. The cron knew a
+/// flight was cancelled and had no way to say so.
+///
+/// Deliberately slow. A cancellation twenty hours out does not need
+/// minute-level freshness, so each flight is looked at about once an hour and
+/// only a handful are looked at per tick. Every fetch rides the shared,
+/// budget-guarded cache at source "cron", so this can never eat the
+/// interactive reserve that a reconnecting device depends on.
+const WATCH_PER_TICK = 4;
+const WATCH_INTERVAL_MS = 55 * 60_000;
+
+async function watchUpcoming(env: Env): Promise<void> {
+  const now = Date.now();
+  // From the edge of Live Activity coverage out to a day and a half.
+  const from = new Date(now + 3 * 3600_000).toISOString();
+  const to = new Date(now + 36 * 3600_000).toISOString();
+  const stale = new Date(now - WATCH_INTERVAL_MS).toISOString();
+  const rows = await sbSelect(env,
+    "/user_flights?select=id,user_id,flight_number,departure_iata,arrival_iata,arrival_city," +
+    "scheduled_departure,status,delay_minutes,departure_gate,mode,watch_state" +
+    `&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}` +
+    `&or=(watch_checked_at.is.null,watch_checked_at.lt.${stale})` +
+    "&status=in.(scheduled,boarding,gateClosed)"
+  ) as unknown as Record<string, any>[];
+
+  // AeroDataBox only answers for air legs; anything else would spend a
+  // budget-guarded call on a guaranteed miss.
+  const due = rows.filter(r => (((r.mode as string) ?? "air") === "air") && r.flight_number);
+  for (let i = due.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [due[i], due[j]] = [due[j], due[i]];
+  }
+
+  for (const row of due.slice(0, WATCH_PER_TICK)) {
+    try {
+      const day = String(row.scheduled_departure).slice(0, 10);
+      const { legs } = await fetchLegsCached(env, "flight", String(row.flight_number), day, "cron");
+      const leg = (legs ?? []).find(l =>
+        l["dep_iata"] === row.departure_iata && l["arr_iata"] === row.arrival_iata
+      ) ?? (legs && legs.length > 0 ? legs[0] : null);
+      // Stamp the check even when the provider had nothing, so one unanswerable
+      // flight does not occupy a slot on every tick from now on.
+      const checked: Record<string, unknown> = { watch_checked_at: new Date(now).toISOString() };
+      if (!leg) {
+        await sbService(env, "PATCH", `/user_flights?id=eq.${row.id}`, checked);
+        continue;
+      }
+
+      const news = flightNews({
+        flightNumber: String(row.flight_number),
+        arrivalCity: String(row.arrival_city || row.arrival_iata || "your destination"),
+        status: String(leg["status"] ?? row.status ?? "scheduled"),
+        delayMinutes: Number(leg["delay"] ?? 0),
+        departureGate: (leg["dep_gate"] as string | null) ?? null,
+        scheduledDeparture: Date.parse(String(row.scheduled_departure)),
+        now,
+        prior: (row.watch_state ?? {}) as WatchState,
+      });
+      if (news) {
+        await sendToUser(env, String(row.user_id), news.title, news.body,
+                         news.collapseId, String(row.flight_number));
+        checked.watch_state = news.state;
+      }
+      await sbService(env, "PATCH", `/user_flights?id=eq.${row.id}`, checked);
+    } catch (e) {
+      console.error("watchUpcoming row failed:", row?.id, e);
+    }
+  }
+}
+
+/// Deliver one alert to every device a user has registered, and forget the
+/// ones APNs says are gone.
+async function sendToUser(env: Env, userId: string, title: string, body: string,
+                          collapseId: string, threadId: string): Promise<void> {
+  const tokens = await sbSelect(env,
+    `/device_tokens?select=token,apns_env&user_id=eq.${encodeURIComponent(userId)}`
+  ) as unknown as { token: string; apns_env: "sandbox" | "production" }[];
+  for (const t of tokens.slice(0, 5)) {
+    const status = await sendAlertPush(env, t.token, t.apns_env, APP_BUNDLE_ID,
+                                       { title, body }, collapseId, threadId);
+    if (status === 410 || status === 400) {
+      await sbService(env, "DELETE", `/device_tokens?token=eq.${encodeURIComponent(t.token)}`);
     }
   }
 }
@@ -2643,6 +2941,12 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   const pushedAt: number = prior.pushed_at ?? 0;
   let lastFetch = fetchedAt;
   let dataChanged = false;
+  // What this token has established about the gate-to-runway gap, carried
+  // between ticks in last_state. Without it every push rebuilt the lock
+  // screen's DepartureEvidence from nothing, so the card that said
+  // "Taxiing · 14m" reverted to a clock presumption five minutes later —
+  // undoing on the server exactly what the device had witnessed.
+  const evidence: Record<string, string | undefined> = { ...(prior.evidence ?? {}) };
 
   // Nothing to do far ahead of departure — and no reason to burn quota.
   const schedDepGuess = new Date(row.scheduled_departure!).getTime();
@@ -2673,8 +2977,15 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
       flight = leg as Record<string, any>;
     }
     lastFetch = now;
+    // A source that reports movements and did NOT report a take-off has just
+    // told us the aircraft is still on the ground — which is what pushes back
+    // the moment any surface may presume otherwise. Recorded only on a real
+    // consultation, never on the cached ticks in between.
+    if (leg && !leg["dep_actual"] && leg["dep_live"] === true) {
+      evidence.last_seen_on_ground = new Date(now).toISOString();
+    }
     await sbService(env, "PATCH", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`, {
-      last_state: { ...prior, flight, fetched_at: now },
+      last_state: { ...prior, flight, fetched_at: now, evidence },
       updated_at: new Date().toISOString(),
     });
   }
@@ -2700,7 +3011,9 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
         timestamp: Math.floor(now / 1000),
         event: "end",
         "dismissal-date": Math.floor(now / 1000) + 3600,
-        "content-state": contentState(status, depMs, arrMs, delay, Math.round((arrMs - schedArrMs) / 60_000), flight),
+        "content-state": contentState(status, depMs, arrMs, delay, Math.round((arrMs - schedArrMs) / 60_000),
+                                      flight, null,
+                                      { offBlockMs: depMs, taxiPrior: DEFAULT_TAXI_PRIOR, evidence, local: prior.local }),
       },
     };
     await sendLiveActivityPush(env, row.token, row.apns_env, APP_BUNDLE_ID, endPayload, 5);
@@ -2729,6 +3042,23 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   // estimate — not the gate time plus a constant. A 20-minute grace expires
   // mid-taxi at any busy hub, and the re-render it schedules is what flipped
   // a lock screen to "In Air" while its owner sat in an ATC hold.
+  // The provider's own position block, from the same leg call — the witness
+  // that tells taxiing from flying with no app open. Same freshness rule as
+  // refreshSharedFlights: a sighting older than 15 minutes says nothing about
+  // now, and `flight` is a cached leg that can outlive its own position.
+  const sample = flight?.["position"] as ReturnType<typeof adbPositionToSample> | undefined;
+  const groundState = (sample && now - Date.parse(sample.reportedAt) < 15 * 60_000)
+    ? classifyGround(sample) : "unknown";
+  if (groundState !== "unknown") {
+    if (groundState === "taxiing" && !evidence.taxi_started_at) {
+      evidence.taxi_started_at = sample!.reportedAt;
+    }
+    // A first sighting on the move, or off the ground, is worth the user's
+    // attention now rather than at the next routine tick.
+    if (groundState !== evidence.ground_state) dataChanged = true;
+    evidence.ground_state = groundState;
+    evidence.ground_observed_at = sample!.reportedAt;
+  }
   const depActualMs = flight?.["dep_actual"] ? Date.parse(String(flight["dep_actual"])) : NaN;
   const estTakeoffMs = flight?.["dep_runway_estimated"]
     ? Date.parse(String(flight["dep_runway_estimated"])) : NaN;
@@ -2786,7 +3116,7 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
       event: "update",
       "stale-date": staleAt,
       "content-state": contentState(status, depMs, arrMs, delay, arrDelay, flight, insight,
-                                    { offBlockMs: depMs, taxiPrior }),
+                                    { offBlockMs: depMs, taxiPrior, evidence, local: prior.local }),
       ...(dataChanged && flight?.["dep_gate"] ? {
         alert: {
           title: `${row.flight_number} update`,
@@ -2798,7 +3128,7 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   const st = await sendLiveActivityPush(env, row.token, row.apns_env, APP_BUNDLE_ID, payload, dataChanged ? 10 : 5);
   await sbService(env, "PATCH", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`, {
     last_state: {
-      ...prior, flight, fetched_at: lastFetch, pushed_at: now,
+      ...prior, flight, fetched_at: lastFetch, pushed_at: now, evidence,
       insight, insight_key: insightKey, insight_delay: delay,
       insight_gate: flight?.["dep_gate"] ?? null,
     },
@@ -2861,48 +3191,6 @@ async function generateInsight(env: Env, signals: Record<string, unknown>): Prom
     console.error("insight generation failed:", String(e));
     return null;
   }
-}
-
-function contentState(
-  status: string, depMs: number, arrMs: number, delay: number, arrDelay: number,
-  flight: Record<string, any> | null, insight: string | null = null,
-  evidence: { offBlockMs: number; taxiPrior: number } | null = null
-): Record<string, unknown> {
-  const now = Date.now();
-  const total = arrMs - depMs;
-  const progress = total > 0 ? Math.min(1, Math.max(0, (now - depMs) / total)) : 0;
-  const appleEpoch = (ms: number | null | undefined) =>
-    ms == null ? null : ms / 1000 - 978307200;
-  const estTakeoff = flight?.["dep_runway_estimated"]
-    ? Date.parse(String(flight["dep_runway_estimated"])) : null;
-  const depActual = flight?.["dep_actual"] ? Date.parse(String(flight["dep_actual"])) : null;
-  return {
-    status,
-    departureTime: depMs / 1000 - 978307200,
-    arrivalTime: arrMs / 1000 - 978307200,
-    boardingTime: null,
-    securityWaitMinutes: null,
-    delayMinutes: delay,
-    arrivalDelayMinutes: arrDelay,
-    insight,
-    departureGate: flight?.["dep_gate"] ?? null,
-    departureTerminal: flight?.["dep_terminal"] ?? null,
-    arrivalGate: flight?.["arr_gate"] ?? null,
-    arrivalTerminal: flight?.["arr_terminal"] ?? null,
-    baggageClaim: flight?.["arr_baggage"] ?? null,
-    altitude: null,
-    speed: null,
-    heading: null,
-    progress,
-    // The gate-to-runway evidence. offBlock travels separately from
-    // departureTime because that one prefers a confirmed take-off, and the
-    // taxi is measured from the gate — the distinction that stopped a lock
-    // screen announcing "In Air" to someone still queueing for the runway.
-    offBlock: appleEpoch(evidence?.offBlockMs ?? depMs),
-    estimatedTakeoff: appleEpoch(Number.isFinite(estTakeoff as number) ? estTakeoff : null),
-    actualDeparture: appleEpoch(Number.isFinite(depActual as number) ? depActual : null),
-    taxiPriorMinutes: evidence?.taxiPrior ?? null,
-  };
 }
 
 async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[]): Promise<void> {
@@ -3026,7 +3314,11 @@ async function loadSharePayload(env: Env, code: string): Promise<SharePayload | 
       vessel: f.vessel_name ?? null,
       note: f.disruption_note ?? null,
       delay: f.delay_minutes || 0, aircraft: f.aircraft_type,
-      progress: f.progress || 0, updated: f.updated_at,
+      // The newer of "someone changed this" and "the cron verified this". A
+      // stable cruising flight changes nothing for hours, and reporting only
+      // the former is why this page could say "9h ago" about a row the server
+      // had confirmed a minute earlier.
+      progress: f.progress || 0, updated: laterISO(f.updated_at, f.checked_at),
       live: (f.live_lat != null && f.live_lon != null) ? { lat: f.live_lat, lon: f.live_lon } : null,
       // What the aircraft itself was last seen doing (cron ADS-B watch), and
       // the grace the page gives a departure before presuming wheels-up.
@@ -3199,17 +3491,29 @@ function lastOnGroundT(){
   if(PRE.indexOf(f.status)>=0&&!f.dep.actual&&f.updated)t=Math.max(t,P(f.updated)||0);
   return t;
 }
+// 90 minutes past off-block, the hedge stops. Without this the slide below
+// re-anchors on every row update, so a flight the provider never confirms
+// stays "Departing" for ever and this page can never reach "Presumed
+// airborne" at all — the mirror image of the bug the whole feature exists to
+// prevent. Mirrors DepartureEvidence.hardCap / .freshWindow.
+var HARD_CAP=90*60000,FRESH=15*60000;
 function wheelsUpT(){
   var f=D.flight,prior=(f.taxiPrior||0)*60000,lg=lastOnGroundT();
-  return Math.max(offBlockT()+prior,P(f.dep.estTakeoff)||0,lg?lg+prior:0);
+  return Math.max(offBlockT()+prior,P(f.dep.estTakeoff)||0,
+                  lg?Math.min(lg+prior,offBlockT()+HARD_CAP):0);
 }
 function depPhase(){
-  var f=D.flight,now=Date.now(),g=f.ground||{};
-  if(f.dep.actual||g.state==='airborne')return 'airborne';
+  var f=D.flight,now=Date.now(),g=f.ground||{},dep=P(f.dep.actual);
+  var fresh=g.observedAt&&(now-P(g.observedAt))<FRESH&&P(g.observedAt)<=now;
+  // A confirmation that hasn't happened yet is a filing, not a fact — and a
+  // sighting older than the fresh window says nothing about now.
+  if((dep&&dep<=now)||(fresh&&g.state==='airborne'))return 'airborne';
   if(now<offBlockT())return 'before';
-  var fresh=g.observedAt&&(now-P(g.observedAt))<15*60000;
   if(fresh&&g.state==='taxiing')return 'taxiing';
-  if(fresh&&g.state==='at_gate')return 'departing';
+  // Once it has started rolling, a pause is still the taxi: most of a
+  // 35-minute taxi at a busy hub is spent stopped in the queue, and
+  // flickering between Taxiing and Departing on every hold is worse.
+  if(fresh&&g.state==='at_gate')return g.taxiStartedAt?'taxiing':'departing';
   return now<wheelsUpT()?'departing':'presumed';
 }
 function phase(){

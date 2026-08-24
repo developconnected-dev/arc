@@ -437,9 +437,6 @@ enum AirportConnectTimes {
         table[iata.uppercased()]?.minutes(for: transfer)
     }
 
-    static func hasData(for iata: String) -> Bool {
-        table[iata.uppercased()] != nil
-    }
 }
 
 
