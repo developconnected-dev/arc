@@ -65,6 +65,13 @@ enum WidgetRefresh {
         let arr_baggage: String?
         let arr_actual: String?
         let arr_estimated: String?
+        // The departure side of the same question. Without these the widget's
+        // own refresh rebuilt the snapshot with no confirmed take-off and no
+        // wheels-up estimate, so the home screen re-hedged a flight the app
+        // already knew was airborne — and hedged it against the gate time.
+        let dep_actual: String?
+        let dep_runway_estimated: String?
+        let dep_live: Bool?
     }
 
     private static func fetchLeg(number: String, date: Date, zone: String?,
@@ -110,6 +117,18 @@ enum WidgetRefresh {
         out.estimatedArrival = parseAPIDate(leg.arr_actual ?? leg.arr_estimated) ?? f.estimatedArrival
         out.departureTZ = f.departureTZ
         out.arrivalTZ = f.arrivalTZ
+        // Departure evidence: never lose what the app already established.
+        out.actualDeparture = parseAPIDate(leg.dep_actual) ?? f.actualDeparture
+        out.estimatedTakeoff = parseAPIDate(leg.dep_runway_estimated) ?? f.estimatedTakeoff
+        out.groundState = f.groundState
+        out.groundObservedAt = f.groundObservedAt
+        out.taxiStartedAt = f.taxiStartedAt
+        out.taxiPriorMinutes = f.taxiPriorMinutes
+        // A source that would have reported a take-off and didn't has just
+        // told us it is still on the ground — which pushes the moment the
+        // widget may presume otherwise.
+        out.lastSeenOnGround = (out.actualDeparture == nil && leg.dep_live == true)
+            ? now : f.lastSeenOnGround
         out.updatedAt = now
         return out
     }

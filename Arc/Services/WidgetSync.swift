@@ -72,7 +72,14 @@ extension WidgetFlight {
             estimatedArrival: flight.reportsPunctuality ? flight.estimatedArrival : nil,
             departureTZ: flight.depTimeZone.identifier,
             arrivalTZ: flight.arrTimeZone.identifier,
-            updatedAt: flight.lastStatusUpdate
+            updatedAt: flight.lastStatusUpdate,
+            actualDeparture: flight.actualDeparture,
+            estimatedTakeoff: flight.estimatedTakeoff,
+            groundState: flight.groundStateRaw,
+            groundObservedAt: flight.groundObservedAt,
+            taxiStartedAt: flight.taxiStartedAt,
+            lastSeenOnGround: flight.lastSeenOnGround,
+            taxiPriorMinutes: flight.taxiPriorMinutes
         )
     }
 }

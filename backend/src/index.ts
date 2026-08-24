@@ -1,5 +1,6 @@
-import { apnsConfigured, sendLiveActivityPush } from "./apns";
-import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, shiftLegToDay, completeLeg } from "./legs";
+import { apnsConfigured, sendLiveActivityPush, apnsJwt } from "./apns";
+import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, shiftLegToDay, completeLeg, confirmedRunwayTime, movementIsLive } from "./legs";
+import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRIOR } from "./ground";
 import { predictGate, type GateObservation } from "./gates";
 import { verifiedRoute } from "./place";
 import { handleTransit } from "./routes-transit";
@@ -19,6 +20,13 @@ interface Env {
   APNS_KEY_ID?: string;          // APNs auth key ID
   APNS_P8?: string;              // full .p8 file contents
   AI_API_KEY?: string;           // Anthropic API key — booking-text parsing (claude-haiku-4-5)
+  // Contact string the ADS-B aggregators demand of API callers, e.g.
+  // "you@example.com". Only affects /position, which serves the app's live
+  // map: Cloudflare's shared egress IPs are rate-limited (adsb.lol 429) or
+  // blocked (adsb.fi, airplanes.live 403) for anonymous callers, so devices
+  // read the aggregators themselves. The server's own witness does not need
+  // it — it reads the position AeroDataBox returns on the leg call.
+  ADSB_CONTACT?: string;
 }
 
 const APP_BUNDLE_ID = "com.arc.flighttracker";
@@ -74,6 +82,22 @@ function mapLeg(f: Record<string, any>): Record<string, unknown> {
   const depRev = dep.revisedTime?.utc ?? dep.revisedTime?.local ?? depSched;
   const arrSched = arr.scheduledTime?.utc ?? arr.scheduledTime?.local;
   const arrRev = arr.revisedTime?.utc ?? arr.revisedTime?.local ?? arrSched;
+  // revisedTime is a published ESTIMATE that airlines file before anything has
+  // moved; runwayTime is the wheels-up/-down time — but AeroDataBox documents
+  // it as "actual / estimated", so it too can be a projection for a flight
+  // still at the gate. The two used to be conflated into *_actual, so a
+  // delayed flight carried an "actual departure" — exactly the field the app
+  // treats as "confirmed departed" (it ends the Departing hedge and flips
+  // every surface to past tense). Estimates now travel in *_estimated, and a
+  // runway time is only promoted to *_actual once the provider's status says
+  // the movement happened (see confirmedRunwayTime).
+  const depRunwayRaw = dep.runwayTime?.utc ?? dep.runwayTime?.local;
+  const depRunway = confirmedRunwayTime(depRunwayRaw, f.status, "dep");
+  const arrRunway = confirmedRunwayTime(arr.runwayTime?.utc ?? arr.runwayTime?.local, f.status, "arr");
+  // The unconfirmed runway time is still useful: it is the provider's own
+  // estimate of wheels-up, which every surface hedges against instead of
+  // the gate time (taxi-out at a hub is routinely 20–40 minutes).
+  const depRunwayEstimated = depRunway ? null : (toISO(depRunwayRaw) || null);
   return {
     flight_number: String(f.number ?? "").replace(/\s+/g, ""),
     airline_name: air.name ?? "",
@@ -91,8 +115,17 @@ function mapLeg(f: Record<string, any>): Record<string, unknown> {
     arr_terminal: arr.terminal ?? null,
     arr_baggage: arr.baggageBelt ?? null,
     delay: delayMinutes(depSched, depRev),
-    dep_actual: depRev !== depSched ? toISO(depRev) : null,
-    arr_actual: arrRev !== arrSched ? toISO(arrRev) : null,
+    dep_actual: depRunway,
+    arr_actual: arrRunway,
+    dep_runway_estimated: depRunwayEstimated,
+    dep_live: movementIsLive(dep.quality),
+    // Where the aircraft actually is, from the same call (`withLocation=true`
+    // has always been in the URL — the answer was simply discarded). This is
+    // what lets the server tell taxiing from flying without an ADS-B
+    // aggregator, all of which refuse Cloudflare's shared egress IPs.
+    position: adbPositionToSample(f.location),
+    dep_estimated: depRev !== depSched ? toISO(depRev) : null,
+    arr_estimated: arrRev !== arrSched ? toISO(arrRev) : null,
     aircraft_type: ac.model ?? null,
     aircraft_registration: ac.reg ?? null,
     aircraft_icao24: ac.modeS ?? null,
@@ -462,14 +495,29 @@ export default {
           airplaneslive: true,
           waitport: true,
         },
-        budget: budget ? {
-          month: budget.month,
-          adb_used: `${(budget.adb_cron ?? 0) + (budget.adb_interactive ?? 0)}/${ADB_MONTHLY_CALLS}`,
-          adb_cron: `${budget.adb_cron}/${Math.floor(ADB_MONTHLY_CALLS * ADB_CRON_SHARE)}`,
-          // What RapidAPI itself last reported — the authority, unlike our count.
-          adb_remaining_per_rapidapi: budget.adb_remaining ?? null,
-          airlabs: `${budget.airlabs_calls}/${AIRLABS_BUDGET}`,
-        } : null,
+        budget: budget ? (() => {
+          // Report against the REAL plan, not the bootstrap constant. Dividing
+          // by ADB_MONTHLY_CALLS made a healthy account read "2246/900" — an
+          // alarming number for something nothing was actually gating on,
+          // since the gate is RapidAPI's own `remaining` (see fetchLegsCached).
+          const used = (budget.adb_cron ?? 0) + (budget.adb_interactive ?? 0);
+          const remaining = budget.adb_remaining as number | null | undefined;
+          const planQuota = typeof remaining === "number" ? used + remaining : ADB_MONTHLY_CALLS;
+          const cronReserve = Math.max(50, Math.floor(planQuota * ADB_CRON_RESERVE_SHARE));
+          return {
+            month: budget.month,
+            adb_used: `${used}/${planQuota}`,
+            adb_cron: `${budget.adb_cron}/${planQuota}`,
+            // What RapidAPI itself last reported — the authority, unlike our count.
+            adb_remaining_per_rapidapi: remaining ?? null,
+            // Where each caller actually stops. The cron yields first so an
+            // interactive search still works on the last of the quota.
+            adb_plan_known: typeof remaining === "number",
+            adb_cron_stops_below: typeof remaining === "number" ? cronReserve : null,
+            adb_throttled: typeof remaining === "number" ? remaining <= cronReserve : used >= ADB_MONTHLY_CALLS,
+            airlabs: `${budget.airlabs_calls}/${AIRLABS_BUDGET}`,
+          };
+        })() : null,
       }, { headers: cors });
     }
 
@@ -1039,37 +1087,30 @@ export default {
 
       if (attempts.length === 0) return new Response("missing icao24, reg or flight", { status: 400 });
 
+      // ?debug=1 — which host answered what. Cloudflare egress has been
+      // rejected by ADS-B aggregators before (OpenSky), and a silent null
+      // is indistinguishable from "nothing is flying".
+      if (url.searchParams.get("debug")) {
+        const diag: Record<string, unknown> = {};
+        for (const host of ADSB_HOSTS) {
+          for (const [kind, value] of attempts) {
+            const key = value.trim().replace(/\s+/g, "").toLowerCase();
+            try {
+              const res = await fetch(`${host.base}${host.prefix}/${kind}/${encodeURIComponent(key)}`,
+                                      { headers: { Accept: "application/json", "User-Agent": adsbUA(env) } });
+              const body = await res.text();
+              diag[`${host.base} ${kind}`] = { status: res.status, body: body.slice(0, 140) };
+            } catch (e) {
+              diag[`${host.base} ${kind}`] = { error: String(e) };
+            }
+          }
+        }
+        return Response.json(diag, { headers: cors });
+      }
+
       for (const [kind, value] of attempts) {
-        try {
-          const key = value.trim().replace(/\s+/g, "").toLowerCase();
-          if (!key) continue;
-          const res = await fetch(`https://api.airplanes.live/v2/${kind}/${encodeURIComponent(key)}`,
-                                  { headers: { Accept: "application/json" } });
-          if (!res.ok) continue;
-          const raw = await res.json() as { ac?: Record<string, any>[] };
-          const ac = (raw.ac ?? []).find(a => typeof a?.lat === "number" && typeof a?.lon === "number");
-          if (!ac) continue;
-
-          // alt_baro is feet, or the string "ground" when it's on the deck;
-          // gs is knots. Our clients speak metres and m/s.
-          const onGround = ac.alt_baro === "ground";
-          const altFt = typeof ac.alt_baro === "number" ? ac.alt_baro : 0;
-          const speedKt = typeof ac.gs === "number" ? ac.gs : 0;
-
-          return Response.json({
-            icao24: String(ac.hex ?? "").toUpperCase(),
-            lat: ac.lat,
-            lon: ac.lon,
-            altitude: Math.round(altFt * 0.3048),
-            velocity: speedKt * 0.514444,
-            heading: typeof ac.track === "number" ? ac.track : 0,
-            on_ground: onGround,
-            registration: ac.r ?? null,
-            // Seconds since the fix. A five-minute-old position matters when
-            // you're watching an aircraft taxi, so don't hide it.
-            age_seconds: typeof ac.seen_pos === "number" ? Math.round(ac.seen_pos) : null,
-          }, { headers: cors });
-        } catch { /* try the next identifier */ }
+        const pos = await fetchADSB(env, kind, value);
+        if (pos) return Response.json(pos, { headers: cors });
       }
       return Response.json(null, { status: 404, headers: cors });
     }
@@ -1379,6 +1420,38 @@ export default {
     // own observations. A connection weeks out has no assigned gates, so the
     // walk between them can't be measured — but the same flight returns to the
     // same pier often enough that its history beats a flat airport average.
+    // The airport's learned taxi-out for an hour of day — the grace every
+    // surface gives a departure before assuming wheels-up.
+    // Does APNs accept our credentials? Pushes to a deliberately invalid
+    // device token: Apple authenticates the JWT and the topic BEFORE it
+    // looks at the token, so "BadDeviceToken" is a pass (key, team and topic
+    // are right) while InvalidProviderToken or TopicDisallowed name exactly
+    // what is wrong. No device and no live flight needed.
+    if (url.pathname === "/apns-selftest") {
+      if (!apnsConfigured(env)) {
+        return Response.json({ ok: false, reason: "APNS_TEAM_ID, APNS_KEY_ID and APNS_P8 must all be set" },
+                             { headers: cors });
+      }
+      const out: Record<string, unknown> = {};
+      for (const host of ["sandbox", "production"] as const) {
+        try {
+          const status = await apnsProbe(env, host);
+          out[host] = status;
+        } catch (e) {
+          out[host] = { error: String(e) };
+        }
+      }
+      return Response.json(out, { headers: cors });
+    }
+
+    if (url.pathname === "/taxi/prior") {
+      const iata = (url.searchParams.get("iata") ?? "").toUpperCase();
+      const hour = Number(url.searchParams.get("hour") ?? new Date().getUTCHours());
+      if (!iata) return Response.json({ minutes: DEFAULT_TAXI_PRIOR, samples: 0 }, { headers: cors });
+      return Response.json(await taxiPriorFor(env, iata, Number.isFinite(hour) ? hour : new Date().getUTCHours()),
+                           { headers: cors });
+    }
+
     if (url.pathname === "/gates/predict") {
       const flight = (url.searchParams.get("flight") ?? "").replace(/\s+/g, "").toUpperCase();
       const dep = (url.searchParams.get("dep") ?? "").toUpperCase();
@@ -1553,7 +1626,11 @@ export default {
   // most every 5 minutes per flight (metered), and phase transitions
   // (scheduled→active→landed) are derived from the clock in between.
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    if (!apnsConfigured(env) || !env.SUPABASE_SERVICE_KEY) return;
+    // Only Supabase is required to run at all. APNs gates the PUSH loops
+    // inside — it used to gate everything, which also silenced the
+    // shared_flights refresher, so friends' rows froze whenever the traveler
+    // closed the app, for a key the refresher never needed.
+    if (!env.SUPABASE_SERVICE_KEY) return;
     ctx.waitUntil(runLiveActivityCron(env));
   },
 };
@@ -2243,35 +2320,66 @@ interface TokenRow {
   last_state: Record<string, any>;
 }
 
+/// One throwaway push at an invalid token, reporting what APNs said.
+async function apnsProbe(env: Env, hostEnv: "sandbox" | "production"): Promise<Record<string, unknown>> {
+  const host = hostEnv === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com";
+  const jwt = await apnsJwt(env);
+  const res = await fetch(`https://${host}/3/device/${"0".repeat(64)}`, {
+    method: "POST",
+    headers: {
+      authorization: `bearer ${jwt}`,
+      "apns-topic": `${APP_BUNDLE_ID}.push-type.liveactivity`,
+      "apns-push-type": "liveactivity",
+      "apns-priority": "5",
+      "apns-expiration": "0",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ aps: { timestamp: Math.floor(Date.now() / 1000), event: "update", "content-state": {} } }),
+  });
+  const body = await res.text();
+  let reason = "";
+  try { reason = (JSON.parse(body) as { reason?: string }).reason ?? ""; } catch { reason = body.slice(0, 120); }
+  return {
+    status: res.status,
+    reason,
+    // Apple checks the token last: anything BUT a credential complaint means
+    // the key, team and topic were accepted.
+    credentialsAccepted: reason === "BadDeviceToken" || res.status === 200,
+  };
+}
+
 async function runLiveActivityCron(env: Env): Promise<void> {
-  const rows = await sbSelect(env, "/live_activity_tokens?select=*") as unknown as TokenRow[];
-  const updateRows = rows.filter(r => r.token_type === "update" && r.flight_number && r.scheduled_departure);
+  // The push loops need APNs; the shared_flights refresher below does not.
+  if (apnsConfigured(env)) {
+    const rows = await sbSelect(env, "/live_activity_tokens?select=*") as unknown as TokenRow[];
+    const updateRows = rows.filter(r => r.token_type === "update" && r.flight_number && r.scheduled_departure);
 
-  // Stay under Cloudflare's 50-subrequests-per-invocation cap: a refresh
-  // tick costs up to ~8 subrequests per row, and rows come back in stable DB
-  // order — an unbounded loop over many tokens starved the SAME tail of
-  // users on every single invocation once the cap threw. Shuffle and cap;
-  // the cron runs every minute, so the rest are simply next in line.
-  const shuffled = [...updateRows];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  for (const row of shuffled.slice(0, 15)) {
-    try {
-      await pushUpdateForRow(env, row);
-    } catch { /* keep the loop alive for other rows */ }
-  }
+    // Stay under Cloudflare's 50-subrequests-per-invocation cap: a refresh
+    // tick costs up to ~8 subrequests per row, and rows come back in stable DB
+    // order — an unbounded loop over many tokens starved the SAME tail of
+    // users on every single invocation once the cap threw. Shuffle and cap;
+    // the cron runs every minute, so the rest are simply next in line.
+    const shuffled = [...updateRows];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    for (const row of shuffled.slice(0, 15)) {
+      try {
+        await pushUpdateForRow(env, row);
+      } catch { /* keep the loop alive for other rows */ }
+    }
 
-  // Push-to-start: begin a Live Activity server-side for flights entering the
-  // 3h window, even if the app hasn't been opened. Upcoming flights come from
-  // user_flights (the signed-in cloud mirror); without sign-in the app's own
-  // local 3h check still covers the app-was-opened-recently case.
-  const startRows = rows.filter(r => r.token_type === "start");
-  if (startRows.length > 0) {
-    try {
-      await pushStarts(env, startRows, updateRows);
-    } catch { /* best-effort */ }
+    // Push-to-start: begin a Live Activity server-side for flights entering the
+    // 3h window, even if the app hasn't been opened. Upcoming flights come from
+    // user_flights (the signed-in cloud mirror); without sign-in the app's own
+    // local 3h check still covers the app-was-opened-recently case.
+    const startRows = rows.filter(r => r.token_type === "start");
+    if (startRows.length > 0) {
+      try {
+        await pushStarts(env, startRows, updateRows);
+      } catch { /* best-effort */ }
+    }
   }
 
   // Friend-facing flight rows: shared_flights is only ever written by the
@@ -2281,6 +2389,105 @@ async function runLiveActivityCron(env: Env): Promise<void> {
   try {
     await refreshSharedFlights(env);
   } catch { /* best-effort */ }
+}
+
+
+/// One aircraft from the ADS-B aggregators, in the units every Arc client
+/// speaks (metres, m/s). `kind` is icao | reg | callsign. Both hosts serve
+/// the same readsb /v2 shape; adsb.lol is open, airplanes.live started
+/// gating unregistered callers (403 "contact us") in 2026-08, so it is the
+/// fallback. null when nothing is broadcasting under that identifier.
+/// The community ADS-B aggregators, in preference order. Same readsb /v2
+/// payload, different prefixes and different rate-limit moods — Workers share
+/// egress IPs with everyone else on Cloudflare, so a per-IP limiter can lock
+/// us out through no fault of ours. Trying several is the cheap insurance.
+const ADSB_HOSTS = [
+  { base: "https://api.adsb.lol", prefix: "/v2" },
+  { base: "https://opendata.adsb.fi", prefix: "/api/v2" },
+  { base: "https://api.airplanes.live", prefix: "/v2" },
+];
+/// Both aggregators reject anonymous callers — adsb.lol answers a bare
+/// Worker fetch with 403 "User-Agent too generic; include valid contact
+/// info." Cloudflare sends no UA of its own, which is why live position
+/// silently returned null in production. Identify the project and where to
+/// reach it; no personal data belongs in an outbound header.
+const ADSB_UA_BASE = "ArcFlightTracker/1.0 (+https://your-worker.workers.dev";
+function adsbUA(env: Env): string {
+  return env.ADSB_CONTACT ? `${ADSB_UA_BASE}; ${env.ADSB_CONTACT})` : `${ADSB_UA_BASE})`;
+}
+async function fetchADSB(env: Env, kind: string, value: string): Promise<ADSBPosition | null> {
+  const key = value.trim().replace(/\s+/g, "").toLowerCase();
+  if (!key) return null;
+  for (const host of ADSB_HOSTS) {
+    const hit = await fetchADSBFrom(env, host, `/${kind}/${encodeURIComponent(key)}`);
+    if (hit) return hit;
+  }
+  return null;
+}
+async function fetchADSBFrom(env: Env, host: { base: string; prefix: string }, path: string): Promise<ADSBPosition | null> {
+  const list = await fetchADSBList(env, host, path);
+  const ac = list.find(a => typeof a?.lat === "number" && typeof a?.lon === "number");
+  return ac ? toADSBPosition(ac) : null;
+}
+
+/// Every aircraft a query returns. adsb.lol calls the array `ac`, adsb.fi
+/// calls it `aircraft` on some routes — accept either.
+async function fetchADSBList(env: Env, host: { base: string; prefix: string }, path: string): Promise<Record<string, any>[]> {
+  try {
+    const res = await fetch(`${host.base}${host.prefix}${path}`,
+                            { headers: { Accept: "application/json", "User-Agent": adsbUA(env) } });
+    if (!res.ok) return [];
+    const raw = await res.json() as { ac?: Record<string, any>[]; aircraft?: Record<string, any>[] };
+    return raw.ac ?? raw.aircraft ?? [];
+  } catch { return []; }
+}
+
+function toADSBPosition(ac: Record<string, any>): ADSBPosition | null {
+  try {
+    // alt_baro is feet, or the string "ground" when it's on the deck; gs is knots.
+    const onGround = ac.alt_baro === "ground";
+    const altFt = typeof ac.alt_baro === "number" ? ac.alt_baro : 0;
+    const speedKt = typeof ac.gs === "number" ? ac.gs : 0;
+    return {
+      icao24: String(ac.hex ?? "").toUpperCase(),
+      lat: ac.lat, lon: ac.lon,
+      altitude: Math.round(altFt * 0.3048),
+      velocity: speedKt * 0.514444,
+      heading: typeof ac.track === "number" ? ac.track : 0,
+      on_ground: onGround,
+      registration: ac.r ?? null,
+      age_seconds: typeof ac.seen_pos === "number" ? Math.round(ac.seen_pos) : null,
+    };
+  } catch { return null; }
+}
+
+/// The airport's learned taxi-out for this hour, from the last 60 wheels-up
+/// observations there. DEFAULT_TAXI_PRIOR until the airport has taught us.
+async function taxiPriorFor(env: Env, iata: string, hourUTC: number): Promise<{ minutes: number; samples: number }> {
+  if (!iata || !env.SUPABASE_SERVICE_KEY) return { minutes: DEFAULT_TAXI_PRIOR, samples: 0 };
+  const rows = await sbSelect(env,
+    `/taxi_observations?departure_iata=eq.${encodeURIComponent(iata.toUpperCase())}`
+    + `&select=taxi_minutes,hour_utc&order=observed_at.desc&limit=60`);
+  return {
+    minutes: taxiPriorMinutes(rows as { taxi_minutes: number; hour_utc: number }[], hourUTC),
+    samples: rows.length,
+  };
+}
+
+/// Teach the airport its taxi-out from an observed wheels-up.
+async function recordTaxiObservation(env: Env, row: Record<string, any>, takeoffISO: string): Promise<void> {
+  const offBlock = new Date(row.scheduled_departure).getTime() + ((row.delay_minutes as number) ?? 0) * 60_000;
+  const taxiStart = row.taxi_started_at ? Date.parse(row.taxi_started_at) : offBlock;
+  const taxiMinutes = Math.round((Date.parse(takeoffISO) - taxiStart) / 60_000);
+  if (!(taxiMinutes >= 0 && taxiMinutes <= 120)) return;
+  await sbService(env, "POST", "/taxi_observations?on_conflict=flight_number,departure_iata,flight_date", {
+    departure_iata: row.departure_iata,
+    flight_number: row.flight_number,
+    flight_date: String(row.scheduled_departure).slice(0, 10),
+    hour_utc: new Date(offBlock).getUTCHours(),
+    taxi_minutes: taxiMinutes,
+    observed_at: takeoffISO,
+  });
 }
 
 /// Refresh provider-derived fields of shared_flights rows in their active
@@ -2293,7 +2500,10 @@ async function refreshSharedFlights(env: Env): Promise<void> {
   const to = new Date(now + 4 * 3600_000).toISOString();
   const rows = await sbSelect(env,
     "/shared_flights?select=id,flight_number,departure_iata,arrival_iata,scheduled_departure,scheduled_arrival," +
-    `status,delay_minutes,departure_gate,arrival_gate,baggage_claim,updated_at,mode&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}`
+    "status,delay_minutes,departure_gate,arrival_gate,baggage_claim,updated_at,mode," +
+    "estimated_arrival,actual_departure,actual_arrival,est_takeoff,aircraft_registration,aircraft_icao24," +
+    "ground_state,ground_observed_at,taxi_started_at,live_source" +
+    `&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}`
   ) as unknown as Record<string, any>[];
 
   const active = rows.filter(r => {
@@ -2325,22 +2535,82 @@ async function refreshSharedFlights(env: Env): Promise<void> {
       l["dep_iata"] === row.departure_iata && l["arr_iata"] === row.arrival_iata
     ) ?? (legs && legs.length > 0 ? legs[0] : null);
     if (!leg) continue;
+    // Timestamps compare by instant, not string: the provider writes "…Z",
+    // PostgREST reads back "…+00:00", and a string comparison would call
+    // every unchanged row changed on every tick.
+    const tsDiffers = (a: unknown, b: unknown): boolean => {
+      const ta = a ? Date.parse(String(a)) : NaN;
+      const tb = b ? Date.parse(String(b)) : NaN;
+      return (isNaN(ta) ? null : ta) !== (isNaN(tb) ? null : tb);
+    };
     const changed =
       leg["status"] !== row.status ||
       (leg["delay"] ?? 0) !== row.delay_minutes ||
       (leg["dep_gate"] ?? row.departure_gate) !== row.departure_gate ||
       (leg["arr_gate"] ?? row.arrival_gate) !== row.arrival_gate ||
-      (leg["arr_baggage"] ?? row.baggage_claim) !== row.baggage_claim;
+      (leg["arr_baggage"] ?? row.baggage_claim) !== row.baggage_claim ||
+      tsDiffers(leg["dep_actual"] ?? row.actual_departure, row.actual_departure) ||
+      tsDiffers(leg["arr_actual"] ?? row.actual_arrival, row.actual_arrival) ||
+      tsDiffers(leg["arr_actual"] ?? leg["arr_estimated"] ?? row.estimated_arrival, row.estimated_arrival) ||
+      tsDiffers(leg["dep_runway_estimated"] ?? row.est_takeoff, row.est_takeoff) ||
+      (leg["aircraft_registration"] ?? row.aircraft_registration) !== row.aircraft_registration ||
+      // A new sighting is itself news: it is what the friend's screen reads
+      // to say taxiing rather than flying.
+      (state !== "unknown" && (state !== row.ground_state || !row.ground_observed_at));
     if (!changed) continue;
+    // What the provider's own position block says the aircraft is doing.
+    // Same call, same key, no IP rate limit — this is how a friend sees
+    // "Taxiing" while the traveller's phone is in airplane mode, and how a
+    // take-off gets confirmed with nobody's app open at all.
+    const sample = leg["position"] as ReturnType<typeof adbPositionToSample>;
+    const sampleFresh = !!sample && now - Date.parse(sample.reportedAt) < 15 * 60_000;
+    const state = sampleFresh ? classifyGround(sample) : "unknown";
+    const ground: Record<string, unknown> = {};
+    if (state !== "unknown") {
+      ground.ground_state = state;
+      ground.ground_observed_at = sample!.reportedAt;
+      if (state === "taxiing" && !row.taxi_started_at) ground.taxi_started_at = sample!.reportedAt;
+      // The device owns the live position while it is still talking; once it
+      // has gone quiet the provider's is the better witness and friends'
+      // maps keep moving.
+      const deviceQuiet = !row.updated_at || now - Date.parse(row.updated_at) > 5 * 60_000;
+      if ((deviceQuiet || row.live_source === "provider") && sample!.lat != null) {
+        ground.live_lat = sample!.lat;
+        ground.live_lon = sample!.lon;
+        ground.live_altitude = sample!.altitude;
+        ground.live_speed = sample!.velocity;
+        ground.live_source = "provider";
+      }
+      if (state === "airborne" && !row.actual_departure) {
+        // First sighting off the ground IS the take-off, and it beats the
+        // provider's own runway time to the row by minutes.
+        ground.actual_departure = sample!.reportedAt;
+        await recordTaxiObservation(env, row, sample!.reportedAt);
+      }
+    }
+    const confirmedDeparture = (ground.actual_departure as string | undefined)
+      ?? row.actual_departure ?? leg["dep_actual"] ?? null;
     await sbService(env, "PATCH", `/shared_flights?id=eq.${row.id}`, {
-      status: leg["status"],
+      ...ground,
+      status: confirmedDeparture && leg["status"] !== "landed" && leg["status"] !== "cancelled"
+        && leg["status"] !== "diverted" ? "active" : leg["status"],
       delay_minutes: leg["delay"] ?? 0,
-      // A provider null must not erase device-reported values.
+      // A provider null must not erase device-reported values — for ANY of
+      // these. estimated/actual used to be written `?? null`, so one provider
+      // response without them blanked what the traveler's device had already
+      // reported, and their friends watched a confirmed departure un-confirm.
       departure_gate: leg["dep_gate"] ?? row.departure_gate ?? null,
       arrival_gate: leg["arr_gate"] ?? row.arrival_gate ?? null,
       baggage_claim: leg["arr_baggage"] ?? row.baggage_claim ?? null,
-      estimated_arrival: leg["arr_actual"] ?? null,
-      actual_departure: leg["dep_actual"] ?? null,
+      estimated_arrival: leg["arr_actual"] ?? leg["arr_estimated"] ?? row.estimated_arrival ?? null,
+      // A wheels-up already established — by this cron's own sighting or by
+      // the traveller's device — is a better witness than the provider's
+      // (later, off-block-flavoured) fact: keep the earlier one.
+      actual_departure: confirmedDeparture,
+      actual_arrival: leg["arr_actual"] ?? row.actual_arrival ?? null,
+      est_takeoff: leg["dep_runway_estimated"] ?? row.est_takeoff ?? null,
+      aircraft_registration: leg["aircraft_registration"] ?? row.aircraft_registration ?? null,
+      aircraft_icao24: leg["aircraft_icao24"] ?? row.aircraft_icao24 ?? null,
       updated_at: new Date().toISOString(),
     });
     } catch (e) {
@@ -2354,7 +2624,13 @@ async function refreshSharedFlights(env: Env): Promise<void> {
 /// ticks between refreshes cost nothing — they're computed from stored
 /// times. Only the windows where data really moves get tight cadence.
 function cronRefreshIntervalMs(depMs: number, arrMs: number, now: number): number {
-  if (now < depMs + 20 * 60_000) return 10 * 60_000;        // pre-dep + departure
+  if (now < depMs - 90 * 60_000) return 10 * 60_000;        // pre-departure, far
+  // Gate assignment and boarding land in the last ~hour; a 10-minute cron
+  // hold on top of the 5-minute cache TTL is how Arc told someone their
+  // gate a quarter hour after the airline's own app did. The fetch rides
+  // the shared cache, so tightening here costs one provider call per TTL
+  // window at most, shared with every device asking about the same flight.
+  if (now < depMs + 20 * 60_000) return 5 * 60_000;         // gate/boarding/departure
   if (now < arrMs - 45 * 60_000) return 30 * 60_000;        // cruise
   return 10 * 60_000;                                        // arrival window
 }
@@ -2435,6 +2711,12 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   // Not yet in the window where updates matter (>4h before departure): skip.
   if (now < depMs - 4 * 60 * 60 * 1000) return;
 
+  // What this airport's taxi actually takes at this hour — the grace the
+  // lock screen gives a departure before it may presume wheels-up.
+  const taxiPrior = (flight?.["dep_iata"])
+    ? (await taxiPriorFor(env, String(flight["dep_iata"]), new Date(depMs).getUTCHours())).minutes
+    : DEFAULT_TAXI_PRIOR;
+
   // stale-date = next phase boundary: iOS re-renders the Live Activity once
   // when content goes stale, and that render re-evaluates the clock-based
   // phase — so the pre→during→after layout flips on time even if this was
@@ -2442,11 +2724,22 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   // CLOCK, not status (status is no longer clock-healed): the boundary
   // after an unconfirmed departure is the end of the widget's 20-min
   // "Departing…" hedge.
-  const unconfirmedDep = status === "scheduled" || status === "boarding" || status === "gateClosed";
+  // The boundary after an unconfirmed departure is the EXPECTED WHEELS-UP —
+  // off-block plus this airport's learned taxi-out, or the provider's own
+  // estimate — not the gate time plus a constant. A 20-minute grace expires
+  // mid-taxi at any busy hub, and the re-render it schedules is what flipped
+  // a lock screen to "In Air" while its owner sat in an ATC hold.
+  const depActualMs = flight?.["dep_actual"] ? Date.parse(String(flight["dep_actual"])) : NaN;
+  const estTakeoffMs = flight?.["dep_runway_estimated"]
+    ? Date.parse(String(flight["dep_runway_estimated"])) : NaN;
+  const wheelsUpMs = Math.max(
+    depMs + taxiPrior * 60_000,
+    Number.isFinite(estTakeoffMs) ? estTakeoffMs : 0,
+  );
   const staleAt = now < depMs
     ? Math.floor(depMs / 1000)
-    : unconfirmedDep && now < depMs + 20 * 60_000
-      ? Math.floor((depMs + 20 * 60_000) / 1000)
+    : !Number.isFinite(depActualMs) && now < wheelsUpMs
+      ? Math.floor(wheelsUpMs / 1000)
       : Math.floor(Math.max(arrMs, now + 60_000) / 1000);
   // Routine progress ticks every 5 minutes (they cost no provider calls —
   // progress comes from stored times); real changes push immediately at
@@ -2492,7 +2785,8 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
       timestamp: Math.floor(now / 1000),
       event: "update",
       "stale-date": staleAt,
-      "content-state": contentState(status, depMs, arrMs, delay, arrDelay, flight, insight),
+      "content-state": contentState(status, depMs, arrMs, delay, arrDelay, flight, insight,
+                                    { offBlockMs: depMs, taxiPrior }),
       ...(dataChanged && flight?.["dep_gate"] ? {
         alert: {
           title: `${row.flight_number} update`,
@@ -2571,11 +2865,17 @@ async function generateInsight(env: Env, signals: Record<string, unknown>): Prom
 
 function contentState(
   status: string, depMs: number, arrMs: number, delay: number, arrDelay: number,
-  flight: Record<string, any> | null, insight: string | null = null
+  flight: Record<string, any> | null, insight: string | null = null,
+  evidence: { offBlockMs: number; taxiPrior: number } | null = null
 ): Record<string, unknown> {
   const now = Date.now();
   const total = arrMs - depMs;
   const progress = total > 0 ? Math.min(1, Math.max(0, (now - depMs) / total)) : 0;
+  const appleEpoch = (ms: number | null | undefined) =>
+    ms == null ? null : ms / 1000 - 978307200;
+  const estTakeoff = flight?.["dep_runway_estimated"]
+    ? Date.parse(String(flight["dep_runway_estimated"])) : null;
+  const depActual = flight?.["dep_actual"] ? Date.parse(String(flight["dep_actual"])) : null;
   return {
     status,
     departureTime: depMs / 1000 - 978307200,
@@ -2594,6 +2894,14 @@ function contentState(
     speed: null,
     heading: null,
     progress,
+    // The gate-to-runway evidence. offBlock travels separately from
+    // departureTime because that one prefers a confirmed take-off, and the
+    // taxi is measured from the gate — the distinction that stopped a lock
+    // screen announcing "In Air" to someone still queueing for the runway.
+    offBlock: appleEpoch(evidence?.offBlockMs ?? depMs),
+    estimatedTakeoff: appleEpoch(Number.isFinite(estTakeoff as number) ? estTakeoff : null),
+    actualDeparture: appleEpoch(Number.isFinite(depActual as number) ? depActual : null),
+    taxiPriorMinutes: evidence?.taxiPrior ?? null,
   };
 }
 
@@ -2702,6 +3010,10 @@ async function loadSharePayload(env: Env, code: string): Promise<SharePayload | 
   const f = flights[0];
   const profs = await sbSelect(env, `/profiles?id=eq.${f.user_id}&select=display_name`);
   const expired = !j.is_active || (j.expires_at ? Date.parse(j.expires_at) < Date.now() : false);
+  const offBlock = Date.parse(f.scheduled_departure) + ((f.delay_minutes as number) || 0) * 60_000;
+  const taxiPrior = ((f.mode as string) ?? "air") === "air"
+    ? (await taxiPriorFor(env, String(f.departure_iata ?? ""), new Date(offBlock).getUTCHours())).minutes
+    : 0;
   // Hand the page exactly what it renders — never the raw row (user_id etc.).
   return {
     expired,
@@ -2716,11 +3028,17 @@ async function loadSharePayload(env: Env, code: string): Promise<SharePayload | 
       delay: f.delay_minutes || 0, aircraft: f.aircraft_type,
       progress: f.progress || 0, updated: f.updated_at,
       live: (f.live_lat != null && f.live_lon != null) ? { lat: f.live_lat, lon: f.live_lon } : null,
+      // What the aircraft itself was last seen doing (cron ADS-B watch), and
+      // the grace the page gives a departure before presuming wheels-up.
+      ground: { state: f.ground_state ?? null, observedAt: f.ground_observed_at ?? null,
+                taxiStartedAt: f.taxi_started_at ?? null },
+      taxiPrior,
       dep: {
         iata: f.departure_iata, city: f.departure_city,
         lat: f.departure_lat, lon: f.departure_lon,
         gate: f.departure_gate, terminal: f.departure_terminal,
         scheduled: f.scheduled_departure, actual: f.actual_departure,
+        estTakeoff: f.est_takeoff ?? null,
       },
       arr: {
         iata: f.arrival_iata, city: f.arrival_city,
@@ -2867,16 +3185,45 @@ var N=160;
 function P(s){return s?Date.parse(s):null}
 function depT(){var f=D.flight;return P(f.dep.actual)||((P(f.dep.scheduled)||0)+(f.delay||0)*60000)}
 function arrT(){var f=D.flight;return P(f.arr.actual)||P(f.arr.estimated)||((P(f.arr.scheduled)||0)+(f.delay||0)*60000)}
+// Mirror of the app's DepartureEvidence: "has it left?" from evidence, not
+// the clock. Off-block is the airline's number; wheels-up is what the page
+// waits for — the aircraft seen airborne, or a confirmed departure. Until
+// the expected wheels-up (off-block + the airport's taxi-out, the provider's
+// own estimate, or a taxi-out after the last on-ground sighting) it says
+// Departing/Taxiing; after it, with no confirmation, it only *presumes*.
+var PRE=['scheduled','boarding','gateClosed'];
+function offBlockT(){var f=D.flight;return (P(f.dep.scheduled)||0)+(f.delay||0)*60000}
+function lastOnGroundT(){
+  var f=D.flight,g=f.ground||{},t=0;
+  if(g.state&&g.state!=='airborne'&&g.observedAt)t=Math.max(t,P(g.observedAt)||0);
+  if(PRE.indexOf(f.status)>=0&&!f.dep.actual&&f.updated)t=Math.max(t,P(f.updated)||0);
+  return t;
+}
+function wheelsUpT(){
+  var f=D.flight,prior=(f.taxiPrior||0)*60000,lg=lastOnGroundT();
+  return Math.max(offBlockT()+prior,P(f.dep.estTakeoff)||0,lg?lg+prior:0);
+}
+function depPhase(){
+  var f=D.flight,now=Date.now(),g=f.ground||{};
+  if(f.dep.actual||g.state==='airborne')return 'airborne';
+  if(now<offBlockT())return 'before';
+  var fresh=g.observedAt&&(now-P(g.observedAt))<15*60000;
+  if(fresh&&g.state==='taxiing')return 'taxiing';
+  if(fresh&&g.state==='at_gate')return 'departing';
+  return now<wheelsUpT()?'departing':'presumed';
+}
 function phase(){
   var f=D.flight,now=Date.now();
   if(f.status==='cancelled')return 'cancelled';
   if(f.status==='landed')return 'landed';
-  if(f.status==='active')return now>=arrT()?'landing':'air';
-  return now>=depT()?'air':'pre';   // clock heals a stale status
+  var d=depPhase();
+  if(d==='before')return 'pre';
+  if(d==='departing'||d==='taxiing'||d==='presumed')return d;
+  return now>=arrT()?'landing':'air';
 }
 function prog(){
   var ph=phase();
-  if(ph==='pre')return 0;
+  if(ph==='pre'||ph==='departing'||ph==='taxiing')return 0;
   if(ph==='landed')return 1;
   var d=depT(),a=arrT();
   if(!d||!a||a<=d)return D.flight.progress||0;
@@ -2979,6 +3326,13 @@ function tick(){
   var chip=document.getElementById('status-chip'),cl=document.getElementById('count-label'),c=document.getElementById('count');
   if(ph==='pre'){chip.textContent=${punctual}?(f.delay>0?'Delayed':'On time'):'Timetable';chip.className='chip '+(${punctual}?(f.delay>0?'late':'ok'):'ghost');
     cl.textContent='Departs in';c.textContent=fmtDur(depT()-Date.now());}
+  else if(ph==='departing'){chip.textContent='Departing';chip.className='chip ghost';
+    cl.textContent='${mode === "air" ? "Takeoff" : "Departure"}';c.textContent='Not yet confirmed';}
+  else if(ph==='taxiing'){var ts=P((f.ground||{}).taxiStartedAt)||offBlockT();
+    chip.textContent='Taxiing';chip.className='chip ghost';
+    cl.textContent='Taxiing for';c.textContent=fmtDur(Date.now()-ts);}
+  else if(ph==='presumed'){chip.textContent='Presumed airborne';chip.className='chip ghost';
+    cl.textContent='${mode === "air" ? "Landing in" : "Arriving in"}';c.textContent=fmtDur(arrT()-Date.now());}
   else if(ph==='air'){chip.textContent='${inTransitLabel}';chip.className='chip';
     cl.textContent='${mode === "air" ? "Landing in" : "Arriving in"}';c.textContent=fmtDur(arrT()-Date.now());}
   else if(ph==='landing'){chip.textContent='${mode === "air" ? "Landing soon" : "Arriving soon"}';chip.className='chip';
@@ -3000,10 +3354,11 @@ function tick(){
   var b=bearing(PTS[Math.max(0,idx-1)],PTS[Math.min(N,idx+1)]);
   var svg=document.getElementById('plane-svg');
   if(svg&&${mode === "air" ? "true" : "false"})svg.style.transform='rotate('+b+'deg)';
-  plane.setOpacity(ph==='pre'?0:1);
+  var grounded=ph==='pre'||ph==='departing'||ph==='taxiing';
+  plane.setOpacity(grounded&&!liveFresh?0:1);
   document.getElementById('bar-fill').style.width=(p*100)+'%';
   document.getElementById('bar-plane').style.left=(p*100)+'%';
-  document.getElementById('bar-plane').style.opacity=ph==='pre'?0:1;
+  document.getElementById('bar-plane').style.opacity=grounded?0:1;
   var upd=document.getElementById('updated');
   upd.textContent=f.updated?('updated '+fmtT(Date.parse(f.updated))):'';
 }

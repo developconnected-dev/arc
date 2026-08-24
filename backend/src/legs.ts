@@ -161,6 +161,8 @@ export function shiftLegToDay(
     arr_scheduled: shift(leg["arr_scheduled"]),
     dep_actual: null,
     arr_actual: null,
+    dep_estimated: null,
+    arr_estimated: null,
     status: "scheduled",
     delay: 0,
     dep_gate: null,
@@ -186,4 +188,43 @@ export function completeLeg(
   out["data_tier"] = "scheduled";
   out["schedule_inferred_from"] = template["schedule_inferred_from"] ?? null;
   return out;
+}
+
+/// AeroDataBox's `runwayTime` is documented as "Actual / estimated time on the
+/// runway": the same field holds a projection while the flight still sits at
+/// the gate and the wheels-up/-down fact once it moved. Only the provider's
+/// status string tells them apart, so a runway time is promoted to *_actual
+/// only when the status says that movement happened. A flight with no status
+/// at all ("Unknown" — common outside live coverage) gets the benefit of the
+/// doubt once the time is comfortably in the past; a delayed flight's stale
+/// projection is caught by its "Delayed" status, not by the clock.
+const DEPARTED_STATUSES = new Set(["departed", "enroute", "approaching", "arrived", "diverted"]);
+const ARRIVED_STATUSES = new Set(["arrived", "diverted"]);
+const UNKNOWN_STATUS_GRACE_MS = 10 * 60_000;
+
+export function confirmedRunwayTime(
+  runway: unknown, status: unknown, side: "dep" | "arr", now: Date = new Date(),
+): string | null {
+  const iso = toISO(runway);
+  if (!iso) return null;
+  const key = String(status ?? "unknown").toLowerCase();
+  const confirmed = side === "dep" ? DEPARTED_STATUSES : ARRIVED_STATUSES;
+  // "Departed" flips at off-block, while the runway time can still be a
+  // projection for the taxi ahead: a take-off that hasn't happened yet is an
+  // estimate by definition, whatever the status says.
+  if (confirmed.has(key)) {
+    return side === "dep" && new Date(iso).getTime() > now.getTime() ? null : iso;
+  }
+  if (key === "unknown" || key === "") {
+    return new Date(iso).getTime() <= now.getTime() - UNKNOWN_STATUS_GRACE_MS ? iso : null;
+  }
+  return null;
+}
+
+/// AeroDataBox's per-movement `quality` array says whether live data exists
+/// for that end of the flight at all. Without "Live", no confirmation will
+/// ever arrive and the clock is the only witness; with it, the *absence* of
+/// a confirmation is itself evidence the flight hasn't moved.
+export function movementIsLive(quality: unknown): boolean {
+  return Array.isArray(quality) && quality.some(q => String(q).toLowerCase() === "live");
 }

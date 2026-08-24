@@ -74,7 +74,17 @@ final class LiveActivityManager {
             altitude: flight.liveAltitude.map { $0 * 3.281 },
             speed: flight.liveSpeed.map { $0 * 1.944 },
             heading: flight.liveHeading,
-            progress: flight.progress
+            progress: flight.progress,
+            // The gate-to-runway evidence, so the lock screen can hold the
+            // hedge for this airport's real taxi with nothing running.
+            offBlock: flight.offBlock,
+            estimatedTakeoff: flight.estimatedTakeoff,
+            actualDeparture: flight.actualDeparture,
+            groundState: flight.groundStateRaw,
+            groundObservedAt: flight.groundObservedAt,
+            taxiStartedAt: flight.taxiStartedAt,
+            lastSeenOnGround: flight.lastSeenOnGround,
+            taxiPriorMinutes: flight.taxiPriorMinutes
         )
     }
 
@@ -143,12 +153,11 @@ final class LiveActivityManager {
 
     /// staleDate doubles as our offline phase-flip scheduler: iOS re-renders
     /// the Live Activity view once when content goes stale, and that render
-    /// re-evaluates `effectivePhase(Date.now)`. Pointing staleDate at the
-    /// NEXT phase boundary (departure while pre-flight, arrival while
-    /// in-flight) makes the layout switch pre → during → after at exactly
-    /// the right moment even with the app dead and the device offline —
-    /// which is precisely the in-flight situation. While online, pushes
-    /// keep resetting it anyway.
+    /// re-evaluates the phase from the clock. Pointing staleDate at the NEXT
+    /// boundary makes the layout switch pre → taxi → in-flight → after at
+    /// exactly the right moment even with the app dead and the device
+    /// offline — which is precisely the in-flight situation. While online,
+    /// pushes keep resetting it anyway.
     private static func staleDate(for state: FlightActivityAttributes.ContentState) -> Date {
         if state.status == "landed" { return .now.addingTimeInterval(3600) }
         // The "directions to the airport" pill retires ~1¾ h before
@@ -156,11 +165,14 @@ final class LiveActivityManager {
         let directionsCutoff = state.departureTime.addingTimeInterval(-105 * 60)
         if Date.now < directionsCutoff { return directionsCutoff }
         if Date.now < state.departureTime { return state.departureTime }
-        // The widget hedges "Departing…" for 20 min past an UNCONFIRMED
-        // departure — schedule the re-render that ends the hedge and flips
-        // to the in-flight layout (the offline-takeoff case).
-        let departingGraceEnd = state.departureTime.addingTimeInterval(20 * 60)
-        if state.status != "active", Date.now < departingGraceEnd { return departingGraceEnd }
+        // The hedge ends at the EXPECTED WHEELS-UP, not at the gate time
+        // plus a constant: at a hub that taxis 35 minutes, a 20-minute grace
+        // expires while the aircraft is still in the queue for the runway,
+        // and the lock screen of someone sitting in that queue announced she
+        // was flying. Schedule the re-render for the moment the label may
+        // legitimately change (the offline-takeoff case).
+        let wheelsUp = state.expectedWheelsUp
+        if state.actualDeparture == nil, Date.now < wheelsUp { return wheelsUp }
         return max(state.arrivalTime, .now.addingTimeInterval(60))
     }
 

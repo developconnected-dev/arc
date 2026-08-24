@@ -1355,11 +1355,30 @@ struct AddFlightView: View {
         (DataTier(rawValue: r.data_tier ?? "live") ?? .live).reportsPunctuality
     }
 
+    /// The departure question, from a search result. Providers flip to
+    /// "Departed" at off-block, so a result that says active may well be an
+    /// aircraft still on the taxiway — this is the first screen someone sees,
+    /// and it should not be the one that lies.
+    private func resultPhase(_ r: FlightAPIClient.FlightSearchResult) -> DeparturePhase {
+        guard let sched = DateHelpers.parseAPIDate(r.dep_scheduled) else { return .beforeDeparture }
+        let evidence = DepartureEvidence(
+            offBlock: sched.addingTimeInterval(Double(max(0, r.delay ?? 0)) * 60),
+            estimatedTakeoff: DateHelpers.parseAPIDate(r.dep_runway_estimated),
+            actualDeparture: DateHelpers.parseAPIDate(r.dep_actual),
+            isLiveCovered: resultMode(r) == .air)
+        return evidence.phase(at: .now)
+    }
+
     private func statusLabel(_ r: FlightAPIClient.FlightSearchResult) -> String {
         let mode = resultMode(r)
         switch r.status.lowercased() {
         case "landed": return mode == .air ? "Landed" : "Arrived"
-        case "active": return mode == .air ? "In the air" : "En route"
+        case "active":
+            guard mode == .air else { return "En route" }
+            switch resultPhase(r) {
+            case .taxiing, .departing: return "Departing"
+            case .beforeDeparture, .presumedAirborne, .airborne: return "In the air"
+            }
         case "cancelled": return "Cancelled"
         case "diverted": return "Diverted"
         case "boarding": return "Boarding"
@@ -1428,7 +1447,12 @@ struct AddFlightView: View {
         let days = cal.dateComponents([.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: d)).day ?? 0
         let hrs = Int(d.timeIntervalSince(.now)) / 3600
         // Already gone: "0 HOURS" read as "leaves right now".
-        if d < .now { return ("—", r.status.lowercased() == "landed" ? "FLOWN" : "DEPARTED") }
+        if d < .now {
+            if r.status.lowercased() == "landed" { return ("—", "FLOWN") }
+            // "DEPARTED" is a fact about the runway, not about the clock: a
+            // result past its gate time may still be on the ground.
+            return ("—", resultPhase(r).isOffTheGround ? "DEPARTED" : "DEPARTING")
+        }
         if days >= 1 && hrs >= 12 { return ("\(days)", days == 1 ? "DAY" : "DAYS") }
         return ("\(max(0, hrs))", "HOURS")
     }

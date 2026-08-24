@@ -203,7 +203,7 @@ struct WheresMyPlaneSection: View {
             Image(systemName: flight.isActive ? "airplane" : "arrow.down.circle")
                 .foregroundStyle(.white)
             VStack(alignment: .leading, spacing: 2) {
-                Text(flight.isActive ? "This flight — in the air" : "This Flight")
+                Text(thisFlightTitle)
                     .font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
                 Text(statusText).font(.system(size: 13)).foregroundStyle(.white.opacity(0.8))
             }
@@ -325,7 +325,24 @@ struct WheresMyPlaneSection: View {
         }
     }
 
+    /// The aircraft card's own headline. "In the air" is a claim like any
+    /// other: while the aircraft is on the ground — taxiing, or waiting for a
+    /// wheels-up nobody has reported — it must not be made.
+    private var thisFlightTitle: String {
+        switch flight.departurePhase {
+        case .taxiing: return flight.mode == .air ? "This flight — taxiing" : "This Flight"
+        case .departing: return "This flight — departing"
+        case .presumedAirborne, .airborne:
+            return flight.isActive ? "This flight — in the air" : "This Flight"
+        case .beforeDeparture: return "This Flight"
+        }
+    }
+
     private var statusText: String {
+        if case .taxiing = flight.departurePhase { return "On the ground, moving" }
+        if flight.isActive, flight.departurePhase == .presumedAirborne {
+            return "Tracking live position · takeoff unconfirmed"
+        }
         if flight.isActive { return "Tracking live position" }
         if flight.status == .cancelled { return "This flight was cancelled" }
         if flight.status == .diverted { return "This flight was diverted" }

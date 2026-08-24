@@ -714,6 +714,10 @@ struct FriendFlightRow: View {
                     .font(.system(size: 9, weight: .heavy)).tracking(0.5)
                     .foregroundStyle(airborne ? ArcTheme.action : .secondary)
                     .lineLimit(1)
+                    // "DEPARTING" and "TAXIING" are longer than the "IN AIR"
+                    // this column was sized for, and a truncated status word
+                    // is worse than a slightly smaller one.
+                    .minimumScaleFactor(0.7)
                     .contentTransition(.numericText())
                     .animation(.default, value: statusMini(at: context.date))
             }
@@ -753,6 +757,13 @@ struct FriendFlightRow: View {
     private func statusMini(at now: Date) -> String {
         let mode = flight.tripMode
         if flight.status == "cancelled" { return "CANCELLED" }
+        // Name what the aircraft is doing before claiming it is flying: past
+        // the gate time is not the same fact as off the ground.
+        switch FriendFlightMath.departurePhase(flight, at: now) {
+        case .taxiing: return mode == .air ? "TAXIING" : "DEPARTING"
+        case .departing: return "DEPARTING"
+        case .beforeDeparture, .presumedAirborne, .airborne: break
+        }
         if airborne { return mode.inTransitShort }
         if flight.status == "landed" { return mode.arrivedShort }
         if let dep = FriendFlightMath.departure(flight), dep > now {
@@ -768,6 +779,16 @@ struct FriendFlightRow: View {
     /// +35m" constant for every landed flight — fabricated intelligence.
     private func contextLine(at now: Date) -> String {
         let mode = flight.tripMode
+        switch FriendFlightMath.departurePhase(flight, at: now) {
+        case .taxiing:
+            guard let taxi = FriendFlightMath.taxiElapsed(flight, at: now), taxi >= 60 else {
+                return "Taxiing"
+            }
+            return "Taxiing for \(FriendFlightMath.hmLower(Int(taxi / 60)))"
+        case .departing:
+            return "Takeoff not yet confirmed"
+        case .beforeDeparture, .presumedAirborne, .airborne: break
+        }
         if airborne, let arr = FriendFlightMath.arrival(flight) {
             return "\(mode.arrivingVerb) in \(FriendFlightMath.hmLower(Int(arr.timeIntervalSince(now) / 60)))"
         }

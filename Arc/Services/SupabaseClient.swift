@@ -350,6 +350,11 @@ final class ArcSupabase: ObservableObject {
 
         // Optional with defaults so a friend still on an older build — whose
         // rows predate the migration and carry none of these — decodes fine.
+        /// Written by every `shareFlight` since migration 006 but never read
+        /// until now: without them a reader can't tell a CONFIRMED departure
+        /// from a clock guess, so a friend's flight hedged forever.
+        var actual_departure: String? = nil
+        var actual_arrival: String? = nil
         var mode: String? = nil
         var data_tier: String? = nil
         var departure_tz: String? = nil
@@ -360,6 +365,16 @@ final class ArcSupabase: ObservableObject {
         /// The one booking detail that crosses (migration 015): a companion
         /// on the same journey wants to know where you sit.
         var seat: String? = nil
+        // Gate-to-runway evidence (migration 016). A friend on the ground is
+        // online while the traveller's phone is in airplane mode, so these
+        // are what let their screen say "Taxiing for 14m" instead of
+        // announcing a take-off nobody has seen.
+        var aircraft_registration: String? = nil
+        var aircraft_icao24: String? = nil
+        var ground_state: String? = nil
+        var ground_observed_at: String? = nil
+        var taxi_started_at: String? = nil
+        var est_takeoff: String? = nil
 
         /// What kind of journey this is. Absent means air, which is what every
         /// row written before trains existed actually was.
@@ -414,6 +429,17 @@ final class ArcSupabase: ObservableObject {
             "arrival_terminal": flight.arrivalTerminal as Any,
             "baggage_claim": flight.baggageClaim as Any,
             "aircraft_type": flight.aircraftType as Any,
+            // The tail, so a friend's device (and the Worker, once a source
+            // whitelists it) can look up the aircraft itself.
+            "aircraft_registration": flight.aircraftRegistration as Any,
+            "aircraft_icao24": flight.aircraftICAO24 as Any,
+            // What this device last saw the aircraft doing. Written while it
+            // still has signal, so the evidence survives going dark at the
+            // door — which is exactly when friends start watching.
+            "ground_state": flight.groundStateRaw as Any,
+            "ground_observed_at": str(flight.groundObservedAt),
+            "taxi_started_at": str(flight.taxiStartedAt),
+            "est_takeoff": str(flight.estimatedTakeoff),
             "live_lat": flight.liveLat as Any,
             "live_lon": flight.liveLon as Any,
             "live_altitude": flight.liveAltitude as Any,
