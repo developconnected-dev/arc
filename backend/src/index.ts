@@ -1668,6 +1668,51 @@ export default {
       }
     }
 
+    // ── Refresh one friend's flight, now, because someone is looking at it ──
+    //
+    // The viewer has a working connection — that is WHY they are looking — but
+    // until this endpoint the friend path made no network call of any kind. It
+    // read the mirrored row and nothing else, so a friend's flight was only
+    // ever as fresh as the last cron tick or the traveller's own phone. The
+    // one device that is definitely awake and definitely interested could not
+    // ask.
+    //
+    // It cannot write the row itself: RLS lets a friend SELECT but only the
+    // owner UPDATE, which is right — you should not be able to edit someone
+    // else's flight. So it asks the Worker, which holds the service key and
+    // therefore has to re-check the friendship the policy would have enforced.
+    if (url.pathname === "/shared/refresh" && req.method === "POST") {
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, reason: "unconfigured" }, { headers: cors });
+      const viewer = await supabaseUserId(env, req);
+      if (!viewer) return new Response("unauthorized", { status: 401, headers: cors });
+      try {
+        const body = await req.json() as { id?: string };
+        const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!body.id || !uuid.test(body.id)) {
+          return new Response("bad request", { status: 400, headers: cors });
+        }
+        const rows = await sbSelect(env, `/shared_flights?id=eq.${body.id}&select=*`) as unknown as Record<string, any>[];
+        if (!rows.length) return new Response("not found", { status: 404, headers: cors });
+        const row = rows[0];
+        // Same answer the RLS policy would give, restated because the service
+        // key bypasses it.
+        if (!await areFriends(env, viewer, String(row.user_id))) {
+          return new Response("not found", { status: 404, headers: cors });
+        }
+        const now = Date.now();
+        // Somebody already asked in the last minute — for this row, or because
+        // several friends opened it at once. Their answer is this answer.
+        const recent = row.checked_at && now - Date.parse(row.checked_at) < 60_000;
+        if (!recent && ((row.mode as string) ?? "air") === "air") {
+          await refreshOneSharedRow(env, row, now);
+        }
+        const after = await sbSelect(env, `/shared_flights?id=eq.${body.id}&select=*`);
+        return Response.json({ ok: true, refreshed: !recent, flight: after[0] ?? row }, { headers: cors });
+      } catch {
+        return new Response("bad request", { status: 400, headers: cors });
+      }
+    }
+
     if (url.pathname === "/la/unregister" && req.method === "POST") {
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false }, { headers: cors });
       try {
@@ -2310,14 +2355,33 @@ async function cacheAirlabsResult(env: Env, ident: string, date: string,
 /// check WHO is asking: any signed-in user may contribute, nobody anonymous
 /// may wipe an airport's gate map or poison the prediction history.
 async function requireSupabaseUser(env: Env, req: Request): Promise<boolean> {
+  return (await supabaseUserId(env, req)) !== null;
+}
+
+/// WHICH signed-in user is asking, or null. Needed wherever the answer depends
+/// on the caller's identity rather than merely on their being signed in — the
+/// service key bypasses RLS, so any row-level rule has to be re-stated here.
+async function supabaseUserId(env: Env, req: Request): Promise<string | null> {
   const auth = req.headers.get("authorization");
-  if (!auth?.startsWith("Bearer ") || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY) return false;
+  if (!auth?.startsWith("Bearer ") || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY) return null;
   try {
     const res = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
       headers: { apikey: env.SUPABASE_SERVICE_KEY, authorization: auth },
     });
-    return res.ok;
-  } catch { return false; }
+    if (!res.ok) return null;
+    const body = await res.json() as { id?: unknown };
+    return typeof body.id === "string" ? body.id : null;
+  } catch { return null; }
+}
+
+/// Whether these two are actually friends — the `Friends can view shared
+/// flights` policy from migration 001, restated for the service key.
+async function areFriends(env: Env, a: string, b: string): Promise<boolean> {
+  if (a === b) return true;
+  const rows = await sbSelect(env,
+    "/friendships?select=id&status=eq.accepted"
+    + `&or=(and(requester_id.eq.${a},addressee_id.eq.${b}),and(requester_id.eq.${b},addressee_id.eq.${a}))`);
+  return rows.length > 0;
 }
 
 async function sbService(env: Env, method: string, path: string, body?: unknown): Promise<Response> {
@@ -2582,67 +2646,22 @@ async function recordTaxiObservation(env: Env, row: Record<string, any>, takeoff
   });
 }
 
-/// Refresh provider-derived fields of shared_flights rows in their active
-/// window (4 h before departure → 45 min past delay-adjusted arrival), so a
-/// friend's view keeps moving when the traveler's device goes quiet. Never
-/// touches live position/progress — those stay device-reported.
-async function refreshSharedFlights(env: Env): Promise<void> {
-  const now = Date.now();
-  const from = new Date(now - 24 * 3600_000).toISOString();
-  // Out to thirty hours, not four: before that the ONLY writer of these rows
-  // was the traveller's own device, on its tracker poll, while their app was
-  // open. See sharedRowCheckInterval — far-out rows are consulted hourly, so
-  // widening the net costs a fraction of a call per flight per hour.
-  const to = new Date(now + 30 * 3600_000).toISOString();
-  const rows = await sbSelect(env,
-    "/shared_flights?select=id,flight_number,departure_iata,arrival_iata,scheduled_departure,scheduled_arrival," +
-    "status,delay_minutes,departure_gate,arrival_gate,baggage_claim,updated_at,mode," +
-    "estimated_arrival,actual_departure,actual_arrival,est_takeoff,aircraft_registration,aircraft_icao24," +
-    "ground_state,ground_observed_at,taxi_started_at,live_source,checked_at" +
-    `&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}`
-  ) as unknown as Record<string, any>[];
-
-  const active = rows.filter(r => {
-    // AeroDataBox only answers for air legs; a rail/sea row would burn a
-    // budget-guarded call on a guaranteed miss and crowd flights out of the cap.
-    if (((r.mode as string) ?? "air") !== "air") return false;
-    const delayMs = ((r.delay_minutes as number) ?? 0) * 60_000;
-    const dep = new Date(r.scheduled_departure).getTime();
-    const arr = new Date(r.scheduled_arrival ?? r.scheduled_departure).getTime() + delayMs;
-    return sharedRowIsDue({ depMs: dep, arrMs: arr, checkedAt: r.checked_at, now })
-      && r.status !== "landed" && r.status !== "cancelled"
-      // The traveler's own device may be updating this row right now —
-      // only step in once it has gone quiet.
-      && (!r.updated_at || now - Date.parse(r.updated_at) > 5 * 60_000);
-  });
-
-  // Shuffle so nobody is starved by stable DB order, then put the flights
-  // closest to departure first: with a thirty-hour net there are far more
-  // candidates than the per-tick cap, and a row taxiing right now must never
-  // wait behind one leaving tomorrow morning.
-  for (let i = active.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [active[i], active[j]] = [active[j], active[i]];
-  }
-  const urgency = (r: Record<string, any>) => {
-    const delayMs = ((r.delay_minutes as number) ?? 0) * 60_000;
-    const dep = new Date(r.scheduled_departure).getTime() + delayMs;
-    // The REAL arrival, not the departure: passing dep for both would put an
-    // aircraft currently in the air past its own arrival grace, scoring it as
-    // out of scope and sorting the most urgent row in the list dead last.
-    const arr = new Date(r.scheduled_arrival ?? r.scheduled_departure).getTime() + delayMs;
-    return sharedRowCheckInterval({ depMs: dep, arrMs: arr, now }) ?? Number.MAX_SAFE_INTEGER;
-  };
-  active.sort((a, b) => urgency(a) - urgency(b));
-  for (const row of active.slice(0, 5)) {
-    try {
-    if (!row.flight_number) continue;
+/// Bring ONE shared row up to date against the provider, applying the merge
+/// rules that decide what a friend is allowed to be told.
+///
+/// Extracted so the cron and the on-demand endpoint cannot drift: a viewer
+/// refreshing a friend's flight by hand must get exactly the same answer the
+/// cron would have written, including "a provider null never erases a
+/// device-reported value" and "a wheels-up already established is never
+/// un-confirmed".
+async function refreshOneSharedRow(env: Env, row: Record<string, any>, now: number): Promise<void> {
+    if (!row.flight_number) return;
     const day = String(row.scheduled_departure).slice(0, 10);
     const { legs } = await fetchLegsCached(env, "flight", String(row.flight_number), day, "cron");
     const leg = (legs ?? []).find(l =>
       l["dep_iata"] === row.departure_iata && l["arr_iata"] === row.arrival_iata
     ) ?? (legs && legs.length > 0 ? legs[0] : null);
-    if (!leg) continue;
+    if (!leg) return;
     // Timestamps compare by instant, not string: the provider writes "…Z",
     // PostgREST reads back "…+00:00", and a string comparison would call
     // every unchanged row changed on every tick.
@@ -2684,7 +2703,7 @@ async function refreshSharedFlights(env: Env): Promise<void> {
     // nine hours. Throttled so a stable row costs one small write every few
     // minutes rather than one a minute — comfortably inside the ten-minute
     // window in which the app will still say "Live".
-    if (!shouldWriteSharedRow({ changed, checkedAt: row.checked_at, now })) continue;
+    if (!shouldWriteSharedRow({ changed, checkedAt: row.checked_at, now })) return;
     const ground: Record<string, unknown> = {};
     if (state !== "unknown") {
       ground.ground_state = state;
@@ -2743,6 +2762,63 @@ async function refreshSharedFlights(env: Env): Promise<void> {
       // and then stand aside for a phone that is not there.
       ...(changed ? { updated_at: new Date(now).toISOString() } : {}),
     });
+}
+
+/// Refresh provider-derived fields of shared_flights rows in their active
+/// window (4 h before departure → 45 min past delay-adjusted arrival), so a
+/// friend's view keeps moving when the traveler's device goes quiet. Never
+/// touches live position/progress — those stay device-reported.
+async function refreshSharedFlights(env: Env): Promise<void> {
+  const now = Date.now();
+  const from = new Date(now - 24 * 3600_000).toISOString();
+  // Out to thirty hours, not four: before that the ONLY writer of these rows
+  // was the traveller's own device, on its tracker poll, while their app was
+  // open. See sharedRowCheckInterval — far-out rows are consulted hourly, so
+  // widening the net costs a fraction of a call per flight per hour.
+  const to = new Date(now + 30 * 3600_000).toISOString();
+  const rows = await sbSelect(env,
+    "/shared_flights?select=id,flight_number,departure_iata,arrival_iata,scheduled_departure,scheduled_arrival," +
+    "status,delay_minutes,departure_gate,arrival_gate,baggage_claim,updated_at,mode," +
+    "estimated_arrival,actual_departure,actual_arrival,est_takeoff,aircraft_registration,aircraft_icao24," +
+    "ground_state,ground_observed_at,taxi_started_at,live_source,checked_at" +
+    `&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}`
+  ) as unknown as Record<string, any>[];
+
+  const active = rows.filter(r => {
+    // AeroDataBox only answers for air legs; a rail/sea row would burn a
+    // budget-guarded call on a guaranteed miss and crowd flights out of the cap.
+    if (((r.mode as string) ?? "air") !== "air") return false;
+    const delayMs = ((r.delay_minutes as number) ?? 0) * 60_000;
+    const dep = new Date(r.scheduled_departure).getTime();
+    const arr = new Date(r.scheduled_arrival ?? r.scheduled_departure).getTime() + delayMs;
+    return sharedRowIsDue({ depMs: dep, arrMs: arr, checkedAt: r.checked_at, now })
+      && r.status !== "landed" && r.status !== "cancelled"
+      // The traveler's own device may be updating this row right now —
+      // only step in once it has gone quiet.
+      && (!r.updated_at || now - Date.parse(r.updated_at) > 5 * 60_000);
+  });
+
+  // Shuffle so nobody is starved by stable DB order, then put the flights
+  // closest to departure first: with a thirty-hour net there are far more
+  // candidates than the per-tick cap, and a row taxiing right now must never
+  // wait behind one leaving tomorrow morning.
+  for (let i = active.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [active[i], active[j]] = [active[j], active[i]];
+  }
+  const urgency = (r: Record<string, any>) => {
+    const delayMs = ((r.delay_minutes as number) ?? 0) * 60_000;
+    const dep = new Date(r.scheduled_departure).getTime() + delayMs;
+    // The REAL arrival, not the departure: passing dep for both would put an
+    // aircraft currently in the air past its own arrival grace, scoring it as
+    // out of scope and sorting the most urgent row in the list dead last.
+    const arr = new Date(r.scheduled_arrival ?? r.scheduled_departure).getTime() + delayMs;
+    return sharedRowCheckInterval({ depMs: dep, arrMs: arr, now }) ?? Number.MAX_SAFE_INTEGER;
+  };
+  active.sort((a, b) => urgency(a) - urgency(b));
+  for (const row of active.slice(0, 5)) {
+    try {
+      await refreshOneSharedRow(env, row, now);
     } catch (e) {
       // One malformed row must not kill the refreshes behind it this tick.
       console.error("refreshSharedFlights row failed:", row?.id, e);

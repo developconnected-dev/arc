@@ -765,6 +765,21 @@ actor FlightAPIClient {
         await postJSON(path: "/la/unregister", data: data)
     }
 
+    /// Ask the Worker to bring one friend's flight up to date, right now.
+    ///
+    /// The viewing device has a working connection — that is why someone is
+    /// looking — but it cannot write `shared_flights` itself: RLS lets a friend
+    /// read the row and only its owner change it, which is correct. So it asks
+    /// the Worker, which holds the service key, re-checks the friendship and
+    /// applies exactly the merge rules the cron would have applied.
+    ///
+    /// Returns whether the row was touched; the caller then re-reads it through
+    /// the normal Supabase path rather than trusting a second shape here.
+    func refreshFriendFlight(id: String) async -> Bool {
+        guard let data = try? JSONSerialization.data(withJSONObject: ["id": id]) else { return false }
+        return await postJSON(path: "/shared/refresh", data: data)
+    }
+
     /// This DEVICE's APNs token, which outlives any one Live Activity — the
     /// channel by which a cancellation the night before reaches a closed app.
     /// Returns whether the Worker accepted it: on a refusal the device keeps

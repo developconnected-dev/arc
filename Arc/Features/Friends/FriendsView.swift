@@ -362,7 +362,11 @@ struct FriendsListView: View {
                     .padding(.top, 12).padding(.bottom, 140)
                 }
                 .scrollIndicators(.hidden)
-                .refreshable { await store.refresh(force: true) }
+                // A deliberate pull means "tell me what is true NOW". Re-read
+                // the rows, and have the server re-check the legs close enough
+                // for the answer to have moved — bounded, because a pull with
+                // twenty friends in the feed must not become twenty calls.
+                .refreshable { await store.refreshLiveVisible() }
             }
             .toolbarVisibility(.hidden, for: .navigationBar)
             .sheet(isPresented: $showingAddFriend) {
@@ -601,6 +605,11 @@ struct FriendsListView: View {
     private func feedRow(_ item: FriendsStore.FeedItem) -> some View {
         Button {
             presentedFlight = store.transientFlight(for: item)
+            // Opening a friend's flight is the clearest possible signal that
+            // someone wants it current, from a device that demonstrably has a
+            // connection. The sheet shows the mirrored row immediately and
+            // updates underneath when the answer comes back.
+            Task { await store.refreshLive(item) }
             // Zoom the globe onto this flight's arc behind the
             // half-height detail.
             if let dlat = item.flight.departure_lat, let dlon = item.flight.departure_lon,

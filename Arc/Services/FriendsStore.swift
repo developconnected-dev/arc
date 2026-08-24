@@ -439,6 +439,58 @@ final class FriendsStore {
     /// friend's flight opens the exact same detail screen as the user's own
     /// flights. Edits made there (seat, notes) simply don't persist, which
     /// is correct: it isn't your flight.
+    /// Ask the server to re-check this friend's flight against the provider,
+    /// then re-read the feed.
+    ///
+    /// The friend path used to make no network call at all: it rendered the
+    /// mirrored `shared_flights` row and nothing else, so a friend's flight was
+    /// only ever as fresh as the last cron tick or the traveller's own phone —
+    /// even though the one device that is certainly awake and certainly
+    /// interested is the one doing the looking. Cheap: the Worker ignores a row
+    /// it checked in the last minute, and the fetch underneath rides the same
+    /// shared leg cache, so ten friends opening the same flight cost one call.
+    func refreshLive(_ item: FeedItem) async {
+        guard shouldAskServer(item, at: .now) else { return }
+        guard await FlightAPIClient.shared.refreshFriendFlight(id: item.flight.id) else { return }
+        await refresh(force: true)
+    }
+
+    /// A pull-to-refresh: re-read the rows, then have the server re-check the
+    /// few legs where the answer can actually have moved. Capped and ordered by
+    /// imminence — a taxiing aircraft matters more than one leaving tomorrow,
+    /// and a feed of twenty friends must not become twenty round-trips.
+    func refreshLiveVisible(limit: Int = 3) async {
+        await refresh(force: true)
+        let now = Date.now
+        let due = feed
+            .filter { shouldAskServer($0, at: now) }
+            .sorted { a, b in
+                let da = FriendFlightMath.departure(a.flight) ?? .distantFuture
+                let db = FriendFlightMath.departure(b.flight) ?? .distantFuture
+                return abs(da.timeIntervalSince(now)) < abs(db.timeIntervalSince(now))
+            }
+            .prefix(limit)
+        guard !due.isEmpty else { return }
+        var touched = false
+        for item in due {
+            if await FlightAPIClient.shared.refreshFriendFlight(id: item.flight.id) { touched = true }
+        }
+        if touched { await refresh(force: true) }
+    }
+
+    /// Whether a leg is close enough for a live re-check to mean anything. A
+    /// flight next week has nothing to say that the row does not already carry,
+    /// and a landed one is finished.
+    func shouldAskServer(_ item: FeedItem, at now: Date) -> Bool {
+        let f = item.flight
+        guard (f.mode ?? "air") == "air" else { return false }
+        guard f.status != "cancelled" else { return false }
+        guard let dep = FriendFlightMath.departure(f) else { return false }
+        let arr = FriendFlightMath.arrival(f) ?? dep.addingTimeInterval(2 * 3600)
+        return now > dep.addingTimeInterval(-30 * 3600)
+            && now < arr.addingTimeInterval(FriendFlightMath.landedGrace)
+    }
+
     func transientFlight(for item: FeedItem) -> Flight {
         let f = item.flight
         let scheduledDep = DateHelpers.parseAPIDate(f.scheduled_departure) ?? .now
