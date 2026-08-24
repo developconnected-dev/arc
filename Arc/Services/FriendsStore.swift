@@ -445,10 +445,19 @@ final class FriendsStore {
     /// interested is the one doing the looking. Cheap: the Worker ignores a row
     /// it checked in the last minute, and the fetch underneath rides the same
     /// shared leg cache, so ten friends opening the same flight cost one call.
-    func refreshLive(_ item: FeedItem) async {
+    ///
+    /// `onscreen` is the Flight the detail sheet is currently holding, if one
+    /// is open. The sheet is built from a snapshot of the row taken before the
+    /// ask, so refreshing the store alone left it showing the figure it opened
+    /// with — the "Updated 16h ago" this call exists to clear — until it was
+    /// closed and opened again.
+    func refreshLive(_ item: FeedItem, updating onscreen: Flight? = nil) async {
         guard shouldAskServer(item, at: .now) else { return }
         guard await FlightAPIClient.shared.refreshFriendFlight(id: item.flight.id) else { return }
         await refresh(force: true)
+        guard let onscreen,
+              let fresh = feed.first(where: { $0.flight.id == item.flight.id }) else { return }
+        apply(fresh, to: onscreen)
     }
 
     /// A pull-to-refresh: re-read the rows, then have the server re-check the
@@ -474,17 +483,32 @@ final class FriendsStore {
         if touched { await refresh(force: true) }
     }
 
-    /// Whether a leg is close enough for a live re-check to mean anything. A
-    /// flight next week has nothing to say that the row does not already carry,
-    /// and a landed one is finished.
+    /// Whether asking the server about this leg can mean anything.
+    ///
+    /// Deliberately NOT the cron's thirty-hour window, which this used to
+    /// borrow. That bound prices a background job: every shared row, every
+    /// hour, for ever, whether or not a soul is looking. An open is the
+    /// opposite — one row, one call, because a person asked for it — and the
+    /// server already bounds it far better than a clock here can: the Worker
+    /// ignores a row it consulted in the last minute, the fetch underneath
+    /// rides the shared leg cache, and an empty answer is itself cached, so a
+    /// flight the provider cannot answer for yet costs one call per ten
+    /// minutes no matter how often it is opened.
+    ///
+    /// Borrowing the cron's bound meant a friend's flight three weeks out made
+    /// no call at all and read "Updated 16h ago", climbing, with nothing in the
+    /// system that would ever reset it. No horizon replaces it: any number
+    /// would just move that bug to a flight booked further ahead.
+    ///
+    /// What genuinely bounds the ask stays: a provider that cannot answer for
+    /// rail or sea, a cancellation, and a flight already finished.
     func shouldAskServer(_ item: FeedItem, at now: Date) -> Bool {
         let f = item.flight
         guard (f.mode ?? "air") == "air" else { return false }
         guard f.status != "cancelled" else { return false }
         guard let dep = FriendFlightMath.departure(f) else { return false }
         let arr = FriendFlightMath.arrival(f) ?? dep.addingTimeInterval(2 * 3600)
-        return now > dep.addingTimeInterval(-30 * 3600)
-            && now < arr.addingTimeInterval(FriendFlightMath.landedGrace)
+        return now < arr.addingTimeInterval(FriendFlightMath.landedGrace)
     }
 
     /// A display-only Flight model — NOT inserted into SwiftData — so a
@@ -492,11 +516,29 @@ final class FriendsStore {
     /// flights. Edits made there (seat, notes) simply don't persist, which
     /// is correct: it isn't your flight.
     func transientFlight(for item: FeedItem) -> Flight {
+        let scheduledDep = DateHelpers.parseAPIDate(item.flight.scheduled_departure) ?? .now
+        let flight = Flight(flightNumber: item.flight.flight_number, date: scheduledDep)
+        apply(item, to: flight)
+        return flight
+    }
+
+    /// Write a re-read row onto a Flight that is ALREADY on screen.
+    ///
+    /// Split out of `transientFlight` because the sheet is presented with
+    /// `.sheet(item:)`, which is keyed on `Flight.id` — a fresh UUID per
+    /// construction. Assigning a newly built Flight would therefore dismiss
+    /// and re-present the sheet rather than update it. `Flight` is a reference
+    /// type, so writing the new values onto the instance the sheet is already
+    /// holding keeps that identity and lets observation do the rest.
+    ///
+    /// Without this, `refreshLive` updated the store and stopped: the row was
+    /// current and the open sheet still showed the snapshot it was built from,
+    /// which is precisely the "Updated 16h ago" the refresh exists to clear.
+    func apply(_ item: FeedItem, to flight: Flight) {
         let f = item.flight
         let scheduledDep = DateHelpers.parseAPIDate(f.scheduled_departure) ?? .now
         let scheduledArr = DateHelpers.parseAPIDate(f.scheduled_arrival)
             ?? scheduledDep.addingTimeInterval(2 * 3600)
-        let flight = Flight(flightNumber: f.flight_number, date: scheduledDep)
         flight.mode = f.tripMode
         flight.dataTier = f.tier
         flight.airline = f.airline
@@ -563,7 +605,6 @@ final class FriendsStore {
         if flight.isUpcoming, FriendFlightMath.isAirborne(f) {
             flight.statusRaw = FlightStatus.active.rawValue
         }
-        return flight
     }
 
     /// Both the list (.task) and the map (tab switch) call this — the

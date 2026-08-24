@@ -604,12 +604,16 @@ struct FriendsListView: View {
 
     private func feedRow(_ item: FriendsStore.FeedItem) -> some View {
         Button {
-            presentedFlight = store.transientFlight(for: item)
             // Opening a friend's flight is the clearest possible signal that
             // someone wants it current, from a device that demonstrably has a
             // connection. The sheet shows the mirrored row immediately and
-            // updates underneath when the answer comes back.
-            Task { await store.refreshLive(item) }
+            // updates underneath when the answer comes back — handed the very
+            // object it is presenting, because `.sheet(item:)` keys on
+            // `Flight.id` and a replacement would re-present rather than
+            // refresh.
+            let onscreen = store.transientFlight(for: item)
+            presentedFlight = onscreen
+            Task { await store.refreshLive(item, updating: onscreen) }
             // Zoom the globe onto this flight's arc behind the
             // half-height detail.
             if let dlat = item.flight.departure_lat, let dlon = item.flight.departure_lon,

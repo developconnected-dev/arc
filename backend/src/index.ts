@@ -4,7 +4,7 @@ import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRI
 import { predictGate, type GateObservation } from "./gates";
 import { contentState } from "./activity";
 import { flightNews, type WatchState } from "./alerts";
-import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval } from "./freshness";
+import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered } from "./freshness";
 import { verifiedRoute } from "./place";
 import { handleTransit } from "./routes-transit";
 import { modesToQuery, routeFromQuery, dateFromQuery } from "./classify";
@@ -2657,11 +2657,30 @@ async function recordTaxiObservation(env: Env, row: Record<string, any>, takeoff
 async function refreshOneSharedRow(env: Env, row: Record<string, any>, now: number): Promise<void> {
     if (!row.flight_number) return;
     const day = String(row.scheduled_departure).slice(0, 10);
-    const { legs } = await fetchLegsCached(env, "flight", String(row.flight_number), day, "cron");
+    const { legs, cache } = await fetchLegsCached(env, "flight", String(row.flight_number), day, "cron");
     const leg = (legs ?? []).find(l =>
       l["dep_iata"] === row.departure_iata && l["arr_iata"] === row.arrival_iata
     ) ?? (legs && legs.length > 0 ? legs[0] : null);
-    if (!leg) return;
+    if (!leg) {
+      // We looked and the provider had nothing to say — which, for a flight
+      // further out than it publishes schedules for, is the ordinary answer
+      // rather than a failure. Returning here without a word cost two things
+      // at once: the friend's screen had nothing newer than `updated_at` to
+      // read, so it counted upward from the traveller's last write for ever;
+      // and `/shared/refresh` deduplicates on `checked_at`, so with the column
+      // never written its once-a-minute guard never engaged and every open
+      // reached the provider again.
+      //
+      // Only stamp when the fetch actually landed. A budget-blocked or
+      // malformed one must not tell the screen this row was just verified.
+      if (providerAnswered(cache)
+          && shouldWriteSharedRow({ changed: false, checkedAt: row.checked_at, now })) {
+        await sbService(env, "PATCH", `/shared_flights?id=eq.${row.id}`, {
+          checked_at: new Date(now).toISOString(),
+        });
+      }
+      return;
+    }
     // Timestamps compare by instant, not string: the provider writes "…Z",
     // PostgREST reads back "…+00:00", and a string comparison would call
     // every unchanged row changed on every tick.

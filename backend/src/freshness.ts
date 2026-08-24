@@ -34,6 +34,23 @@ export function shouldWriteSharedRow(a: {
   return a.now - t > CHECK_STAMP_INTERVAL_MS;
 }
 
+/// Whether a consultation actually produced a CURRENT answer about this row.
+///
+/// `fetchLegsCached` reports how it answered. "miss" reached the provider;
+/// "hit" was served from a cache entry still inside its TTL. Both are current
+/// answers, and both mean we looked. "stale" and "none" mean the fetch could
+/// not be made at all — no budget left, no key, a provider fault — and whatever
+/// came back with them is old.
+///
+/// The distinction exists because an EMPTY answer is a legitimate one. A flight
+/// further out than the provider publishes schedules for has no leg, and saying
+/// so is still verification: it is how a friend's screen learns that the row was
+/// looked at just now rather than abandoned since the traveller last opened
+/// their app. A fetch that never landed must not make that claim.
+export function providerAnswered(cache: "hit" | "stale" | "miss" | "none"): boolean {
+  return cache === "hit" || cache === "miss";
+}
+
 /// The later of two ISO stamps, either of which may be absent — what every
 /// reader of this row should treat as "how old is this".
 export function laterISO(a: string | null | undefined,

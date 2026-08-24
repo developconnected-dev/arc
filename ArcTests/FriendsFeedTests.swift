@@ -5,7 +5,7 @@ import XCTest
 final class FriendsFeedTests: XCTestCase {
     private func flight(_ number: String, dep: String, arr: String,
                         status: String = "scheduled", delay: Int = 0,
-                        updatedAt: String? = nil) -> ArcSupabase.SharedFlight {
+                        updatedAt: String? = nil, gate: String? = nil) -> ArcSupabase.SharedFlight {
         .init(id: UUID().uuidString, user_id: "ignored", flight_number: number,
               airline: "Swiss", departure_iata: "ZRH", arrival_iata: "JFK",
               departure_city: "Zurich", arrival_city: "New York",
@@ -13,7 +13,7 @@ final class FriendsFeedTests: XCTestCase {
               arrival_lat: 40.64, arrival_lon: -73.78,
               scheduled_departure: dep, scheduled_arrival: arr,
               estimated_arrival: nil, status: status, delay_minutes: delay,
-              departure_gate: nil, arrival_gate: nil, baggage_claim: nil,
+              departure_gate: gate, arrival_gate: nil, baggage_claim: nil,
               live_lat: nil, live_lon: nil, progress: 0, updated_at: updatedAt)
     }
 
@@ -219,5 +219,116 @@ final class FriendsFeedTests: XCTestCase {
         XCTAssertNotNil(transient.actualDeparture)
         XCTAssertFalse(transient.isDepartingUnconfirmed)
         XCTAssertTrue(transient.departureRelText.hasSuffix(" ago"))
+    }
+
+    // MARK: - shouldAskServer (the gate on the on-demand refresh)
+
+    /// A leg the provider cannot answer for is never worth a call.
+    private func mode(_ f: ArcSupabase.SharedFlight, _ m: String) -> ArcSupabase.SharedFlight {
+        var copy = f
+        copy.mode = m
+        return copy
+    }
+
+    /// THE regression. The cron ignores anything more than thirty hours from
+    /// departure, and that bound is right for the cron: it is about the cost of
+    /// consulting every shared row, every hour, for ever. It was also being
+    /// applied to an explicit open — one call, made because a person asked for
+    /// it, already deduplicated server-side to once a minute and riding a
+    /// cached negative answer besides.
+    ///
+    /// So a friend's flight three weeks out made no network call at all, and
+    /// its detail screen counted upward from whenever the traveller's phone had
+    /// last happened to write the row — "Updated 16h ago", then a day, then a
+    /// week — with nothing in the system that would ever reset it.
+    func testAnOpenAsksEvenWhenTheCronWouldNotBother() {
+        let f = flight("FAR", dep: "2026-08-17T09:00:00.000Z", arr: "2026-08-17T12:00:00.000Z")
+        XCTAssertTrue(FriendsStore().shouldAskServer(item(f), at: now))
+    }
+
+    /// The horizon is not merely wider than the cron's — it is absent. Any
+    /// number here would just relocate the bug to a flight booked further out.
+    func testNoDepartureIsTooFarOutToAskAbout() {
+        let f = flight("NEXTYEAR", dep: "2027-07-24T09:00:00.000Z", arr: "2027-07-24T12:00:00.000Z")
+        XCTAssertTrue(FriendsStore().shouldAskServer(item(f), at: now))
+    }
+
+    func testAFlightInTheAirIsWorthAsking() {
+        let f = flight("AIR", dep: "2026-07-24T10:00:00.000Z", arr: "2026-07-24T15:00:00.000Z",
+                       status: "active")
+        XCTAssertTrue(FriendsStore().shouldAskServer(item(f), at: now))
+    }
+
+    /// Past the landing grace there is nothing left to learn, so the one guard
+    /// that genuinely bounds this must survive.
+    func testAFlightLandedLongAgoIsFinished() {
+        let f = flight("OLD", dep: "2026-07-24T04:00:00.000Z", arr: "2026-07-24T08:00:00.000Z",
+                       status: "landed")
+        XCTAssertFalse(FriendsStore().shouldAskServer(item(f), at: now))
+    }
+
+    func testAFlightThatJustLandedIsStillInsideTheGrace() {
+        let f = flight("JUST", dep: "2026-07-24T09:45:00.000Z", arr: "2026-07-24T11:45:00.000Z",
+                       status: "landed")
+        XCTAssertTrue(FriendsStore().shouldAskServer(item(f), at: now))
+    }
+
+    func testACancelledFlightIsNotAskedAbout() {
+        let f = flight("CXL", dep: "2026-07-24T14:00:00.000Z", arr: "2026-07-24T16:00:00.000Z",
+                       status: "cancelled")
+        XCTAssertFalse(FriendsStore().shouldAskServer(item(f), at: now))
+    }
+
+    /// AeroDataBox cannot answer for rail or sea, so asking burns a
+    /// budget-guarded call on a guaranteed miss. This is the deliberate
+    /// device-only caveat, and widening the horizon must not quietly undo it.
+    func testRailAndFerryLegsAreStillDeviceOnly() {
+        let f = flight("TRAIN", dep: "2026-07-24T14:00:00.000Z", arr: "2026-07-24T16:00:00.000Z")
+        XCTAssertFalse(FriendsStore().shouldAskServer(item(mode(f, "rail")), at: now))
+        XCTAssertFalse(FriendsStore().shouldAskServer(item(mode(f, "sea")), at: now))
+        XCTAssertTrue(FriendsStore().shouldAskServer(item(mode(f, "air")), at: now))
+    }
+
+    // MARK: - apply (refreshing the detail sheet that is already open)
+
+    /// The sheet is presented with `.sheet(item:)`, keyed on `Flight.id` — a
+    /// fresh UUID per construction. Replacing the object would therefore
+    /// dismiss and re-present the sheet in the reader's face, so a refreshed
+    /// row has to be written onto the instance already on screen.
+    func testApplyingAFreshRowKeepsTheOnscreenIdentity() {
+        let store = FriendsStore()
+        let stale = flight("GQ21", dep: "2026-08-17T09:00:00.000Z", arr: "2026-08-17T12:00:00.000Z",
+                           updatedAt: "2026-07-23T20:00:00.000Z")
+        let onscreen = store.transientFlight(for: item(stale))
+        let identity = onscreen.id
+        let before = onscreen.lastStatusUpdate
+
+        var fresh = stale
+        fresh.checked_at = "2026-07-24T11:59:30.000Z"
+        store.apply(item(fresh), to: onscreen)
+
+        XCTAssertEqual(onscreen.id, identity,
+                       "a new object would re-present the sheet instead of updating it")
+        XCTAssertNotEqual(onscreen.lastStatusUpdate, before)
+        XCTAssertEqual(onscreen.lastStatusUpdate, DateHelpers.parseAPIDate(fresh.checked_at))
+    }
+
+    /// `refreshLive` used to update the store and stop there, so the sheet went
+    /// on showing the snapshot it opened with — the screen the comment above
+    /// `feedRow` already claimed would "update underneath when the answer comes
+    /// back". A gate that arrives while the reader is looking at the sheet is
+    /// exactly the news they opened it for.
+    func testApplyingAFreshRowShowsWhatChanged() {
+        let store = FriendsStore()
+        let stale = flight("GQ21", dep: "2026-08-17T09:00:00.000Z", arr: "2026-08-17T12:00:00.000Z")
+        let onscreen = store.transientFlight(for: item(stale))
+        XCTAssertNil(onscreen.departureGate)
+
+        let fresh = flight("GQ21", dep: "2026-08-17T09:00:00.000Z", arr: "2026-08-17T12:00:00.000Z",
+                           delay: 25, gate: "A12")
+        store.apply(item(fresh), to: onscreen)
+
+        XCTAssertEqual(onscreen.departureGate, "A12")
+        XCTAssertEqual(onscreen.delayMinutes, 25)
     }
 }
