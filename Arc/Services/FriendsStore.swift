@@ -348,7 +348,7 @@ final class FriendsStore {
             // friends are offline in the air, so their last fix is usually
             // from right after takeoff — trusting it forever would pin the
             // bubble near the departure airport for the whole flight.
-            let liveFresh = DateHelpers.parseAPIDate(f.updated_at)
+            let liveFresh = f.lastKnownAt
                 .map { Date.now.timeIntervalSince($0) < 15 * 60 } ?? false
             return FriendMapOverlay(
                 id: f.id,
@@ -482,13 +482,15 @@ final class FriendsStore {
         flight.baggageClaim = f.baggage_claim
         flight.liveLat = f.live_lat
         flight.liveLon = f.live_lon
-        // The row IS this flight's last refresh — it was written by the
-        // friend's device at `updated_at`. Without carrying that across, the
-        // detail screen said "Schedule • No live data yet" about a row
-        // mirrored a minute ago, on every friend flight, forever.
-        flight.lastStatusUpdate = DateHelpers.parseAPIDate(f.updated_at)
+        // The row IS this flight's last refresh. `lastKnownAt`, not
+        // `updated_at`: that one only moves when a FIELD CHANGES, so a flight
+        // that was simply stable — cruising, on time, gates already known —
+        // read as untouched for as long as it stayed stable. The screen said
+        // "Updated 9h ago" about a row the cron had verified a minute earlier,
+        // and never reached the ten-minute window in which it says "Live".
+        flight.lastStatusUpdate = f.lastKnownAt
         if f.live_lat != nil || f.live_lon != nil {
-            flight.liveUpdatedAt = DateHelpers.parseAPIDate(f.updated_at)
+            flight.liveUpdatedAt = f.lastKnownAt
         }
         // Same clock-healing the feed chip and map bubble already apply
         // (`FriendFlightMath.isAirborne`): the row carries the SOURCE's

@@ -4,6 +4,7 @@ import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRI
 import { predictGate, type GateObservation } from "./gates";
 import { contentState } from "./activity";
 import { flightNews, type WatchState } from "./alerts";
+import { shouldWriteSharedRow, laterISO } from "./freshness";
 import { verifiedRoute } from "./place";
 import { handleTransit } from "./routes-transit";
 import { modesToQuery, routeFromQuery, dateFromQuery } from "./classify";
@@ -2593,7 +2594,7 @@ async function refreshSharedFlights(env: Env): Promise<void> {
     "/shared_flights?select=id,flight_number,departure_iata,arrival_iata,scheduled_departure,scheduled_arrival," +
     "status,delay_minutes,departure_gate,arrival_gate,baggage_claim,updated_at,mode," +
     "estimated_arrival,actual_departure,actual_arrival,est_takeoff,aircraft_registration,aircraft_icao24," +
-    "ground_state,ground_observed_at,taxi_started_at,live_source" +
+    "ground_state,ground_observed_at,taxi_started_at,live_source,checked_at" +
     `&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}`
   ) as unknown as Record<string, any>[];
 
@@ -2662,7 +2663,12 @@ async function refreshSharedFlights(env: Env): Promise<void> {
       // A new sighting is itself news: it is what the friend's screen reads
       // to say taxiing rather than flying.
       (state !== "unknown" && (state !== row.ground_state || !row.ground_observed_at));
-    if (!changed) continue;
+    // Even an unchanged answer is worth recording: it is how the friend's
+    // screen knows this was VERIFIED a minute ago rather than left alone for
+    // nine hours. Throttled so a stable row costs one small write every few
+    // minutes rather than one a minute — comfortably inside the ten-minute
+    // window in which the app will still say "Live".
+    if (!shouldWriteSharedRow({ changed, checkedAt: row.checked_at, now })) continue;
     const ground: Record<string, unknown> = {};
     if (state !== "unknown") {
       ground.ground_state = state;
@@ -2671,6 +2677,9 @@ async function refreshSharedFlights(env: Env): Promise<void> {
       // The device owns the live position while it is still talking; once it
       // has gone quiet the provider's is the better witness and friends'
       // maps keep moving.
+      // Measured against `updated_at`, which only a real change writes — so
+      // this still means "the traveller's device has stopped talking", not
+      // "the cron stamped checked_at a minute ago".
       const deviceQuiet = !row.updated_at || now - Date.parse(row.updated_at) > 5 * 60_000;
       if ((deviceQuiet || row.live_source === "provider") && sample!.lat != null) {
         ground.live_lat = sample!.lat;
@@ -2709,7 +2718,14 @@ async function refreshSharedFlights(env: Env): Promise<void> {
       est_takeoff: leg["dep_runway_estimated"] ?? row.est_takeoff ?? null,
       aircraft_registration: leg["aircraft_registration"] ?? row.aircraft_registration ?? null,
       aircraft_icao24: leg["aircraft_icao24"] ?? row.aircraft_icao24 ?? null,
-      updated_at: new Date().toISOString(),
+      // We looked, and this is when. Written every time, so a friend's screen
+      // can tell "verified a minute ago" from "abandoned nine hours ago".
+      checked_at: new Date(now).toISOString(),
+      // Only a real change touches `updated_at`. It is the signal that the
+      // traveller's own device is still writing this row, and stamping it on
+      // every consultation would make the cron mistake itself for the device
+      // and then stand aside for a phone that is not there.
+      ...(changed ? { updated_at: new Date(now).toISOString() } : {}),
     });
     } catch (e) {
       // One malformed row must not kill the refreshes behind it this tick.
@@ -3206,7 +3222,11 @@ async function loadSharePayload(env: Env, code: string): Promise<SharePayload | 
       vessel: f.vessel_name ?? null,
       note: f.disruption_note ?? null,
       delay: f.delay_minutes || 0, aircraft: f.aircraft_type,
-      progress: f.progress || 0, updated: f.updated_at,
+      // The newer of "someone changed this" and "the cron verified this". A
+      // stable cruising flight changes nothing for hours, and reporting only
+      // the former is why this page could say "9h ago" about a row the server
+      // had confirmed a minute earlier.
+      progress: f.progress || 0, updated: laterISO(f.updated_at, f.checked_at),
       live: (f.live_lat != null && f.live_lon != null) ? { lat: f.live_lat, lon: f.live_lon } : null,
       // What the aircraft itself was last seen doing (cron ADS-B watch), and
       // the grace the page gives a departure before presuming wheels-up.

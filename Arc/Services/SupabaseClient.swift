@@ -307,7 +307,28 @@ final class ArcSupabase: ObservableObject {
         let live_lat: Double?
         let live_lon: Double?
         let progress: Double
+        /// When someone last CHANGED this row — the traveller's device, or the
+        /// cron finding the provider had something new.
         let updated_at: String?
+        /// When the cron last VERIFIED this row against the provider, whether
+        /// or not the answer differed. Optional: rows written before migration
+        /// 018, and any row the cron has not reached yet, simply have none.
+        ///
+        /// The two are separate because a stable flight — cruising, on time,
+        /// gates already known — changes nothing for hours. Reading only
+        /// `updated_at` is why a friend's screen said "Updated 9h ago" about a
+        /// row the server had confirmed a minute earlier, and why it could
+        /// never say "Live".
+        var checked_at: String? = nil
+
+        /// The freshest thing known about this row, from either writer.
+        var lastKnownAt: Date? {
+            let a = DateHelpers.parseAPIDate(updated_at)
+            let b = DateHelpers.parseAPIDate(checked_at)
+            guard let a else { return b }
+            guard let b else { return a }
+            return max(a, b)
+        }
 
         // Optional with defaults so a friend still on an older build — whose
         // rows predate the migration and carry none of these — decodes fine.
