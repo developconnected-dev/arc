@@ -8,6 +8,7 @@ import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval 
 import { verifiedRoute } from "./place";
 import { handleTransit } from "./routes-transit";
 import { modesToQuery, routeFromQuery, dateFromQuery } from "./classify";
+import { wxRows, airportWeatherPayload } from "./weather";
 
 interface Env {
   RAPIDAPI_KEY: string;          // AeroDataBox key (RapidAPI). Set via `wrangler secret put RAPIDAPI_KEY`.
@@ -1238,41 +1239,14 @@ export default {
                 { cf: { cacheTtl: 900, cacheEverything: true } }).catch(() => null),
         ]);
 
-        const metar = metarRes?.ok ? ((await metarRes.json()) as any[])[0] : null;
-        const taf = tafRes?.ok ? ((await tafRes.json()) as any[])[0] : null;
+        // Not every airport is observed, and fewer are forecast: Syros (LGSO)
+        // has a METAR and no TAF, and the provider says so with a 204 and an
+        // empty body. Parsing that leniently is what keeps an uncovered
+        // airport a null forecast instead of a 500 on the detail screen.
+        const [metarRows, tafRows] = await Promise.all([wxRows(metarRes), wxRows(tafRes)]);
 
-        // The forecast period that contains the departure time.
-        let period: any = null;
-        for (const f of (taf?.fcsts ?? []) as any[]) {
-          if (f.timeFrom <= atSec && atSec < (f.timeTo ?? f.timeFrom)) { period = f; break; }
-        }
-        // Past the end of the TAF: fall back to its last period rather than
-        // reporting nothing at all.
-        if (!period && (taf?.fcsts?.length ?? 0) > 0) period = taf.fcsts[taf.fcsts.length - 1];
-
-        return Response.json({
-          ok: true,
-          icao,
-          now: metar ? {
-            category: metar.fltCat ?? null,
-            visibilityM: metersFromVisibility(metar.visib),
-            ceilingFt: lowestCeiling(metar.clouds),
-            windKt: numberOrNull(metar.wspd),
-            gustKt: numberOrNull(metar.wgst),
-            wx: metar.wxString ?? null,
-            observed: metar.reportTime ?? null,
-          } : null,
-          atTime: period ? {
-            visibilityM: metersFromVisibility(period.visib),
-            ceilingFt: lowestCeiling(period.clouds),
-            windKt: numberOrNull(period.wspd),
-            gustKt: numberOrNull(period.wgst),
-            windShear: period.wshearSpd != null,
-            wx: period.wxString ?? null,
-            from: period.timeFrom ?? null,
-            to: period.timeTo ?? null,
-          } : null,
-        }, { headers: { ...cors, "cache-control": "public, max-age=300" } });
+        return Response.json(airportWeatherPayload(icao, atSec, metarRows, tafRows),
+                             { headers: { ...cors, "cache-control": "public, max-age=300" } });
     }
 
     // ── /arrival-gate?icao=&flight=&from=&to= — the stand, where published ──
@@ -2002,35 +1976,6 @@ async function storeFids(env: Env, key: string, arrivals: Record<string, any>[])
   await sbService(env, "POST", "/flight_cache?on_conflict=key", fresh);
 }
 
-function numberOrNull(v: unknown): number | null {
-  return typeof v === "number" && isFinite(v) ? v : null;
-}
-
-/// METAR/TAF visibility comes as statute miles, sometimes as "6+" — normalise
-/// to metres so one set of thresholds works everywhere.
-function metersFromVisibility(v: unknown): number | null {
-  if (typeof v === "number") return Math.round(v * 1609.34);
-  if (typeof v === "string") {
-    const n = parseFloat(v.replace("+", ""));
-    if (!isNaN(n)) return Math.round(n * 1609.34);
-  }
-  return null;
-}
-
-/// Lowest broken/overcast layer — that's the operational ceiling; scattered
-/// and few layers don't count.
-function lowestCeiling(clouds: unknown): number | null {
-  if (!Array.isArray(clouds)) return null;
-  let lowest: number | null = null;
-  for (const layer of clouds as Record<string, any>[]) {
-    const cover = String(layer.cover ?? "").toUpperCase();
-    if (cover !== "BKN" && cover !== "OVC" && cover !== "OVX") continue;
-    const base = numberOrNull(layer.base);
-    if (base != null && (lowest == null || base < lowest)) lowest = base;
-  }
-  return lowest;
-}
-
 /// SIGMET hazard codes to something a passenger can read. TS/CONVECTIVE are
 /// thunderstorms, MTW is mountain wave, VA volcanic ash, TC tropical cyclone.
 function hazardKind(raw: string): string {
@@ -2060,9 +2005,7 @@ function isSevereHazard(r: Record<string, any>): boolean {
 async function fetchMetar(icao: string): Promise<AirportWeather | null> {
   try {
     const res = await fetch(`https://aviationweather.gov/api/data/metar?ids=${icao}&format=json`);
-    if (!res.ok) return null;
-    const arr = await res.json() as Array<Record<string, any>>;
-    const m = arr?.[0];
+    const m = (await wxRows(res))[0];
     if (!m) return null;
     return {
       category: m.fltCat ?? null,
