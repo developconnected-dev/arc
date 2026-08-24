@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { shouldWriteSharedRow, laterISO, CHECK_STAMP_INTERVAL_MS } from "../src/freshness.ts";
+import { shouldWriteSharedRow, laterISO, CHECK_STAMP_INTERVAL_MS, providerAnswered } from "../src/freshness.ts";
 
 const NOW = Date.parse("2026-08-24T12:00:00Z");
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
@@ -95,4 +95,29 @@ test("a landed flight falls out of scope once its grace expires", () => {
 
 test("a row never checked is due immediately, whatever the tier", () => {
   assert.equal(sharedRowIsDue({ depMs: dep(20), arrMs: dep(23), checkedAt: null, now: NOW }), true);
+});
+
+/// A consultation that produced no leg is still a consultation — but only if
+/// we actually reached the provider.
+///
+/// `refreshOneSharedRow` returned early on `!leg` without stamping anything,
+/// and for a flight far enough out that the provider has no schedule for it
+/// yet, that is EVERY consultation. Two things broke at once. The friend's
+/// screen had nothing newer than `updated_at` to read, so it went on counting
+/// up from the traveller's last write for ever; and `/shared/refresh`
+/// deduplicates on `checked_at`, so with the column never written the
+/// once-a-minute guard never engaged and every single open reached the
+/// provider again.
+///
+/// The distinction that matters is whether we got a current answer at all: a
+/// budget-blocked or malformed fetch serves stale legs and must NOT claim the
+/// row was verified.
+test("reaching the provider counts as having looked, even with nothing to show", () => {
+  assert.equal(providerAnswered("miss"), true);
+  assert.equal(providerAnswered("hit"), true);
+});
+
+test("...but a fetch that never landed must not claim the row was verified", () => {
+  assert.equal(providerAnswered("stale"), false);
+  assert.equal(providerAnswered("none"), false);
 });
