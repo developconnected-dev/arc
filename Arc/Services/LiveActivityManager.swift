@@ -37,14 +37,9 @@ final class LiveActivityManager {
         }
         // Boarding windows are airport concepts. A rail leg's "BER" is
         // Berlin Hbf, not Berlin Brandenburg — asking the airport tables
-        // about it returns another vehicle's answer. (The security-wait
-        // fetch that lived here is gone with its row: it spent an API call
-        // per update on a number nobody acts on from the lock screen.)
-        var boardingTime: Date? = nil
-        if flight.mode.hasAirportOperations {
-            let minutes = Self.estimateBoardingMinutes(airline: flight.airlineICAO, duration: flight.duration)
-            boardingTime = depTime.addingTimeInterval(TimeInterval(-minutes * 60))
-        }
+        // about it returns another vehicle's answer.
+        let boardingLead = Self.boardingLeadMinutes(for: flight)
+        let boardingTime = boardingLead.map { depTime.addingTimeInterval(TimeInterval(-$0 * 60)) }
         // Delay shifts the arrival too, matching depTime above — the
         // lock screen otherwise counts down to an arrival that passed.
         let arrTime = flight.estimatedArrival
@@ -55,7 +50,6 @@ final class LiveActivityManager {
             departureTime: depTime,
             arrivalTime: arrTime,
             boardingTime: boardingTime,
-            securityWaitMinutes: nil,
             delayMinutes: flight.delayMinutes,
             // Arrival delay is its own number: the provider revises arrival
             // independently (estimatedArrival), so a 20m late departure can
@@ -71,9 +65,6 @@ final class LiveActivityManager {
             arrivalGate: flight.arrivalGate,
             arrivalTerminal: flight.arrivalTerminal,
             baggageClaim: flight.baggageClaim,
-            altitude: flight.liveAltitude.map { $0 * 3.281 },
-            speed: flight.liveSpeed.map { $0 * 1.944 },
-            heading: flight.liveHeading,
             progress: flight.progress,
             // The gate-to-runway evidence, so the lock screen can hold the
             // hedge for this airport's real taxi with nothing running.
@@ -202,6 +193,11 @@ final class LiveActivityManager {
         let content = ActivityContent(state: state, staleDate: Self.staleDate(for: state))
         nonisolated(unsafe) let act = activity
         await act.update(content)
+        // Boarding lead and companions are ours alone to know, and a server
+        // push restates the whole card from the Worker's own view — so the
+        // Worker has to be told. Cheap: this only makes a request when the
+        // blob actually changed, which is a handful of times per flight.
+        if friendName == nil { await LiveActivityPushSync.syncExtras(for: flight) }
     }
 
     /// Ends any FRIEND activity for this flight. Friend LAs have no stable
@@ -280,7 +276,6 @@ final class LiveActivityManager {
             departureTime: flight.actualDeparture ?? flight.scheduledDeparture,
             arrivalTime: finalArrival,
             boardingTime: nil,
-            securityWaitMinutes: nil,
             delayMinutes: flight.delayMinutes,
             arrivalDelayMinutes: Int((finalArrival.timeIntervalSince(flight.scheduledArrival) / 60).rounded()),
             departureGate: flight.departureGate,
@@ -288,9 +283,6 @@ final class LiveActivityManager {
             arrivalGate: flight.arrivalGate,
             arrivalTerminal: flight.arrivalTerminal,
             baggageClaim: flight.baggageClaim,
-            altitude: nil,
-            speed: nil,
-            heading: nil,
             progress: 1.0
         )
 
@@ -301,6 +293,16 @@ final class LiveActivityManager {
     }
 
     // MARK: - Smart Boarding Time Estimates
+
+    /// How many minutes before off-block boarding starts, or nil for a mode
+    /// with no boarding concept. Travels to the Worker as this LEAD rather
+    /// than as an instant: the Worker re-derives boarding from whatever the
+    /// delay-adjusted departure currently is, so a delay moves boarding with
+    /// it and a server push stops blanking the line altogether.
+    static func boardingLeadMinutes(for flight: Flight) -> Int? {
+        guard flight.mode.hasAirportOperations else { return nil }
+        return estimateBoardingMinutes(airline: flight.airlineICAO, duration: flight.duration)
+    }
 
     /// Estimates how many minutes before departure boarding starts,
     /// based on airline and flight duration.

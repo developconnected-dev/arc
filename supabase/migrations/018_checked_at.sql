@@ -1,0 +1,21 @@
+-- "Updated 9h ago", for ever.
+--
+-- `updated_at` meant two different things to the two halves of Arc. The Worker
+-- wrote it only when a provider FIELD CHANGED, and used its age to decide
+-- whether the traveller's device had gone quiet. The app read it as "when was
+-- this last verified" — it is what the friend's detail screen prints, and a row
+-- older than ten minutes can never say "Live".
+--
+-- So a friend's flight that was simply STABLE — cruising, on time, gates already
+-- known — was checked every minute, matched every time, written never. The
+-- screen said "Updated 9h ago" and the map bubble (which wants a fix under 15
+-- minutes old) never appeared. The live position was never written either: the
+-- change test never compared position, so a moving aircraft did not count as
+-- news.
+--
+-- `checked_at` separates the two meanings. The Worker stamps it whenever it has
+-- actually consulted the provider about this row, whether or not the answer
+-- differed; `updated_at` keeps meaning "someone changed something", so the
+-- device-is-still-talking test it guards is untouched.
+alter table public.shared_flights
+  add column if not exists checked_at timestamptz;

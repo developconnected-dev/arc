@@ -7,12 +7,19 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "//test": "The suite is TypeScript, and the Worker has no build step, so it runs on node's own type stripping rather than a test framework. Without the flag every file fails to load on Node < 22.18 — which is how 119 passing tests went unnoticed as 7 failures.",
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "test": "npm run typecheck && npm run contracts && node --experimental-strip-types --test test/*.test.ts",
+    "//typecheck": "Nothing else in this pipeline type-checks: wrangler bundles with esbuild and the suite runs on node's type-stripping, both of which ERASE types without reading them. A `const` read above its own declaration therefore shipped and silently disabled the server's ground witness. `test` runs this first so it cannot happen again.",
+    "typecheck": "tsc -p tsconfig.json",
+    "//contracts": "Swift talks to this Worker talks to Postgres, and those seams match by NAME at runtime and by nothing before it. A field the Worker stops emitting just becomes nil on the lock screen; a column that isn't there is a 400 the caller's catch eats.",
+    "contracts": "python3 ../scripts/check_contracts.py"
   },
   "engines": {
     "node": ">=22.6"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
     "wrangler": "^4.0.0"
   }
 }

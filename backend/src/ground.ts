@@ -40,21 +40,6 @@ export function taxiPriorMinutes(
   return s[Math.min(s.length - 1, Math.floor(0.85 * (s.length - 1)))];
 }
 
-/// When Arc expects the wheels to leave the ground, from what it knows:
-/// never before the provider's own estimate, never before off-block plus the
-/// airport's taxi-out, and never within a taxi-out of the last moment a
-/// witness saw the aircraft on the ground. All epoch milliseconds.
-export function expectedWheelsUp(a: {
-  offBlock: number; priorMinutes: number; estimate?: number | null; lastOnGround?: number | null;
-}): number {
-  const prior = a.priorMinutes * 60_000;
-  return Math.max(
-    a.offBlock + prior,
-    a.estimate ?? 0,
-    a.lastOnGround ? a.lastOnGround + prior : 0,
-  );
-}
-
 /// Below this height a report cannot be told apart from ground noise, so the
 /// aircraft is treated as still on the ground and its speed decides whether
 /// it is parked, taxiing or rolling. AeroDataBox reports 0 for aircraft on

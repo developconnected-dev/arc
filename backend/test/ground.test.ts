@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyGround, taxiPriorMinutes, expectedWheelsUp, DEFAULT_TAXI_PRIOR } from "../src/ground.ts";
+import { classifyGround, taxiPriorMinutes, DEFAULT_TAXI_PRIOR } from "../src/ground.ts";
 
 /// What one ADS-B sample says about the aircraft. Velocity in m/s, altitude
 /// in metres — the units /position already speaks.
@@ -25,13 +25,6 @@ test("taxiPriorMinutes is the p85 of same-hour-ish samples, widening before it g
   assert.equal(taxiPriorMinutes(night, 1), 6);
 });
 
-test("expectedWheelsUp is the latest of estimate, off-block+prior, last-on-ground+prior", () => {
-  const t = (m: number) => Date.UTC(2026, 8, 18, 10, m);
-  assert.equal(expectedWheelsUp({ offBlock: t(0), priorMinutes: 20 }), t(20));
-  assert.equal(expectedWheelsUp({ offBlock: t(0), priorMinutes: 20, estimate: t(25) }), t(25));
-  assert.equal(expectedWheelsUp({ offBlock: t(0), priorMinutes: 20, estimate: t(5) }), t(20));
-  assert.equal(expectedWheelsUp({ offBlock: t(0), priorMinutes: 20, lastOnGround: t(30) }), t(50));
-});
 
 import { adbPositionToSample, ADB_GROUND_CEILING_M } from "../src/ground.ts";
 
