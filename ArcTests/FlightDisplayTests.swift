@@ -305,14 +305,76 @@ final class FlightTrackPointTests: XCTestCase {
 }
 
 final class WidgetFlightTests: XCTestCase {
-    private func widgetFlight(status: String, depOffset: TimeInterval, delay: Int = 0) -> WidgetFlight {
+    private func widgetFlight(status: String, depOffset: TimeInterval, delay: Int = 0,
+                              id: String = "t") -> WidgetFlight {
         WidgetFlight(
-            id: "t", flightNumber: "LX1413", airline: "Swiss",
+            id: id, flightNumber: "LX1413", airline: "Swiss",
             departureIATA: "BEG", arrivalIATA: "ZRH",
             departureCity: "Belgrade", arrivalCity: "Zurich",
             scheduledDeparture: .now.addingTimeInterval(depOffset),
             scheduledArrival: .now.addingTimeInterval(depOffset + 2 * 3600),
             status: status, delayMinutes: delay, departureGate: nil, progress: 0)
+    }
+
+    // MARK: - Two writers, one snapshot
+
+    /// The App Group snapshot has two authors: the app (from SwiftData) and
+    /// the widget's own timeline refresh (from the Worker). Whichever writes
+    /// last used to win outright, so the app syncing a model that had not yet
+    /// caught up would un-know a take-off the widget had already confirmed —
+    /// the home screen re-hedging a flight that was demonstrably airborne.
+    func testAppSyncCannotUnconfirmATakeoffTheWidgetFound() {
+        let takeoff = Date.now.addingTimeInterval(-600)
+        var known = widgetFlight(status: "active", depOffset: -1800)
+        known.actualDeparture = takeoff
+        // The app's view of the same leg, still without the confirmation.
+        let stale = widgetFlight(status: "scheduled", depOffset: -1800)
+        XCTAssertEqual(stale.mergingForward(over: known).actualDeparture, takeoff)
+    }
+
+    /// A sighting carries its own verdict. Keeping a newer timestamp beside an
+    /// older state would describe a moment that never happened.
+    func testOlderSightingNeverOverwritesANewerOne() {
+        var fresh = widgetFlight(status: "scheduled", depOffset: 600)
+        fresh.groundState = "taxiing"
+        fresh.groundObservedAt = .now.addingTimeInterval(-60)
+        var old = widgetFlight(status: "scheduled", depOffset: 600)
+        old.groundState = "at_gate"
+        old.groundObservedAt = .now.addingTimeInterval(-900)
+        let merged = old.mergingForward(over: fresh)
+        XCTAssertEqual(merged.groundState, "taxiing")
+        XCTAssertEqual(merged.groundObservedAt, fresh.groundObservedAt)
+    }
+
+    /// A newer sighting DOES win — the merge accumulates evidence, it does not
+    /// simply freeze the first thing it saw.
+    func testNewerSightingReplacesTheOlderVerdict() {
+        var old = widgetFlight(status: "scheduled", depOffset: 600)
+        old.groundState = "at_gate"
+        old.groundObservedAt = .now.addingTimeInterval(-900)
+        var fresh = widgetFlight(status: "scheduled", depOffset: 600)
+        fresh.groundState = "taxiing"
+        fresh.groundObservedAt = .now.addingTimeInterval(-60)
+        XCTAssertEqual(fresh.mergingForward(over: old).groundState, "taxiing")
+    }
+
+    /// A provider null must not erase a gate either writer already had.
+    func testMergeKeepsFactsTheIncomingSnapshotLacks() {
+        var known = widgetFlight(status: "scheduled", depOffset: 3600)
+        known.departureGate = "A12"
+        known.baggageClaim = "7"
+        let blank = widgetFlight(status: "scheduled", depOffset: 3600)
+        let merged = blank.mergingForward(over: known)
+        XCTAssertEqual(merged.departureGate, "A12")
+        XCTAssertEqual(merged.baggageClaim, "7")
+    }
+
+    /// Merging is per leg. A different flight's evidence must never leak in.
+    func testMergeIgnoresADifferentLeg() {
+        var other = widgetFlight(status: "active", depOffset: -1800, id: "other")
+        other.actualDeparture = .now
+        let mine = widgetFlight(status: "scheduled", depOffset: 3600)
+        XCTAssertNil(mine.mergingForward(over: other).actualDeparture)
     }
 
     /// Regression: the widget's isUpcoming had the same dead zone the app

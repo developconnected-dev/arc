@@ -9,7 +9,15 @@ final class ArcSupabase: ObservableObject {
     static let shared = ArcSupabase()
 
     @Published var isSignedIn = false
-    @Published var currentUser: ArcUser?
+    @Published var currentUser: ArcUser? {
+        // The Worker looks flights up BY owner, so this device's push token is
+        // only worth anything once there IS an owner — and must not keep the
+        // previous one's after a switch.
+        didSet {
+            guard oldValue?.id != currentUser?.id else { return }
+            Task { @MainActor in RemotePush.ownerDidChange() }
+        }
+    }
 
     private var accessToken: String? {
         didSet { TokenStore.write(accessToken, forKey: "arc_access_token") }
@@ -139,41 +147,11 @@ final class ArcSupabase: ObservableObject {
         }
     }
 
-    func signInWithApple(idToken: String, nonce: String) async throws {
-        let body: [String: Any] = [
-            "provider": "apple",
-            "id_token": idToken,
-            "nonce": nonce
-        ]
-        let data = try await post(path: "/auth/v1/token?grant_type=id_token", body: body, auth: false)
-        let result = try decodeAuth(data)
-        accessToken = result.access_token
-        refreshToken = result.refresh_token
-        isSignedIn = true
-        await loadProfile()
-    }
-
-    // MARK: - Email sign-in (works with zero extra setup — Supabase's built-in
-    // email provider, unlike Apple which needs a Services ID + key configured
-    // in both the Apple Developer portal and Supabase Auth settings)
-
-    /// Sends a 6-digit sign-in code to `email`. `create_user: true` means a
-    /// first-time email doubles as sign-up — there's no separate registration step.
-    func requestEmailCode(email: String) async throws {
-        let body: [String: Any] = ["email": email, "create_user": true]
-        _ = try await post(path: "/auth/v1/otp", body: body, auth: false)
-    }
-
-    /// Exchanges the code from `requestEmailCode` for a session.
-    func verifyEmailCode(email: String, code: String) async throws {
-        let body: [String: Any] = ["email": email, "token": code, "type": "email"]
-        let data = try await post(path: "/auth/v1/verify", body: body, auth: false)
-        let result = try decodeAuth(data)
-        accessToken = result.access_token
-        refreshToken = result.refresh_token
-        isSignedIn = true
-        await loadProfile()
-    }
+    // MARK: - Email sign-in
+    //
+    // Deliberately absent. `requestEmailCode`/`verifyEmailCode` were a complete
+    // OTP pair that no screen ever called — Arc signs in through invite codes.
+    // `decodeAuth` below stays: the paths that DO run share it.
 
     /// Supabase returns a 2xx with `{access_token, refresh_token, ...}` on
     /// success, or a non-2xx with `{error_description}` / `{msg}` on failure —
@@ -190,6 +168,10 @@ final class ArcSupabase: ObservableObject {
     }
 
     func signOut() {
+        // Before clearing the owner: the unregister call needs to say WHICH
+        // device is leaving, and this device must stop receiving a stranger's
+        // flight alerts.
+        Task { await RemotePush.signOut() }
         accessToken = nil
         refreshToken = nil
         currentUser = nil
@@ -263,29 +245,8 @@ final class ArcSupabase: ObservableObject {
 
     // MARK: - Friends
 
-    func searchUsers(query: String) async throws -> [ArcUser] {
-        // Value-safe escaping: `,` `(` `)` `&` `=` survive .urlQueryAllowed and
-        // would splice into PostgREST's or=() filter expression.
-        let encoded = query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? query
-        let data = try await get(path: "/rest/v1/profiles?or=(handle.ilike.*\(encoded)*,display_name.ilike.*\(encoded)*)&select=*&limit=20")
-        return try JSONDecoder().decode([ArcUser].self, from: data)
-    }
-
-    func sendFriendRequest(to userId: String) async throws {
-        guard let uid = currentUser?.id else { return }
-        let body: [String: Any] = [
-            "requester_id": uid,
-            "addressee_id": userId
-        ]
-        _ = try await post(path: "/rest/v1/friendships", body: body)
-    }
-
     func acceptFriendRequest(friendshipId: String) async throws {
         _ = try await patch(path: "/rest/v1/friendships?id=eq.\(friendshipId)", body: ["status": "accepted"])
-    }
-
-    func removeFriend(friendshipId: String) async throws {
-        _ = try await delete(path: "/rest/v1/friendships?id=eq.\(friendshipId)")
     }
 
     /// Removes the friendship with `userId` in BOTH directions. Mutual invite
@@ -474,11 +435,6 @@ final class ArcSupabase: ObservableObject {
         let iso = ISO8601DateFormatter().string(from: scheduledDeparture)
         let number = flightNumber.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? flightNumber
         _ = try await delete(path: "/rest/v1/shared_flights?user_id=eq.\(uid)&flight_number=eq.\(number)&scheduled_departure=eq.\(iso)")
-    }
-
-    func getFriendFlights(userId: String) async throws -> [SharedFlight] {
-        let data = try await get(path: "/rest/v1/shared_flights?user_id=eq.\(userId)&select=*&order=scheduled_departure.desc&limit=20")
-        return try JSONDecoder().decode([SharedFlight].self, from: data)
     }
 
     /// One query for ALL friends' flights — the list and the map both consume
@@ -707,24 +663,8 @@ final class ArcSupabase: ObservableObject {
         return code
     }
 
+    /// The one row `shareJourney` reads back — the code it just wrote.
     private struct SharedJourneyCode: Codable { let share_code: String }
-
-    func deactivateJourney(code: String) async throws {
-        _ = try await patch(path: "/rest/v1/shared_journeys?share_code=eq.\(code)", body: ["is_active": false])
-    }
-
-    struct SharedJourney: Codable {
-        let id: String
-        let share_code: String
-        let is_active: Bool
-        let flight_id: String
-    }
-
-    func getMyJourneys() async throws -> [SharedJourney] {
-        guard let uid = currentUser?.id else { return [] }
-        let data = try await get(path: "/rest/v1/shared_journeys?user_id=eq.\(uid)&is_active=eq.true&select=*")
-        return try JSONDecoder().decode([SharedJourney].self, from: data)
-    }
 
     // MARK: - Watchers
     //

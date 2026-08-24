@@ -1,18 +1,33 @@
 import Foundation
 import ActivityKit
+import SwiftData
 
-/// Bridges ActivityKit's push tokens to the Worker so Live Activities can be
-/// updated (and even started) server-side via APNs — the piece that makes the
-/// lock screen genuinely live with the app closed, and the architecture
-/// Flighty itself uses.
+/// Bridges ActivityKit's push channel to the rest of Arc — in both directions.
+///
+/// **Out:** push tokens go to the Worker so Live Activities can be updated
+/// (and started) server-side via APNs, which is what makes the lock screen
+/// genuinely live with the app closed.
+///
+/// **In:** the pushes that come back are treated as DATA, not just as pixels.
+/// This is the half that matters in the air. Airline "free messaging" Wi-Fi
+/// whitelists Apple's push endpoints so iMessage works, and Live Activity
+/// updates ride that same connection — so a push reaches the phone at 38,000
+/// feet even though nothing else does. Note where the network actually is:
+/// only the Apple→device leg crosses the plane's Wi-Fi. The Worker→Apple leg
+/// happened on the ground. The aircraft never has to reach our backend, which
+/// is exactly why the payload has to be self-sufficient and why we read it
+/// back into SwiftData instead of firing off a fetch we cannot complete.
 ///
 /// One observation point covers everything: `activityUpdates` yields every
 /// newly started activity regardless of whether WE requested it locally or
-/// the server started it via push-to-start, so LiveActivityManager needs no
-/// registration logic of its own beyond requesting with `pushType: .token`.
+/// the server started it via push-to-start.
 @MainActor
 enum LiveActivityPushSync {
     private static var started = false
+    private static var container: ModelContainer?
+    /// The extras blob last registered per token, so a re-registration costs
+    /// a request only when the device actually learned something new.
+    private static var registeredExtras: [String: String] = [:]
 
     /// The APNs environment this build's tokens belong to. Xcode-run builds
     /// (DEBUG) get sandbox tokens; archived/TestFlight builds get production.
@@ -25,7 +40,8 @@ enum LiveActivityPushSync {
         #endif
     }
 
-    static func start() {
+    static func start(modelContainer: ModelContainer) {
+        container = modelContainer
         guard !started else { return }
         started = true
 
@@ -63,6 +79,19 @@ enum LiveActivityPushSync {
         }
     }
 
+    /// Read every live activity's CURRENT state back into the store.
+    ///
+    /// `contentUpdates` only delivers while the app is running, and the whole
+    /// point of a push is that it arrives when the app is not. ActivityKit
+    /// still holds the latest state it was pushed, so the app catches up by
+    /// asking on every foreground — which, in the air, is the only way fresh
+    /// facts reach the model at all.
+    static func reconcile() {
+        for activity in Activity<FlightActivityAttributes>.activities {
+            absorb(activity.content.state, from: activity.attributes)
+        }
+    }
+
     /// The signed-in Supabase user id, waiting up to ~10 s for the session to
     /// load when token registration races app start. nil if truly signed out.
     private static func ownerId() async -> String? {
@@ -80,17 +109,187 @@ enum LiveActivityPushSync {
                 body["user_id"] = await ownerId() as Any
                 guard let json = try? JSONSerialization.data(withJSONObject: body) else { continue }
                 await FlightAPIClient.shared.registerLiveActivityToken(json)
+                registeredExtras[hex(tokenData)] = extrasFingerprint(activity)
+            }
+        }
+        Task {
+            for await content in activity.contentUpdates {
+                absorb(content.state, from: activity.attributes)
             }
         }
         Task {
             for await state in activity.activityStateUpdates {
                 if state == .ended || state == .dismissed {
                     if let token = activity.pushToken {
+                        registeredExtras.removeValue(forKey: hex(token))
                         await FlightAPIClient.shared.unregisterLiveActivityToken(hex(token))
                     }
                 }
             }
         }
+        // Anything pushed while the app was away is already sitting in
+        // `content.state`; the stream above will never replay it.
+        absorb(activity.content.state, from: activity.attributes)
+    }
+
+    // MARK: - Pushes in
+
+    /// Fold a pushed content state back into the stored flight.
+    ///
+    /// The merge is deliberately asymmetric. Provider facts (gates, belts,
+    /// delay) are the Worker's to state. Departure EVIDENCE is not: the device
+    /// reads the aircraft about a minute before the provider does, so a push
+    /// may add a confirmation but must never take one away, and never wind a
+    /// sighting backwards to an older one.
+    private static func absorb(_ state: FlightActivityAttributes.ContentState,
+                               from attributes: FlightActivityAttributes) {
+        // A friend's activity describes THEIR flight; it is not ours to write.
+        guard attributes.friendName == nil,
+              let container,
+              let idString = attributes.flightId,
+              let id = UUID(uuidString: idString) else { return }
+
+        // The MAIN context, not a fresh one: this is what every `@Query` in the
+        // app is bound to, so absorbing a push updates the screen the traveller
+        // is looking at rather than waiting for a cross-context merge.
+        let context = container.mainContext
+        var descriptor = FetchDescriptor<Flight>(predicate: #Predicate<Flight> { $0.id == id })
+        descriptor.fetchLimit = 1
+        guard let flight = try? context.fetch(descriptor).first else { return }
+
+        // Every write is guarded by an inequality. `reconcile()` runs on every
+        // foreground and most pushes restate a card that has not moved, so an
+        // unguarded absorb would dirty the store and spend a WidgetKit reload
+        // on nothing several times a minute.
+        var changed = false
+
+        // Provider facts. A null must not erase what the device already knew —
+        // the same rule the widget's own refresh follows.
+        if !WidgetFlight.statusRegresses(state.status, from: flight.statusRaw),
+           flight.statusRaw != state.status {
+            flight.statusRaw = state.status
+            changed = true
+        }
+        if flight.delayMinutes != state.delayMinutes {
+            flight.delayMinutes = state.delayMinutes
+            changed = true
+        }
+        if let v = state.departureGate, flight.departureGate != v {
+            flight.departureGate = v; changed = true
+        }
+        if let v = state.departureTerminal, flight.departureTerminal != v {
+            flight.departureTerminal = v; changed = true
+        }
+        if let v = state.arrivalGate, flight.arrivalGate != v {
+            flight.arrivalGate = v; changed = true
+        }
+        if let v = state.arrivalTerminal, flight.arrivalTerminal != v {
+            flight.arrivalTerminal = v; changed = true
+        }
+        if let v = state.baggageClaim, flight.baggageClaim != v {
+            flight.baggageClaim = v; changed = true
+        }
+        if let v = state.taxiPriorMinutes, flight.taxiPriorMinutes != v {
+            flight.taxiPriorMinutes = v; changed = true
+        }
+        if let v = state.estimatedTakeoff, flight.estimatedTakeoff != v {
+            flight.estimatedTakeoff = v; changed = true
+        }
+        // `insight` is deliberately not absorbed: Flight.liveActivityInsight is
+        // computed from local knock-on data, and the Worker's phrasing already
+        // travels on the card itself.
+
+        // Departure evidence: add, never subtract.
+        if flight.actualDeparture == nil, let confirmed = state.actualDeparture {
+            flight.actualDeparture = confirmed
+            changed = true
+        }
+        if let observed = state.groundObservedAt,
+           observed > (flight.groundObservedAt ?? .distantPast) {
+            flight.groundObservedAt = observed
+            flight.groundStateRaw = state.groundState
+            changed = true
+        }
+        if let taxi = state.taxiStartedAt, flight.taxiStartedAt == nil {
+            flight.taxiStartedAt = taxi
+            changed = true
+        }
+        if let seen = state.lastSeenOnGround,
+           seen > (flight.lastSeenOnGround ?? .distantPast) {
+            flight.lastSeenOnGround = seen
+            changed = true
+        }
+
+        // The arrival the card is counting down to. Only when the push carries
+        // a revision — `arrivalTime` falls back to schedule+delay, and writing
+        // that over a provider estimate would be a downgrade dressed as news.
+        if state.arrivalDelayMinutes != nil, state.arrivalTime != flight.scheduledArrival,
+           flight.estimatedArrival != state.arrivalTime {
+            flight.estimatedArrival = state.arrivalTime
+            changed = true
+        }
+
+        guard changed else { return }
+        // This IS a successful refresh — it just arrived over the push channel
+        // rather than over HTTP. Saying so is what stops the detail view
+        // reading "Offline • Cached 40m ago" on a card that updated seconds ago.
+        flight.lastStatusUpdate = state.updatedAt ?? .now
+        try? context.save()
+
+        // Widgets can neither receive a push nor make this call themselves.
+        // The App Group snapshot is the only way the home screen sees any of
+        // this, so an absorbed push re-publishes it.
+        if let all = try? context.fetch(FetchDescriptor<Flight>()) {
+            WidgetSync.sync(flights: all)
+        }
+    }
+
+    // MARK: - Registration
+
+    /// Facts only this device can know, so the Worker can restate them.
+    ///
+    /// A Live Activity push REPLACES the whole content state — ActivityKit
+    /// does not merge — so anything the Worker cannot restate disappears from
+    /// the lock screen on the next tick. Boarding travels as a LEAD in minutes
+    /// rather than an instant so it keeps tracking the delay-adjusted
+    /// departure instead of freezing at the original schedule.
+    private static func localExtras(for activity: Activity<FlightActivityAttributes>) -> [String: Any] {
+        var out: [String: Any] = [:]
+        let state = activity.content.state
+        if let boarding = state.boardingTime {
+            out["boarding_lead_minutes"] = Int(
+                (state.offBlock ?? state.departureTime).timeIntervalSince(boarding) / 60)
+        }
+        if let companions = state.companions, !companions.isEmpty,
+           let encoded = try? JSONEncoder().encode(companions),
+           let array = (try? JSONSerialization.jsonObject(with: encoded)) as? [Any] {
+            out["companions"] = array
+        }
+        return out
+    }
+
+    private static func extrasFingerprint(_ activity: Activity<FlightActivityAttributes>) -> String {
+        let extras = localExtras(for: activity)
+        guard let data = try? JSONSerialization.data(withJSONObject: extras, options: .sortedKeys)
+        else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Re-register when — and only when — the device's own extras changed.
+    /// Companions come and go rarely; re-posting them on every 60-second
+    /// local update would be a request a minute for a blob that never moves.
+    static func syncExtras(for flight: Flight) async {
+        guard let activity = Activity<FlightActivityAttributes>.activities.first(where: {
+            $0.attributes.flightId == flight.id.uuidString && $0.attributes.friendName == nil
+        }), let token = activity.pushToken else { return }
+        let key = hex(token)
+        let fingerprint = extrasFingerprint(activity)
+        guard registeredExtras[key] != fingerprint else { return }
+        registeredExtras[key] = fingerprint
+        var body = registrationBody(for: activity, token: key)
+        body["user_id"] = await ownerId() as Any
+        guard let json = try? JSONSerialization.data(withJSONObject: body) else { return }
+        await FlightAPIClient.shared.registerLiveActivityToken(json)
     }
 
     /// Everything the Worker's cron needs to keep pushing without a database
@@ -103,6 +302,7 @@ enum LiveActivityPushSync {
             "token": token,
             "type": "update",
             "env": apnsEnv,
+            "local": localExtras(for: activity),
             "flight": [
                 "flight_number": attrs.flightNumber,
                 "departure_iata": attrs.departureIATA,

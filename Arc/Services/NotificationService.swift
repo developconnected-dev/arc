@@ -52,8 +52,22 @@ enum ArcNotifications {
 
     // MARK: - Instant Alerts
 
+    /// The Worker's own watcher covers cancellations, delays and gates for
+    /// flights more than three hours out, and it can say them with the app
+    /// closed — which these cannot. Inside three hours the watcher stands
+    /// down (a Live Activity is running by then) and these are the alert.
+    ///
+    /// Facts the SERVER cannot know — Arc's knock-on prediction, the inbound
+    /// aircraft landing — are never suppressed: nothing else would say them.
+    private static func serverWillSayIt(_ flight: Flight, now: Date = .now) -> Bool {
+        RemotePush.isRegistered
+            && flight.mode == .air
+            && flight.effectiveDeparture.timeIntervalSince(now) > 3 * 3600
+    }
+
     static func notifyGateChange(flight: Flight, newGate: String) {
         guard prefs.object(forKey: "notifyGateChanges") == nil || prefs.bool(forKey: "notifyGateChanges") else { return }
+        guard !serverWillSayIt(flight) else { return }
         send(
             // Platform changes are the rail equivalent, and they arrive through
             // this same path — so the word has to come from the mode.
@@ -67,6 +81,7 @@ enum ArcNotifications {
     static func notifyDelay(flight: Flight) {
         guard prefs.object(forKey: "notifyDelays") == nil || prefs.bool(forKey: "notifyDelays") else { return }
         guard flight.delayMinutes > 0 else { return } // Don't notify on delay improvements
+        guard !serverWillSayIt(flight) else { return }
         send(
             title: "\(flight.flightNumber) delayed",
             body: "Now \(flight.delayMinutes) min late. \(flight.departureIATA) → \(flight.arrivalIATA)",
@@ -125,6 +140,7 @@ enum ArcNotifications {
     }
 
     static func notifyCancelled(flight: Flight) {
+        guard !serverWillSayIt(flight) else { return }
         send(
             title: "\(flight.flightNumber) cancelled",
             body: "\(flight.departureIATA) → \(flight.arrivalIATA) has been cancelled.",

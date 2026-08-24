@@ -11,9 +11,18 @@ enum WidgetData {
 
     // MARK: - Write (from main app)
 
-    static func save(flights: [WidgetFlight]) {
-        guard let data = try? JSONEncoder().encode(flights) else { return }
+    /// Write the snapshot. Returns whether anything actually changed, so the
+    /// caller can spend a WidgetKit reload only when there is news. Reloads
+    /// are a scarce daily budget: burning them on identical snapshots (the
+    /// app rewrites this every 60 s while it is open, when the home screen is
+    /// not even on screen) leaves none for later, when the app is closed and
+    /// the widget is the only surface the traveller has.
+    @discardableResult
+    static func save(flights: [WidgetFlight]) -> Bool {
+        guard let data = try? JSONEncoder().encode(flights) else { return false }
+        if sharedDefaults?.data(forKey: "widget_flights") == data { return false }
         sharedDefaults?.set(data, forKey: "widget_flights")
+        return true
     }
 
     // MARK: - Read (from widget)
@@ -37,9 +46,11 @@ struct WidgetFlight: Identifiable {
     let arrivalCity: String
     let scheduledDeparture: Date
     let scheduledArrival: Date
-    let status: String
+    // `var` because `mergingForward` reconciles the two writers of this
+    // snapshot in place; everything above is leg identity and never moves.
+    var status: String
     let delayMinutes: Int
-    let departureGate: String?
+    var departureGate: String?
     let progress: Double
     /// Arc's own knock-on prediction. 0 when the airline's delay already
     /// covers it (or there isn't one). The home widget uses this to say
@@ -83,6 +94,63 @@ struct WidgetFlight: Identifiable {
     var taxiStartedAt: Date? = nil
     var lastSeenOnGround: Date? = nil
     var taxiPriorMinutes: Int? = nil
+
+    /// Fold this leg over the snapshot the App Group already holds.
+    ///
+    /// Two writers share that snapshot: the app (from SwiftData) and the
+    /// widget's own timeline refresh (from the Worker). They learn different
+    /// things at different moments, and a plain overwrite means whichever
+    /// wrote last silently un-knows the other's facts — the home screen
+    /// re-hedging a take-off it had already confirmed, because the app synced
+    /// a model that had not caught up yet. Evidence therefore only ever
+    /// accumulates: a confirmed departure is never dropped, and a sighting is
+    /// never wound back to an older one.
+    func mergingForward(over previous: WidgetFlight?) -> WidgetFlight {
+        guard let previous, previous.id == id else { return self }
+        var out = self
+        if Self.statusRegresses(status, from: previous.status) { out.status = previous.status }
+        out.actualDeparture = actualDeparture ?? previous.actualDeparture
+        out.estimatedTakeoff = estimatedTakeoff ?? previous.estimatedTakeoff
+        out.taxiStartedAt = taxiStartedAt ?? previous.taxiStartedAt
+        out.taxiPriorMinutes = taxiPriorMinutes ?? previous.taxiPriorMinutes
+        // The most recent sighting wins, and it carries its own verdict:
+        // pairing a new timestamp with an old state would describe a moment
+        // that never happened.
+        if (previous.groundObservedAt ?? .distantPast) > (groundObservedAt ?? .distantPast) {
+            out.groundObservedAt = previous.groundObservedAt
+            out.groundState = previous.groundState
+        }
+        out.lastSeenOnGround = Self.later(lastSeenOnGround, previous.lastSeenOnGround)
+        out.updatedAt = Self.later(updatedAt, previous.updatedAt)
+        // A provider null must not erase a fact either writer already had.
+        out.departureGate = departureGate ?? previous.departureGate
+        out.departureTerminal = departureTerminal ?? previous.departureTerminal
+        out.arrivalGate = arrivalGate ?? previous.arrivalGate
+        out.arrivalTerminal = arrivalTerminal ?? previous.arrivalTerminal
+        out.baggageClaim = baggageClaim ?? previous.baggageClaim
+        out.estimatedArrival = estimatedArrival ?? previous.estimatedArrival
+        return out
+    }
+
+    /// Status only ever moves forward, except into cancelled or diverted,
+    /// which are facts that outrank progress.
+    ///
+    /// Shared by both places a fresher-looking write can arrive carrying a
+    /// staler status: the App Group merge below, and the Live Activity pushes
+    /// the app absorbs. Without it, a provider still saying "scheduled" would
+    /// un-fly a flight some source had already watched leave the ground.
+    static func statusRegresses(_ incoming: String, from current: String) -> Bool {
+        if incoming == "cancelled" || incoming == "diverted" { return false }
+        let rank = ["scheduled": 0, "boarding": 1, "gateClosed": 2, "active": 3, "landed": 4]
+        guard let new = rank[incoming], let old = rank[current] else { return false }
+        return new < old
+    }
+
+    private static func later(_ a: Date?, _ b: Date?) -> Date? {
+        guard let a else { return b }
+        guard let b else { return a }
+        return max(a, b)
+    }
 
     /// Status-only, no clock comparison — mirrors Flight.isUpcoming. The old
     /// `&& scheduledDeparture > .now` had the same dead zone the app model

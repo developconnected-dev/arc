@@ -5,20 +5,28 @@ import WidgetKit
 enum WidgetSync {
 
     static func sync(flights: [Flight]) {
+        // What the App Group already holds — written by the app OR by the
+        // widget's own refresh, which talks to the Worker on its own timeline
+        // and therefore sometimes knows things this model hasn't heard yet.
+        let previous = Dictionary(
+            WidgetData.loadFlights().map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let widgetFlights = flights
             .filter { isWorthShowing($0) }
             .sorted { $0.scheduledDeparture < $1.scheduledDeparture }
             .prefix(5)
-            .map(WidgetFlight.init)
+            .map { WidgetFlight($0).mergingForward(over: previous[$0.id.uuidString]) }
 
-        WidgetData.save(flights: Array(widgetFlights))
+        let changed = WidgetData.save(flights: Array(widgetFlights))
         // The widget refreshes the next flight's status on its own timeline
         // (WidgetRefresh) so it stays current with the app closed — it needs
         // to know which Worker to ask. Settings' override lives in standard
         // defaults, which the extension can't read; mirror it.
         WidgetData.sharedDefaults?.set(
             UserDefaults.standard.string(forKey: "apiEndpoint"), forKey: "apiEndpoint")
-        WidgetCenter.shared.reloadAllTimelines()
+        // Only when there is something new to show. This runs every 60 s from
+        // the tracking loop, and an unconditional reload spent the day's
+        // WidgetKit budget on snapshots identical to the one already rendered.
+        if changed { WidgetCenter.shared.reloadAllTimelines() }
     }
 
     /// A cancelled or diverted trip is none of upcoming/active/landed, so it used

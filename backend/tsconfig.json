@@ -1,0 +1,16 @@
+{
+  "//": "No build step — wrangler bundles the TypeScript directly and the test suite runs on node's type-stripping, so nothing in the pipeline ever type-CHECKS. `npm run typecheck` is that missing pass, and `npm test` runs it first: a block-scoped variable read before its declaration shipped to production precisely because no tool ever looked.",
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2022"],
+    "types": ["@cloudflare/workers-types", "node"],
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "useUnknownInCatchVariables": false
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

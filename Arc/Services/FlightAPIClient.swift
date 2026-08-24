@@ -251,21 +251,6 @@ actor FlightAPIClient {
         ])
     }
 
-    struct FerryDisruption: Codable, Sendable {
-        let type: String?
-        let title: String?
-        let content: String?
-    }
-
-    /// Operator notices for a country's sailings — the only change signal
-    /// ferries have, since no Mediterranean source publishes a revised time per
-    /// sailing.
-    func ferryDisruptions(country: String, date: String? = nil) async -> [FerryDisruption] {
-        var items = [URLQueryItem(name: "country", value: country)]
-        if let date { items.append(.init(name: "date", value: date)) }
-        return (try? await get("/ferry/disruptions", items)) ?? []
-    }
-
     private struct SeaRouteResponse: Codable, Sendable { let route_path: [[Double]]? }
 
     /// The line a sailing between two ports follows, from OpenStreetMap's ferry
@@ -780,7 +765,21 @@ actor FlightAPIClient {
         await postJSON(path: "/la/unregister", data: data)
     }
 
-    private func postJSON(path: String, data: Data) async {
+    /// This DEVICE's APNs token, which outlives any one Live Activity — the
+    /// channel by which a cancellation the night before reaches a closed app.
+    /// Returns whether the Worker accepted it: on a refusal the device keeps
+    /// posting its own local alerts rather than going quiet.
+    func registerDeviceToken(_ bodyJSON: Data) async -> Bool {
+        await postJSON(path: "/push/register", data: bodyJSON)
+    }
+
+    func unregisterDeviceToken(_ token: String) async {
+        guard let data = try? JSONSerialization.data(withJSONObject: ["token": token]) else { return }
+        await postJSON(path: "/push/unregister", data: data)
+    }
+
+    @discardableResult
+    private func postJSON(path: String, data: Data) async -> Bool {
         var req = URLRequest(url: baseURL.appending(path: path))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -790,6 +789,8 @@ actor FlightAPIClient {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         req.httpBody = data
-        _ = try? await session.data(for: req)   // best-effort; cron just won't know about us on failure
+        // Best-effort: on failure the cron simply won't know about us.
+        guard let (_, response) = try? await session.data(for: req) else { return false }
+        return (response as? HTTPURLResponse)?.statusCode == 200
     }
 }

@@ -24,7 +24,35 @@
 - `watchAircraft` and its ADS-B dependency are deleted; `refreshSharedFlights` does the watching. Verified live: with the flyer's app killed, the friend's sheet read "Live • 4m ago" — the row was being written by the cron.
 - Devices remain the faster witness (device ADS-B confirmed a take-off ~1 min before the provider), with the provider position as the fallback for networks that cannot reach an aggregator.
 
-**Not started:** Phase 4 (on-device barometer/motion take-off detection).
+**Not started:** Phase 4 (on-device barometer/motion take-off detection) — and now
+unlikely to be needed in its planned form: a Live Activity push reaches the phone
+over airline messaging Wi-Fi, so the cheaper way to confirm a take-off in the
+cabin is to READ the push rather than to feel the climb. Phase 4 is worth
+revisiting only for genuinely dark cabins.
+
+## Correction (2026-08-24)
+
+Two of the things recorded above as done were, in fact, not working. Both were
+invisible for the same reason: nothing in the backend pipeline type-checks —
+wrangler bundles with esbuild and the suite runs on node's type-stripping, and
+both ERASE types without reading them. `npm test` now runs `tsc` first.
+
+- **The server witness never wrote a sighting.** In `refreshSharedFlights`, the
+  `changed` expression read `state` eleven lines above its own `const`
+  declaration. `||` short-circuits, so the temporal-dead-zone `ReferenceError`
+  fired exactly when every other operand was false — i.e. when the new ground
+  sighting was the ONLY news. The row's catch swallowed it and the row was
+  skipped. The headline case ("a friend sees Taxiing while her phone is dark")
+  could only ever work when something unrelated changed in the same tick.
+- **Every push erased the evidence it had just been given.** A Live Activity
+  push REPLACES the whole content state — ActivityKit does not merge — and the
+  Worker's `contentState()` never emitted `groundState`, `groundObservedAt`,
+  `taxiStartedAt` or `lastSeenOnGround`. So the "Taxiing · 14m" card reverted to
+  a clock presumption on the next tick, five minutes later, undoing on the
+  server precisely what the device had witnessed. It also blanked the companion
+  cluster and the boarding line the same way. `contentState` now lives in
+  `backend/src/activity.ts` with a test asserting every field of the Swift
+  contract is emitted.
 
 ---
 
