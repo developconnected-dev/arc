@@ -1,0 +1,55 @@
+# The only automated check Arc has.
+#
+# Part of why the bugs fixed in d746a45 shipped at all is that nothing ever
+# type-checked the Worker: wrangler bundles with esbuild and the suite runs on
+# node's type-stripping, and both ERASE types without reading them. A `const`
+# read eleven lines above its own declaration therefore deployed cleanly and
+# silently disabled the server's ground witness.
+#
+# `npm test` is three gates in one: tsc, the cross-language contract check
+# (Swift content-state against the Worker's JSON, the widget's decoder against
+# mapLeg, every PostgREST column against the migrations), and the test suite.
+#
+# It runs on every push and pull request rather than only on `backend/**`
+# changes, because the contract check reads the Swift and the SQL too — a
+# renamed field in Shared/ or a column that never made it into a migration
+# breaks the seam without touching a single TypeScript file.
+name: backend
+
+on:
+  push:
+  pull_request:
+
+# A new push to the same branch makes the previous run's answer irrelevant.
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 22.6+ is not optional: `--experimental-strip-types` does not exist
+      # before it, and without the flag every test file fails to LOAD — which
+      # is how 119 passing tests once went unnoticed as 7 failures.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      # The contract check is Python; ubuntu-latest ships a python3, and this
+      # pins it so a runner image change cannot quietly remove the gate.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        working-directory: backend
+        run: npm ci
+
+      - name: Typecheck, contracts, tests
+        working-directory: backend
+        run: npm test
