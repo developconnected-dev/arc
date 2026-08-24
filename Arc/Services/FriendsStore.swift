@@ -266,6 +266,11 @@ final class FriendsStore {
     /// (Opening a link can precede profile setup — the code parks here until
     /// there's a signed-in user to redeem it with.)
     var pendingInviteCode: String?
+
+    /// A friend's flight a notification tap asked for, parked until the feed
+    /// has actually loaded. Same reason as `pendingInviteCode`: a cold launch
+    /// routes long before there is anything to route TO.
+    var pendingFlightId: String?
     /// Set after a successful redeem — drives the "You and X are now sharing
     /// flights" confirmation.
     var justRedeemedFriend: ArcSupabase.ArcUser?

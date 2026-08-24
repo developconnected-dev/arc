@@ -367,6 +367,10 @@ struct FriendsListView: View {
                 // for the answer to have moved — bounded, because a pull with
                 // twenty friends in the feed must not become twenty calls.
                 .refreshable { await store.refreshLiveVisible() }
+                // A notification tap parks the flight it named; open it once
+                // the feed carries it. Runs on appear as well as on change,
+                // because a cold launch routes BEFORE this view exists.
+                .task(id: store.pendingFlightId) { openPendingFlightIfPossible() }
             }
             .toolbarVisibility(.hidden, for: .navigationBar)
             .sheet(isPresented: $showingAddFriend) {
@@ -600,6 +604,18 @@ struct FriendsListView: View {
         if !filteredPast.isEmpty {
             pastSection
         }
+    }
+
+    /// Drain `pendingFlightId` — the friend flight a tapped alert asked for.
+    /// Silently gives up if the row is not in the feed (a landing past its
+    /// grace drops out of it); opening the wrong flight would be worse than
+    /// opening none, which is exactly what the missing routing used to do.
+    private func openPendingFlightIfPossible() {
+        guard let wanted = store.pendingFlightId else { return }
+        let everything = store.feed + store.pastFeed
+        guard let item = everything.first(where: { $0.flight.id == wanted }) else { return }
+        store.pendingFlightId = nil
+        presentedFlight = store.transientFlight(for: item)
     }
 
     private func feedRow(_ item: FriendsStore.FeedItem) -> some View {

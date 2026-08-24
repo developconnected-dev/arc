@@ -55,7 +55,7 @@ struct FlightLiveActivity: Widget {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(context.attributes.departureIATA)
                                     .font(.system(size: 22, weight: .bold))
-                                Text(context.state.departureTime, style: .time)
+                                Text(context.attributes.depTime(context.state.departureTime))
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(.secondary)
                             }
@@ -98,7 +98,7 @@ struct FlightLiveActivity: Widget {
                             VStack(alignment: .trailing, spacing: 2) {
                                 Text(context.attributes.arrivalIATA)
                                     .font(.system(size: 22, weight: .bold))
-                                Text(context.state.arrivalTime, style: .time)
+                                Text(context.attributes.arrTime(context.state.arrivalTime))
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(arrivalDelay(context.state) > 0 ? .orange : .secondary)
                             }
@@ -456,7 +456,7 @@ struct FlightLiveActivity: Widget {
                         // are expected up. Otherwise say plainly that nobody
                         // has confirmed anything yet.
                         if let since = taxiSince(state) {
-                            Text("\(Text(since, style: .timer)) · takeoff expected \(state.expectedWheelsUp, style: .time)")
+                            Text("\(Text(since, style: .timer)) · takeoff expected \(attrs.depTime(state.expectedWheelsUp))")
                                 .font(.system(size: 10, weight: .medium).monospacedDigit())
                                 .foregroundStyle(.tertiary)
                         } else {
@@ -509,7 +509,7 @@ struct FlightLiveActivity: Widget {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 6)
-                boardingChip(state)
+                boardingChip(state, attrs: attrs)
                 gateBadge(state.departureGate)
             }
             .padding(.top, 4)
@@ -833,7 +833,7 @@ struct FlightLiveActivity: Widget {
             HStack(spacing: 4) {
                 Text(attrs.departureIATA)
                     .font(.system(size: 20, weight: .bold))
-                Text(state.departureTime, style: .time)
+                Text(attrs.depTime(state.departureTime))
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(departureStatusColor(state, attrs))
                     .contentTransition(.numericText())
@@ -852,7 +852,7 @@ struct FlightLiveActivity: Widget {
             }
             Spacer()
             HStack(spacing: 4) {
-                Text(state.arrivalTime, style: .time)
+                Text(attrs.arrTime(state.arrivalTime))
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(arrivalDelay(state) > 0 ? .orange : .secondary)
                     .contentTransition(.numericText())
@@ -980,7 +980,8 @@ struct FlightLiveActivity: Widget {
     /// boarding time behind a door glyph — same capsule grammar as the
     /// landed card's LANDED chip.
     @ViewBuilder
-    private func boardingChip(_ state: FlightActivityAttributes.ContentState) -> some View {
+    private func boardingChip(_ state: FlightActivityAttributes.ContentState,
+                              attrs: FlightActivityAttributes) -> some View {
         if state.status == "boarding" {
             Text("NOW BOARDING")
                 .font(.system(size: 11, weight: .bold))
@@ -1000,7 +1001,7 @@ struct FlightLiveActivity: Widget {
                 Image(systemName: "door.left.hand.open")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
-                Text(boardTime, style: .time)
+                Text(attrs.depTime(boardTime))
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(.primary)
             }

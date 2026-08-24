@@ -436,6 +436,13 @@ struct ArcRootView: View {
             tab = .friends
             Task { await FriendsStore.shared.redeemPendingIfPossible() }
             return true
+        case .friendFlight(let id):
+            // Parked rather than presented: on a cold launch the feed has not
+            // been read yet, so there is nothing to open for another second or
+            // two. FriendsView drains it once the flight exists.
+            FriendsStore.shared.pendingFlightId = id
+            tab = .friends
+            return true
         case .flight(let id):
             return show(allFlights.first { $0.id == id })
         case .flightIdentity(let number, let dep, let arr):
