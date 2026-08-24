@@ -186,6 +186,10 @@ struct ArcRootView: View {
             await controller.refreshHazardsIfNeeded()
         }
         .onAppear {
+            // A cold launch from a tapped notification can park its destination
+            // either side of this view's construction, so drain here as well as
+            // on `.arcOpenFlight`: whichever happens second finds it.
+            drainPendingOpen()
             DemoSeed.seedIfRequested(into: modelContext, existing: allFlights)
             DemoSeed.seedStuckFlightIfRequested(into: modelContext, existing: allFlights)
             DemoSeed.startDemoLiveActivityIfRequested()
