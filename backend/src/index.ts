@@ -2481,6 +2481,14 @@ async function runLiveActivityCron(env: Env): Promise<void> {
   if (apnsConfigured(env)) {
     const rows = await sbSelect(env, "/live_activity_tokens?select=*") as unknown as TokenRow[];
     const updateRows = rows.filter(r => r.token_type === "update" && r.flight_number && r.scheduled_departure);
+    // One line per tick saying what this loop can even see. Without it there
+    // is no way to tell a token that was dropped from a token that is being
+    // pushed to happily — both look identical from outside, which is how a
+    // frozen lock screen went unexplained.
+    if (rows.length > 0) {
+      console.log("LA tokens:", rows.length, "update:", updateRows.length,
+                  updateRows.map(r => `${r.flight_number}@${r.scheduled_departure}`).join(","));
+    }
 
     // Stay under Cloudflare's 50-subrequests-per-invocation cap: a refresh
     // tick costs up to ~8 subrequests per row, and rows come back in stable DB
@@ -2495,7 +2503,12 @@ async function runLiveActivityCron(env: Env): Promise<void> {
     for (const row of shuffled.slice(0, 15)) {
       try {
         await pushUpdateForRow(env, row);
-      } catch { /* keep the loop alive for other rows */ }
+      } catch (e) {
+        // Keep the loop alive for other rows — but SAY so. Swallowed whole,
+        // a row that throws every tick is a lock screen frozen for ever with
+        // its token still in the table and nothing anywhere to explain it.
+        console.error("LA push failed:", row.flight_number, row.token.slice(0, 8), String(e));
+      }
     }
 
     // Push-to-start: begin a Live Activity server-side for flights entering the
@@ -2506,7 +2519,7 @@ async function runLiveActivityCron(env: Env): Promise<void> {
     if (startRows.length > 0) {
       try {
         await pushStarts(env, startRows, updateRows);
-      } catch { /* best-effort */ }
+      } catch (e) { console.error("LA push-to-start failed:", String(e)); }
     }
   }
 
@@ -2516,7 +2529,7 @@ async function runLiveActivityCron(env: Env): Promise<void> {
   // rows fresh server-side from the same provider cache the pushes use.
   try {
     await refreshSharedFlights(env);
-  } catch { /* best-effort */ }
+  } catch (e) { console.error("shared refresh failed:", String(e)); }
 
   // LAST, deliberately. Flights that are still too far out for a Live Activity
   // to exist are the only path by which a cancellation the night before
@@ -2940,6 +2953,7 @@ async function sendToUser(env: Env, userId: string, title: string, body: string,
   for (const t of tokens.slice(0, 5)) {
     const status = await sendAlertPush(env, t.token, t.apns_env, APP_BUNDLE_ID,
                                        { title, body }, collapseId, threadId);
+    if (status !== 200) console.error("alert push non-200:", status, threadId, t.token.slice(0, 8));
     if (status === 410 || status === 400) {
       await sbService(env, "DELETE", `/device_tokens?token=eq.${encodeURIComponent(t.token)}`);
     }
@@ -3047,7 +3061,9 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
                                       { offBlockMs: depMs, taxiPrior: DEFAULT_TAXI_PRIOR, evidence, local: prior.local }),
       },
     };
-    await sendLiveActivityPush(env, row.token, row.apns_env, APP_BUNDLE_ID, endPayload, 5);
+    const endSt = await sendLiveActivityPush(env, row.token, row.apns_env, APP_BUNDLE_ID, endPayload, 5);
+    // Deliberate end-of-life, logged so it is never confused with a rejection.
+    console.log("LA ended:", row.flight_number, "status", status, "st", endSt);
     await sbService(env, "DELETE", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`);
     return;
   }
@@ -3156,6 +3172,16 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
       } : {}),
     },
   };
+  // What actually went on the wire. A push that is ACCEPTED but carries the
+  // same stale leg every time is indistinguishable, from outside, from no
+  // push at all — the lock screen simply never changes.
+  console.log("LA push:", row.flight_number,
+              "changed", dataChanged,
+              "status", status,
+              "depActual", flight?.["dep_actual"] ?? null,
+              "ground", evidence.ground_state ?? null,
+              "obs", evidence.ground_observed_at ?? null,
+              "fetchAge", Math.round((now - lastFetch) / 1000) + "s");
   const st = await sendLiveActivityPush(env, row.token, row.apns_env, APP_BUNDLE_ID, payload, dataChanged ? 10 : 5);
   await sbService(env, "PATCH", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`, {
     last_state: {
@@ -3164,6 +3190,15 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
       insight_gate: flight?.["dep_gate"] ?? null,
     },
   });
+  // A push channel that dies silently is a lock screen frozen at whatever it
+  // last said, with nothing anywhere to say why. 410/400 mean the token is
+  // genuinely gone and dropping it is right — but dropping it WITHOUT a word
+  // is how a card sat on "Taxiing" for an hour while the aircraft was on
+  // approach, and no log existed to tell the two apart.
+  if (st !== 200) {
+    console.error("LA push non-200:", st, row.flight_number, row.token.slice(0, 8),
+                  st === 410 || st === 400 ? "(dropping token)" : "(keeping token)");
+  }
   if (st === 410 || st === 400) {
     await sbService(env, "DELETE", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`);
   }
@@ -3287,6 +3322,7 @@ async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[
         },
       };
       const st = await sendLiveActivityPush(env, startRow.token, startRow.apns_env, APP_BUNDLE_ID, payload, 10);
+      if (st !== 200) console.error("LA push-to-start non-200:", st, f.flight_number, startRow.token.slice(0, 8));
       if (st === 410 || st === 400) {
         await sbService(env, "DELETE", `/live_activity_tokens?token=eq.${encodeURIComponent(startRow.token)}`);
         break;
