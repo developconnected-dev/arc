@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import UserNotifications
 
 /// The device's own APNs channel — the one that is not tied to a Live Activity.
 ///
@@ -38,6 +39,13 @@ final class RemotePush: NSObject, UIApplicationDelegate {
         // permission — this is safe at launch, and the banner prompt is still
         // gated by ArcNotifications.requestPermission().
         application.registerForRemoteNotifications()
+        // HERE, not in a SwiftUI `.onAppear`. UNUserNotificationCenter only
+        // delivers the notification that LAUNCHED the app to a delegate that
+        // was already assigned when launching finished — set it any later and
+        // a cold-launch tap is delivered to nobody. That is why tapping a
+        // friend's alert from a shut app opened the app on whatever it last
+        // showed instead of the flight the alert named.
+        UNUserNotificationCenter.current().delegate = ForegroundNotificationDelegate.shared
         return true
     }
 
