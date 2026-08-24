@@ -6,6 +6,17 @@ name: Arc
 settings:
   base:
     DEVELOPMENT_TEAM: GQZHJ59F4R
+    # Version and build live HERE, not per-target, for two reasons. xcodegen
+    # rewrites the project file, so a number bumped only in Xcode is silently
+    # reset the next time anyone regenerates — which is how an archive went out
+    # as build 1 while App Store Connect already held build 30. And an app
+    # whose extension carries a different CFBundleVersion fails App Store
+    # validation, so the two must not be able to drift apart at all.
+    #
+    # App Store Connect will not accept a build number it has already seen for
+    # a given MARKETING_VERSION: this must go UP for every upload.
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: 31
 options:
   bundleIdPrefix: com.arc
   deploymentTarget:
@@ -24,8 +35,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.arc.flighttracker
-        MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: 1
         SWIFT_VERSION: "6.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_IDENTITY: "Apple Development"
@@ -82,8 +91,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.arc.flighttracker.widget
-        MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: 1
         SWIFT_VERSION: "6.0"
         INFOPLIST_FILE: ArcWidget/Info.plist
         CODE_SIGN_IDENTITY: "Apple Development"
