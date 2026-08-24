@@ -199,13 +199,13 @@ enum DemoSeed {
                 status: "active",
                 departureTime: offBlock,
                 arrivalTime: offBlock.addingTimeInterval(5 * 3600),
-                boardingTime: nil, securityWaitMinutes: nil,
+                boardingTime: nil,
                 delayMinutes: 0, arrivalDelayMinutes: 0,
                 insight: nil,
                 companions: [.init(name: "Anna", seat: "14B", avatarFile: demoAvatar("A", 0xE0876A))],
                 departureGate: "B7", departureTerminal: "2",
                 arrivalGate: nil, arrivalTerminal: "5", baggageClaim: nil,
-                altitude: nil, speed: nil, heading: nil, progress: 0)
+                progress: 0)
             state.offBlock = offBlock
             state.taxiPriorMinutes = 35
             if !presumed {
@@ -229,13 +229,12 @@ enum DemoSeed {
                 departureTime: .now.addingTimeInterval(55 * 60),
                 arrivalTime: .now.addingTimeInterval((55 + 380) * 60),
                 boardingTime: .now.addingTimeInterval(20 * 60),
-                securityWaitMinutes: nil,
                 delayMinutes: 0, arrivalDelayMinutes: 0, insight: nil,
                 companions: [.init(name: "Anna", seat: "14B", avatarFile: demoAvatar("A", 0xE0876A))],
                 updatedAt: .now,
                 departureGate: "B7", departureTerminal: "2",
                 arrivalGate: nil, arrivalTerminal: "5", baggageClaim: nil,
-                altitude: nil, speed: nil, heading: nil, progress: 0)
+                progress: 0)
             _ = try? Activity.request(
                 attributes: attrs,
                 content: .init(state: state, staleDate: state.boardingTime),
@@ -249,13 +248,13 @@ enum DemoSeed {
                 status: "landed",
                 departureTime: .now.addingTimeInterval(-355 * 60),
                 arrivalTime: .now.addingTimeInterval(-8 * 60),
-                boardingTime: nil, securityWaitMinutes: nil,
+                boardingTime: nil,
                 delayMinutes: -10, arrivalDelayMinutes: -10, insight: nil,
                 companions: [.init(name: "Anna", seat: "14B", avatarFile: demoAvatar("A", 0xE0876A))],
                 updatedAt: .now,
                 departureGate: "B7", departureTerminal: "2",
                 arrivalGate: "A54", arrivalTerminal: "5", baggageClaim: "7",
-                altitude: nil, speed: nil, heading: nil, progress: 1)
+                progress: 1)
             _ = try? Activity.request(
                 attributes: attrs,
                 content: .init(state: state, staleDate: nil),
@@ -271,11 +270,10 @@ enum DemoSeed {
                 departureTime: .now.addingTimeInterval(160 * 60),
                 arrivalTime: .now.addingTimeInterval((160 + 380) * 60),
                 boardingTime: .now.addingTimeInterval(125 * 60),
-                securityWaitMinutes: nil,
                 delayMinutes: 0, arrivalDelayMinutes: 0, insight: nil,
                 departureGate: nil, departureTerminal: "2",
                 arrivalGate: nil, arrivalTerminal: "5", baggageClaim: nil,
-                altitude: nil, speed: nil, heading: nil, progress: 0)
+                progress: 0)
             _ = try? Activity.request(
                 attributes: attrs,
                 content: .init(state: state, staleDate: state.departureTime),
@@ -286,7 +284,7 @@ enum DemoSeed {
             status: takeoffSoon ? "boarding" : "active",
             departureTime: .now.addingTimeInterval(takeoffSoon ? 60 : (landingSoon ? -9 * 60 : -3 * 60)),
             arrivalTime: .now.addingTimeInterval(takeoffSoon ? 11 * 60 : (landingSoon ? 60 : 7 * 60)),
-            boardingTime: nil, securityWaitMinutes: nil,
+            boardingTime: nil,
             delayMinutes: -10,   // photo parity: "10m Early"
             arrivalDelayMinutes: -10,
             // An in-air insight before departure is nonsense — only the
@@ -303,7 +301,7 @@ enum DemoSeed {
                 : [.init(name: "Anna", seat: "14B", avatarFile: demoAvatar("A", 0xE0876A))],
             departureGate: "B7", departureTerminal: "2",
             arrivalGate: nil, arrivalTerminal: "5", baggageClaim: nil,
-            altitude: 10600, speed: 480, heading: 90, progress: 0.3)
+            progress: 0.3)
         // staleDate = next phase boundary: same scheduling as the real
         // LiveActivityManager — the offline flips depend on it.
         _ = try? Activity.request(

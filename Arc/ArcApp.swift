@@ -5,6 +5,10 @@ import UserNotifications
 
 @main
 struct ArcApp: App {
+    /// Owns the device's APNs registration. An adaptor rather than a call in
+    /// `onAppear`, because `didRegisterForRemoteNotifications` is delivered to
+    /// the application delegate and nowhere else.
+    @UIApplicationDelegateAdaptor(RemotePush.self) private var remotePush
     @StateObject private var tracker = FlightTracker.shared
     @Environment(\.scenePhase) private var scenePhase
     let modelContainer: ModelContainer
@@ -26,7 +30,7 @@ struct ArcApp: App {
                         ArcNotifications.requestPermission()
                     }
                     NetworkMonitor.shared.start()
-                    LiveActivityPushSync.start()
+                    LiveActivityPushSync.start(modelContainer: modelContainer)
 
                     // Start the background Live Activity updater at app level
                     // This runs independently of views and survives backgrounding
@@ -49,6 +53,12 @@ struct ArcApp: App {
             // (Re)arm a refresh request whenever we leave the foreground —
             // iOS only honors submissions from apps it has seen active recently.
             if phase == .background { Self.scheduleBackgroundRefresh() }
+            // Live Activity pushes keep arriving while the app is suspended,
+            // and `contentUpdates` cannot replay them. Whatever landed in the
+            // meantime is read back here — the only path by which fresh facts
+            // reach the model on a plane, where the push channel is up but
+            // nothing can reach our backend.
+            if phase == .active { LiveActivityPushSync.reconcile() }
         }
     }
 
