@@ -30,6 +30,31 @@ struct FlightActivityAttributes: ActivityAttributes {
     /// is what every activity was before trains and ferries existed.
     var dataTierRaw: String? = nil
 
+    /// Each end's own zone — the rule every other Arc surface already follows,
+    /// and the one this card was the last to break.
+    ///
+    /// `Text(date, style: .time)` renders in the DEVICE's zone, so a Zurich
+    /// phone printed a Heathrow arrival as "18:55 LHR" for a flight that lands
+    /// at 17:55 London time: a number that contradicts the very label beside
+    /// it. The home-screen widget had zones and got it right; only the Live
+    /// Activity carried none, so it could not have got it right.
+    ///
+    /// Optional, so activities started before this existed — and pushes from
+    /// an older Worker — still decode, falling back to the device zone.
+    var departureTZID: String? = nil
+    var arrivalTZID: String? = nil
+
+    /// Wall-clock at one end, as that place reads it. Same formatter and same
+    /// fallback as `WidgetFlight.localTime`.
+    func localTime(_ date: Date, zone id: String?) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        f.timeZone = id.flatMap(TimeZone.init(identifier:)) ?? .current
+        return f.string(from: date)
+    }
+    func depTime(_ date: Date) -> String { localTime(date, zone: departureTZID) }
+    func arrTime(_ date: Date) -> String { localTime(date, zone: arrivalTZID) }
+
     var mode: TripMode { TripMode(rawValue: modeRaw ?? "") ?? .air }
     var dataTier: DataTier { DataTier(rawValue: dataTierRaw ?? "") ?? .live }
     /// Only a live source may say "On Time" — same rule as the app.
@@ -124,6 +149,11 @@ enum ArcDeepLink {
     enum Destination: Equatable, Sendable {
         case flight(id: UUID)
         case flightIdentity(number: String, dep: String, arr: String)
+        /// A FRIEND's flight, named by its `shared_flights` row id. Separate
+        /// from `flight(id:)` because that one resolves against the reader's
+        /// own SwiftData store, and a friend's flight was never in it — which
+        /// is why a tapped "landed" alert had nowhere to go.
+        case friendFlight(id: String)
         case directions(iata: String, terminal: String?)
         case friend(code: String)
     }
@@ -194,6 +224,12 @@ enum ArcDeepLink {
     /// The same routing, but from a local notification's `userInfo` — so a
     /// tapped delay alert lands on exactly the flight it was about.
     static func destination(fromNotificationUserInfo info: [AnyHashable: Any]) -> Destination? {
+        // Checked FIRST: a friend alert names a row in `shared_flights`, and
+        // resolving that against the reader's own flights would either miss or,
+        // worse, land on a same-numbered flight of their own.
+        if let raw = info[ArcOpenFlightInfo.friendId] as? String, !raw.isEmpty {
+            return .friendFlight(id: raw)
+        }
         if let raw = info[ArcOpenFlightInfo.id] as? String, let id = UUID(uuidString: raw) {
             return .flight(id: id)
         }
@@ -213,6 +249,8 @@ extension Notification.Name {
 
 enum ArcOpenFlightInfo {
     static let id = "flightId"
+    /// A friend's `shared_flights` row id.
+    static let friendId = "friendFlightId"
     static let number = "flightNumber"
     static let dep = "dep"
     static let arr = "arr"

@@ -134,6 +134,11 @@ enum FriendAlerts {
         await manageLiveActivities(entries: entries, levels: levels, at: now)
     }
 
+    /// What a friend alert carries so a tap can find its way back.
+    nonisolated static func userInfo(forFlightId id: String) -> [String: String] {
+        [ArcOpenFlightInfo.friendId: id]
+    }
+
     private static func post(_ event: Event) {
         let content = UNMutableNotificationContent()
         switch event.kind {
@@ -148,6 +153,10 @@ enum FriendAlerts {
             content.body = "\(event.flightNumber) \(event.route)"
         }
         content.sound = .default
+        // Without this the tap had nothing to act on: the handler's
+        // `guard let destination` bailed and the notification opened whatever
+        // the app last showed, which is not the flight it was announcing.
+        content.userInfo = userInfo(forFlightId: event.flightId)
         // Identifier doubles as dedupe: one notification per flight+kind.
         let kindKey = switch event.kind {
         case .tookOff: "tookoff"; case .landed: "landed"; case .delayed: "delayed"

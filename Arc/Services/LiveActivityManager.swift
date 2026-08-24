@@ -121,7 +121,9 @@ final class LiveActivityManager {
             friendAvatarFile: friendAvatarFile,
             flightId: friendName == nil ? flight.id.uuidString : nil,
             modeRaw: flight.mode.rawValue,
-            dataTierRaw: flight.dataTier.rawValue
+            dataTierRaw: flight.dataTier.rawValue,
+            departureTZID: flight.departureTZID,
+            arrivalTZID: flight.arrivalTZID
         )
 
         let state = await makeState(for: flight, friendName: friendName)

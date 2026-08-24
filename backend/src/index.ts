@@ -3309,6 +3309,11 @@ async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[
             aircraftType: f.aircraft_type ?? null,
             seat: f.seat ?? null,
             modeRaw: "air",
+            // Each end's own zone, so a push-started card prints an arrival
+            // the way the ARRIVAL airport reads it rather than the way the
+            // reader's phone does.
+            departureTZID: f.departure_tz ?? null,
+            arrivalTZID: f.arrival_tz ?? null,
           },
           "content-state": contentState(f.status ?? "scheduled", depMs, arrMs, f.delay_minutes ?? 0, f.delay_minutes ?? 0, {
             dep_gate: f.departure_gate, dep_terminal: f.departure_terminal,
