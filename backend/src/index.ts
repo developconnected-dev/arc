@@ -4,7 +4,7 @@ import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRI
 import { predictGate, type GateObservation } from "./gates";
 import { contentState } from "./activity";
 import { flightNews, type WatchState } from "./alerts";
-import { shouldWriteSharedRow, laterISO } from "./freshness";
+import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval } from "./freshness";
 import { verifiedRoute } from "./place";
 import { handleTransit } from "./routes-transit";
 import { modesToQuery, routeFromQuery, dateFromQuery } from "./classify";
@@ -2589,7 +2589,11 @@ async function recordTaxiObservation(env: Env, row: Record<string, any>, takeoff
 async function refreshSharedFlights(env: Env): Promise<void> {
   const now = Date.now();
   const from = new Date(now - 24 * 3600_000).toISOString();
-  const to = new Date(now + 4 * 3600_000).toISOString();
+  // Out to thirty hours, not four: before that the ONLY writer of these rows
+  // was the traveller's own device, on its tracker poll, while their app was
+  // open. See sharedRowCheckInterval — far-out rows are consulted hourly, so
+  // widening the net costs a fraction of a call per flight per hour.
+  const to = new Date(now + 30 * 3600_000).toISOString();
   const rows = await sbSelect(env,
     "/shared_flights?select=id,flight_number,departure_iata,arrival_iata,scheduled_departure,scheduled_arrival," +
     "status,delay_minutes,departure_gate,arrival_gate,baggage_claim,updated_at,mode," +
@@ -2605,19 +2609,31 @@ async function refreshSharedFlights(env: Env): Promise<void> {
     const delayMs = ((r.delay_minutes as number) ?? 0) * 60_000;
     const dep = new Date(r.scheduled_departure).getTime();
     const arr = new Date(r.scheduled_arrival ?? r.scheduled_departure).getTime() + delayMs;
-    return now >= dep - 4 * 3600_000 && now <= arr + 45 * 60_000
+    return sharedRowIsDue({ depMs: dep, arrMs: arr, checkedAt: r.checked_at, now })
       && r.status !== "landed" && r.status !== "cancelled"
       // The traveler's own device may be updating this row right now —
       // only step in once it has gone quiet.
       && (!r.updated_at || now - Date.parse(r.updated_at) > 5 * 60_000);
   });
 
-  // Same shuffle-and-cap as the token loop: bounded subrequests per tick,
-  // nobody starved — the cron runs every minute.
+  // Shuffle so nobody is starved by stable DB order, then put the flights
+  // closest to departure first: with a thirty-hour net there are far more
+  // candidates than the per-tick cap, and a row taxiing right now must never
+  // wait behind one leaving tomorrow morning.
   for (let i = active.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [active[i], active[j]] = [active[j], active[i]];
   }
+  const urgency = (r: Record<string, any>) => {
+    const delayMs = ((r.delay_minutes as number) ?? 0) * 60_000;
+    const dep = new Date(r.scheduled_departure).getTime() + delayMs;
+    // The REAL arrival, not the departure: passing dep for both would put an
+    // aircraft currently in the air past its own arrival grace, scoring it as
+    // out of scope and sorting the most urgent row in the list dead last.
+    const arr = new Date(r.scheduled_arrival ?? r.scheduled_departure).getTime() + delayMs;
+    return sharedRowCheckInterval({ depMs: dep, arrMs: arr, now }) ?? Number.MAX_SAFE_INTEGER;
+  };
+  active.sort((a, b) => urgency(a) - urgency(b));
   for (const row of active.slice(0, 5)) {
     try {
     if (!row.flight_number) continue;

@@ -44,3 +44,46 @@ export function laterISO(a: string | null | undefined,
   if (!Number.isFinite(tb)) return a!;
   return ta >= tb ? a! : b!;
 }
+
+/// How often the cron should re-consult the provider about a shared row, by
+/// how far out the flight is — or null when the row is out of scope entirely.
+///
+/// The window used to start four hours before departure, full stop. Outside
+/// it, `shared_flights` was written by exactly one thing: the traveller's own
+/// device, on its 60-second tracker poll, while their app happened to be
+/// running. So a friend looking at a flight leaving this evening saw whatever
+/// that phone last said — which is why "9h ago" was not a bug at all in that
+/// window, just the truth about how little was watching.
+///
+/// Widening it is nearly free: the fetch rides the same budget-guarded,
+/// shared leg cache the rest of the cron uses, and a flight twenty hours out
+/// needs looking at once an hour, not once a minute. What it buys is the
+/// thing friends actually care about before a trip — a cancellation, a
+/// schedule move, a gate — arriving without anyone opening anything.
+export function sharedRowCheckInterval(a: {
+  depMs: number;
+  arrMs: number;
+  now: number;
+}): number | null {
+  const { depMs, arrMs, now } = a;
+  if (now > arrMs + 45 * 60_000) return null;        // done, and past its grace
+  if (now > depMs - 4 * 3600_000) return 0;          // live window: every tick it is due
+  if (now > depMs - 12 * 3600_000) return 30 * 60_000;
+  if (now > depMs - 30 * 3600_000) return 60 * 60_000;
+  return null;                                        // too far out to be news
+}
+
+/// Whether this row is due, given when it was last consulted.
+export function sharedRowIsDue(a: {
+  depMs: number;
+  arrMs: number;
+  checkedAt?: string | null;
+  now: number;
+}): boolean {
+  const interval = sharedRowCheckInterval(a);
+  if (interval === null) return false;
+  if (!a.checkedAt) return true;
+  const t = Date.parse(a.checkedAt);
+  if (!Number.isFinite(t)) return true;
+  return a.now - t >= interval;
+}
