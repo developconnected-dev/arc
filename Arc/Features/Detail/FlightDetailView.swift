@@ -238,8 +238,10 @@ struct FlightDetailView: View {
             }
             // Airborne: the widget's system-animated progress bar lives INSIDE
             // the banner — one card says everything, instead of a second card
-            // repeating the countdown right below.
-            if flight.isActive {
+            // repeating the countdown right below. Not while the departure is
+            // still unconfirmed: a moving bar IS a claim the flight left, and
+            // the Live Activity's departing view draws none either.
+            if flight.isActive, !flight.isDepartingUnconfirmed {
                 let dep = flight.actualDeparture ?? flight.scheduledDeparture
                 let arr = max(flight.effectiveArrival, dep.addingTimeInterval(60))
                 HStack(spacing: 10) {
@@ -303,7 +305,17 @@ struct FlightDetailView: View {
         // Only claim "live" while the data actually is — saying "Live
         // tracking active" next to a 17-minute-old freshness pill reads as
         // a contradiction, because it is one.
-        if flight.isActive { return flight.isDataFresh ? "Live tracking active" : "Tracking — waiting for fresh data" }
+        if flight.isActive {
+            // Clock-flipped, nothing confirmed: the same words the Live
+            // Activity uses, so the lock screen and this screen can't tell
+            // the user two different stories about the same minute.
+            if flight.isDepartingUnconfirmed {
+                return flight.mode == .air
+                    ? "Waiting for takeoff confirmation"
+                    : "Waiting for departure confirmation"
+            }
+            return flight.isDataFresh ? "Live tracking active" : "Tracking — waiting for fresh data"
+        }
         guard flight.isUpcoming, flight.aircraftRegistration != nil else { return nil }
         if !flight.inboundChecked { return "Checking inbound aircraft" }
         // The best possible pre-departure news (Flighty parity): the tail
@@ -443,12 +455,15 @@ struct FlightDetailView: View {
                     }
                     // Completed flights drop the relative clock ("39d 8h ago"
                     // says nothing useful about a flight already flown).
-                    // An unconfirmed departure can't be "On Time": say what's
-                    // known — how far past the schedule, and that no delay
-                    // has been published.
+                    // An unconfirmed departure can't be "On Time" — but it can
+                    // certainly be late: the airline publishing a revised gate
+                    // time IS a reported delay, and pairing "9m past schedule"
+                    // with "no delay reported" beside a struck-through 11:50
+                    // simply contradicted itself.
                     Text(flight.isCompleted ? statusText
-                         : (!isArrival && flight.isDepartureUnconfirmed)
-                            ? "\(relText) • no delay reported"
+                         : (!isArrival && (flight.isDepartureUnconfirmed || flight.isDepartingUnconfirmed))
+                            ? (flight.isDelayed ? "\(relText) • \(statusText)"
+                                                : "\(relText) • no delay reported")
                             : "\(statusText) • \(relText)")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(tint)
@@ -475,13 +490,31 @@ struct FlightDetailView: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("Show plane at gate \(gate)")
+                        } else if !isArrival, flight.showsPredictedGate,
+                                  let predicted = flight.predictedDepartureGate {
+                            // The airline hasn't gated this yet, but the
+                            // flywheel knows what this number usually gets.
+                            // Muted pill + the smart mark — a habit wears the
+                            // prediction idiom, never the yellow of a fact.
+                            VStack(alignment: .trailing, spacing: 3) {
+                                GatePill(arrow: arrow, gate: predicted, pending: true)
+                                SmartLabel(text: "Predicted", size: 11)
+                            }
+                            .accessibilityLabel("Predicted gate \(predicted), not yet confirmed")
                         } else {
                             // No gate yet: a quiet placeholder, not a yellow
                             // chip that reads like an assignment.
                             GatePill(arrow: arrow, gate: gate ?? "--", pending: gate == nil)
                         }
                     }
-                    if let terminal { Text("Terminal \(terminal)").font(.system(size: 13)).foregroundStyle(.secondary) }
+                    if let terminal {
+                        Text("Terminal \(terminal)").font(.system(size: 13)).foregroundStyle(.secondary)
+                    } else if !isArrival, flight.showsPredictedGate,
+                              let predictedTerminal = flight.predictedDepartureTerminal,
+                              !predictedTerminal.isEmpty {
+                        Text("Usually Terminal \(predictedTerminal)")
+                            .font(.system(size: 13)).foregroundStyle(.secondary)
+                    }
                 }
             }
         }
@@ -494,7 +527,7 @@ struct FlightDetailView: View {
     private func endpointColor(isArrival: Bool) -> Color {
         if flight.status == .cancelled || flight.status == .diverted { return ArcTheme.late }
         guard flight.reportsPunctuality else { return flight.bannerColor }
-        if !isArrival, flight.isDepartureUnconfirmed { return Color(.secondaryLabel) }
+        if !isArrival, flight.isDepartureUnconfirmed || flight.isDepartingUnconfirmed { return Color(.secondaryLabel) }
         let effective = isArrival ? flight.effectiveArrival : flight.effectiveDeparture
         let scheduled = isArrival ? flight.scheduledArrival : flight.scheduledDeparture
         return effective.timeIntervalSince(scheduled) >= 60 ? ArcTheme.late : ArcTheme.onTime

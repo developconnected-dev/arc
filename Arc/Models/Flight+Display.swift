@@ -131,6 +131,29 @@ extension Flight {
         isUpcoming && effectiveDeparture.addingTimeInterval(60) < .now
     }
 
+    /// Believed to be on the ground still: past the gate time, but the
+    /// evidence says taxiing — or says nothing yet, and wheels-up isn't even
+    /// expected. Inside this, EVERY surface hedges ("Departing", "Taxiing",
+    /// "Xm past schedule") rather than assert a departure nobody reported.
+    /// One property so the banner, the endpoint row and the tracking line
+    /// can't drift apart — the detail screen used to say "Departing" and
+    /// "Departed 15m ago" at once.
+    var isDepartingUnconfirmed: Bool {
+        guard isActive, actualDeparture == nil else { return false }
+        return !departurePhase.isOffTheGround
+    }
+
+    /// A take-off some source actually reported. The bar for green, for the
+    /// past tense, and for anything the app states as fact — a flight Arc
+    /// merely *presumes* is airborne (past the expected wheels-up, nobody
+    /// confirming) clears none of them.
+    var isDepartureConfirmed: Bool { departurePhase.isConfirmed }
+
+    /// Airborne only by inference. Renders in the same muted idiom as the
+    /// other hedges: the word can stay natural ("In Air") as long as the
+    /// colour never claims the airline said so.
+    var isPresumedAirborne: Bool { departurePhase == .presumedAirborne }
+
     var isDelayed: Bool { (reportsPunctuality && delayMinutes > 0) || status == .cancelled }
 
     /// True for 30 minutes after landing — kept visible in My Flights during
@@ -188,12 +211,13 @@ extension Flight {
         case .cancelled: return "Cancelled"
         case .landed: return mode == .air ? "Landed" : "Arrived"
         case .active:
-            // Flipped to active by the clock, not by the source: for the first
-            // 20 minutes say "Departing" — the same grace the Live Activity
-            // gives an unconfirmed take-off — rather than "In Air" on faith.
-            if actualDeparture == nil, Date.now >= effectiveDeparture,
-               Date.now < effectiveDeparture.addingTimeInterval(20 * 60) {
-                return "Departing"
+            // Flipped to active by the clock, not by a source. Until the
+            // evidence puts it off the ground, name what it is actually
+            // doing — rolling, or waiting to — rather than "In Air" on faith.
+            switch departurePhase {
+            case .taxiing: return mode == .air ? "Taxiing" : "Departing"
+            case .beforeDeparture, .departing: return "Departing"
+            case .presumedAirborne, .airborne: break
             }
             let moving = mode.inTransitTitle
             guard reportsPunctuality, delayMinutes > 0 else { return moving }
@@ -202,6 +226,10 @@ extension Flight {
         case .boarding: return "Boarding"
         case .gateClosed: return mode == .air ? "Gate Closed" : "Departing"
         default:
+            // A source may still call it scheduled while something has
+            // watched the aircraft push back and roll. Saying so beats both
+            // "Boarding" and "Not yet departed".
+            if case .taxiing = departurePhase { return mode == .air ? "Taxiing" : "Departing" }
             if isDepartureUnconfirmed { return "Not yet departed" }
             // Nothing published a revised time, so say where the time came from
             // rather than claiming it is being kept to.
@@ -238,7 +266,9 @@ extension Flight {
     var cardTopRightColor: Color {
         if status == .gateClosed { return ArcTheme.late }   // urgency — gate is closing/closed
         if showsPrediction { return .orange }               // predicted, not airline-confirmed
-        if isDepartureUnconfirmed { return Color(.secondaryLabel) }
+        if isDepartureUnconfirmed || isDepartingUnconfirmed || isPresumedAirborne {
+            return Color(.secondaryLabel)
+        }
         return (isSoon || isActive || isRecentlyLanded || isBoarding) ? accentColor : Color(.secondaryLabel)
     }
 
@@ -314,8 +344,18 @@ extension Flight {
         case .diverted: return "Diverted"
         case .landed: return mode.arrivedVerb
         case .active:
-            if actualDeparture == nil, Date.now >= effectiveDeparture,
-               Date.now < effectiveDeparture.addingTimeInterval(20 * 60) { return "Departing" }
+            switch departurePhase {
+            case .taxiing(let since):
+                guard mode == .air else { return "Departing" }
+                // Flighty's framing, and the right one: the number a person
+                // in seat 14B actually wants is how long this has gone on.
+                // "Taxiing · 0m" is noise; the number earns its place once
+                // there is a number worth reading.
+                guard let since, Date.now.timeIntervalSince(since) >= 60 else { return "Taxiing" }
+                return "Taxiing · \(compactAgo(since))"
+            case .beforeDeparture, .departing: return "Departing"
+            case .presumedAirborne, .airborne: break
+            }
             if let t = compactUntil(effectiveArrival) { return "\(mode.arrivingVerb) in \(t)" }
             return "Arrival not yet confirmed"
         default:
@@ -331,8 +371,11 @@ extension Flight {
     var bannerColor: Color {
         if status == .cancelled || status == .diverted { return ArcTheme.late }
         if isDelayed { return ArcTheme.late }
-        // "Departure not yet confirmed" is not a green state.
-        if isDepartureUnconfirmed { return Color(.secondaryLabel) }
+        // "Departure not yet confirmed" is not a green state — and neither is
+        // "Departing", "Taxiing", or an airborne Arc has only presumed.
+        if isDepartureUnconfirmed || isDepartingUnconfirmed || isPresumedAirborne {
+            return Color(.secondaryLabel)
+        }
         // Green is the app saying "this is running to plan". A timetable has no
         // opinion on that, so a sailing gets the neutral treatment rather than
         // a reassurance nobody issued.
@@ -366,7 +409,15 @@ extension Flight {
         if let t = compactUntil(effectiveDeparture) { return "Departs in \(t)" }
         // Only a confirmed departure gets "ago"; an unconfirmed one already
         // says so in the status line and shouldn't add a past tense to it.
-        if isDepartureUnconfirmed { return "\(compactAgo(effectiveDeparture)) past schedule" }
+        // The clock-flipped "Departing" hedge is the same claim in a
+        // different status: while nobody has reported a take-off, "Departed
+        // 15m ago" is an assertion the app can't back.
+        if isDepartureUnconfirmed || isDepartingUnconfirmed || isPresumedAirborne {
+            return "\(compactAgo(effectiveDeparture)) past schedule"
+        }
+        // A device-observed take-off is confirmed the moment it happens, so
+        // "Departed 0m ago" is now a state people actually see.
+        if Date.now.timeIntervalSince(effectiveDeparture) < 60 { return "Just departed" }
         return "Departed \(compactAgo(effectiveDeparture)) ago"
     }
 

@@ -147,3 +147,59 @@ test("weekly: completes a hollow day from the shifted neighbour, the day's own f
   assert.equal(out.dep_gate, "A12");
   assert.equal(out.data_tier, "scheduled");
 });
+
+/// AeroDataBox documents `runwayTime` as "Actual / estimated time on the
+/// runway" — the same field carries a projection for a flight still at the
+/// gate and the wheels-up fact once it moved. The provider's status string is
+/// the only thing that tells them apart, so *_actual must be gated on it.
+import { confirmedRunwayTime } from "../src/legs.ts";
+
+const NOW = new Date("2026-09-18T10:00:00Z");
+
+test("a delayed flight's projected runway time is not an actual departure", () => {
+  assert.equal(confirmedRunwayTime("2026-09-18T10:30:00Z", "Delayed", "dep", NOW), null);
+  assert.equal(confirmedRunwayTime("2026-09-18T09:30:00Z", "Boarding", "dep", NOW), null);
+  assert.equal(confirmedRunwayTime("2026-09-18T09:30:00Z", "GateClosed", "dep", NOW), null);
+  assert.equal(confirmedRunwayTime("2026-09-18T09:30:00Z", "Expected", "dep", NOW), null);
+});
+
+test("a departed or en-route flight's runway time is the wheels-up fact", () => {
+  for (const s of ["Departed", "EnRoute", "Approaching", "Arrived", "Diverted"]) {
+    assert.equal(confirmedRunwayTime("2026-09-18T09:30:00Z", s, "dep", NOW), "2026-09-18T09:30:00.000Z", s);
+  }
+});
+
+test("arrival runway time only counts once the flight has actually arrived", () => {
+  assert.equal(confirmedRunwayTime("2026-09-18T09:50:00Z", "EnRoute", "arr", NOW), null);
+  assert.equal(confirmedRunwayTime("2026-09-18T09:50:00Z", "Approaching", "arr", NOW), null);
+  assert.equal(confirmedRunwayTime("2026-09-18T09:50:00Z", "Arrived", "arr", NOW), "2026-09-18T09:50:00.000Z");
+  assert.equal(confirmedRunwayTime("2026-09-18T09:50:00Z", "Diverted", "arr", NOW), "2026-09-18T09:50:00.000Z");
+});
+
+test("unknown status trusts a runway time only once it is safely in the past", () => {
+  assert.equal(confirmedRunwayTime("2026-09-18T10:20:00Z", "Unknown", "dep", NOW), null);
+  assert.equal(confirmedRunwayTime("2026-09-18T09:55:00Z", "Unknown", "dep", NOW), null, "inside the grace window");
+  assert.equal(confirmedRunwayTime("2026-09-18T09:30:00Z", "Unknown", "dep", NOW), "2026-09-18T09:30:00.000Z");
+  assert.equal(confirmedRunwayTime("2026-09-18T09:30:00Z", undefined, "arr", NOW), "2026-09-18T09:30:00.000Z");
+});
+
+test("no runway time, no actual", () => {
+  assert.equal(confirmedRunwayTime(null, "Departed", "dep", NOW), null);
+  assert.equal(confirmedRunwayTime("", "Departed", "dep", NOW), null);
+});
+
+/// AeroDataBox flips status to Departed at off-block, while runwayTime can
+/// still be a projection for the taxi ahead. A take-off time that has not
+/// happened yet is an estimate by definition.
+test("a departure runway time still in the future is an estimate even when the status says Departed", () => {
+  assert.equal(confirmedRunwayTime("2026-09-18T10:20:00Z", "Departed", "dep", NOW), null);
+  assert.equal(confirmedRunwayTime("2026-09-18T09:58:00Z", "Departed", "dep", NOW), "2026-09-18T09:58:00.000Z");
+});
+
+import { movementIsLive } from "../src/legs.ts";
+
+test("movementIsLive reads AeroDataBox's quality array", () => {
+  assert.equal(movementIsLive(["Basic", "Live"]), true);
+  assert.equal(movementIsLive(["Basic", "Approximate"]), false);
+  assert.equal(movementIsLive(undefined), false);
+});

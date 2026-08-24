@@ -452,20 +452,6 @@ enum AirportConnectTimes {
 /// card degrades a number at a time rather than failing.
 enum ConnectionInsights {
 
-    /// The observed gate history for a flight, per the Worker's `/gates/predict`.
-    private struct GatePrediction: Codable {
-        let gate: String?
-        let terminal: String?
-        let agreeing: Int
-        let samples: Int
-        let confidence: Double
-    }
-
-    /// Below this, the "usual gate" is noise rather than a pattern and is not
-    /// worth putting a distance next to.
-    private static let minimumGateConfidence = 0.5
-    private static let minimumGateSamples = 3
-
     /// What the network side needs to know, as plain values.
     ///
     /// `Flight` is a SwiftData `@Model` and is not Sendable, so it cannot cross
@@ -538,27 +524,12 @@ enum ConnectionInsights {
         if let assigned, !assigned.trimmingCharacters(in: .whitespaces).isEmpty {
             return ResolvedGate(ref: assigned, predicted: false)
         }
-        guard let prediction = await predictedGate(flight: flight,
-                                                   airport: hub, direction: direction),
-              let gate = prediction.gate,
-              prediction.samples >= minimumGateSamples,
-              prediction.confidence >= minimumGateConfidence else { return nil }
+        // Same fetch and same confidence bar as the flight detail's predicted
+        // gate — the two surfaces must never disagree about the same habit.
+        guard let prediction = await FlightAPIClient.shared.gatePrediction(
+                  flight: flight, airport: hub, direction: direction),
+              prediction.isConfident, let gate = prediction.gate else { return nil }
         return ResolvedGate(ref: gate, predicted: true)
-    }
-
-    private static func predictedGate(flight: String, airport: String,
-                                      direction: String) async -> GatePrediction? {
-        let base = UserDefaults.standard.string(forKey: "apiEndpoint")
-            ?? "https://arc-backend.owncalai.workers.dev"
-        guard var components = URLComponents(string: base + "/gates/predict") else { return nil }
-        components.queryItems = [
-            URLQueryItem(name: "flight", value: flight),
-            URLQueryItem(name: direction, value: airport),
-        ]
-        guard let url = components.url,
-              let (data, response) = try? await URLSession.shared.data(from: url),
-              let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-        return try? JSONDecoder().decode(GatePrediction.self, from: data)
     }
 
     // MARK: - Security

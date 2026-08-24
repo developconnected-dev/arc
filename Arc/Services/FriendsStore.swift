@@ -394,7 +394,13 @@ final class FriendsStore {
         for entry in friends {
             for f in entry.flights where f.status != "cancelled" {
                 let item = FeedItem(user: entry.user, flight: f)
-                if FriendFlightMath.isAirborne(f, at: now), let arr = FriendFlightMath.arrival(f) {
+                // Bucket 0 is "happening now", and that starts at the gate,
+                // not at wheels-up: a friend whose aircraft has pushed back
+                // and is queueing for the runway used to qualify only because
+                // isAirborne lied about them. With honest phases they would
+                // have fallen through every bucket and disappeared from the
+                // feed for the whole taxi — the exact minutes people watch.
+                if FriendFlightMath.isUnderway(f, at: now), let arr = FriendFlightMath.arrival(f) {
                     ranked.append((item, 0, arr.timeIntervalSince1970))
                 } else if let dep = FriendFlightMath.departure(f), dep > now {
                     ranked.append((item, 1, dep.timeIntervalSince1970))
@@ -418,7 +424,7 @@ final class FriendsStore {
         var out: [(item: FeedItem, arr: Date)] = []
         for entry in friends {
             for f in entry.flights where f.status != "cancelled" {
-                guard !FriendFlightMath.isAirborne(f, at: now),
+                guard !FriendFlightMath.isUnderway(f, at: now),
                       let arr = FriendFlightMath.arrival(f),
                       arr <= now.addingTimeInterval(-FriendFlightMath.landedGrace),
                       arr > now.addingTimeInterval(-14 * 24 * 3600)
@@ -464,6 +470,11 @@ final class FriendsStore {
         flight.scheduledDeparture = scheduledDep
         flight.scheduledArrival = scheduledArr
         flight.estimatedArrival = DateHelpers.parseAPIDate(f.estimated_arrival)
+        // A reported take-off/landing is the difference between "Departed
+        // 15m ago" and "15m past schedule" — the reader must hedge exactly
+        // where the friend's own device hedges.
+        flight.actualDeparture = DateHelpers.parseAPIDate(f.actual_departure)
+        flight.actualArrival = DateHelpers.parseAPIDate(f.actual_arrival)
         flight.statusRaw = FlightStatus.heal(rawValue: f.status, scheduledArrival: scheduledArr).rawValue
         flight.delayMinutes = f.delay_minutes
         flight.departureGate = f.departure_gate
@@ -471,6 +482,33 @@ final class FriendsStore {
         flight.baggageClaim = f.baggage_claim
         flight.liveLat = f.live_lat
         flight.liveLon = f.live_lon
+        // The row IS this flight's last refresh — it was written by the
+        // friend's device at `updated_at`. Without carrying that across, the
+        // detail screen said "Schedule • No live data yet" about a row
+        // mirrored a minute ago, on every friend flight, forever.
+        flight.lastStatusUpdate = DateHelpers.parseAPIDate(f.updated_at)
+        if f.live_lat != nil || f.live_lon != nil {
+            flight.liveUpdatedAt = DateHelpers.parseAPIDate(f.updated_at)
+        }
+        // Same clock-healing the feed chip and map bubble already apply
+        // (`FriendFlightMath.isAirborne`): the row carries the SOURCE's
+        // status, which lags the clock, and the detail screen must not
+        // contradict the chip that opened it ("LANDS IN 1H" over a sheet
+        // saying "Departure not yet confirmed"). actualDeparture stays nil,
+        // so the detail hedges ("Departing", "past schedule") exactly like
+        // the friend's own device until a real departure is reported.
+        // The evidence itself crosses, so the detail sheet reaches the same
+        // conclusion as the chip that opened it rather than re-deriving one
+        // from the clock.
+        flight.estimatedTakeoff = DateHelpers.parseAPIDate(f.est_takeoff)
+        flight.groundStateRaw = f.ground_state
+        flight.groundObservedAt = DateHelpers.parseAPIDate(f.ground_observed_at)
+        flight.taxiStartedAt = DateHelpers.parseAPIDate(f.taxi_started_at)
+        flight.aircraftRegistration = f.aircraft_registration
+        flight.aircraftICAO24 = f.aircraft_icao24
+        if flight.isUpcoming, FriendFlightMath.isAirborne(f) {
+            flight.statusRaw = FlightStatus.active.rawValue
+        }
         return flight
     }
 
@@ -594,11 +632,54 @@ enum FriendFlightMath {
     }
 
     /// Is this flight in the air right now (clock-healed)?
+    /// The same question the traveller's own app answers, from the row a
+    /// friend can see. Their phone is online while hers is in airplane mode,
+    /// so this is where "Taxiing for 14m" comes from.
+    static func evidence(_ f: ArcSupabase.SharedFlight) -> DepartureEvidence {
+        DepartureEvidence(
+            offBlock: departure(f) ?? .distantPast,
+            estimatedTakeoff: DateHelpers.parseAPIDate(f.est_takeoff),
+            actualDeparture: DateHelpers.parseAPIDate(f.actual_departure),
+            groundState: f.ground_state,
+            groundObservedAt: DateHelpers.parseAPIDate(f.ground_observed_at),
+            taxiStartedAt: DateHelpers.parseAPIDate(f.taxi_started_at),
+            lastSeenOnGround: nil,
+            taxiPriorMinutes: DepartureEvidence.defaultTaxiPrior,
+            isLiveCovered: f.tripMode == .air)
+    }
+
+    static func departurePhase(_ f: ArcSupabase.SharedFlight, at now: Date = .now) -> DeparturePhase {
+        if f.status == "landed" || f.status == "diverted" { return .airborne }
+        if f.status == "cancelled" { return .beforeDeparture }
+        let phase = evidence(f).phase(at: now)
+        if f.status == "active", phase == .beforeDeparture { return .airborne }
+        return phase
+    }
+
+    /// How long the aircraft has been rolling, when someone has seen it.
+    static func taxiElapsed(_ f: ArcSupabase.SharedFlight, at now: Date = .now) -> TimeInterval? {
+        guard case .taxiing(let since) = departurePhase(f, at: now), let since else { return nil }
+        return max(0, now.timeIntervalSince(since))
+    }
+
+    /// Under way in the sense the feed and the map care about: the journey
+    /// has started and hasn't ended. Includes the taxi, which `isAirborne`
+    /// deliberately does not — being off the ground is a stronger claim, and
+    /// the surfaces that state it need the stronger one.
+    static func isUnderway(_ f: ArcSupabase.SharedFlight, at now: Date = .now) -> Bool {
+        if f.status == "cancelled" || f.status == "landed" { return false }
+        guard let dep = departure(f), let arr = arrival(f) else { return f.status == "active" }
+        return now >= dep && now <= arr
+    }
+
     static func isAirborne(_ f: ArcSupabase.SharedFlight, at now: Date = .now) -> Bool {
         if f.status == "cancelled" { return false }
-        guard let dep = departure(f), let arr = arrival(f) else { return f.status == "active" }
+        guard departure(f) != nil, let arr = arrival(f) else { return f.status == "active" }
         if f.status == "landed" { return false }
-        return now >= dep && now <= arr
+        // Off the ground means off the ground: past the gate time is not the
+        // same claim, and the difference is the taxi. The feed chip used to
+        // say "IN FLIGHT" the instant the clock passed the schedule.
+        return departurePhase(f, at: now).isOffTheGround && now <= arr
     }
 
     /// 0…1 along the route, derived from times — moves smoothly even though
@@ -629,7 +710,7 @@ enum FriendFlightMath {
     static func spotlight(from flights: [ArcSupabase.SharedFlight],
                           at now: Date = .now) -> ArcSupabase.SharedFlight? {
         let valid = flights.filter { $0.status != "cancelled" }
-        if let flying = valid.first(where: { isAirborne($0, at: now) }) { return flying }
+        if let flying = valid.first(where: { isUnderway($0, at: now) }) { return flying }
         let upcoming = valid
             .compactMap { f in departure(f).map { (f, $0) } }
             .filter { $0.1 > now && $0.1 < now.addingTimeInterval(36 * 3600) }

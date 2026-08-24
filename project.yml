@@ -1,4 +1,11 @@
 name: Arc
+# Signing team for every target. It lives here because xcodegen regenerates
+# the project file: set only in Xcode, it is wiped the next time anyone runs
+# `xcodegen generate`, and nothing notices until a DEVICE build fails —
+# simulator builds do not need a team.
+settings:
+  base:
+    DEVELOPMENT_TEAM: GQZHJ59F4R
 options:
   bundleIdPrefix: com.arc
   deploymentTarget:

@@ -14,7 +14,7 @@ export function apnsConfigured(env: ApnsEnv): boolean {
 // Cached per isolate; APNs accepts tokens up to 60 min old.
 let cachedJwt: { token: string; issuedAt: number } | null = null;
 
-async function apnsJwt(env: ApnsEnv): Promise<string> {
+export async function apnsJwt(env: ApnsEnv): Promise<string> {
   if (cachedJwt && Date.now() - cachedJwt.issuedAt < 45 * 60 * 1000) {
     return cachedJwt.token;
   }

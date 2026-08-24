@@ -103,6 +103,35 @@ final class Flight {
     var arrivalTerminal: String?
     var baggageClaim: String?
 
+    /// The gate this flight number USUALLY gets, from the gate-observation
+    /// flywheel (`/gates/predict`) — filled in while the airline hasn't
+    /// published one, which is the entire point: the walk to the pier can
+    /// start before the carrier's own app says a word. A habit is not an
+    /// assignment, so display renders it in the prediction idiom (never the
+    /// yellow pill) and the real gate replaces it the moment one is filed.
+    var predictedDepartureGate: String?
+    var predictedDepartureTerminal: String?
+
+    // MARK: - Departure evidence
+    //
+    // What Arc actually knows about whether this leg has left the ground —
+    // see `DepartureEvidence`. All optional: SwiftData migrates them in as
+    // nil, and nil simply means "no evidence, fall back to the clock".
+
+    /// The provider's own estimate of wheels-up, while it is still unconfirmed.
+    var estimatedTakeoff: Date?
+    /// Last ADS-B classification: at_gate / taxiing / airborne.
+    var groundStateRaw: String?
+    var groundObservedAt: Date?
+    /// When the aircraft was first seen rolling — what "Taxiing for 14m" counts from.
+    var taxiStartedAt: Date?
+    /// The last moment a source that could have reported a departure showed none.
+    var lastSeenOnGround: Date?
+    /// This airport's learned taxi-out for this hour, from /taxi/prior.
+    var taxiPriorMinutes: Int?
+    /// Whether the provider has live coverage of this departure at all.
+    var departureLiveCovered: Bool?
+
     // Aircraft
     var aircraftType: String?            // e.g. "Airbus A340-300"
     var aircraftRegistration: String?    // e.g. "HB-JMB"
@@ -469,6 +498,14 @@ final class Flight {
     /// has admitted — the only case where showing it adds information.
     var showsPrediction: Bool {
         (status == .scheduled || status == .boarding) && predictedDelayMinutes >= delayMinutes + 10
+    }
+
+    /// Same rule for the usual-gate guess: shown only while it adds
+    /// information — an upcoming air leg the airline hasn't gated yet. The
+    /// moment a real gate is filed, fact replaces habit everywhere.
+    var showsPredictedGate: Bool {
+        mode == .air && isUpcoming && departureGate == nil
+            && predictedDepartureGate?.isEmpty == false
     }
 
     /// Append a new position breadcrumb. Called by FlightTracker each time
