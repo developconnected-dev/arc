@@ -1,5 +1,5 @@
 import { apnsConfigured, sendLiveActivityPush, sendAlertPush, apnsJwt } from "./apns";
-import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, shiftLegToDay, completeLeg, confirmedRunwayTime, movementIsLive } from "./legs";
+import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, shiftLegToDay, completeLeg, confirmedRunwayTime, movementIsLive, localDay, departsOnLocalDate } from "./legs";
 import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRIOR } from "./ground";
 import { predictGate, type GateObservation } from "./gates";
 import { contentState } from "./activity";
@@ -113,6 +113,12 @@ function mapLeg(f: Record<string, any>): Record<string, unknown> {
     arr_city: arrA.municipalityName ?? null,
     dep_scheduled: toISO(depSched),
     arr_scheduled: toISO(arrSched),
+    // The calendar date at the DEPARTURE airport, kept because it is the only
+    // thing that can tell this leg from the one a day either side of it. The
+    // provider indexes by local date and answers with departures AND arrivals
+    // (`dateLocalRole` defaults to `Both`), so a flight landing after midnight
+    // comes back on two dates — see `departsOnLocalDate`.
+    dep_local_date: localDay(dep.scheduledTime?.local),
     status: normalizeStatus(f.status),
     dep_gate: dep.gate ?? null,
     dep_terminal: dep.terminal ?? null,
@@ -925,9 +931,18 @@ export default {
               ?? fallbackBoardTime;
             const leg = repairLegForRoute(raw, forRoute, board, date);
             if (!leg) continue;
+            // The searched date is a LOCAL departure date, and when the leg
+            // carries its own the comparison is exact — which is the only way
+            // to separate a route's two consecutive operations when it lands
+            // after midnight (see `departsOnLocalDate`).
+            if (!departsOnLocalDate(leg, date)) continue;
             // Either timestamp dates the leg. Requiring the departure one
             // dropped every record whose departure side the provider had
             // hollowed out — the same flights the route filter was dropping.
+            // This stays the answer for a leg with no local date of its own:
+            // one repaired from a departure board, or cached before they were
+            // kept. ±1 day, because a UTC stamp and a local date legitimately
+            // disagree by one.
             if (!sameFlightDay(leg["dep_scheduled"] || leg["arr_scheduled"], date)) continue;
             if (results.some(r => r["flight_number"] === leg["flight_number"]
                                && r["dep_scheduled"] === leg["dep_scheduled"])) continue;
@@ -998,8 +1013,19 @@ export default {
       // every family device, the cron, and share pages for its TTL.
       const day = date ?? new Date().toISOString().slice(0, 10);
       const { legs: cachedLegs, cache } = await legsWithWeeklyFallback(env, number, day, "interactive");
-      if (cachedLegs && cachedLegs.length > 0) {
-        return Response.json(cachedLegs, { headers: { ...cors, "x-arc-cache": cache } });
+      // `date` is the LOCAL departure date — every caller builds it in the
+      // departure airport's own zone, and so does the provider's index. What
+      // the provider does NOT do is restrict its answer to departures: a
+      // flight landing after midnight also matches the date it lands on, so
+      // asking about the 25th returned the 24th's operation as well. Search
+      // showed both, a day apart and identical on screen, and someone added
+      // the wrong one. A dateless query is a live lookup with no day to hold
+      // it to, and is left alone.
+      const onDay = date
+        ? (cachedLegs ?? []).filter(l => departsOnLocalDate(l, date))
+        : (cachedLegs ?? []);
+      if (onDay.length > 0) {
+        return Response.json(onDay, { headers: { ...cors, "x-arc-cache": cache } });
       }
 
       // 2. Fallback: AirLabs. Its /flight endpoint is REAL-TIME ONLY — it
@@ -1049,6 +1075,10 @@ export default {
           const { legs } = await legsWithWeeklyFallback(env, resolved.operating, day, "interactive");
           const marketing = number.replace(/\s+/g, "").toUpperCase();
           const onRoute = (legs ?? [])
+            // Same day rule as the direct answer above: the operating flight
+            // has consecutive operations too, and a codeshare traveller is no
+            // less able to add yesterday's by mistake.
+            .filter(l => !date || departsOnLocalDate(l, date))
             .map(l => repairLegForRoute({ ...l, marketing_number: marketing },
                                         { dep: resolved.dep, arr: resolved.arr },
                                         resolved.depTimeUTC || null, day))

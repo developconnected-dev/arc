@@ -203,3 +203,73 @@ test("movementIsLive reads AeroDataBox's quality array", () => {
   assert.equal(movementIsLive(["Basic", "Approximate"]), false);
   assert.equal(movementIsLive(undefined), false);
 });
+
+// ── The date a flight departs on is a LOCAL date, and only the provider knows it ──
+//
+// `/flights/number/LX2146/2026-08-25` answers with TWO legs, and the provider's
+// own spec says why: `dateLocalRole` defaults to `Both`, so a date matches a
+// flight that DEPARTS on it *or* ARRIVES on it. LX2146 lands at 00:05, so the
+// 24th's operation arrives on the 25th and comes back alongside the 25th's.
+//
+// Arc asks the question a traveller asks — "the flight I am taking on the
+// 25th" — so the answer has to be narrowed to departures. Unnarrowed, a search
+// for the 25th listed yesterday's operation FIRST, identical in every visible
+// respect (same number, same 22:00 → 00:05, same route), and tapping it added
+// a flight for the wrong day.
+//
+// The comparison has to happen in the departure airport's own timezone: a
+// 23:30 departure from Los Angeles carries a UTC timestamp on the following
+// day, and judging it by that would move the flight off the date its own
+// traveller is standing at the airport on.
+import { localDay, departsOnLocalDate } from "../src/legs.ts";
+
+test("the local departure date is read off the provider's own local timestamp", () => {
+  assert.equal(localDay("2026-08-24 22:00+02:00"), "2026-08-24");
+  assert.equal(localDay("2026-08-25T00:05:00+02:00"), "2026-08-25");
+  assert.equal(localDay(undefined), null);
+  assert.equal(localDay("not a time"), null);
+});
+
+test("the leg that departs the day before is not an answer about this day", () => {
+  const yesterdays = { dep_scheduled: "2026-08-24T20:00:00.000Z", dep_local_date: "2026-08-24" };
+  const todays = { dep_scheduled: "2026-08-25T20:00:00.000Z", dep_local_date: "2026-08-25" };
+  assert.equal(departsOnLocalDate(yesterdays, "2026-08-25"), false);
+  assert.equal(departsOnLocalDate(todays, "2026-08-25"), true);
+});
+
+test("a late-evening departure keeps its own local date, not its UTC one", () => {
+  // 23:30 in Los Angeles on the 25th is 06:30Z on the 26th. By the UTC stamp
+  // this leg belongs to the 26th; its traveller is at the airport on the 25th.
+  const leg = { dep_scheduled: "2026-08-26T06:30:00.000Z", dep_local_date: "2026-08-25" };
+  assert.equal(departsOnLocalDate(leg, "2026-08-25"), true);
+  assert.equal(departsOnLocalDate(leg, "2026-08-26"), false);
+});
+
+test("a leg cached before local dates were kept is not hidden", () => {
+  // Payloads written by the previous version carry no local date at all, and
+  // they stay readable for as long as their TTL. Filtering them out would blank
+  // real flights out of search; keeping them is exactly the old behaviour.
+  assert.equal(departsOnLocalDate({ dep_scheduled: "2026-08-24T20:00:00.000Z" }, "2026-08-25"), true);
+});
+
+test("weekly: an inferred neighbour carries the local date it was shifted TO", () => {
+  // Otherwise the timetable Arc infers for a provider hole is filtered out by
+  // the very date it was inferred for.
+  const neighbour = {
+    flight_number: "LH1751", dep_iata: "ATH", arr_iata: "MUC",
+    dep_scheduled: "2026-09-25T09:45:00.000Z", arr_scheduled: "2026-09-25T11:30:00.000Z",
+    dep_local_date: "2026-09-25",
+  };
+  const shifted = shiftLegToDay(neighbour, "2026-09-25", "2026-09-18")!;
+  assert.equal(shifted["dep_local_date"], "2026-09-18");
+  assert.equal(departsOnLocalDate(shifted, "2026-09-18"), true);
+});
+
+test("weekly: a neighbour that never carried a local date does not acquire one", () => {
+  const neighbour = {
+    flight_number: "LH1751", dep_iata: "ATH", arr_iata: "MUC",
+    dep_scheduled: "2026-09-25T09:45:00.000Z", arr_scheduled: "2026-09-25T11:30:00.000Z",
+  };
+  const shifted = shiftLegToDay(neighbour, "2026-09-25", "2026-09-18")!;
+  assert.equal(shifted["dep_local_date"], null);
+});
