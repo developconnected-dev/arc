@@ -16,7 +16,7 @@ settings:
     # App Store Connect will not accept a build number it has already seen for
     # a given MARKETING_VERSION: this must go UP for every upload.
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: 32
+    CURRENT_PROJECT_VERSION: 33
 options:
   bundleIdPrefix: com.arc
   deploymentTarget:

@@ -35,6 +35,7 @@
 		3C9CBF3FB7BC17B415D90698 /* MyFlightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A99FE65B13FFE0D0203987D5 /* MyFlightsView.swift */; };
 		3E3DF80CFC36DE1D86451DDC /* FriendAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD91C1A4FD9CF312542C0F91 /* FriendAlerts.swift */; };
 		3ECCF6ABE970433007FAB23D /* TripInvites.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDD5E5B4DD8F4AFBCE5230CD /* TripInvites.swift */; };
+		3F12F7487ED91CC06762237E /* APNsEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1FF0EF36481E90431C9BF5 /* APNsEnvironment.swift */; };
 		45B0F3CA74F6ED6B7180B0E9 /* FlightAudienceSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 079E88135CF68418B0BFA49F /* FlightAudienceSheet.swift */; };
 		47733FC27C873C75889EB557 /* InboundMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3BA60104125C5743ECF86F8 /* InboundMonitor.swift */; };
 		4BE4CB84B06880211275E457 /* FlightLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB40E7D146DE8662884B50D /* FlightLiveActivity.swift */; };
@@ -261,6 +262,7 @@
 		FA61B45722DDEC3425D45B09 /* DepartureEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DepartureEvidence.swift; sourceTree = "<group>"; };
 		FB709548B711E7098E93A102 /* ScheduleBackfill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleBackfill.swift; sourceTree = "<group>"; };
 		FC305EC99186FF91058284B9 /* FriendGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendGroups.swift; sourceTree = "<group>"; };
+		FF1FF0EF36481E90431C9BF5 /* APNsEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APNsEnvironment.swift; sourceTree = "<group>"; };
 		FF41791DE630A7BDBA2550E7 /* FriendAlertsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendAlertsTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -377,6 +379,7 @@
 			children = (
 				1A223847338A51B850FB3B5A /* AircraftImage.swift */,
 				0E523F671AB6E8AFA8FCF1C3 /* AirlineBranding.swift */,
+				FF1FF0EF36481E90431C9BF5 /* APNsEnvironment.swift */,
 				D055CC753814BAE54C3C7094 /* BackgroundFlightUpdater.swift */,
 				4C1301041A06C6716593057B /* ConnectionPlanner.swift */,
 				B2ED974C878C66DFB8E89AFE /* DateHelpers.swift */,
@@ -709,6 +712,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3F12F7487ED91CC06762237E /* APNsEnvironment.swift in Sources */,
 				74936AF03801B1DEC0E40739 /* AddFlightView.swift in Sources */,
 				6C55946D9BE8B1E555ADBF45 /* AircraftImage.swift in Sources */,
 				7739FB9D6EB985B087C1BE8A /* AircraftSilhouette.swift in Sources */,
@@ -853,7 +857,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 32;
+				CURRENT_PROJECT_VERSION = 33;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = GQZHJ59F4R;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -986,7 +990,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 32;
+				CURRENT_PROJECT_VERSION = 33;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = GQZHJ59F4R;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

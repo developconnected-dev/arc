@@ -85,11 +85,11 @@ final class RemotePush: NSObject, UIApplicationDelegate {
             setRegistered(false)
             return
         }
-        #if DEBUG
-        let env = "sandbox"
-        #else
-        let env = "production"
-        #endif
+        // The signing profile, not the build configuration — see
+        // `APNsEnvironment`. A Release build on a development profile holds a
+        // sandbox token and used to report "production", so every push to it
+        // was refused and the token dropped as dead.
+        let env = APNsEnvironment.current
         guard let body = try? JSONSerialization.data(
             withJSONObject: ["token": token, "env": env, "user_id": userId]) else { return }
         setRegistered(await FlightAPIClient.shared.registerDeviceToken(body))
