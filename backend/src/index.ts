@@ -3414,6 +3414,11 @@ async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[
   // window would do no work below anyway, so it must not occupy a slot.
   const owners = new Set(upcoming.map(u => String(u["user_id"] ?? "")));
   const candidates = startRows.filter(r => r.user_id && owners.has(r.user_id));
+  // Which of the three ways this can come to nothing: no flight in the window,
+  // a flight whose owner has no start token, or a token with no owner. They
+  // are three different bugs and they all used to look like silence.
+  console.log("LA starts:", upcoming.length, "upcoming,", startRows.length, "start tokens,",
+              candidates.length, "eligible");
 
   // iOS mints a NEW push-to-start token whenever it rotates one, and every one
   // of them was kept: 187 rows had accumulated for a single tester. They cost
@@ -3490,10 +3495,13 @@ async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[
       };
       const { status: st, reason } = await sendLiveActivityPush(
         env, startRow.token, startRow.apns_env, APP_BUNDLE_ID, payload, 10);
-      if (st !== 200) {
-        console.error("LA push-to-start non-200:", st, reason ?? "(no reason)",
-                      f.flight_number, startRow.token.slice(0, 8));
-      }
+      // Both outcomes, not just the failures. A push-to-start that WORKED
+      // wrote nothing anywhere, so the only evidence a card had been started
+      // server-side was the card itself — on a phone, in someone's pocket.
+      // That is not something a deployment can be checked against.
+      console.log("LA push-to-start:", st === 200 ? "sent" : "FAILED " + st,
+                  reason ?? "", f.flight_number, "dep", String(f.scheduled_departure).slice(0, 16),
+                  "token", startRow.token.slice(0, 8));
       if (tokenIsDead(st, reason)) {
         await sbService(env, "DELETE", `/live_activity_tokens?token=eq.${encodeURIComponent(startRow.token)}`);
         break;
