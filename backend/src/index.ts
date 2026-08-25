@@ -1,5 +1,5 @@
 import { apnsConfigured, sendLiveActivityPush, sendAlertPush, apnsJwt, tokenIsDead } from "./apns";
-import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, shiftLegToDay, completeLeg, confirmedRunwayTime, movementIsLive, localDay, departsOnLocalDate } from "./legs";
+import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, templatesFromNeighbour, completeLeg, confirmedRunwayTime, movementIsLive, localDay, departsOnLocalDate, answerForDay } from "./legs";
 import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRIOR } from "./ground";
 import { predictGate, type GateObservation } from "./gates";
 import { contentState } from "./activity";
@@ -347,10 +347,7 @@ async function legsWithWeeklyFallback(
     if (nMs < todayMs) continue;
     const nDay = new Date(nMs).toISOString().slice(0, 10);
     const n = await fetchLegsCached(env, "flight", number, nDay, source);
-    const templates = ((n.legs ?? []) as Record<string, unknown>[])
-      .filter(isCompleteLeg)
-      .map(l => shiftLegToDay(l, nDay, day))
-      .filter((l): l is Record<string, unknown> => l !== null);
+    const templates = templatesFromNeighbour(n.legs as Record<string, unknown>[] | null, nDay, day);
     if (templates.length === 0) continue;
     // The day's own hollow record keeps whatever it did say (its own time,
     // a gate); the neighbour fills the rest.
@@ -1011,26 +1008,25 @@ export default {
 
       // 1. Shared cache → AeroDataBox (budget-guarded). One answer serves
       // every family device, the cron, and share pages for its TTL.
+      //
+      // `date` is a LOCAL departure date, and it is worth being exact about
+      // where it comes from. The tracker and the schedule backfill build it in
+      // the departure airport's own zone. The Add-a-flight search cannot — it
+      // has no airport yet, only a number — so it sends the calendar date the
+      // traveller typed, read in the device's zone. For a typed date those are
+      // the same string: it is parsed and formatted in the same calendar, so
+      // it round-trips exactly. They can diverge only when NO date was typed
+      // and "today" is taken from the device while the departure airport is
+      // hours away — and there the device's today is as fair a reading of
+      // "this flight, now" as anything the server could invent.
       const day = date ?? new Date().toISOString().slice(0, 10);
       const { legs: cachedLegs, cache } = await legsWithWeeklyFallback(env, number, day, "interactive");
-      // `date` is the LOCAL departure date — every caller builds it in the
-      // departure airport's own zone, and so does the provider's index. What
-      // the provider does NOT do is restrict its answer to departures: a
-      // flight landing after midnight also matches the date it lands on, so
-      // asking about the 25th returned the 24th's operation as well. Search
-      // showed both, a day apart and identical on screen, and someone added
-      // the wrong one. A dateless query is a live lookup with no day to hold
-      // it to, and is left alone.
-      //
-      // The gate stays "did AeroDataBox answer at all", not "did anything
-      // survive the filter". A leg for the wrong day is still the provider
-      // saying it holds this number's schedule, and falling past it would send
-      // a question it has already answered on to AirLabs — which is real-time
-      // only, answers about whatever leg is airborne now, and caches ITS reply
-      // under this date's key.
+      // The gate is "did AeroDataBox answer at all", and the answer is then
+      // narrowed to the day that was asked about — see `answerForDay` for why
+      // an all-wrong-day answer is an empty one rather than a fall-through.
       if (cachedLegs && cachedLegs.length > 0) {
-        const onDay = date ? cachedLegs.filter(l => departsOnLocalDate(l, date)) : cachedLegs;
-        return Response.json(onDay, { headers: { ...cors, "x-arc-cache": cache } });
+        return Response.json(answerForDay(cachedLegs, date),
+                             { headers: { ...cors, "x-arc-cache": cache } });
       }
 
       // 2. Fallback: AirLabs. Its /flight endpoint is REAL-TIME ONLY — it
@@ -1079,11 +1075,10 @@ export default {
         if (resolved) {
           const { legs } = await legsWithWeeklyFallback(env, resolved.operating, day, "interactive");
           const marketing = number.replace(/\s+/g, "").toUpperCase();
-          const onRoute = (legs ?? [])
-            // Same day rule as the direct answer above: the operating flight
-            // has consecutive operations too, and a codeshare traveller is no
-            // less able to add yesterday's by mistake.
-            .filter(l => !date || departsOnLocalDate(l, date))
+          // Same day rule as the direct answer above: the operating flight has
+          // consecutive operations too, and a codeshare traveller is no less
+          // able to add yesterday's by mistake.
+          const onRoute = answerForDay(legs ?? [], date)
             .map(l => repairLegForRoute({ ...l, marketing_number: marketing },
                                         { dep: resolved.dep, arr: resolved.arr },
                                         resolved.depTimeUTC || null, day))

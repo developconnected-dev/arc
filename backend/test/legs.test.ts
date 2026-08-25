@@ -273,3 +273,101 @@ test("weekly: a neighbour that never carried a local date does not acquire one",
   const shifted = shiftLegToDay(neighbour, "2026-09-25", "2026-09-18")!;
   assert.equal(shifted["dep_local_date"], null);
 });
+
+// ── Inferring a timetable from a neighbouring week, from the RIGHT leg ──
+//
+// `legsWithWeeklyFallback` fills a provider hole by asking for the same
+// number a week either side and shifting that answer by whole days. It took
+// the first complete leg it got back — and the week-either-side answer has
+// the SAME two-legs-for-one-date problem as every other date query, because
+// `dateLocalRole` defaults to `Both`. On a route that lands after midnight,
+// the first leg returned for the neighbour day is the day BEFORE it.
+//
+// So the inferred timetable could be built from an operation two days off the
+// one it was inferred for, and — once legs started carrying their own local
+// date — be filtered straight back out by the endpoint that asked for it.
+// Whichever way it fell, a real flight went missing from a search.
+import { templatesFromNeighbour } from "../src/legs.ts";
+
+/// What AeroDataBox answers for a neighbour day on an after-midnight route.
+const NEIGHBOUR = [
+  { flight_number: "LX2146", dep_iata: "ZRH", arr_iata: "VLC",
+    dep_scheduled: "2026-09-24T20:00:00.000Z", arr_scheduled: "2026-09-24T22:05:00.000Z",
+    dep_local_date: "2026-09-24" },
+  { flight_number: "LX2146", dep_iata: "ZRH", arr_iata: "VLC",
+    dep_scheduled: "2026-09-25T20:00:00.000Z", arr_scheduled: "2026-09-25T22:05:00.000Z",
+    dep_local_date: "2026-09-25" },
+];
+
+test("the neighbour's OWN day is the template, not the sibling it arrived with", () => {
+  const out = templatesFromNeighbour(NEIGHBOUR, "2026-09-25", "2026-09-18");
+  assert.equal(out.length, 1, "the day-before sibling is not a second timetable");
+  assert.equal(out[0]!["dep_scheduled"], "2026-09-18T20:00:00.000Z");
+  assert.equal(out[0]!["dep_local_date"], "2026-09-18");
+});
+
+test("...and the shifted template is an answer about the day it was inferred for", () => {
+  const out = templatesFromNeighbour(NEIGHBOUR, "2026-09-25", "2026-09-18");
+  assert.equal(departsOnLocalDate(out[0]!, "2026-09-18"), true);
+});
+
+test("everything live is still stripped — it is a timetable, not a status", () => {
+  const live = [{ ...NEIGHBOUR[1], status: "landed", dep_actual: "2026-09-25T20:07:00.000Z",
+                  dep_gate: "A82", aircraft_registration: "HB-JDH" }];
+  const out = templatesFromNeighbour(live, "2026-09-25", "2026-09-18");
+  assert.equal(out[0]!["status"], "scheduled");
+  assert.equal(out[0]!["dep_actual"], null);
+  assert.equal(out[0]!["dep_gate"], null);
+  assert.equal(out[0]!["data_tier"], "scheduled");
+});
+
+test("a hollow neighbour is no template at all", () => {
+  const hollow = [{ dep_iata: "", arr_iata: "VLC", dep_scheduled: "", arr_scheduled: "2026-09-25T22:05:00.000Z" }];
+  assert.deepEqual(templatesFromNeighbour(hollow, "2026-09-25", "2026-09-18"), []);
+});
+
+test("legs cached before local dates are still usable as templates", () => {
+  // Same tolerance the endpoints keep: no local date means the old behaviour,
+  // not exclusion — otherwise the weekly inference would go dark for as long
+  // as any pre-existing cache row lived.
+  const old = [{ flight_number: "LX2146", dep_iata: "ZRH", arr_iata: "VLC",
+                 dep_scheduled: "2026-09-25T20:00:00.000Z", arr_scheduled: "2026-09-25T22:05:00.000Z" }];
+  assert.equal(templatesFromNeighbour(old, "2026-09-25", "2026-09-18").length, 1);
+});
+
+// ── An answer about the wrong day is not a reason to go asking elsewhere ──
+import { answerForDay } from "../src/legs.ts";
+
+const TWO_DAYS = [
+  { flight_number: "LX2146", dep_scheduled: "2026-08-24T20:00:00.000Z", dep_local_date: "2026-08-24" },
+  { flight_number: "LX2146", dep_scheduled: "2026-08-25T20:00:00.000Z", dep_local_date: "2026-08-25" },
+];
+
+test("a dated query gets the day it asked for, and only that", () => {
+  const out = answerForDay(TWO_DAYS, "2026-08-25");
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!["dep_local_date"], "2026-08-25");
+});
+
+test("a DATELESS query is a live lookup and keeps everything", () => {
+  assert.equal(answerForDay(TWO_DAYS, null).length, 2);
+  assert.equal(answerForDay(TWO_DAYS, undefined).length, 2);
+});
+
+/// Pinned deliberately, because it is the line most likely to be "fixed" back.
+///
+/// A provider that answers with the neighbouring day's operation is not
+/// silent: it is saying it holds this number's schedule and nothing on it
+/// departs that day. Handing that on to AirLabs — real-time only, dating legs
+/// by their UTC stamp, and caching its reply under this date's key — would put
+/// the date question to the source least able to answer it. Empty is the
+/// truthful answer, and the app already words it ("No schedule published yet").
+test("an answer that is entirely the wrong day is EMPTY, not the nearest leg", () => {
+  const yesterdayOnly = [TWO_DAYS[0]!];
+  assert.deepEqual(answerForDay(yesterdayOnly, "2026-08-25"), []);
+});
+
+test("legs cached before local dates were kept are never narrowed away", () => {
+  const legacy = [{ flight_number: "LX2146", dep_scheduled: "2026-08-24T20:00:00.000Z" }];
+  assert.equal(answerForDay(legacy, "2026-08-25").length, 1);
+});
