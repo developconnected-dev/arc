@@ -217,6 +217,60 @@ export function shiftLegToDay(
   };
 }
 
+/// The provider's answer, narrowed to the day the caller asked about.
+///
+/// A dateless query has no day to hold it to and is returned whole — it is a
+/// live "where is this flight now" lookup, not a question about a date.
+///
+/// When a date WAS given and nothing departs on it, the answer is empty, and
+/// deliberately so. It is tempting to treat that as "ask somebody else" and
+/// fall through to the next provider, and that is wrong twice over:
+///
+///  1. AeroDataBox answering with the neighbouring day's operation is not
+///     silence. It is the provider saying it holds this number's schedule and
+///     that nothing on it departs that day — which is the truthful answer, and
+///     the one the app already words well ("No schedule published yet for
+///     LX2146 on Tue, 25 Aug"). Offering the day before instead is the bug
+///     this whole file exists to stop.
+///  2. The next provider is AirLabs, which is real-time only, dates legs by
+///     their UTC stamp rather than their local one, and gets its reply cached
+///     under THIS date's key. Falling through would hand the date question to
+///     the source least able to answer it, and let that answer outlive the
+///     search that caused it.
+///
+/// The codeshare resolver further down is unaffected: a marketing number no
+/// provider indexes comes back with NO legs at all, so it is reached exactly
+/// as it always was.
+export function answerForDay<T extends Record<string, unknown>>(
+  legs: T[], date: string | null | undefined,
+): T[] {
+  return date ? legs.filter(l => departsOnLocalDate(l, date)) : legs;
+}
+
+/// The neighbouring week's answer, turned into a timetable for `toDay`.
+///
+/// `legsWithWeeklyFallback` asks for the same number a week either side of a
+/// provider hole and shifts what comes back by whole days. What comes back is
+/// a date query like any other, so it carries the same two-legs-for-one-date
+/// problem: `dateLocalRole` defaults to `Both`, and on a route landing after
+/// midnight the FIRST leg returned for the neighbour day is the day before it.
+/// Taking that one built the timetable from an operation two days off the one
+/// it was inferred for — and once legs carried their own local date, the
+/// endpoint that asked for the inference filtered it straight back out.
+///
+/// Filtering to the neighbour's own departures first is the whole fix. A leg
+/// with no local date of its own is kept, exactly as everywhere else: that is
+/// a row cached before they were recorded, not a leg on the wrong day.
+export function templatesFromNeighbour<T extends Record<string, unknown>>(
+  legs: T[] | null | undefined, fromDay: string, toDay: string,
+): Record<string, unknown>[] {
+  return (legs ?? [])
+    .filter(l => departsOnLocalDate(l, fromDay))
+    .filter(isCompleteLeg)
+    .map(l => shiftLegToDay(l, fromDay, toDay))
+    .filter((l): l is Record<string, unknown> => l !== null);
+}
+
 /// A hollow leg for the asked day (one endpoint or time missing) completed
 /// from the shifted neighbour: the day's own fields win wherever present.
 export function completeLeg(
