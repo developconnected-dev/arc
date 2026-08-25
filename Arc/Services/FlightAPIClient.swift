@@ -760,6 +760,32 @@ actor FlightAPIClient {
         await postJSON(path: "/la/register", data: bodyJSON)
     }
 
+    /// Record that Arc predicted a delay before the airline published one.
+    ///
+    /// The value of this record is its TIMESTAMP: the cron stamps the moment
+    /// the airline's own number catches up, and the gap between the two is the
+    /// only speed claim Arc can honestly make. The Worker ignores duplicates,
+    /// so re-polling the same prediction cannot reset the clock — call it
+    /// freely, only the first one counts.
+    ///
+    /// Fire-and-forget, like every other measurement call: a flight tracker
+    /// must not get slower or fail because a statistic could not be filed.
+    func recordDelayPrediction(flightNumber: String, scheduledDeparture: Date,
+                               predictedMinutes: Int, officialMinutes: Int,
+                               reason: String?, userId: String) async {
+        let iso = ISO8601DateFormatter()
+        var body: [String: Any] = [
+            "flight_number": flightNumber,
+            "scheduled_departure": iso.string(from: scheduledDeparture),
+            "predicted_minutes": predictedMinutes,
+            "official_minutes": officialMinutes,
+            "user_id": userId,
+        ]
+        if let reason { body["reason"] = reason }
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return }
+        await postJSON(path: "/delay-prediction", data: data)
+    }
+
     func unregisterLiveActivityToken(_ token: String) async {
         guard let data = try? JSONSerialization.data(withJSONObject: ["token": token]) else { return }
         await postJSON(path: "/la/unregister", data: data)

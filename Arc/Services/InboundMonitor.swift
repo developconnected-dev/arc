@@ -90,6 +90,21 @@ enum InboundMonitor {
                liveInboundETA: liveETA) {
             flight.predictedDelayMinutes = p.minutes
             flight.predictionReason = p.reason
+            // The moment Arc first says it, filed so the gap to the airline's
+            // own admission can be measured rather than asserted. Only the
+            // first one counts — the Worker ignores duplicates, so a re-poll
+            // of the same prediction cannot reset the clock — but sending it
+            // only on the transition keeps the traffic honest too.
+            if previous == 0, let uid = ArcSupabase.shared.currentUser?.id {
+                let number = flight.flightNumber, dep = flight.scheduledDeparture
+                let minutes = p.minutes, official = flight.delayMinutes, reason = p.reason
+                Task {
+                    await FlightAPIClient.shared.recordDelayPrediction(
+                        flightNumber: number, scheduledDeparture: dep,
+                        predictedMinutes: minutes, officialMinutes: official,
+                        reason: reason, userId: uid)
+                }
+            }
             // Notify only when the picture worsens meaningfully — not on
             // every re-poll of the same prediction.
             if p.minutes >= previous + 10 {

@@ -7,6 +7,7 @@ import { flightNews, type WatchState } from "./alerts";
 import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS } from "./freshness";
 import { pickLeg, plausibleActualDeparture } from "./legmatch";
 import { verifiedRoute } from "./place";
+import { predictionConfirmed, summarise, type PredictionRow } from "./prediction";
 import { handleTransit } from "./routes-transit";
 import { modesToQuery, routeFromQuery, dateFromQuery } from "./classify";
 import { wxRows, airportWeatherPayload } from "./weather";
@@ -1684,6 +1685,64 @@ export default {
       }
     }
 
+    // ── The delay-prediction measurement ──
+    //
+    // Arc cannot beat an airline to a filed delay — the airline files it. What
+    // it can do is say a flight will be late BEFORE the airline admits it,
+    // because the aircraft that becomes your flight is already late and cannot
+    // turn around in time. That is a claim, and a claim wants a number.
+    //
+    // The device records the moment it predicted; the cron records the moment
+    // the airline's own number caught up. Resolving on-device instead would
+    // have measured how often the app was open, not how early Arc knew.
+    if (url.pathname === "/delay-prediction" && req.method === "POST") {
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, reason: "unconfigured" }, { headers: cors });
+      try {
+        const b = await req.json() as {
+          flight_number?: string; scheduled_departure?: string; predicted_minutes?: number;
+          official_minutes?: number; reason?: string; user_id?: string;
+        };
+        const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        const depMs = Date.parse(String(b.scheduled_departure ?? ""));
+        if (!b.flight_number || !Number.isFinite(depMs)
+            || typeof b.predicted_minutes !== "number" || !Number.isFinite(b.predicted_minutes)
+            || b.predicted_minutes <= 0
+            || typeof b.user_id !== "string" || !uuid.test(b.user_id)) {
+          return new Response("bad request", { status: 400, headers: cors });
+        }
+        // ignore-duplicates, not merge: the FIRST prediction is the one whose
+        // timestamp means anything. Merging would let every later re-poll of
+        // the same prediction reset the clock and measure zero.
+        const res = await sbService(env, "POST",
+          "/delay_predictions?on_conflict=flight_number,scheduled_departure,user_id", {
+            user_id: b.user_id,
+            flight_number: String(b.flight_number).replace(/\s+/g, "").toUpperCase(),
+            scheduled_departure: new Date(depMs).toISOString(),
+            predicted_minutes: Math.round(b.predicted_minutes),
+            official_minutes_at_prediction: Math.round(b.official_minutes ?? 0),
+            reason: typeof b.reason === "string" ? b.reason.slice(0, 200) : null,
+            predicted_at: new Date().toISOString(),
+          }, "resolution=ignore-duplicates,return=minimal");
+        console.log("delay prediction:", b.flight_number, "+" + Math.round(b.predicted_minutes) + "m",
+                    "official", Math.round(b.official_minutes ?? 0), "ok", res.ok);
+        return Response.json({ ok: res.ok }, { headers: cors });
+      } catch {
+        return new Response("bad request", { status: 400, headers: cors });
+      }
+    }
+
+    // What the measurement says so far. Read-only, and it reports what it
+    // LEFT OUT alongside what it found — a lead time averaged over only the
+    // predictions that came true is a survivorship bias with a decimal point.
+    if (url.pathname === "/delay-predictions") {
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ error: "unconfigured" }, { status: 503, headers: cors });
+      const rows = await sbSelect(env,
+        "/delay_predictions?select=flight_number,scheduled_departure,predicted_minutes," +
+        "official_minutes_at_prediction,predicted_at,confirmed_at,official_minutes_at_confirmation" +
+        "&order=predicted_at.desc&limit=200") as unknown as PredictionRow[];
+      return Response.json({ summary: summarise(rows), rows }, { headers: cors });
+    }
+
     if (url.pathname === "/push/unregister" && req.method === "POST") {
       if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false }, { headers: cors });
       try {
@@ -2381,7 +2440,8 @@ async function areFriends(env: Env, a: string, b: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-async function sbService(env: Env, method: string, path: string, body?: unknown): Promise<Response> {
+async function sbService(env: Env, method: string, path: string, body?: unknown,
+                         prefer?: string): Promise<Response> {
   // A rejected fetch (DNS, connect) must not escape — /flight has a provider
   // fallback that never ran because the cache read 500'd first.
   try {
@@ -2391,7 +2451,10 @@ async function sbService(env: Env, method: string, path: string, body?: unknown)
         apikey: env.SUPABASE_SERVICE_KEY!,
         authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
         "content-type": "application/json",
-        prefer: method === "POST" ? "resolution=merge-duplicates,return=minimal" : "return=minimal",
+        // `prefer` overrides for the one caller that must NOT merge: a delay
+        // prediction's value is its timestamp, and merging would let the second
+        // prediction overwrite the first one's — measuring nothing.
+        prefer: prefer ?? (method === "POST" ? "resolution=merge-duplicates,return=minimal" : "return=minimal"),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
@@ -2472,6 +2535,48 @@ async function apnsProbe(env: Env, hostEnv: "sandbox" | "production"): Promise<R
   };
 }
 
+/// Stamp every open prediction the airline has now caught up with.
+///
+/// Reads the CACHE only — never the provider. Every flight with an open
+/// prediction is already being refreshed by the loops above (a Live Activity
+/// inside four hours, the watcher outside it), so the answer is sitting in
+/// `flight_cache` and asking AeroDataBox again would spend budget to learn
+/// something we already know. A measurement that changes what it measures is
+/// not a measurement.
+async function resolveDelayPredictions(env: Env, now: number): Promise<void> {
+  const open = await sbSelect(env,
+    "/delay_predictions?confirmed_at=is.null&select=id,flight_number,scheduled_departure," +
+    "predicted_minutes&order=predicted_at.asc&limit=25") as unknown as Record<string, any>[];
+  if (open.length === 0) return;
+
+  // Same key the cron's own writes use: flight number and the UTC date of the
+  // scheduled departure.
+  const keyOf = (p: Record<string, any>) =>
+    `flight|${String(p.flight_number).toUpperCase()}|${String(p.scheduled_departure).slice(0, 10)}`;
+  const rows = await cacheRows(env, [...new Set(open.map(keyOf))]);
+
+  for (const p of open) {
+    const cached = rows.get(keyOf(p));
+    const legs = cached?.payload as Record<string, unknown>[] | undefined;
+    if (!legs || legs.length === 0) continue;
+    const leg = pickLeg(legs, {
+      depIata: null, arrIata: null,
+      scheduledDepMs: Date.parse(String(p.scheduled_departure)),
+    });
+    if (!leg) continue;
+    const official = Number(leg["delay"] ?? 0);
+    if (!predictionConfirmed(Number(p.predicted_minutes), official)) continue;
+    await sbService(env, "PATCH", `/delay_predictions?id=eq.${p.id}`, {
+      confirmed_at: new Date(now).toISOString(),
+      official_minutes_at_confirmation: Math.round(official),
+    });
+    const lead = Math.round((now - Date.parse(String(p.predicted_at ?? now))) / 60_000);
+    console.log("delay prediction confirmed:", p.flight_number,
+                "predicted +" + p.predicted_minutes + "m, airline now +" + Math.round(official) + "m",
+                Number.isFinite(lead) ? lead + "m lead" : "");
+  }
+}
+
 async function runLiveActivityCron(env: Env): Promise<void> {
   // The push loops need APNs; the shared_flights refresher below does not.
   if (apnsConfigured(env)) {
@@ -2538,6 +2643,12 @@ async function runLiveActivityCron(env: Env): Promise<void> {
       await watchUpcoming(env);
     } catch { /* best-effort — never take the rest of the tick down with it */ }
   }
+
+  // Measurement, last of all and cache-only: it must never cost a flight its
+  // slot, and it must never change what it is measuring.
+  try {
+    await resolveDelayPredictions(env, Date.now());
+  } catch (e) { console.error("prediction resolve failed:", String(e)); }
 }
 
 

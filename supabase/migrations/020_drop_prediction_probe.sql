@@ -1,0 +1,13 @@
+-- Remove the row used to prove /delay-prediction actually writes.
+--
+-- ZZ9999 is not a flight. It was posted twice on purpose — once with 45
+-- minutes and once with 80 — to prove that the endpoint's
+-- `resolution=ignore-duplicates` really does keep the FIRST prediction, since
+-- the whole measurement is worthless if a re-poll can reset the clock. It kept
+-- the 45.
+--
+-- It has to go now. It can never confirm, so it would sit in the denominator
+-- for ever as one more "unconfirmed" prediction — and a table whose entire
+-- purpose is to produce a number nobody has to take on faith cannot carry a
+-- row that was never true.
+delete from delay_predictions where flight_number = 'ZZ9999';
