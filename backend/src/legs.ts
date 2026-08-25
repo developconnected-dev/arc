@@ -131,7 +131,13 @@ export function cacheTTLms(legs: Record<string, any>[]): number {
   // quota-free. Within a week, tighten back up.
   if (now < dep - 7 * 24 * 3600_000) return 72 * 3600_000;  // deep future
   if (now < dep - 24 * 3600_000) return 6 * 3600_000;       // far future
-  if (now < dep - 3 * 3600_000) return 30 * 60_000;         // day-of
+  if (now < dep - 8 * 3600_000) return 30 * 60_000;         // the night before
+  // The last hours before the card starts. A cancellation filed here is the
+  // one someone can still act on — leave for the airport or not — and the
+  // watcher checks four times an hour in this band. Holding the answer for
+  // thirty minutes would have made three of those four checks re-read the
+  // same bytes: the cache, not the watcher, would have been the latency.
+  if (now < dep - 3 * 3600_000) return 15 * 60_000;         // day-of, close in
   if (now < dep + 20 * 60_000) return 5 * 60_000;           // boarding/departure
   if (now < arr - 45 * 60_000) return 15 * 60_000;          // cruise
   if (now < arr + 45 * 60_000) return 2 * 60_000;           // arrival window
