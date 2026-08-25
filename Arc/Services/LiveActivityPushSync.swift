@@ -29,6 +29,15 @@ enum LiveActivityPushSync {
     /// a request only when the device actually learned something new.
     private static var registeredExtras: [String: String] = [:]
 
+    /// The push-to-start token this device last registered. Persisted, because
+    /// the rotation that supersedes it usually happens in a LATER launch —
+    /// held in memory it would be nil exactly when it is needed.
+    private static let lastStartTokenKey = "arc.la.lastStartToken"
+    private static var lastStartToken: String? {
+        get { UserDefaults.standard.string(forKey: lastStartTokenKey) }
+        set { UserDefaults.standard.set(newValue, forKey: lastStartTokenKey) }
+    }
+
     /// The APNs environment this build's tokens belong to. Xcode-run builds
     /// (DEBUG) get sandbox tokens; archived/TestFlight builds get production.
     /// The Worker routes each token to the matching APNs host.
@@ -52,14 +61,31 @@ enum LiveActivityPushSync {
         // for ownerless tokens — so wait briefly for sign-in if it races us.
         Task {
             for await tokenData in Activity<FlightActivityAttributes>.pushToStartTokenUpdates {
-                let body: [String: Any] = [
-                    "token": hex(tokenData),
+                let token = hex(tokenData)
+                var body: [String: Any] = [
+                    "token": token,
                     "type": "start",
                     "env": apnsEnv,
                     "user_id": await ownerId() as Any,
                 ]
+                // iOS mints a NEW push-to-start token whenever it rotates one,
+                // and the previous token is dead from that moment. Nothing
+                // said so, so every rotation left a row behind: 187 had piled
+                // up for a single tester, and each one is a push the cron will
+                // spend a subrequest on the next time a flight comes into
+                // range. Only the device can name its own predecessor — the
+                // server sees tokens, not devices, and cannot tell a rotation
+                // from a second phone — so the device names it.
+                if let previous = lastStartToken, previous != token {
+                    body["replaces"] = previous
+                }
                 guard let json = try? JSONSerialization.data(withJSONObject: body) else { continue }
                 await FlightAPIClient.shared.registerLiveActivityToken(json)
+                // Only after the registration lands: a token recorded before
+                // the request succeeded would name a row that still exists as
+                // the one to drop next time, and the real predecessor would
+                // survive for ever.
+                lastStartToken = token
             }
         }
 

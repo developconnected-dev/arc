@@ -101,6 +101,31 @@ export async function sendAlertPush(
 
 /// Sends one Live Activity push. Returns the APNs HTTP status —
 /// 410 (or 400 BadDeviceToken) means the token is dead and should be deleted.
+/// APNs reasons that mean THIS TOKEN is gone, as opposed to "this request was
+/// wrong". Everything else keeps its token.
+///
+/// 410 always means unregistered. 400 does not: APNs answers 400 for a payload
+/// it cannot read just as readily as for a token it does not know, and the
+/// status alone cannot separate them. Deleting on a bare 400 meant one wrong
+/// field in the content-state — a rename on the Swift side, a stray null —
+/// would have had the next cron tick delete every token it pushed to, taking
+/// every lock screen in the app dark at once.
+///
+/// A token wrongly kept costs one wasted push a minute. A token wrongly
+/// deleted cannot come back until the app is opened again, which for a
+/// push-to-start token is precisely the thing it exists to avoid needing.
+const DEAD_TOKEN_REASONS = new Set(["BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"]);
+
+export function tokenIsDead(status: number, reason: string | null | undefined): boolean {
+  if (status === 410) return true;
+  if (status !== 400) return false;
+  return typeof reason === "string" && DEAD_TOKEN_REASONS.has(reason);
+}
+
+/// The status APNs answered with, and the reason string it named — the second
+/// being the only thing that can tell a dead token from a bad payload.
+export interface ApnsResult { status: number; reason: string | null }
+
 export async function sendLiveActivityPush(
   env: ApnsEnv,
   deviceToken: string,
@@ -108,7 +133,7 @@ export async function sendLiveActivityPush(
   bundleId: string,
   payload: Record<string, unknown>,
   priority: 5 | 10
-): Promise<number> {
+): Promise<ApnsResult> {
   const host = apnsHostEnv === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com";
   const jwt = await apnsJwt(env);
   const res = await fetch(`https://${host}/3/device/${deviceToken}`, {
@@ -123,5 +148,14 @@ export async function sendLiveActivityPush(
     },
     body: JSON.stringify(payload),
   });
-  return res.status;
+  // Only a refusal carries a body worth reading, and a body we cannot parse
+  // leaves the reason null — which `tokenIsDead` treats as "keep it".
+  let reason: string | null = null;
+  if (res.status !== 200) {
+    try {
+      const body = await res.text();
+      if (body) reason = (JSON.parse(body) as { reason?: string }).reason ?? null;
+    } catch { /* an unreadable refusal names nothing */ }
+  }
+  return { status: res.status, reason };
 }
