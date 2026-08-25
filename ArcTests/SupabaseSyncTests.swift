@@ -48,3 +48,56 @@ final class SupabaseSyncTests: XCTestCase {
         XCTAssertEqual(body["status"] as? String, "landed")
     }
 }
+
+// MARK: - The cloud mirror has to say which KIND of journey it is
+
+/// Two server-side guards ask `user_flights.mode` whether a row is a flight,
+/// and neither could ever get a truthful answer: the column exists, is
+/// `not null default 'air'`, and this body never wrote it. So every train and
+/// every sailing arrived in the mirror indistinguishable from a flight.
+///
+/// What that costs, in the two places that ask:
+///
+///  * `pushStarts` refuses to push-to-start anything but air, because a Live
+///    Activity for a train would put plane iconography and gate copy on a lock
+///    screen. Reading 'air' for a train, it started one anyway.
+///  * `watchUpcoming` skips non-air rows because AeroDataBox only answers for
+///    flights. Reading 'air' for a train, it spent a budget-guarded provider
+///    call on a guaranteed miss, every watch interval, for every train.
+///
+/// The mode reaches `shared_flights` — a friend sees the right journey — which
+/// is exactly why this stayed invisible: the surface people look at was right.
+@MainActor
+final class UserFlightModeTests: XCTestCase {
+    private func trip(_ mode: TripMode, _ number: String) -> Flight {
+        let f = Flight(flightNumber: number, date: Date(timeIntervalSince1970: 1_800_000_000))
+        f.mode = mode
+        return f
+    }
+
+    func testAFlightIsMirroredAsAir() {
+        let body = ArcSupabase.userFlightBody(trip(.air, "LX1413"), userId: "u")
+        XCTAssertEqual(body["mode"] as? String, "air")
+    }
+
+    /// THE regression: without this the row defaults to 'air' and both guards
+    /// silently pass a train through.
+    func testATrainIsMirroredAsRail() {
+        let body = ArcSupabase.userFlightBody(trip(.rail, "ICE 574"), userId: "u")
+        XCTAssertEqual(body["mode"] as? String, "rail")
+    }
+
+    func testAFerryIsMirroredAsSea() {
+        let body = ArcSupabase.userFlightBody(trip(.sea, "BLUE STAR 2"), userId: "u")
+        XCTAssertEqual(body["mode"] as? String, "sea")
+    }
+
+    /// The value has to be one the column's own CHECK constraint admits, or
+    /// the whole upsert 400s and the flight never reaches the cloud at all.
+    func testTheModeIsOneThePostgresConstraintAccepts() {
+        for mode in [TripMode.air, .rail, .sea] {
+            let value = ArcSupabase.userFlightBody(trip(mode, "X1"), userId: "u")["mode"] as? String
+            XCTAssertTrue(["air", "rail", "sea"].contains(value ?? ""), "mode '\(value ?? "nil")' fails the check")
+        }
+    }
+}
