@@ -168,3 +168,65 @@ final class PendingFriendFlightDrainTests: XCTestCase {
                        FriendsListView.pendingOpenKey(wanted: nil, feedIds: ["a"], pastIds: ["b"]))
     }
 }
+
+// MARK: - Which APNs host this install's tokens actually belong to
+
+/// `#if DEBUG` was answering a question it cannot see.
+///
+/// The APNs host a device token belongs to is decided by the `aps-environment`
+/// entitlement, which comes from the SIGNING PROFILE. `#if DEBUG` is a build
+/// configuration. Those agree for the two builds anyone means to make — a
+/// Debug run (development profile, sandbox token) and a TestFlight build
+/// (distribution profile, production token) — and disagree for the one people
+/// actually reach for in between: a RELEASE build installed to a device with a
+/// development profile. That build holds a sandbox token and told the Worker
+/// "production", so every push went to api.push.apple.com and came back
+/// BadDeviceToken — and, since the token really is bad for that host, was
+/// dropped as dead. Silent, and exactly the build you reach for when you want
+/// to test push without waiting for TestFlight.
+///
+/// So the profile is asked instead of the compiler.
+@MainActor
+final class APNsEnvironmentTests: XCTestCase {
+
+    /// A provisioning profile is CMS-wrapped, so the plist sits inside binary
+    /// noise. These are the bytes that matter, in the order they appear.
+    private func profile(_ value: String) -> String {
+        "\u{0}\u{1}garbage<key>application-identifier</key><string>GQZHJ59F4R.com.arc.flighttracker</string>"
+        + "<key>aps-environment</key><string>\(value)</string><key>get-task-allow</key><true/>\u{0}"
+    }
+
+    func testADevelopmentProfileMeansSandbox() {
+        XCTAssertEqual(APNsEnvironment.host(inProfile: profile("development")), "sandbox")
+    }
+
+    func testADistributionProfileMeansProduction() {
+        XCTAssertEqual(APNsEnvironment.host(inProfile: profile("production")), "production")
+    }
+
+    /// THE regression: a Release build carrying a development profile. The
+    /// build configuration says one thing and the entitlement says another,
+    /// and the entitlement is the one APNs honours.
+    func testAReleaseBuildOnADevelopmentProfileStillReportsSandbox() {
+        // Same input the archive on this Mac produces — Release-configured,
+        // signed "Apple Development", aps-environment: development.
+        XCTAssertEqual(APNsEnvironment.host(inProfile: profile("development")), "sandbox")
+    }
+
+    /// No profile to read is the Simulator, and there is nothing to correct.
+    func testAProfileWithoutTheKeyIsUnknown() {
+        XCTAssertNil(APNsEnvironment.host(inProfile: "<key>get-task-allow</key><true/>"))
+        XCTAssertNil(APNsEnvironment.host(inProfile: ""))
+    }
+
+    /// A truncated or reordered profile must not be read as a guess.
+    func testAMalformedValueIsUnknownRatherThanWrong() {
+        XCTAssertNil(APNsEnvironment.host(inProfile: "<key>aps-environment</key><string>develop"))
+        XCTAssertNil(APNsEnvironment.host(inProfile: "<key>aps-environment</key>"))
+    }
+
+    /// An entitlement Apple has not shipped is not silently called production.
+    func testAnUnrecognisedValueIsUnknown() {
+        XCTAssertNil(APNsEnvironment.host(inProfile: profile("something-new")))
+    }
+}

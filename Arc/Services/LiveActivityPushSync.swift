@@ -38,16 +38,11 @@ enum LiveActivityPushSync {
         set { UserDefaults.standard.set(newValue, forKey: lastStartTokenKey) }
     }
 
-    /// The APNs environment this build's tokens belong to. Xcode-run builds
-    /// (DEBUG) get sandbox tokens; archived/TestFlight builds get production.
-    /// The Worker routes each token to the matching APNs host.
-    private static var apnsEnv: String {
-        #if DEBUG
-        "sandbox"
-        #else
-        "production"
-        #endif
-    }
+    /// The APNs environment this INSTALL's tokens belong to, read off the
+    /// signing profile rather than the build configuration — see
+    /// `APNsEnvironment`. The Worker routes each token to the matching host,
+    /// so getting this wrong is not a degradation, it is silence.
+    private static var apnsEnv: String { APNsEnvironment.current }
 
     static func start(modelContainer: ModelContainer) {
         container = modelContainer
