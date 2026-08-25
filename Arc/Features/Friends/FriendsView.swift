@@ -369,8 +369,10 @@ struct FriendsListView: View {
                 .refreshable { await store.refreshLiveVisible() }
                 // A notification tap parks the flight it named; open it once
                 // the feed carries it. Runs on appear as well as on change,
-                // because a cold launch routes BEFORE this view exists.
-                .task(id: store.pendingFlightId) { openPendingFlightIfPossible() }
+                // because a cold launch routes BEFORE this view exists — and
+                // keyed on whether the feed HAS it, because on a cold launch
+                // the feed has not loaded yet when this view first appears.
+                .task(id: pendingOpenKey) { openPendingFlightIfPossible() }
             }
             .toolbarVisibility(.hidden, for: .navigationBar)
             .sheet(isPresented: $showingAddFriend) {
@@ -604,6 +606,30 @@ struct FriendsListView: View {
         if !filteredPast.isEmpty {
             pastSection
         }
+    }
+
+    /// The two halves of "can the parked flight be opened yet": WHICH flight a
+    /// tap asked for, and WHETHER the feed carries it.
+    ///
+    /// Keyed on the parked id alone, a cold launch got exactly one attempt.
+    /// The tap routes before this view exists, so `.task` fired the instant it
+    /// appeared — against a feed that had not been read yet — found nothing,
+    /// and never looked again: the app opened on the Friends tab and stopped
+    /// there. Warm, the feed was already loaded, which is why it worked every
+    /// time it was tried with the app running.
+    ///
+    /// Presence rather than contents, so that an ordinary feed refresh — which
+    /// happens on every visit to this tab — is not mistaken for a new tap.
+    static func pendingOpenKey(wanted: String?, feedIds: [String], pastIds: [String]) -> String {
+        guard let wanted, !wanted.isEmpty else { return "" }
+        let present = feedIds.contains(wanted) || pastIds.contains(wanted)
+        return "\(wanted)|\(present)"
+    }
+
+    private var pendingOpenKey: String {
+        Self.pendingOpenKey(wanted: store.pendingFlightId,
+                            feedIds: store.feed.map(\.flight.id),
+                            pastIds: store.pastFeed.map(\.flight.id))
     }
 
     /// Drain `pendingFlightId` — the friend flight a tapped alert asked for.

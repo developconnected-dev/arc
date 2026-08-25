@@ -1,4 +1,4 @@
-import { apnsConfigured, sendLiveActivityPush, sendAlertPush, apnsJwt } from "./apns";
+import { apnsConfigured, sendLiveActivityPush, sendAlertPush, apnsJwt, tokenIsDead } from "./apns";
 import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, shiftLegToDay, completeLeg, confirmedRunwayTime, movementIsLive, localDay, departsOnLocalDate } from "./legs";
 import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRIOR } from "./ground";
 import { predictGate, type GateObservation } from "./gates";
@@ -1021,10 +1021,15 @@ export default {
       // showed both, a day apart and identical on screen, and someone added
       // the wrong one. A dateless query is a live lookup with no day to hold
       // it to, and is left alone.
-      const onDay = date
-        ? (cachedLegs ?? []).filter(l => departsOnLocalDate(l, date))
-        : (cachedLegs ?? []);
-      if (onDay.length > 0) {
+      //
+      // The gate stays "did AeroDataBox answer at all", not "did anything
+      // survive the filter". A leg for the wrong day is still the provider
+      // saying it holds this number's schedule, and falling past it would send
+      // a question it has already answered on to AirLabs — which is real-time
+      // only, answers about whatever leg is airborne now, and caches ITS reply
+      // under this date's key.
+      if (cachedLegs && cachedLegs.length > 0) {
+        const onDay = date ? cachedLegs.filter(l => departsOnLocalDate(l, date)) : cachedLegs;
         return Response.json(onDay, { headers: { ...cors, "x-arc-cache": cache } });
       }
 
@@ -1581,11 +1586,23 @@ export default {
       try {
         const body = await req.json() as {
           token?: string; type?: string; env?: string; user_id?: string;
+          replaces?: string;
           flight?: Record<string, unknown>;
           local?: { boarding_lead_minutes?: number; companions?: unknown[] };
         };
         if (!body.token || (body.type !== "update" && body.type !== "start")) {
           return new Response("bad request", { status: 400, headers: cors });
+        }
+        // The token this device used to have. iOS mints a NEW push-to-start
+        // token on every rotation, and the old one is dead the moment the new
+        // one exists — but nothing said so, and 187 rows had piled up for one
+        // tester. Only the device knows which row is its own predecessor: the
+        // server sees tokens, not devices, and could not tell a rotation from
+        // a second phone. So the device names it, and the row goes with it.
+        if (typeof body.replaces === "string" && /^[0-9a-f]{32,200}$/i.test(body.replaces)
+            && body.replaces !== body.token) {
+          await sbService(env, "DELETE",
+            `/live_activity_tokens?token=eq.${encodeURIComponent(body.replaces)}`);
         }
         const f = body.flight ?? {};
         const row: Record<string, unknown> = {
@@ -3034,9 +3051,9 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
                                       { offBlockMs: depMs, taxiPrior: DEFAULT_TAXI_PRIOR, evidence, local: prior.local }),
       },
     };
-    const endSt = await sendLiveActivityPush(env, row.token, row.apns_env, APP_BUNDLE_ID, endPayload, 5);
+    const end = await sendLiveActivityPush(env, row.token, row.apns_env, APP_BUNDLE_ID, endPayload, 5);
     // Deliberate end-of-life, logged so it is never confused with a rejection.
-    console.log("LA ended:", row.flight_number, "status", status, "st", endSt);
+    console.log("LA ended:", row.flight_number, "status", status, "st", end.status, end.reason ?? "");
     await sbService(env, "DELETE", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`);
     return;
   }
@@ -3155,7 +3172,8 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
               "ground", evidence.ground_state ?? null,
               "obs", evidence.ground_observed_at ?? null,
               "fetchAge", Math.round((now - lastFetch) / 1000) + "s");
-  const st = await sendLiveActivityPush(env, row.token, row.apns_env, APP_BUNDLE_ID, payload, dataChanged ? 10 : 5);
+  const { status: st, reason } = await sendLiveActivityPush(
+    env, row.token, row.apns_env, APP_BUNDLE_ID, payload, dataChanged ? 10 : 5);
   await sbService(env, "PATCH", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`, {
     last_state: {
       ...prior, flight, fetched_at: lastFetch, pushed_at: now, evidence,
@@ -3169,10 +3187,10 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   // is how a card sat on "Taxiing" for an hour while the aircraft was on
   // approach, and no log existed to tell the two apart.
   if (st !== 200) {
-    console.error("LA push non-200:", st, row.flight_number, row.token.slice(0, 8),
-                  st === 410 || st === 400 ? "(dropping token)" : "(keeping token)");
+    console.error("LA push non-200:", st, reason ?? "(no reason)", row.flight_number, row.token.slice(0, 8),
+                  tokenIsDead(st, reason) ? "(dropping token)" : "(keeping token)");
   }
-  if (st === 410 || st === 400) {
+  if (tokenIsDead(st, reason)) {
     await sbService(env, "DELETE", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`);
   }
 }
@@ -3232,6 +3250,11 @@ async function generateInsight(env: Env, signals: Record<string, unknown>): Prom
   }
 }
 
+/// How many push-to-start tokens one cron tick may push to. Each costs a
+/// subrequest, plus one more to delete it when APNs refuses it, against
+/// Cloudflare's 50-per-invocation ceiling that the rest of the tick shares.
+const START_PER_TICK = 10;
+
 async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[]): Promise<void> {
   const now = Date.now();
   const soon = new Date(now + 3 * 60 * 60 * 1000).toISOString();
@@ -3242,12 +3265,36 @@ async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[
   );
   if (upcoming.length === 0) return;
 
-  for (const startRow of startRows) {
-    // No owner, no starts — fail closed. Cross-joining every user's flights
-    // with every start token put user A's flight (seat included) on user
-    // B's lock screen; a token registered before sign-in gets nothing until
-    // it re-registers with its owner.
-    if (!startRow.user_id) continue;
+  // No owner, no starts — fail closed. Cross-joining every user's flights with
+  // every start token put user A's flight (seat included) on user B's lock
+  // screen; a token registered before sign-in gets nothing until it
+  // re-registers with its owner. And a token whose owner has nothing in the
+  // window would do no work below anyway, so it must not occupy a slot.
+  const owners = new Set(upcoming.map(u => String(u["user_id"] ?? "")));
+  const candidates = startRows.filter(r => r.user_id && owners.has(r.user_id));
+
+  // iOS mints a NEW push-to-start token whenever it rotates one, and every one
+  // of them was kept: 187 rows had accumulated for a single tester. They cost
+  // nothing on a quiet tick, because the filter above drops them — but the
+  // moment a flight enters the 3h window, every one of that owner's tokens
+  // gets a push inside ONE invocation, and a Worker gets 50 subrequests.
+  //
+  // Same treatment the update loop already carries, for the same reason:
+  // shuffle so it is never the same tail that misses out, cap so the tick
+  // survives, and let the cron's every-minute cadence do the rest — dead
+  // tokens are deleted as they are refused, so a backlog drains itself. The
+  // window is three hours; this drains 187 in twenty minutes.
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+  }
+  const batch = candidates.slice(0, START_PER_TICK);
+  // Never silently. A cap that isn't logged reads as "everyone was covered".
+  if (candidates.length > batch.length) {
+    console.log("LA starts:", candidates.length, "eligible, pushing", batch.length, "this tick");
+  }
+
+  for (const startRow of batch) {
     const sent: Record<string, number> = startRow.last_state?.sent ?? {};
     let sentChanged = false;
 
@@ -3299,9 +3346,13 @@ async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[
           },
         },
       };
-      const st = await sendLiveActivityPush(env, startRow.token, startRow.apns_env, APP_BUNDLE_ID, payload, 10);
-      if (st !== 200) console.error("LA push-to-start non-200:", st, f.flight_number, startRow.token.slice(0, 8));
-      if (st === 410 || st === 400) {
+      const { status: st, reason } = await sendLiveActivityPush(
+        env, startRow.token, startRow.apns_env, APP_BUNDLE_ID, payload, 10);
+      if (st !== 200) {
+        console.error("LA push-to-start non-200:", st, reason ?? "(no reason)",
+                      f.flight_number, startRow.token.slice(0, 8));
+      }
+      if (tokenIsDead(st, reason)) {
         await sbService(env, "DELETE", `/live_activity_tokens?token=eq.${encodeURIComponent(startRow.token)}`);
         break;
       }

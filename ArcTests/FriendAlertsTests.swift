@@ -116,3 +116,55 @@ final class FriendAlertsTests: XCTestCase {
                        .friendFlight(id: "3f2b1c00-0000-4000-8000-000000000001"))
     }
 }
+
+// MARK: - …and the tap has to survive the app not being running yet
+
+/// The half of the friend-alert fix that did not work, and why.
+///
+/// Tapping a friend's alert on a COLD launch reached the Friends tab and
+/// stopped there. Routing was fine; the drain was the problem. FriendsView
+/// asked to open the parked flight with `.task(id: store.pendingFlightId)`,
+/// which fires when the view appears and when the id changes — and on a cold
+/// launch both of those had already happened by the time the view existed. The
+/// one attempt ran against a feed that was still empty, found nothing, and
+/// nothing ever looked again. Warm, the feed was already loaded, which is
+/// exactly why it worked every time it was tested with the app open.
+///
+/// The parked id is only half the question. The other half is whether the feed
+/// carries it yet, so the key has to move when the answer does.
+@MainActor
+final class PendingFriendFlightDrainTests: XCTestCase {
+
+    /// THE regression: an empty feed and a loaded one must not key the same.
+    func testTheDrainIsRetriedOnceTheFeedArrives() {
+        let cold = FriendsListView.pendingOpenKey(wanted: "abc", feedIds: [], pastIds: [])
+        let loaded = FriendsListView.pendingOpenKey(wanted: "abc", feedIds: ["abc"], pastIds: [])
+        XCTAssertNotEqual(cold, loaded, "a cold launch gets exactly one attempt without this")
+    }
+
+    /// A landing that has aged out of the live feed still opens.
+    func testAFlightInThePastFeedCountsToo() {
+        XCTAssertNotEqual(FriendsListView.pendingOpenKey(wanted: "abc", feedIds: [], pastIds: []),
+                          FriendsListView.pendingOpenKey(wanted: "abc", feedIds: [], pastIds: ["abc"]))
+    }
+
+    /// Presence, not contents: every friend's feed refresh would otherwise
+    /// re-run the drain, and a refresh is not a tap.
+    func testAnUnrelatedFeedChangeIsNotARetry() {
+        XCTAssertEqual(FriendsListView.pendingOpenKey(wanted: "abc", feedIds: ["abc", "x"], pastIds: []),
+                       FriendsListView.pendingOpenKey(wanted: "abc", feedIds: ["abc", "x", "y"], pastIds: ["z"]))
+    }
+
+    /// Two taps in a row, at two different flights, are two different asks.
+    func testADifferentTapIsADifferentAsk() {
+        XCTAssertNotEqual(FriendsListView.pendingOpenKey(wanted: "abc", feedIds: ["abc", "def"], pastIds: []),
+                          FriendsListView.pendingOpenKey(wanted: "def", feedIds: ["abc", "def"], pastIds: []))
+    }
+
+    /// Nothing parked is one stable key, so an idle Friends tab never re-runs
+    /// the drain as its feed comes and goes.
+    func testNothingParkedNeverChangesKey() {
+        XCTAssertEqual(FriendsListView.pendingOpenKey(wanted: nil, feedIds: [], pastIds: []),
+                       FriendsListView.pendingOpenKey(wanted: nil, feedIds: ["a"], pastIds: ["b"]))
+    }
+}
