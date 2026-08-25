@@ -247,3 +247,72 @@ final class RouteFallbackGuardTests: XCTestCase {
         XCTAssertEqual(AddFlightView.keepingOnlyRoute(route, in: results).count, 1)
     }
 }
+
+// MARK: - A result already flown must say WHICH day it flew
+
+/// The reported bug, seen from the one column that could have prevented it.
+///
+/// Searching LX2146 for 25 August answered with two legs of the same daily
+/// flight, a day apart — the provider indexes by local date and returns
+/// arrivals as well as departures, so the flight that left on the 24th and
+/// landed at 00:05 on the 25th came back too. On the result row the two were
+/// indistinguishable: same number, same airline, same "ZRH 22:00 · VLC 00:05".
+/// The countdown column was the only place a date could have appeared, and for
+/// anything already past it printed a dash. The first row was yesterday's, and
+/// it was the one that got tapped.
+///
+/// The dash's other half — "DEPARTED" — is no loss: the status label beside it
+/// says the same thing better, and unlike the dash it knows that a CANCELLED
+/// flight never departed at all (the screenshot showed "— DEPARTED · Cancelled"
+/// on one row).
+@MainActor
+final class SearchResultCountdownTests: XCTestCase {
+    private let zurich = TimeZone(identifier: "Europe/Zurich")!
+    private func at(_ iso: String) -> Date { ISO8601DateFormatter().date(from: iso)! }
+
+    func testAFlownResultShowsItsOwnDate() {
+        let column = AddFlightView.resultCountdown(
+            for: at("2026-08-24T20:00:00Z"), at: zurich, now: at("2026-08-25T22:26:00Z"))
+        XCTAssertEqual(column.value, "24")
+        XCTAssertEqual(column.unit, "AUG")
+    }
+
+    /// The two rows that used to read identically no longer do.
+    func testConsecutiveOperationsOfADailyFlightReadDifferently() {
+        let now = at("2026-08-26T06:00:00Z")
+        let yesterday = AddFlightView.resultCountdown(for: at("2026-08-24T20:00:00Z"), at: zurich, now: now)
+        let today = AddFlightView.resultCountdown(for: at("2026-08-25T20:00:00Z"), at: zurich, now: now)
+        XCTAssertNotEqual(yesterday.value, today.value)
+        XCTAssertEqual(yesterday.value, "24")
+        XCTAssertEqual(today.value, "25")
+    }
+
+    /// The date is the one at the DEPARTURE airport, not the one on the phone
+    /// — the same rule the times printed beside it already follow. 23:30 in Los
+    /// Angeles on the 25th carries a UTC stamp on the 26th.
+    func testTheDateIsTheAirportsOwn() {
+        let la = TimeZone(identifier: "America/Los_Angeles")!
+        let column = AddFlightView.resultCountdown(
+            for: at("2026-08-26T06:30:00Z"), at: la, now: at("2026-08-27T00:00:00Z"))
+        XCTAssertEqual(column.value, "25")
+    }
+
+    /// A flight still to come counts down exactly as it always did — the
+    /// countdown is what makes a future result readable at a glance, and two
+    /// future legs a day apart are already told apart by it.
+    func testAFutureResultStillCountsDown() {
+        // Both instants at the same clock time, so the calendar-day gap is 2
+        // in every timezone the test could run in.
+        let column = AddFlightView.resultCountdown(
+            for: at("2026-08-27T12:00:00Z"), at: zurich, now: at("2026-08-25T12:00:00Z"))
+        XCTAssertEqual(column.value, "2")
+        XCTAssertEqual(column.unit, "DAYS")
+    }
+
+    func testWithinTheDayItCountsHours() {
+        let column = AddFlightView.resultCountdown(
+            for: at("2026-08-25T17:00:00Z"), at: zurich, now: at("2026-08-25T12:00:00Z"))
+        XCTAssertEqual(column.value, "5")
+        XCTAssertEqual(column.unit, "HOURS")
+    }
+}

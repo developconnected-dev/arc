@@ -12,6 +12,38 @@ export function toISO(s: unknown): string {
   return isNaN(d.getTime()) ? "" : d.toISOString();
 }
 
+/// The calendar date at the airport, out of AeroDataBox's own local timestamp.
+///
+/// Every `scheduledTime` the provider serves carries BOTH `utc` and `local`
+/// (its `DateTimeContract` requires the pair), and the local one is already
+/// dated in the airport's own zone — "2026-08-24 22:00+02:00". Reading the day
+/// off it is exact and needs no timezone table: the alternative, deriving it
+/// from the UTC stamp, is precisely the mistake it exists to prevent.
+export function localDay(local: unknown): string | null {
+  const m = String(local ?? "").trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1]! : null;
+}
+
+/// Does this leg depart on `date` — the LOCAL date the caller asked about?
+///
+/// AeroDataBox indexes `/flights/number/{n}/{date}` by local date and, per its
+/// own spec, `dateLocalRole` defaults to `Both`: the answer holds every flight
+/// that departs on that date OR arrives on it. For a route landing after
+/// midnight those are two different operations a day apart — LX2146 departs
+/// Zurich at 22:00 and lands in Valencia at 00:05, so a search for the 25th
+/// came back with the 24th's flight as well, first in the list and identical
+/// on screen down to the minute. Someone looking for their own flight tapped
+/// it and added the wrong day.
+///
+/// A leg with no local date is one this Worker cached before it kept them.
+/// Hiding those would blank real flights out of search for as long as their
+/// rows live, so they pass exactly as they always did.
+export function departsOnLocalDate(leg: Record<string, unknown>, date: string): boolean {
+  const local = leg["dep_local_date"];
+  if (typeof local !== "string" || !local) return true;
+  return local === date;
+}
+
 /// A scheduled departure rebuilt from the route's own departure board.
 ///
 /// Used only when the provider degraded the departure side away entirely (see
@@ -155,10 +187,20 @@ export function shiftLegToDay(
     const ms = Date.parse(String(v ?? ""));
     return isFinite(ms) ? new Date(ms + delta).toISOString() : "";
   };
+  // The local date moves with the times it belongs to. Left behind, the
+  // inferred timetable would be filtered out by the very date it was inferred
+  // for — the leg would be built for the 18th and still claim the 25th.
+  const shiftedLocalDay = (): string | null => {
+    const d = localDay(leg["dep_local_date"]);
+    if (!d) return null;
+    const ms = Date.parse(`${d}T00:00:00Z`) + delta;
+    return isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : null;
+  };
   return {
     ...leg,
     dep_scheduled: shift(leg["dep_scheduled"]),
     arr_scheduled: shift(leg["arr_scheduled"]),
+    dep_local_date: shiftedLocalDay(),
     dep_actual: null,
     arr_actual: null,
     dep_estimated: null,

@@ -1438,23 +1438,55 @@ struct AddFlightView: View {
             ?? .current
         return f.string(from: d)
     }
+    /// The left-hand column of a result row: how far off the flight is, or —
+    /// once it is behind us — which day it went.
+    ///
+    /// A past result used to print a bare dash and a phase word, which cost the
+    /// row the only place a DATE could appear. Two operations of the same daily
+    /// flight are identical here down to the minute (same number, same route,
+    /// same clock times at both ends), so "— DEPARTED" on both rows was all
+    /// that stood between someone and adding the wrong day's flight — and the
+    /// provider serves those two side by side whenever a route lands after
+    /// midnight. The phase word is no loss: the status label beside it says the
+    /// same thing, and unlike the dash it knows a cancelled flight never
+    /// departed.
+    ///
     /// Calendar days, not seconds/86400: flights on the same date must show
     /// the same number regardless of departure hour. Within ~12 h the hour
     /// count is the honest answer ("1 DAY" for tonight-at-midnight isn't).
-    private func countdown(_ r: FlightAPIClient.FlightSearchResult) -> (value: String, unit: String) {
-        guard let d = DateHelpers.parseAPIDate(r.dep_scheduled) else { return ("—", "") }
-        let cal = Calendar.current
-        let days = cal.dateComponents([.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: d)).day ?? 0
-        let hrs = Int(d.timeIntervalSince(.now)) / 3600
+    static func resultCountdown(for departure: Date, at zone: TimeZone,
+                                now: Date = .now) -> (value: String, unit: String) {
         // Already gone: "0 HOURS" read as "leaves right now".
-        if d < .now {
-            if r.status.lowercased() == "landed" { return ("—", "FLOWN") }
-            // "DEPARTED" is a fact about the runway, not about the clock: a
-            // result past its gate time may still be on the ground.
-            return ("—", resultPhase(r).isOffTheGround ? "DEPARTED" : "DEPARTING")
+        if departure < now {
+            let f = DateFormatter()
+            f.locale = Locale(identifier: "en_GB")
+            f.timeZone = zone
+            f.dateFormat = "d"
+            let day = f.string(from: departure)
+            f.dateFormat = "MMM"
+            return (day, f.string(from: departure).uppercased())
         }
+        let cal = Calendar.current
+        let days = cal.dateComponents([.day], from: cal.startOfDay(for: now),
+                                      to: cal.startOfDay(for: departure)).day ?? 0
+        let hrs = Int(departure.timeIntervalSince(now)) / 3600
         if days >= 1 && hrs >= 12 { return ("\(days)", days == 1 ? "DAY" : "DAYS") }
         return ("\(max(0, hrs))", "HOURS")
+    }
+
+    /// The departure endpoint's own zone — the backend sends it for stations
+    /// and ports, the airport table covers flights, and the device is the last
+    /// resort. Same resolution `timeOnly` uses, so the date and the time
+    /// printed beside it can never disagree about which day it is.
+    private func departureZone(_ r: FlightAPIClient.FlightSearchResult) -> TimeZone {
+        r.dep_tz.flatMap(TimeZone.init(identifier:))
+            ?? ReferenceData.shared.timezone(r.dep_iata)
+            ?? .current
+    }
+
+    private func countdown(_ r: FlightAPIClient.FlightSearchResult) -> (value: String, unit: String) {
+        guard let d = DateHelpers.parseAPIDate(r.dep_scheduled) else { return ("\u{2014}", "") }
+        return Self.resultCountdown(for: d, at: departureZone(r))
     }
     private func countdownValue(_ r: FlightAPIClient.FlightSearchResult) -> String { countdown(r).value }
     private func countdownUnit(_ r: FlightAPIClient.FlightSearchResult) -> String { countdown(r).unit }
