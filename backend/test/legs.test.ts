@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { repairLegForRoute, departureFromBoardTime, cachedRowFresh } from "../src/legs.ts";
+import { repairLegForRoute, departureFromBoardTime, cachedRowFresh, cacheTTLms } from "../src/legs.ts";
 
 const ATH_MUC = { dep: "ATH", arr: "MUC" };
 
@@ -370,4 +370,31 @@ test("an answer that is entirely the wrong day is EMPTY, not the nearest leg", (
 test("legs cached before local dates were kept are never narrowed away", () => {
   const legacy = [{ flight_number: "LX2146", dep_scheduled: "2026-08-24T20:00:00.000Z" }];
   assert.equal(answerForDay(legacy, "2026-08-25").length, 1);
+});
+
+// ── The cache and the watcher have to agree about what "soon" means ──
+//
+// The alert watcher now checks a flight every 15 minutes once it is inside
+// eight hours of departure. Held at a flat 30-minute TTL, three of every four
+// of those checks would have re-read the same bytes — the CACHE would have
+// been the latency, and tightening the watcher would have bought nothing.
+test("inside eight hours, the answer is held for a quarter of an hour", () => {
+  const dep = Date.now() + 5 * 3600_000;
+  const leg = { dep_scheduled: new Date(dep).toISOString(),
+                arr_scheduled: new Date(dep + 2 * 3600_000).toISOString() };
+  assert.equal(cacheTTLms([leg]), 15 * 60_000);
+});
+
+test("the night before is still held for half an hour", () => {
+  const dep = Date.now() + 12 * 3600_000;
+  const leg = { dep_scheduled: new Date(dep).toISOString(),
+                arr_scheduled: new Date(dep + 2 * 3600_000).toISOString() };
+  assert.equal(cacheTTLms([leg]), 30 * 60_000);
+});
+
+test("a day and a half out is unchanged — nothing there moves in fifteen minutes", () => {
+  const dep = Date.now() + 30 * 3600_000;
+  const leg = { dep_scheduled: new Date(dep).toISOString(),
+                arr_scheduled: new Date(dep + 2 * 3600_000).toISOString() };
+  assert.equal(cacheTTLms([leg]), 6 * 3600_000);
 });

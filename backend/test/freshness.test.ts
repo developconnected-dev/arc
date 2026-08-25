@@ -121,3 +121,59 @@ test("...but a fetch that never landed must not claim the row was verified", () 
   assert.equal(providerAnswered("stale"), false);
   assert.equal(providerAnswered("none"), false);
 });
+
+// ── How long a flight outside the Live Activity window may go unwatched ──
+//
+// The alert watcher covers the gap between "too far out for a Live Activity"
+// (3h) and a day and a half out — which is exactly where a cancellation gets
+// filed. It used ONE interval for that whole span: 55 minutes, whether the
+// flight left in three hours or in thirty-six.
+//
+// That is wrong at both ends. At the near end a cancellation could sit for
+// most of an hour while the traveller is deciding whether to leave for the
+// airport. At the far end it re-asked every 55 minutes about a schedule the
+// shared cache was holding for six hours, so most of those checks could not
+// have found anything new — they cost a read and returned the same bytes.
+//
+// The interval now tracks the cache: check when there is a chance of news.
+import { watchIntervalMs, WATCH_MIN_INTERVAL_MS } from "../src/freshness.ts";
+
+const h = (n: number) => n * 3600_000;
+const WATCH_NOW = Date.parse("2026-08-25T12:00:00.000Z");
+
+test("the hours before a Live Activity takes over are watched closely", () => {
+  assert.equal(watchIntervalMs(WATCH_NOW + h(4), WATCH_NOW), 15 * 60_000);
+  assert.equal(watchIntervalMs(WATCH_NOW + h(7.9), WATCH_NOW), 15 * 60_000);
+});
+
+test("the night before is watched at the rate the cache can actually answer", () => {
+  assert.equal(watchIntervalMs(WATCH_NOW + h(9), WATCH_NOW), 30 * 60_000);
+  assert.equal(watchIntervalMs(WATCH_NOW + h(23), WATCH_NOW), 30 * 60_000);
+});
+
+/// Deliberately LOOSER than the 55 minutes it replaces. A schedule more than a
+/// day out is cached for six hours, so asking every 55 minutes could not find
+/// anything new — it is what paid for tightening the near bands.
+test("a day and a half out is checked far less often, not more", () => {
+  assert.equal(watchIntervalMs(WATCH_NOW + h(30), WATCH_NOW), 3 * 3600_000);
+  assert.ok(watchIntervalMs(WATCH_NOW + h(30), WATCH_NOW) > 55 * 60_000);
+});
+
+/// The SQL prefilter uses one interval for every row, so it has to be the
+/// TIGHTEST — anything longer would leave a due flight unselected and the
+/// per-row curve would never get to see it.
+test("the query's floor is the tightest interval any row can want", () => {
+  for (const hours of [3.1, 5, 8, 12, 20, 24, 30, 36]) {
+    assert.ok(watchIntervalMs(WATCH_NOW + h(hours), WATCH_NOW) >= WATCH_MIN_INTERVAL_MS,
+              `${hours}h out wants less than the query floor`);
+  }
+});
+
+/// A departure already behind us is not something to keep watching.
+test("a flight whose time has passed is not watched more eagerly", () => {
+  assert.equal(watchIntervalMs(WATCH_NOW - h(1), WATCH_NOW), 15 * 60_000);
+});
+
+test("an unreadable departure time falls back rather than dividing by nothing", () => {
+  assert.equal(watchIntervalMs(NaN, WATCH_NOW), 30 * 60_000);
+});

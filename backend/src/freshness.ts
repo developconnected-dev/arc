@@ -104,3 +104,30 @@ export function sharedRowIsDue(a: {
   if (!Number.isFinite(t)) return true;
   return a.now - t >= interval;
 }
+
+/// How long to leave one upcoming flight alone between watch checks.
+///
+/// The watcher covers 3h to 36h before departure — the gap between "too far
+/// out for a Live Activity" and "not worth watching yet", and precisely where
+/// a cancellation gets filed. One flat interval of 55 minutes covered all of
+/// it, which was wrong at both ends: a cancellation three hours out could sit
+/// for most of an hour while someone decided whether to leave for the airport,
+/// while a flight thirty hours out was re-asked every 55 minutes about a
+/// schedule the shared cache was holding for six.
+///
+/// So the interval tracks what the cache can actually answer. Checking faster
+/// than the cache's own TTL re-reads the same bytes; checking slower than it
+/// wastes the freshness already paid for. The far band is now LOOSER than the
+/// 55 minutes it replaces, and that is what pays for the near bands.
+export function watchIntervalMs(depMs: number, now: number): number {
+  if (!Number.isFinite(depMs)) return 30 * 60_000;
+  const until = depMs - now;
+  if (until < 8 * 3600_000) return 15 * 60_000;   // the last hours before the card
+  if (until < 24 * 3600_000) return 30 * 60_000;  // the night before
+  return 3 * 3600_000;                            // a day and a half out
+}
+
+/// The floor the SQL prefilter uses. It selects on one interval for every row,
+/// so it has to be the tightest any row can want — anything longer would leave
+/// a due flight unselected and `watchIntervalMs` would never see it.
+export const WATCH_MIN_INTERVAL_MS = 15 * 60_000;

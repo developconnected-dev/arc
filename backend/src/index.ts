@@ -4,7 +4,7 @@ import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRI
 import { predictGate, type GateObservation } from "./gates";
 import { contentState } from "./activity";
 import { flightNews, type WatchState } from "./alerts";
-import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered } from "./freshness";
+import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS } from "./freshness";
 import { pickLeg, plausibleActualDeparture } from "./legmatch";
 import { verifiedRoute } from "./place";
 import { handleTransit } from "./routes-transit";
@@ -1639,6 +1639,9 @@ export default {
           row.last_state = { ...((existing[0] as any)?.last_state ?? {}), local };
         }
         const res = await sbService(env, "POST", "/live_activity_tokens?on_conflict=token", row);
+        console.log("LA register:", body.type, row.apns_env, body.token.slice(0, 8),
+                    body.user_id ? "owned" : "OWNERLESS",
+                    body.replaces ? "replaces " + body.replaces.slice(0, 8) : "", "ok", res.ok);
         return Response.json({ ok: res.ok }, { headers: cors });
       } catch {
         return new Response("bad request", { status: 400, headers: cors });
@@ -1661,12 +1664,20 @@ export default {
             || typeof body.user_id !== "string" || !uuid.test(body.user_id)) {
           return new Response("bad request", { status: 400, headers: cors });
         }
+        const apnsEnv = body.env === "sandbox" ? "sandbox" : "production";
         const res = await sbService(env, "POST", "/device_tokens?on_conflict=token", {
           token: body.token,
           user_id: body.user_id,
-          apns_env: body.env === "sandbox" ? "sandbox" : "production",
+          apns_env: apnsEnv,
           updated_at: new Date().toISOString(),
         });
+        // Which HOST this device's token belongs to is the one thing about a
+        // registration that can be silently wrong, and a wrong one is
+        // indistinguishable from a token that has gone away: every push is
+        // refused with BadDeviceToken and the row is dropped as dead. Say it
+        // out loud, once per registration, so it can be read rather than
+        // inferred from an absence of notifications.
+        console.log("push register:", apnsEnv, body.token.slice(0, 8), "ok", res.ok);
         return Response.json({ ok: res.ok }, { headers: cors });
       } catch {
         return new Response("bad request", { status: 400, headers: cors });
@@ -2865,18 +2876,21 @@ async function refreshSharedFlights(env: Env): Promise<void> {
 /// only a handful are looked at per tick. Every fetch rides the shared,
 /// budget-guarded cache at source "cron", so this can never eat the
 /// interactive reserve that a reconnecting device depends on.
-const WATCH_PER_TICK = 4;
-const WATCH_INTERVAL_MS = 55 * 60_000;
+const WATCH_PER_TICK = 6;
 
 async function watchUpcoming(env: Env): Promise<void> {
   const now = Date.now();
   // From the edge of Live Activity coverage out to a day and a half.
   const from = new Date(now + 3 * 3600_000).toISOString();
   const to = new Date(now + 36 * 3600_000).toISOString();
-  const stale = new Date(now - WATCH_INTERVAL_MS).toISOString();
+  // The prefilter uses the TIGHTEST interval any row can want; `watchIntervalMs`
+  // then decides per row whether it is actually due. Selecting on the loosest
+  // would leave a near-departure flight unselected and the curve would never
+  // get to see it.
+  const stale = new Date(now - WATCH_MIN_INTERVAL_MS).toISOString();
   const rows = await sbSelect(env,
     "/user_flights?select=id,user_id,flight_number,departure_iata,arrival_iata,arrival_city," +
-    "scheduled_departure,status,delay_minutes,departure_gate,mode,watch_state" +
+    "scheduled_departure,status,delay_minutes,departure_gate,mode,watch_state,watch_checked_at" +
     `&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}` +
     `&or=(watch_checked_at.is.null,watch_checked_at.lt.${stale})` +
     "&status=in.(scheduled,boarding,gateClosed)"
@@ -2884,12 +2898,27 @@ async function watchUpcoming(env: Env): Promise<void> {
 
   // AeroDataBox only answers for air legs; anything else would spend a
   // budget-guarded call on a guaranteed miss.
-  const due = rows.filter(r => (((r.mode as string) ?? "air") === "air") && r.flight_number);
+  //
+  // Then the per-row curve: a flight three hours out is worth asking about
+  // four times an hour, one thirty hours out twice a day. The SQL above could
+  // only express one interval for all of them.
+  const due = rows.filter(r => {
+    if (!r.flight_number || (((r.mode as string) ?? "air") !== "air")) return false;
+    const checked = r.watch_checked_at ? Date.parse(String(r.watch_checked_at)) : NaN;
+    if (!Number.isFinite(checked)) return true;   // never looked
+    return now - checked >= watchIntervalMs(Date.parse(String(r.scheduled_departure)), now);
+  });
   for (let i = due.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [due[i], due[j]] = [due[j], due[i]];
   }
 
+  // Never silently. A cap that isn't logged reads as "everyone was covered",
+  // and the shuffle above means the ones left out differ every tick — which is
+  // fair, and invisible.
+  if (due.length > WATCH_PER_TICK) {
+    console.log("watch:", due.length, "due,", WATCH_PER_TICK, "this tick");
+  }
   for (const row of due.slice(0, WATCH_PER_TICK)) {
     try {
       const day = String(row.scheduled_departure).slice(0, 10);
