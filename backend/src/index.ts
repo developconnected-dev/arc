@@ -3024,11 +3024,18 @@ async function watchUpcoming(env: Env): Promise<void> {
     [due[i], due[j]] = [due[j], due[i]];
   }
 
-  // Never silently. A cap that isn't logged reads as "everyone was covered",
-  // and the shuffle above means the ones left out differ every tick — which is
-  // fair, and invisible.
-  if (due.length > WATCH_PER_TICK) {
-    console.log("watch:", due.length, "due,", WATCH_PER_TICK, "this tick");
+  // One line per tick saying what this loop can see, on the same reasoning as
+  // the Live Activity census above: a watcher that is quietly watching nothing
+  // and a watcher that is working look identical from outside, and every bug
+  // this file has carried has hidden in exactly that gap.
+  //
+  // It also says when it caps. A cap that isn't logged reads as "everyone was
+  // covered", and the shuffle above means the ones left out differ every tick
+  // — which is fair, and invisible.
+  if (rows.length > 0) {
+    console.log("watch:", rows.length, "in window,", due.length, "due,",
+                Math.min(due.length, WATCH_PER_TICK), "checked:",
+                due.slice(0, WATCH_PER_TICK).map(r => `${r.flight_number}@${String(r.scheduled_departure).slice(0, 16)}`).join(","));
   }
   for (const row of due.slice(0, WATCH_PER_TICK)) {
     try {
