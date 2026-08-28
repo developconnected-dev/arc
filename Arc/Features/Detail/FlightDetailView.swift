@@ -16,6 +16,9 @@ struct FlightDetailView: View {
 
     @State private var editing: EditField?
     @State private var editText = ""
+    /// The audience change never reached the server — shown as an alert
+    /// because for a completed flight no later poll will heal it.
+    @State private var audiencePushFailed = false
     @State private var airportSheet: AirportSheetTarget?
     @State private var showShare = false
     @State private var confirmDelete = false
@@ -147,10 +150,23 @@ struct FlightDetailView: View {
         .sheet(isPresented: $showShare) {
             ShareFlightSheet(flight: flight)
         }
-        .alert(editTitle, isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
+        // The `presenting:` variant, and that is the whole fix (same idiom as
+        // ManageFriendsSheet's removal alert): dismissing the alert flips
+        // isPresented false BEFORE the button action runs, and that flip nils
+        // `editing` through the binding — so a Save that re-read `editing`
+        // found .none and silently dropped every edit while the card went on
+        // saying "Tap to Edit".
+        .alert(editTitle,
+               isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }),
+               presenting: editing) { field in
             TextField(editTitle, text: $editText)
             Button("Cancel", role: .cancel) { editing = nil }
-            Button("Save") { saveEdit() }
+            Button("Save") { saveEdit(field) }
+        }
+        .alert("Couldn't update sharing", isPresented: $audiencePushFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Who can see this flight wasn't updated on the server. Check your connection and change it again.")
         }
     }
 
@@ -569,7 +585,15 @@ struct FlightDetailView: View {
                         // One push with the final audience, persisted locally.
                         try? modelContext.save()
                         let f = flight
-                        Task { _ = try? await ArcSupabase.shared.shareFlight(f) }
+                        Task {
+                            // Named when it fails: for a live flight the
+                            // tracker's next poll re-pushes anyway, but a
+                            // COMPLETED flight is never polled again — a
+                            // swallowed failure here left "No one" on screen
+                            // while the server kept the old audience forever.
+                            do { _ = try await ArcSupabase.shared.shareFlight(f) }
+                            catch { audiencePushFailed = true }
+                        }
                     })
                     .padding(14)
             }
@@ -585,10 +609,20 @@ struct FlightDetailView: View {
         let ids = newCompanionIds
         guard !ids.isEmpty else { return }
         newCompanionIds = []
+        let flight = self.flight
         Task {
-            _ = try? await ArcSupabase.shared.shareFlight(flight)
-            try? await ArcSupabase.shared.sendTripInvites(flight, to: ids)
-            await FriendsStore.shared.refreshSentTripInvites()
+            do {
+                _ = try? await ArcSupabase.shared.shareFlight(flight)
+                try await ArcSupabase.shared.sendTripInvites(flight, to: ids)
+                await FriendsStore.shared.refreshSentTripInvites()
+            } catch {
+                // The picker promised "they'll get this trip offered in
+                // their own list", and the sheet is long dismissed — queue
+                // the invite durably and the reconcile pass keeps sending
+                // until the server accepts. Swallowed, the choice evaporated:
+                // the row reverted to "Just me" and nobody was ever invited.
+                FriendsStore.shared.noteUnsentInvites(for: flight, ids: ids)
+            }
         }
     }
 
@@ -655,12 +689,11 @@ struct FlightDetailView: View {
         editText = field == .bookingCode ? (flight.bookingCode ?? "") : field == .seat ? (flight.seat ?? "") : flight.notes
         editing = field
     }
-    private func saveEdit() {
-        switch editing {
+    private func saveEdit(_ field: EditField) {
+        switch field {
         case .bookingCode: flight.bookingCode = editText
         case .seat: flight.seat = editText
         case .notes: flight.notes = editText
-        case .none: break
         }
         try? modelContext.save()
         editing = nil

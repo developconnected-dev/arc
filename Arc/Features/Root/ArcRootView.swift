@@ -5,6 +5,7 @@ import SwiftData
 struct ArcRootView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
     @ObservedObject private var supabase = ArcSupabase.shared
 
@@ -427,7 +428,12 @@ struct ArcRootView: View {
     private func open(_ dest: ArcDeepLink.Destination) -> Bool {
         switch dest {
         case .directions(let iata, let terminal):
-            guard let airport = ReferenceData.shared.airport(iata) else { return true }
+            guard let airport = ReferenceData.shared.airport(iata) else {
+                // Not in the bundled table: hand Maps the query instead of
+                // consuming the tap into nothing.
+                if let url = URL(string: "maps://?q=\(iata)%20airport") { openURL(url) }
+                return true
+            }
             let item = MKMapItem(
                 location: CLLocation(latitude: airport.lat, longitude: airport.lon),
                 address: nil)

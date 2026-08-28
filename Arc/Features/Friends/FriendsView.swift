@@ -524,11 +524,16 @@ struct FriendsListView: View {
             .background(selected ? Color.primary : Color(.secondarySystemFill), in: Capsule())
         }.buttonStyle(.plain)
         // Long-press: how much this friend's flying may interrupt you.
+        // The level is mirrored into view state, same as ManageFriendsSheet:
+        // FriendAlerts stores it in UserDefaults, which SwiftUI cannot
+        // observe — read directly, tapping a level changed the setting but
+        // the tick never moved.
         .contextMenu {
-            let current = FriendAlerts.level(for: entry.id)
+            let current = chipLevels[entry.id] ?? FriendAlerts.level(for: entry.id)
             ForEach(FriendNotificationLevel.allCases) { level in
                 Button {
                     FriendAlerts.setLevel(level, for: entry.id)
+                    chipLevels[entry.id] = level
                     Task { await FriendAlerts.process(entries: store.friends) }
                 } label: {
                     Label(level.title, systemImage: current == level ? "checkmark" : level.icon)
@@ -536,6 +541,9 @@ struct FriendsListView: View {
             }
         }
     }
+
+    /// Alert levels mirrored into observable state — see the contextMenu above.
+    @State private var chipLevels: [String: FriendNotificationLevel] = [:]
 
     // MARK: Feed
 
@@ -639,7 +647,14 @@ struct FriendsListView: View {
     private func openPendingFlightIfPossible() {
         guard let wanted = store.pendingFlightId else { return }
         let everything = store.feed + store.pastFeed
-        guard let item = everything.first(where: { $0.flight.id == wanted }) else { return }
+        guard let item = everything.first(where: { $0.flight.id == wanted }) else {
+            // Once the feed has genuinely loaded and the row isn't in it,
+            // release the park — left set, the stale id sat there forever
+            // and could hijack a much later refresh into presenting a sheet
+            // nobody asked for anymore.
+            if store.hasLoadedOnce, !store.isLoading { store.pendingFlightId = nil }
+            return
+        }
         store.pendingFlightId = nil
         presentedFlight = store.transientFlight(for: item)
     }
@@ -719,10 +734,35 @@ struct FriendsListView: View {
                 Text("Wants to be friends").font(.system(size: 13)).foregroundStyle(.secondary)
             }
             Spacer()
+            // A request card with only Accept was a card that could never
+            // leave: an unwanted request sat pinned above the feed for ever.
+            Button {
+                Task {
+                    do {
+                        try await supabase.removeFriendship(with: user.id)
+                        await store.refresh(force: true)
+                    } catch {
+                        store.lastError = "Couldn't decline the request — check your connection and try again."
+                    }
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                    .padding(8)
+                    .background(Color(.secondarySystemFill), in: Circle())
+            }
+            .buttonStyle(.plain)
             Button("Accept") {
                 Task {
-                    try? await supabase.acceptFriendRequest(friendshipId: friendship.id)
-                    await store.refresh(force: true)
+                    // On success the refresh clears the card; on failure the
+                    // card stays AND the error line says why — a swallowed
+                    // throw here left a tap indistinguishable from no tap.
+                    do {
+                        try await supabase.acceptFriendRequest(friendshipId: friendship.id)
+                        await store.refresh(force: true)
+                    } catch {
+                        store.lastError = "Couldn't accept the request — check your connection and try again."
+                    }
                 }
             }
             .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
@@ -912,6 +952,7 @@ struct AddFriendSheet: View {
     @ObservedObject private var supabase = ArcSupabase.shared
     @State private var store = FriendsStore.shared
     @State private var inviteURL: URL?
+    @State private var inviteError: String?
     @State private var pasted = ""
     @State private var redeeming = false
     @State private var redeemError: String?
@@ -945,6 +986,15 @@ struct AddFriendSheet: View {
                             Text(inviteURL.absoluteString.replacingOccurrences(of: "https://", with: ""))
                                 .font(.system(size: 12, design: .monospaced))
                                 .foregroundStyle(.tertiary)
+                        } else if inviteError != nil {
+                            // A failed mint used to leave "Creating link…"
+                            // spinning forever with nothing to tap.
+                            Button { Task { await createInvite() } } label: {
+                                pillLabel("Try again", loading: false)
+                            }
+                            .buttonStyle(.plain)
+                            Text("Couldn't create an invite link — check your connection.")
+                                .font(.system(size: 12)).foregroundStyle(ArcTheme.late)
                         } else {
                             pillLabel("Creating link…", loading: true)
                         }
@@ -997,11 +1047,7 @@ struct AddFriendSheet: View {
                     Button("Done") { dismiss() }.foregroundStyle(ArcTheme.action)
                 }
             }
-            .task {
-                if inviteURL == nil, let code = try? await ArcSupabase.shared.createFriendInvite() {
-                    inviteURL = URL(string: Self.inviteBase + code)
-                }
-            }
+            .task { await createInvite() }
         }
     }
 
@@ -1068,6 +1114,23 @@ struct AddFriendSheet: View {
         .background(loading ? Color(.systemGray4) : ArcTheme.action, in: Capsule())
     }
 
+    /// Mints the shareable link, retryably. The one-shot `.task` version left
+    /// "Creating link…" spinning forever on any failure, with nothing to tap.
+    private func createInvite() async {
+        guard inviteURL == nil else { return }
+        inviteError = nil
+        do {
+            // A session that never finished loading its profile throws
+            // notSignedIn here despite the user being signed in — retry it
+            // first rather than failing a signed-in user.
+            await ArcSupabase.shared.ensureProfileLoaded()
+            let code = try await ArcSupabase.shared.createFriendInvite()
+            inviteURL = URL(string: Self.inviteBase + code)
+        } catch {
+            inviteError = error.localizedDescription
+        }
+    }
+
     /// Accepts a full link ("…/f/abc123"), an arc:// link, or a bare code.
     private func redeem() async {
         redeeming = true; redeemError = nil
@@ -1076,12 +1139,21 @@ struct AddFriendSheet: View {
         if let range = code.range(of: "friend/") { code = String(code[range.upperBound...]) }
         code = code.components(separatedBy: CharacterSet.alphanumerics.inverted).joined()
 
-        if let friend = try? await ArcSupabase.shared.redeemInvite(code: code.lowercased()) {
-            store.justRedeemedFriend = friend
-            await store.refresh(force: true)
-            dismiss()
-        } else {
-            redeemError = "That invite isn't valid anymore — ask for a fresh link."
+        // nil MEANS invalid now; a failure to reach the server throws instead.
+        // Conflated, a flaky connection told the user their friend's link was
+        // dead — an invitation to ask for a new link that would fail the same
+        // way.
+        do {
+            await ArcSupabase.shared.ensureProfileLoaded()
+            if let friend = try await ArcSupabase.shared.redeemInvite(code: code.lowercased()) {
+                store.justRedeemedFriend = friend
+                await store.refresh(force: true)
+                dismiss()
+            } else {
+                redeemError = "That invite isn't valid anymore — ask for a fresh link."
+            }
+        } catch {
+            redeemError = "Couldn't reach the server — check your connection and try again."
         }
         redeeming = false
     }

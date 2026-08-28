@@ -111,7 +111,71 @@ final class FriendsStore {
 
     func decline(_ item: TripInviteItem) {
         withAnimation { tripInvites.removeAll { $0.id == item.id } }
+        // Remembered durably BEFORE the network call: the server answer is
+        // best-effort, and a failed decline used to resurrect the card on
+        // every refresh — dismissed again, failed again, forever. The refresh
+        // path re-answers any remembered decline the server still returns.
+        var declined = Set(UserDefaults.standard.stringArray(forKey: Self.declinedInvitesKey) ?? [])
+        declined.insert(item.id)
+        UserDefaults.standard.set(Array(declined), forKey: Self.declinedInvitesKey)
         Task { try? await ArcSupabase.shared.respondToTripInvite(id: item.id, accept: false) }
+    }
+
+    private static let declinedInvitesKey = "tripInvites.declined"
+
+    // MARK: - Unsent trip invites (durable retry)
+
+    /// Companion invites the user chose that never reached the server —
+    /// keyed by the trip's natural key and persisted, because both send
+    /// sites (the add sheet and the detail picker) dismiss before the
+    /// network answers, so there is nowhere to report a failure and nothing
+    /// the user could do with one. The picker's promise — "they'll get this
+    /// trip offered in their own list" — is kept by retrying instead.
+    private static let unsentInvitesKey = "tripInvites.unsent"
+    private var retryingUnsentInvites = false
+
+    private var unsentInvites: [String: [String]] {
+        get { (UserDefaults.standard.dictionary(forKey: Self.unsentInvitesKey) as? [String: [String]]) ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: Self.unsentInvitesKey) }
+    }
+
+    func noteUnsentInvites(for flight: Flight, ids: [String]) {
+        guard !ids.isEmpty else { return }
+        let key = Self.journeyKey(flight.flightNumber, flight.scheduledDeparture)
+        var all = unsentInvites
+        all[key] = Array(Set((all[key] ?? []) + ids))
+        unsentInvites = all
+    }
+
+    /// Retry every queued invite whose flight still exists locally. Rides
+    /// reconcileTripInvites' cadence: flight-list changes and invite loads.
+    func retryUnsentInvites(with userFlights: [Flight]) {
+        guard !retryingUnsentInvites, !unsentInvites.isEmpty else { return }
+        retryingUnsentInvites = true
+        Task {
+            defer { retryingUnsentInvites = false }
+            for (key, ids) in unsentInvites {
+                guard let flight = userFlights.first(where: {
+                    Self.journeyKey($0.flightNumber, $0.scheduledDeparture) == key
+                }), !flight.isDeleted else {
+                    // The trip is gone; so is the promise.
+                    var pruned = unsentInvites
+                    pruned.removeValue(forKey: key)
+                    unsentInvites = pruned
+                    continue
+                }
+                do {
+                    _ = try? await ArcSupabase.shared.shareFlight(flight)
+                    try await ArcSupabase.shared.sendTripInvites(flight, to: ids)
+                    var done = unsentInvites
+                    done.removeValue(forKey: key)
+                    unsentInvites = done
+                    await refreshSentTripInvites()
+                } catch {
+                    // Still queued; the next reconcile pass retries.
+                }
+            }
+        }
     }
 
     /// Invites for a journey the user ALREADY has (they added the same
@@ -119,6 +183,8 @@ final class FriendsStore {
     /// gains the sender. Called with the local flights whenever either side
     /// changes; the store itself has no model context.
     func reconcileTripInvites(with userFlights: [Flight]) {
+        // Same cadence, other direction: invites WE owe that never landed.
+        retryUnsentInvites(with: userFlights)
         guard !tripInvites.isEmpty else { return }
         let mine = Set(userFlights.map { Self.journeyKey($0.flightNumber, $0.scheduledDeparture) })
         let already = tripInvites.filter { item in
@@ -278,11 +344,24 @@ final class FriendsStore {
     func redeemPendingIfPossible() async {
         guard let code = pendingInviteCode,
               ArcSupabase.shared.currentUser != nil else { return }
-        pendingInviteCode = nil
-        if let friend = try? await ArcSupabase.shared.redeemInvite(code: code) {
-            justRedeemedFriend = friend
-            lastRefreshAt = nil   // force the next refresh through the throttle
-            await refresh()
+        do {
+            if let friend = try await ArcSupabase.shared.redeemInvite(code: code) {
+                pendingInviteCode = nil
+                justRedeemedFriend = friend
+                lastRefreshAt = nil   // force the next refresh through the throttle
+                await refresh()
+            } else {
+                // The server answered: unknown, expired, or the user's own
+                // code. No retry can fix that — say so once and let it go.
+                pendingInviteCode = nil
+                lastError = "That friend invite isn't valid anymore — ask for a fresh link."
+            }
+        } catch {
+            // The attempt never reached an answer. The code used to be
+            // cleared BEFORE the attempt, so a link tapped on flaky wifi
+            // switched to the Friends tab and silently did nothing, forever.
+            // Keep it parked — the next refresh retries — and say why.
+            lastError = "Couldn't redeem the friend invite — check your connection and try again."
         }
     }
 
@@ -624,10 +703,26 @@ final class FriendsStore {
             if !DemoSeed.isTripInviteRequested { tripInvites = [] }
             return
         }
-        // Profile not loaded yet (cold launch, bootstrap still running):
-        // bail WITHOUT arming the throttle, so the bootstrap's own refresh
-        // isn't swallowed a moment later.
-        guard ArcSupabase.shared.currentUser != nil else { return }
+        // Profile not loaded yet. A cold launch races the bootstrap — but a
+        // bootstrap that FAILED (offline at launch) never retried, and this
+        // guard then starved every friends surface for the life of the
+        // process: signed in, spinner up, nothing loading, nothing said.
+        // Retry the session; only when the retry also fails is there
+        // something worth telling the user — and the spinner is released
+        // (hasLoadedOnce is what the view keys "stop spinning" on), still
+        // without arming the throttle, so pull-to-refresh genuinely retries.
+        if ArcSupabase.shared.currentUser == nil {
+            await ArcSupabase.shared.ensureProfileLoaded()
+        }
+        guard ArcSupabase.shared.currentUser != nil else {
+            lastError = "Couldn't reach the server to load your friends. Pull to refresh to try again."
+            hasLoadedOnce = true
+            return
+        }
+        // An invite link parked before the session was ready redeems on the
+        // next refresh instead of never. (Safe against recursion: a
+        // successful redeem clears the code before its own refresh runs.)
+        if pendingInviteCode != nil { await redeemPendingIfPossible() }
         if isLoading { return }
         if !force, let last = lastRefreshAt, Date.now.timeIntervalSince(last) < 20 { return }
         lastRefreshAt = .now
@@ -695,8 +790,20 @@ final class FriendsStore {
                 }
                 if let sender { items.append(TripInviteItem(invite: invite, sender: sender)) }
             }
-            if !DemoSeed.isTripInviteRequested { tripInvites = items }   // simulator seed survives
-            announceNewTripInvites(items)
+            // Declines are remembered locally (see `decline`): an invite the
+            // user already dismissed must neither reappear nor re-announce,
+            // however many times the decline call itself fails — and each
+            // sighting re-answers it until the server finally agrees. Ids the
+            // server stopped returning are settled and pruned.
+            let declined = Set(UserDefaults.standard.stringArray(forKey: Self.declinedInvitesKey) ?? [])
+            for item in items where declined.contains(item.id) {
+                Task { try? await supabase.respondToTripInvite(id: item.id, accept: false) }
+            }
+            let fresh = items.filter { !declined.contains($0.id) }
+            UserDefaults.standard.set(Array(declined.intersection(items.map(\.id))),
+                                      forKey: Self.declinedInvitesKey)
+            if !DemoSeed.isTripInviteRequested { tripInvites = fresh }   // simulator seed survives
+            announceNewTripInvites(fresh)
             sentTripInvites = (try? await supabase.sentTripInvites()) ?? sentTripInvites
 
             // Diff against the persisted baseline: friend notifications +

@@ -11,7 +11,15 @@ import SwiftUI
 struct AirportOverlapRow: View {
     let flight: Flight
 
-    @State private var dismissed: Set<String> = []
+    /// Persisted, not view state: an "×" that only lasted until the sheet
+    /// closed brought the same banner back on every open — a dismissal that
+    /// visibly didn't take. Uses the same key as the notification dedupe, so
+    /// a fresh overlap at the same airport later can reappear once its keys
+    /// are pruned there.
+    private static let dismissedKey = "friendOverlaps.dismissed"
+
+    @State private var dismissed: Set<String> = Set(
+        UserDefaults.standard.stringArray(forKey: AirportOverlapRow.dismissedKey) ?? [])
 
     private var overlaps: [FriendsStore.AirportOverlap] {
         FriendsStore.shared.activeOverlaps.filter { overlap in
@@ -23,6 +31,15 @@ struct AirportOverlapRow: View {
 
     private func key(_ o: FriendsStore.AirportOverlap) -> String {
         "\(o.friend.id)|\(o.airportIATA)"
+    }
+
+    private func persistDismissal(_ k: String) {
+        var all = Set(UserDefaults.standard.stringArray(forKey: Self.dismissedKey) ?? [])
+        all.insert(k)
+        // Prune to overlaps that still exist, so the set can't grow forever
+        // and a future rendezvous at the same airport can show again.
+        let live = Set(FriendsStore.shared.activeOverlaps.map { key($0) })
+        UserDefaults.standard.set(Array(all.intersection(live)), forKey: Self.dismissedKey)
     }
 
     var body: some View {
@@ -40,7 +57,9 @@ struct AirportOverlapRow: View {
                 }
                 Spacer(minLength: 0)
                 Button {
-                    withAnimation(.easeOut) { _ = dismissed.insert(key(overlap)) }
+                    let k = key(overlap)
+                    withAnimation(.easeOut) { _ = dismissed.insert(k) }
+                    persistDismissal(k)
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 11, weight: .bold))

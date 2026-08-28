@@ -179,9 +179,16 @@ struct ManageFriendsSheet: View {
     private func remove(_ entry: FriendsStore.FriendEntry) {
         pendingRemoval = nil
         Task {
-            try? await ArcSupabase.shared.removeFriendship(with: entry.id)
-            FriendGroups.removeMemberEverywhere(entry.id)
-            await store.refresh(force: true)
+            do {
+                try await ArcSupabase.shared.removeFriendship(with: entry.id)
+                // Only once the server agreed. Swept unconditionally, a failed
+                // removal brought the friend straight back into the list —
+                // silently gone from every group they were in.
+                FriendGroups.removeMemberEverywhere(entry.id)
+                await store.refresh(force: true)
+            } catch {
+                store.lastError = "Couldn't remove \(entry.user.display_name) — check your connection and try again."
+            }
             reload()
         }
     }

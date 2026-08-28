@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var profileSaving = false
     @State private var profileSaved = false
     @State private var profileError: String?
+    @State private var exportFailed = false
     /// What the region picker showed before any edit — the dirtiness baseline
     /// for users who have no stored nationality yet.
     @State private var regionBaseline = ""
@@ -27,7 +28,11 @@ struct SettingsView: View {
                                "#38D9A9", "#4DABF7", "#9775FA", "#F783AC"]
 
     private func applyDesign() {
-        guard !designEmoji.isEmpty else { return }
+        // A colour tapped before any emoji used to bounce off a guard here —
+        // the selection ring moved, the preview didn't, and Save stayed
+        // grey. Give the design a face instead, so the tap has a visible
+        // result the user can then change.
+        if designEmoji.isEmpty { designEmoji = "✈️" }
         pendingAvatar = .some(FriendAvatar.emojiAvatarString(emoji: designEmoji, colorHex: designColor))
     }
     @AppStorage("notifyGateChanges") private var notifyGateChanges = true
@@ -275,6 +280,9 @@ struct SettingsView: View {
                     } else {
                         Button {
                             exportURL = FlightExporter.writeJSONFile(allFlights)
+                            // A nil is a tap that re-rendered the same button
+                            // — say what happened instead of nothing.
+                            exportFailed = exportURL == nil
                         } label: {
                             Text("Export Flight Data (\(allFlights.count) flights)")
                                 .font(.system(size: 15, weight: .semibold))
@@ -285,6 +293,11 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.plain)
                         .listRowSeparator(.hidden)
+                        if exportFailed {
+                            Text("Couldn't write the export file — try again.")
+                                .font(.system(size: 13)).foregroundStyle(ArcTheme.late)
+                                .listRowSeparator(.hidden)
+                        }
                     }
                 } header: {
                     Text("Data")
@@ -305,6 +318,13 @@ struct SettingsView: View {
                        let image = UIImage(data: data),
                        let url = FriendAvatar.makeDataURL(from: image) {
                         pendingAvatar = .some(url)
+                        profileError = nil
+                    } else {
+                        // The picker closed and nothing changed — say why,
+                        // where the save error already renders. Silently
+                        // eating an iCloud photo that wouldn't load read as
+                        // "the avatar feature is broken".
+                        profileError = "Couldn't load that photo — try a different one."
                     }
                     photoPick = nil
                 }
@@ -322,6 +342,15 @@ struct SettingsView: View {
     private func seedProfileFields() {
         guard let user = supabase.currentUser else { return }
         if profileName.isEmpty { profileName = user.display_name }
+        // The design controls seed from the CURRENT design avatar, so a
+        // recolour is one tap rather than "re-pick your emoji first".
+        if designEmoji.isEmpty, let raw = user.avatar_url, raw.hasPrefix("emoji:") {
+            let body = String(raw.dropFirst("emoji:".count))
+            if let bar = body.lastIndex(of: "|"), !body[..<bar].isEmpty {
+                designEmoji = String(body[..<bar])
+                designColor = String(body[body.index(after: bar)...])
+            }
+        }
         if let nation = user.nationality {
             profileRegion = nation
         } else {
