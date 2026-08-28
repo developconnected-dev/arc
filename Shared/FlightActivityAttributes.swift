@@ -96,6 +96,13 @@ struct FlightActivityAttributes: ActivityAttributes {
         /// Friends on this same flight. Optional with a default so pushes
         /// from an older Worker and stored states still decode.
         var companions: [Companion]? = nil
+        /// The traveller's seat, CURRENT. The attributes carry one too, but
+        /// attributes are minted for the life of the activity — a seat added
+        /// in the app after the card started could never reach the lock
+        /// screen through them. Non-nil is authoritative (empty means
+        /// cleared); nil — an old card, or a push from an older Worker —
+        /// falls back to the attributes' seat.
+        var seat: String? = nil
         /// When this state was built — the insight shimmer's sweep replays
         /// from here on every update. Optional for older stored states.
         var updatedAt: Date? = nil

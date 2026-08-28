@@ -23,7 +23,7 @@ export function contentState(
     /// erase them. ActivityKit REPLACES the whole content state on every
     /// push — there is no merge — so anything the Worker omits is gone from
     /// the lock screen until the app next runs.
-    local?: { boarding_lead_minutes?: number; companions?: unknown[] };
+    local?: { boarding_lead_minutes?: number; companions?: unknown[]; seat?: string };
   } | null = null
 ): Record<string, unknown> {
   const now = Date.now();
@@ -57,6 +57,11 @@ export function contentState(
     // avatars are files staged in the device's App Group), so it echoes what
     // the app registered rather than blanking the cluster every five minutes.
     companions: extra?.local?.companions ?? null,
+    // The traveller's CURRENT seat, echoed from the device's registration.
+    // The attributes' copy is frozen when the card starts, so a seat added
+    // in the app afterwards exists only here — and null (never registered)
+    // tells the widget to fall back to the attributes.
+    seat: extra?.local?.seat ?? null,
     updatedAt: appleEpoch(now),
     departureGate: flight?.["dep_gate"] ?? null,
     departureTerminal: flight?.["dep_terminal"] ?? null,
