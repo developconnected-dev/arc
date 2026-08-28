@@ -44,6 +44,16 @@ struct MyFlightsView: View {
                 // answer. Pinned above everything rather than slotted into
                 // the timeline: an invite for a trip six weeks out would
                 // otherwise sit below the fold and never be seen.
+                // A failed Accept sets lastError and leaves the card — but
+                // the error used to render only on the Friends tab, so here
+                // the tap just visibly did nothing.
+                if let error = friendsStore.lastError, !friendsStore.tripInvites.isEmpty {
+                    Text(error)
+                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 0, trailing: 16))
+                }
                 ForEach(friendsStore.tripInvites) { item in
                     TripInviteCard(item: item,
                                    onOpen: { previewFlight = $0 },

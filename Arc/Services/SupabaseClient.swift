@@ -178,6 +178,17 @@ final class ArcSupabase: ObservableObject {
         isSignedIn = false
     }
 
+    /// Retry the cold-launch profile load. `bootstrapSession` runs once from
+    /// init and `loadProfile` swallows its own failures, so a launch without
+    /// a network left `currentUser` nil for the life of the process — signed
+    /// in, and every friends surface spinning forever on a session that was
+    /// one retry away. Callers that find themselves signed in but
+    /// profile-less call this before giving up.
+    func ensureProfileLoaded() async {
+        guard isSignedIn, currentUser == nil else { return }
+        await bootstrapSession()
+    }
+
     private func loadProfile() async {
         guard let token = accessToken else { return }
         do {
@@ -227,9 +238,11 @@ final class ArcSupabase: ObservableObject {
     /// Redeems an invite code: validates it, then inserts an already-accepted
     /// friendship (invite links skip the request/approve dance on purpose).
     /// Returns the new friend's profile, or nil if the code is unknown,
-    /// expired, or the user's own.
+    /// expired, or the user's own — nil MEANS invalid. Not being signed in
+    /// throws instead: conflating the two made a session that merely hadn't
+    /// loaded yet read as "that invite isn't valid anymore".
     func redeemInvite(code: String) async throws -> ArcUser? {
-        guard let uid = currentUser?.id else { return nil }
+        guard let uid = currentUser?.id else { throw ArcError.notSignedIn }
         struct Row: Codable { let inviter: String; let expires_at: String? }
         let cleaned = code.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? code
         let data = try await get(path: "/rest/v1/friend_invites?code=eq.\(cleaned)&select=inviter,expires_at")

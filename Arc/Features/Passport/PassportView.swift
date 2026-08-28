@@ -174,7 +174,12 @@ struct PassportView: View {
                     Text(scope == .allTime ? "ALL-TIME ARC PASSPORT" : "ARC PASSPORT")
                         .font(.system(size: 17, weight: .heavy)).foregroundStyle(.white)
                     Spacer()
-                    Image(systemName: "square.and.arrow.up").foregroundStyle(.white.opacity(0.8))
+                    // A real control, not decoration: the glyph on the card
+                    // people actually want to share used to do nothing — the
+                    // working ShareLink sat only in the header.
+                    ShareLink(item: passportShareText) {
+                        Image(systemName: "square.and.arrow.up").foregroundStyle(.white.opacity(0.8))
+                    }
                 }
                 Text("PASSPORT · PASS · PASAPORTE")
                     .font(.system(size: 12, weight: .semibold)).foregroundStyle(.white.opacity(0.6))

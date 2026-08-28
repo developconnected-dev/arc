@@ -53,6 +53,7 @@ struct AddFlightView: View {
     @State private var boardStop: FlightAPIClient.TransitStop?
     @State private var boardDepartures: [FlightAPIClient.RailDeparture] = []
     @State private var isLoadingBoard = false
+    @State private var boardLoadFailed = false
 
     // Manual entry state
     @State private var manualNumber = ""
@@ -338,11 +339,19 @@ struct AddFlightView: View {
                 if let live = livePrefetch, live.query == trimmedQuery, !live.results.isEmpty {
                     glassPanel {
                         listHeader("FLIGHTS")
+                        // Same failure surface as the results step: a save
+                        // that fails from THIS panel used to dim the row for
+                        // a moment and then silently do nothing — the error
+                        // was rendered on a step that wasn't showing.
+                        addErrorBanner
                         ForEach(live.results, id: \.flight_number) { r in
                             Button { add(r) } label: { resultCard(r) }
                                 .buttonStyle(.plain)
                                 .disabled(isAdding)
                                 .opacity(isAdding ? 0.5 : 1)
+                                .overlay(alignment: .trailing) {
+                                    if isAdding { ProgressView().padding(.trailing, 20) }
+                                }
                             Divider().padding(.leading, 20)
                         }
                     }
@@ -472,9 +481,22 @@ struct AddFlightView: View {
             .padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 6)
 
             if boardDepartures.isEmpty, !isLoadingBoard {
-                Text("No departures in the next while.")
-                    .font(.system(size: 13)).foregroundStyle(.secondary)
+                if boardLoadFailed {
+                    HStack(spacing: 8) {
+                        Text("Couldn't load the board.")
+                            .font(.system(size: 13)).foregroundStyle(.secondary)
+                        Button("Try again") {
+                            if let stop = boardStop { Task { await openBoard(stop) } }
+                        }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(ArcTheme.action)
+                    }
                     .padding(.horizontal, 20).padding(.vertical, 8)
+                } else {
+                    Text("No departures in the next while.")
+                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                        .padding(.horizontal, 20).padding(.vertical, 8)
+                }
             }
             ForEach(boardDepartures) { dep in
                 Button { Task { await pickDeparture(dep) } } label: {
@@ -847,16 +869,7 @@ struct AddFlightView: View {
                     }.buttonStyle(.plain)
                 }.padding(20)
             } else {
-                if let addError {
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(ArcTheme.late)
-                        Text(addError).font(.system(size: 13)).foregroundStyle(.secondary)
-                        Spacer()
-                    }
-                    .padding(14)
-                    .background(ArcTheme.late.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-                    .padding(.horizontal, 20)
-                }
+                addErrorBanner
                 // Chosen before tapping a result, so it applies to whichever
                 // flight is picked without adding a confirm step to the flow.
                 audiencePicker
@@ -1143,8 +1156,36 @@ struct AddFlightView: View {
             }
             .buttonStyle(.plain)
             .disabled(!canAddManual)
+            // Named, once the form is full enough for the block to be
+            // non-obvious: a grey button over a filled-in form reads as
+            // broken, not as validation.
+            if let reason = manualBlockedReason {
+                Text(reason)
+                    .font(.system(size: 13)).foregroundStyle(ArcTheme.late)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+            }
         }
         .padding(.horizontal, 20).padding(.top, 4)
+    }
+
+    /// Why the add button is grey, in words. nil while the form is submittable
+    /// — or while it is still empty enough that the gaps explain themselves.
+    private var manualBlockedReason: String? {
+        guard !manualNumber.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        if manualArrivalDate <= manualDepartureDate {
+            return "The arrival time must be after the departure."
+        }
+        if manualMode == .air {
+            guard let dep = manualDep, let arr = manualArr else { return nil }
+            return dep.iata == arr.iata
+                ? "Departure and arrival can't be the same airport." : nil
+        }
+        let from = manualDepName.trimmingCharacters(in: .whitespaces)
+        let to = manualArrName.trimmingCharacters(in: .whitespaces)
+        guard !from.isEmpty, !to.isEmpty else { return nil }
+        return from.caseInsensitiveCompare(to) == .orderedSame
+            ? "Departure and arrival can't be the same place." : nil
     }
 
     private func manualTimeRow(label: String, date: Binding<Date>, onChange: ((Date) -> Void)?) -> some View {
@@ -1570,7 +1611,19 @@ struct AddFlightView: View {
             found = Self.keepingOnlyRoute(localRoute, in: loose)
         }
         guard !found.isEmpty else {
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { isParsingNatural = false }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                isParsingNatural = false
+                // The message and the place suggestions below render on the
+                // SEARCH step. A re-search from the results step used to set
+                // them on a screen that wasn't showing: the spinner ended and
+                // the stale results just sat there, saying nothing.
+                if step == .results {
+                    step = .search
+                    resolvedCode = nil
+                    results = []
+                    errorText = nil
+                }
+            }
             // Name the route actually searched, and stop there. An earlier
             // draft added "not every small airport is covered by live schedule
             // data" — which sounded helpful and was simply wrong for the case
@@ -1632,7 +1685,16 @@ struct AddFlightView: View {
     private func openBoard(_ stop: FlightAPIClient.TransitStop) async {
         boardStop = stop
         isLoadingBoard = true
-        boardDepartures = (try? await FlightAPIClient.shared.railDepartures(stopId: stop.id)) ?? []
+        boardLoadFailed = false
+        do {
+            boardDepartures = try await FlightAPIClient.shared.railDepartures(stopId: stop.id)
+        } catch {
+            // A thrown fetch is not an empty station. "No departures in the
+            // next while" for a network error was a false statement with no
+            // way back.
+            boardDepartures = []
+            boardLoadFailed = true
+        }
         isLoadingBoard = false
     }
 
@@ -1751,7 +1813,10 @@ struct AddFlightView: View {
                     """
             }
         } catch {
-            errorText = "Live search isn't set up yet (no AeroDataBox key configured in the backend). You can still add this flight yourself below."
+            // Every failure used to be blamed on a missing backend API key —
+            // a specific cause Arc cannot observe, and simply wrong for the
+            // common case (the phone is offline). Name what is known.
+            errorText = "Live search didn't answer — check your connection and try again, or add the flight yourself below."
         }
         isSearching = false
     }
@@ -1836,6 +1901,22 @@ struct AddFlightView: View {
         }
     }
 
+    /// Why an add failed, wherever results are listed — the results step and
+    /// the search-as-you-type panel alike. A failure rendered only on a step
+    /// that isn't showing is a tap that silently does nothing.
+    @ViewBuilder private var addErrorBanner: some View {
+        if let addError {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(ArcTheme.late)
+                Text(addError).font(.system(size: 13)).foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(14)
+            .background(ArcTheme.late.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 20)
+        }
+    }
+
     /// Only worth showing once there's somebody to share with — and never when
     /// signed out, where sharing doesn't exist at all.
     @ViewBuilder private var audiencePicker: some View {
@@ -1863,8 +1944,15 @@ struct AddFlightView: View {
             try? await ArcSupabase.shared.upsertUserFlight(flight)
             _ = try? await ArcSupabase.shared.shareFlight(flight)
             if !companions.isEmpty {
-                try? await ArcSupabase.shared.sendTripInvites(flight, to: companions)
-                await FriendsStore.shared.refreshSentTripInvites()
+                do {
+                    try await ArcSupabase.shared.sendTripInvites(flight, to: companions)
+                    await FriendsStore.shared.refreshSentTripInvites()
+                } catch {
+                    // The sheet is already dismissed; the promise made in the
+                    // companions row is kept by the durable retry queue, not
+                    // by a silence.
+                    FriendsStore.shared.noteUnsentInvites(for: flight, ids: companions)
+                }
             }
         }
     }
@@ -1938,6 +2026,13 @@ private struct AirportField: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 10))
+                } else if !query.isEmpty {
+                    // The label above says "Select below…" — with no matches
+                    // that was an instruction to pick from a list that wasn't
+                    // there.
+                    Text("No matching airports — try the city name or IATA code.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
                 }
             } else {
                 Button(action: onActivate) {

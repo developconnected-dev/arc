@@ -15,7 +15,11 @@ struct ShareFlightSheet: View {
     @State private var linkState: LinkState = .working
     @State private var showActivity = false
 
-    enum LinkState { case working, ready, unavailable }
+    /// `unavailable` means SIGNED OUT, and nothing else. Network failures
+    /// used to collapse into it too, so a signed-in user on flaky wifi was
+    /// told to "sign in on the Friends tab" — advice they had already
+    /// followed — with no way to retry short of reopening the sheet.
+    enum LinkState { case working, ready, unavailable, failed }
 
     private static let shareBase = "https://arc-backend.owncalai.workers.dev/s/"
 
@@ -51,6 +55,16 @@ struct ShareFlightSheet: View {
                           systemImage: "person.crop.circle.badge.questionmark")
                         .font(.system(size: 13)).foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
+                case .failed:
+                    VStack(spacing: 6) {
+                        Label("Couldn't create the live link — the ticket still shares fine without it.",
+                              systemImage: "wifi.exclamationmark")
+                            .font(.system(size: 13)).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                        Button("Try again") { Task { await prepareLink() } }
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(ArcTheme.action)
+                    }
                 }
             }
             .padding(.horizontal, 32)
@@ -108,15 +122,19 @@ struct ShareFlightSheet: View {
     /// its 48-hour share code. Signed out → the ticket still shares fine.
     private func prepareLink() async {
         guard supabase.isSignedIn else { linkState = .unavailable; return }
+        linkState = .working
         do {
+            // A session whose profile never loaded (offline launch) mirrors
+            // nothing — retry it before failing a signed-in user.
+            await ArcSupabase.shared.ensureProfileLoaded()
             guard let rowId = try await supabase.shareFlight(flight) else {
-                linkState = .unavailable; return
+                linkState = .failed; return
             }
             let code = try await supabase.journeyCode(forFlightId: rowId)
             liveURL = URL(string: Self.shareBase + code)
             linkState = .ready
         } catch {
-            linkState = .unavailable
+            linkState = .failed
         }
     }
 }
