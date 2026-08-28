@@ -154,6 +154,13 @@ extension Flight {
     /// colour never claims the airline said so.
     var isPresumedAirborne: Bool { departurePhase == .presumedAirborne }
 
+    /// Seen rolling. The word is a witnessed fact; the colour still hedges,
+    /// because a roll is not a take-off — same idiom as the phases above.
+    var isTaxiing: Bool {
+        if case .taxiing = departurePhase { return true }
+        return false
+    }
+
     var isDelayed: Bool { (reportsPunctuality && delayMinutes > 0) || status == .cancelled }
 
     /// True for 30 minutes after landing — kept visible in My Flights during
@@ -365,6 +372,14 @@ extension Flight {
             if let t = compactUntil(effectiveArrival) { return "\(mode.arrivingVerb) in \(t)" }
             return "Arrival not yet confirmed"
         default:
+            // A witnessed roll is named whatever the status string says —
+            // the provider flips to "active" at its own pace, and the taxi
+            // routinely starts while the status still reads scheduled
+            // (an early pushback, or a delay the airline overstated).
+            if case .taxiing(let since) = departurePhase, mode == .air {
+                guard let since, Date.now.timeIntervalSince(since) >= 60 else { return "Taxiing" }
+                return "Taxiing · \(compactAgo(since))"
+            }
             // "Gate Departure" names a gate a ferry doesn't have; a berth is not
             // where a sailing's clock starts either.
             let what = mode == .air ? "Gate Departure" : "Departure"
@@ -382,7 +397,10 @@ extension Flight {
         if isDelayed { return ArcTheme.late }
         // "Departure not yet confirmed" is not a green state — and neither is
         // "Departing", "Taxiing", or an airborne Arc has only presumed.
-        if isDepartureUnconfirmed || isDepartingUnconfirmed || isPresumedAirborne {
+        // isTaxiing stands on its own because the other flags require an
+        // "active" status, and a witnessed roll routinely starts before the
+        // provider flips one.
+        if isDepartureUnconfirmed || isDepartingUnconfirmed || isPresumedAirborne || isTaxiing {
             return Color(.secondaryLabel)
         }
         // Green is the app saying "this is running to plan". A timetable has no
