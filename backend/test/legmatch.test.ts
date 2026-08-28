@@ -223,3 +223,31 @@ test("no readable schedule falls back to the raw delay", () => {
   assert.equal(effectiveDelayMinutes({ delay: 15 }, STORED), 15);
   assert.equal(effectiveDelayMinutes(null, STORED), 0);
 });
+
+// ── plausibleEstimatedArrival ──
+//
+// The row write keeps `row.estimated_arrival` when the provider reports
+// none, so yesterday's arrival — written by the old route-only leg match —
+// was pinned on a row for ever, and a friend's flight an hour from pushback
+// read "Arrival not yet confirmed".
+
+import { plausibleEstimatedArrival } from "../src/legmatch.ts";
+
+const EFF_DEP = Date.parse("2026-08-25T20:00:00.000Z");
+
+test("an estimate after the departure passes through", () => {
+  assert.equal(
+    plausibleEstimatedArrival("2026-08-25T22:05:00.000Z", EFF_DEP),
+    "2026-08-25T22:05:00.000Z");
+});
+
+test("no flight arrives before it leaves — yesterday's estimate is dropped", () => {
+  assert.equal(plausibleEstimatedArrival("2026-08-24T22:05:00.000Z", EFF_DEP), null);
+  assert.equal(plausibleEstimatedArrival("2026-08-25T20:00:00.000Z", EFF_DEP), null);
+});
+
+test("nothing, or nothing readable, is null — and a broken anchor keeps the estimate", () => {
+  assert.equal(plausibleEstimatedArrival(null, EFF_DEP), null);
+  assert.equal(plausibleEstimatedArrival("not a date", EFF_DEP), null);
+  assert.equal(plausibleEstimatedArrival("2026-08-25T22:05:00.000Z", NaN), "2026-08-25T22:05:00.000Z");
+});
