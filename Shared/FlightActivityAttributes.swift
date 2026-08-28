@@ -19,6 +19,12 @@ struct FlightActivityAttributes: ActivityAttributes {
     /// activity; absent (older activities, push-to-start) the widget falls
     /// back to the generic person icon.
     var friendAvatarFile: String? = nil
+    /// The friend's `shared_flights` row id — what a tap on THEIR card
+    /// routes by. Without it the tap resolved the friend's flight number
+    /// against the viewer's OWN store: a switch to My Trips with nothing
+    /// opened, or the viewer's same-numbered flight. nil on own cards and
+    /// on friend cards started before this field existed.
+    var friendFlightId: String? = nil
     /// Local SwiftData id, so tapping the Live Activity opens THAT flight.
     /// Optional: push-to-start from the Worker doesn't know it, and those
     /// activities fall back to number + route.
@@ -179,7 +185,22 @@ enum ArcDeepLink {
         return flight(number: widget.flightNumber, dep: widget.departureIATA, arr: widget.arrivalIATA)
     }
 
+    static func friendFlight(id: String) -> URL {
+        var c = URLComponents()
+        c.scheme = scheme
+        c.host = "friendflight"
+        c.path = "/\(id)"
+        return c.url ?? URL(string: "\(scheme)://friendflight")!
+    }
+
     static func url(for attributes: FlightActivityAttributes) -> URL {
+        // A FRIEND's card routes to the friend's flight. Resolving its
+        // number against the viewer's own store — the fallback below —
+        // either missed entirely (a tab switch with nothing opened) or
+        // landed on the viewer's own same-numbered flight.
+        if attributes.friendName != nil, let raw = attributes.friendFlightId {
+            return friendFlight(id: raw)
+        }
         if let raw = attributes.flightId, let id = UUID(uuidString: raw) {
             return flight(id: id)
         }
@@ -213,6 +234,9 @@ enum ArcDeepLink {
         case "directions":
             guard let iata = parts.first?.uppercased(), !iata.isEmpty else { return nil }
             return .directions(iata: iata, terminal: query("t"))
+        case "friendflight":
+            guard let id = parts.first, !id.isEmpty else { return nil }
+            return .friendFlight(id: id)
         case "friend":
             guard let code = parts.first, !code.isEmpty else { return nil }
             return .friend(code: code)

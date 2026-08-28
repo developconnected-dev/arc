@@ -89,7 +89,8 @@ final class LiveActivityManager {
             : "friend-\(flight.flightNumber)-\(flight.departureIATA)"
     }
 
-    func startActivity(for flight: Flight, friendName: String? = nil, friendAvatarFile: String? = nil) async {
+    func startActivity(for flight: Flight, friendName: String? = nil, friendAvatarFile: String? = nil,
+                       friendFlightId: String? = nil) async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let key = Self.activityKey(for: flight, friendName: friendName)
 
@@ -119,6 +120,10 @@ final class LiveActivityManager {
             seat: flight.seat,
             friendName: friendName,
             friendAvatarFile: friendAvatarFile,
+            // The friend's shared_flights row id, so a tap on their card
+            // opens THEIR flight — the transient Flight's own id is minted
+            // per refresh and exists in nobody's store.
+            friendFlightId: friendName == nil ? nil : friendFlightId,
             flightId: friendName == nil ? flight.id.uuidString : nil,
             modeRaw: flight.mode.rawValue,
             dataTierRaw: flight.dataTier.rawValue,

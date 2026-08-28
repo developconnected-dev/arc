@@ -59,6 +59,27 @@ final class ArcDeepLinkTests: XCTestCase {
         XCTAssertEqual(ArcDeepLink.parse(URL(string: "arc://friend/abc123")!), .friend(code: "abc123"))
     }
 
+    /// A tap on a FRIEND's Live Activity routes to the friend's flight.
+    /// Before friendFlightId existed the card's URL resolved its flight
+    /// number against the viewer's OWN store — a switch to My Trips with
+    /// nothing opened.
+    func testFriendCardURLRoutesToTheFriendsFlight() {
+        let rowId = UUID().uuidString
+        var attrs = FlightActivityAttributes(
+            flightNumber: "LX2146", departureIATA: "ZRH", arrivalIATA: "VLC",
+            departureCity: "Zurich", arrivalCity: "Valencia", airline: "Swiss",
+            aircraftType: nil, seat: nil)
+        attrs.friendName = "Aram"
+        attrs.friendFlightId = rowId
+        XCTAssertEqual(ArcDeepLink.parse(ArcDeepLink.url(for: attrs)), .friendFlight(id: rowId))
+        // An OWN card is untouched by the new field.
+        attrs.friendName = nil
+        attrs.flightId = UUID().uuidString
+        if case .flight = ArcDeepLink.parse(ArcDeepLink.url(for: attrs)) {} else {
+            XCTFail("own card should still route by flight id")
+        }
+    }
+
     func testLiveActivityURLPrefersFlightId() {
         let id = UUID()
         let attrs = FlightActivityAttributes(
