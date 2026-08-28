@@ -370,6 +370,7 @@ final class FlightTracker: ObservableObject {
         let oldStatus = flight.statusRaw
         let oldDelay = flight.delayMinutes
         let oldGate = flight.departureGate
+        let wasUncertain = flight.cancelUncertain
 
         await updateFlightStatus(flight)
         // The network round-trip above is exactly where a deletion can land.
@@ -377,6 +378,9 @@ final class FlightTracker: ObservableObject {
 
         if flight.statusRaw != oldStatus {
             await handleStatusChange(flight: flight, from: oldStatus)
+        }
+        if flight.cancelUncertain && !wasUncertain {
+            ArcNotifications.notifyPossiblyCancelled(flight: flight)
         }
         if flight.delayMinutes != oldDelay && flight.delayMinutes > 0 {
             ArcNotifications.notifyDelay(flight: flight)
@@ -546,6 +550,7 @@ final class FlightTracker: ObservableObject {
 
             // Update status
             flight.statusRaw = FlightStatus.heal(rawValue: latest.status, scheduledArrival: flight.scheduledArrival).rawValue
+            flight.cancelUncertain = latest.cancel_uncertain ?? false
             flight.delayMinutes = latest.delay ?? 0
 
             // Update actual times when available. Since the runway-time fix,

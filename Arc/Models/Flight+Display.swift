@@ -195,6 +195,9 @@ extension Flight {
     /// Green when on-time/near, red when delayed/cancelled/diverted, gray when far-off.
     var accentColor: Color {
         if status == .cancelled || status == .diverted { return ArcTheme.late }
+        // The provider's cancellation guess is a warning, never the
+        // assertion red — and it must not paint green over itself either.
+        if cancelUncertain, !isCompleted { return .orange }
         guard reportsPunctuality else {
             // A timetable-only leg is never green. The operator's own notice is
             // the one thing worth colouring, and it's a warning, not a delay.
@@ -207,6 +210,9 @@ extension Flight {
     }
 
     var statusText: String {
+        // Hedged before the switch: a guess outranks "On Time" but must
+        // never read like the fact "Cancelled" below.
+        if cancelUncertain, isUpcoming { return "May be cancelled" }
         switch status {
         case .cancelled: return "Cancelled"
         case .landed: return mode == .air ? "Landed" : "Arrived"
@@ -370,6 +376,9 @@ extension Flight {
 
     var bannerColor: Color {
         if status == .cancelled || status == .diverted { return ArcTheme.late }
+        // The maybe-cancelled warning outranks the delay it usually arrives
+        // with: 25 minutes late is the smaller of the two facts.
+        if cancelUncertain, !isCompleted { return .orange }
         if isDelayed { return ArcTheme.late }
         // "Departure not yet confirmed" is not a green state — and neither is
         // "Departing", "Taxiing", or an airborne Arc has only presumed.

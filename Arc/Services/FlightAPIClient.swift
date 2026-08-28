@@ -54,6 +54,11 @@ actor FlightAPIClient {
         /// on a restricted network too.
         var position: ProviderPosition? = nil
         let status: String
+        /// The provider's own guess that this leg may be cancelled (its
+        /// "likely cancelled" mark, which rescheduled flights that go on to
+        /// operate carry routinely) — beside the status, never folded into
+        /// it. Optional with a default: older backends don't send it.
+        var cancel_uncertain: Bool? = nil
         let dep_gate: String?
         let dep_terminal: String?
         let arr_gate: String?

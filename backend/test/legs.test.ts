@@ -398,3 +398,41 @@ test("a day and a half out is unchanged — nothing there moves in fifteen minut
                 arr_scheduled: new Date(dep + 2 * 3600_000).toISOString() };
   assert.equal(cacheTTLms([leg]), 6 * 3600_000);
 });
+
+// ── normalizeStatus / isCancelUncertain ──
+
+import { normalizeStatus, isCancelUncertain } from "../src/legs.ts";
+
+test("the provider's cancellation guess is NOT a cancellation", () => {
+  // canceledUncertain is documented as "likely cancelled" — rescheduled
+  // flights that go on to operate carry it. Hardening it into "cancelled"
+  // put a red "Flight Cancelled" and a rebooking push on a flight that was
+  // delayed 25 minutes and holding a gate.
+  assert.equal(normalizeStatus("CanceledUncertain"), "scheduled");
+  assert.equal(isCancelUncertain("CanceledUncertain"), true);
+});
+
+test("a confirmed cancellation still lands loud, in every spelling", () => {
+  assert.equal(normalizeStatus("Canceled"), "cancelled");
+  assert.equal(normalizeStatus("Cancelled"), "cancelled");
+  assert.equal(isCancelUncertain("Canceled"), false);
+});
+
+test("a delay is a scheduled flight — the delay field says the rest", () => {
+  assert.equal(normalizeStatus("Delayed"), "scheduled");
+});
+
+test("movement statuses keep their buckets", () => {
+  assert.equal(normalizeStatus("EnRoute"), "active");
+  assert.equal(normalizeStatus("Departed"), "active");
+  assert.equal(normalizeStatus("Arrived"), "landed");
+  assert.equal(normalizeStatus("Diverted"), "diverted");
+  assert.equal(normalizeStatus("Boarding"), "boarding");
+  assert.equal(normalizeStatus("GateClosed"), "gateClosed");
+});
+
+test("a status nobody has heard of asserts nothing", () => {
+  assert.equal(normalizeStatus("SomeFutureValue"), "scheduled");
+  assert.equal(normalizeStatus(null), "scheduled");
+  assert.equal(isCancelUncertain(undefined), false);
+});

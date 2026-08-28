@@ -40,6 +40,7 @@ struct GoodToKnowSection: View {
 
     var body: some View {
         let disrupted = flight.status == .cancelled || flight.status == .diverted
+            || (flight.cancelUncertain && !flight.isCompleted)
         let note = flight.disruptionNote?.trimmingCharacters(in: .whitespacesAndNewlines)
         let tip = sunTip
         if disrupted || note?.isEmpty == false || flight.bookingURL != nil
@@ -102,15 +103,24 @@ struct GoodToKnowSection: View {
 
     @ViewBuilder private var disruptionRow: some View {
         let cancelled = flight.status == .cancelled
+        // The provider's guess, distinct from both facts: a question mark and
+        // warning colour, never the seal and the red of "will not operate".
+        let uncertain = !cancelled && flight.status != .diverted
         let noun = flight.mode == .air ? "Flight" : "Service"
         HStack(spacing: 10) {
-            Image(systemName: cancelled ? "xmark.seal.fill" : "arrow.triangle.turn.up.right.diamond.fill")
-                .foregroundStyle(ArcTheme.late)
+            Image(systemName: cancelled ? "xmark.seal.fill"
+                  : uncertain ? "questionmark.diamond.fill"
+                  : "arrow.triangle.turn.up.right.diamond.fill")
+                .foregroundStyle(uncertain ? .orange : ArcTheme.late)
             VStack(alignment: .leading, spacing: 2) {
-                Text(cancelled ? "\(noun) cancelled" : "\(noun) diverted")
+                Text(cancelled ? "\(noun) cancelled"
+                     : uncertain ? "\(noun) may be cancelled"
+                     : "\(noun) diverted")
                     .font(.system(size: 15, weight: .semibold))
                 Text(cancelled
                      ? "\(flight.departureIATA) → \(flight.arrivalIATA) will not operate as scheduled"
+                     : uncertain
+                         ? "The data source marks this \(noun.lowercased()) as possibly cancelled. Rescheduled \(noun.lowercased())s sometimes carry this mark — check with the operator."
                      : flight.mode == .air
                          ? "This flight was routed to a different airport"
                          : "This service was routed to a different \(flight.mode == .sea ? "port" : "station")")

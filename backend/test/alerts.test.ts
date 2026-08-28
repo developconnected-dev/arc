@@ -75,3 +75,46 @@ test("a gate published near departure is announced, and a move says what moved",
   assert.match(moved.title, /moved to gate B44/);
   assert.match(moved.body, /from gate A12/);
 });
+
+// ── the provider's cancellation guess ──
+
+test("a may-be-cancelled flag is one hedged heads-up, not rebooking advice", () => {
+  const news = flightNews({ ...base, cancelUncertain: true });
+  assert.ok(news);
+  assert.match(news!.title, /may be cancelled/);
+  assert.doesNotMatch(news!.body, /Rebooking/);
+  // Said once: the same guess an hour later is not news again.
+  assert.equal(flightNews({ ...base, cancelUncertain: true, prior: news!.state }), null);
+});
+
+test("the guess does not latch: delay and gate news keep flowing after it", () => {
+  const said = flightNews({ ...base, cancelUncertain: true })!.state;
+  const delay = flightNews({ ...base, cancelUncertain: true, delayMinutes: 40, prior: said });
+  assert.match(delay!.title, /40m late/);
+  const gate = flightNews({
+    ...base, cancelUncertain: true, delayMinutes: 40, departureGate: "A64",
+    scheduledDeparture: NOW + 2 * 3600_000, prior: delay!.state,
+  });
+  assert.match(gate!.title, /gate A64/);
+});
+
+test("a guess that hardens into the fact is announced as the fact, replacing the hedge", () => {
+  const said = flightNews({ ...base, cancelUncertain: true })!;
+  const hard = flightNews({ ...base, status: "cancelled", prior: said.state });
+  assert.match(hard!.title, /is cancelled/);
+  assert.equal(hard!.collapseId, said.collapseId);
+});
+
+test("a guess that clears is worth one line — whoever saw it is still wondering", () => {
+  const said = flightNews({ ...base, cancelUncertain: true })!;
+  const cleared = flightNews({ ...base, cancelUncertain: false, prior: said.state });
+  assert.match(cleared!.title, /operating/);
+  assert.equal(cleared!.collapseId, said.collapseId);
+  // And silence after that.
+  assert.equal(flightNews({ ...base, cancelUncertain: false, prior: cleared!.state }), null);
+});
+
+test("a confirmed cancellation still latches everything behind it", () => {
+  const hard = flightNews({ ...base, status: "cancelled" })!;
+  assert.equal(flightNews({ ...base, delayMinutes: 60, prior: hard.state }), null);
+});
