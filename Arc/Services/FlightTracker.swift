@@ -137,22 +137,28 @@ final class FlightTracker: ObservableObject {
                         pollInterval = max(pollInterval, 30 * 60)
                     }
 
-                    // Check if enough time has passed since last poll
-                    if let last = lastPolled[flight.id], now.timeIntervalSince(last) < pollInterval {
-                        continue
+                    // A poll that isn't due must not `continue` past the blocks below:
+                    // each carries its own cadence, and the old `continue`
+                    // throttled all of them to the poll tier — the 60-second
+                    // takeoff watch the position block promises actually ran
+                    // at the 5-minute poll interval, so a push-back was seen
+                    // minutes after the aircraft rolled.
+                    let pollDue = (lastPolled[flight.id].map {
+                        now.timeIntervalSince($0) >= pollInterval }) ?? true
+                    if pollDue {
+                        lastPolled[flight.id] = now
+
+                        await pollWithChangeHandling(flight)
+
+                        // Start Live Activity within 3 hours (idempotent)
+                        if flight.isUpcoming && hoursUntilDep <= 3 {
+                            await LiveActivityManager.shared.startActivity(for: flight)
+                            // Pre-cache everything before takeoff
+                            await preCacheIfNeeded(flight: flight, modelContext: modelContext)
+                        }
+
+                        await LiveActivityManager.shared.updateActivity(for: flight)
                     }
-                    lastPolled[flight.id] = now
-
-                    await pollWithChangeHandling(flight)
-
-                    // Start Live Activity within 3 hours (idempotent)
-                    if flight.isUpcoming && hoursUntilDep <= 3 {
-                        await LiveActivityManager.shared.startActivity(for: flight)
-                        // Pre-cache everything before takeoff
-                        await preCacheIfNeeded(flight: flight, modelContext: modelContext)
-                    }
-
-                    await LiveActivityManager.shared.updateActivity(for: flight)
 
                     // Live position: only while airborne, and at 3-minute cadence.
                     // The feed behind /position is free and unauthenticated

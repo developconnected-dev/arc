@@ -165,18 +165,32 @@ enum LiveActivityPushSync {
     private static func absorb(_ state: FlightActivityAttributes.ContentState,
                                from attributes: FlightActivityAttributes) {
         // A friend's activity describes THEIR flight; it is not ours to write.
-        guard attributes.friendName == nil,
-              let container,
-              let idString = attributes.flightId,
-              let id = UUID(uuidString: idString) else { return }
+        guard attributes.friendName == nil, let container else { return }
 
         // The MAIN context, not a fresh one: this is what every `@Query` in the
         // app is bound to, so absorbing a push updates the screen the traveller
         // is looking at rather than waiting for a cross-context merge.
         let context = container.mainContext
-        var descriptor = FetchDescriptor<Flight>(predicate: #Predicate<Flight> { $0.id == id })
-        descriptor.fetchLimit = 1
-        guard let flight = try? context.fetch(descriptor).first else { return }
+        let found: Flight?
+        if let idString = attributes.flightId, let id = UUID(uuidString: idString) {
+            var descriptor = FetchDescriptor<Flight>(predicate: #Predicate<Flight> { $0.id == id })
+            descriptor.fetchLimit = 1
+            found = try? context.fetch(descriptor).first
+        } else {
+            // A card the SERVER started: push-to-start attributes carried no
+            // flightId until the Worker learned to send one, and attributes
+            // are minted for life — so without this fallback every push to
+            // such a card painted the lock screen and reached neither the
+            // store nor the widget, and the tracker re-announced it all the
+            // next time the app opened. Identity is the number and route;
+            // the closest scheduled departure tells the daily sibling apart,
+            // the same rule as the Worker's own leg matching.
+            found = matchFlight((try? context.fetch(FetchDescriptor<Flight>())) ?? [],
+                                number: attributes.flightNumber,
+                                dep: attributes.departureIATA, arr: attributes.arrivalIATA,
+                                around: state.departureTime)
+        }
+        guard let flight = found else { return }
 
         // Every write is guarded by an inequality. `reconcile()` runs on every
         // foreground and most pushes restate a card that has not moved, so an
@@ -348,5 +362,23 @@ enum LiveActivityPushSync {
 
     private static func hex(_ data: Data) -> String {
         data.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The stored flight a card with no flightId describes, or nil when no
+    /// candidate is close enough to be it. `around` is the card's (effective)
+    /// departure; anything beyond half a day is another day's operation, not
+    /// a delayed one — the same drift rule the Worker's leg matching uses.
+    nonisolated static func matchFlight(_ flights: [Flight], number: String,
+                                        dep: String, arr: String, around: Date) -> Flight? {
+        let wanted = number.replacingOccurrences(of: " ", with: "").uppercased()
+        let candidates = flights.filter {
+            $0.flightNumber.replacingOccurrences(of: " ", with: "").uppercased() == wanted
+                && $0.departureIATA.uppercased() == dep.uppercased()
+                && $0.arrivalIATA.uppercased() == arr.uppercased()
+        }
+        func drift(_ f: Flight) -> TimeInterval { abs(f.scheduledDeparture.timeIntervalSince(around)) }
+        guard let best = candidates.min(by: { drift($0) < drift($1) }),
+              drift(best) <= 12 * 3600 else { return nil }
+        return best
     }
 }

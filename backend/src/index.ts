@@ -3,7 +3,7 @@ import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, templatesFromN
 import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRIOR } from "./ground";
 import { predictGate, standFromBoard, type GateObservation } from "./gates";
 import { contentState } from "./activity";
-import { flightNews, type WatchState } from "./alerts";
+import { flightNews, laAlert, type WatchState } from "./alerts";
 import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS } from "./freshness";
 import { pickLeg, plausibleActualDeparture } from "./legmatch";
 import { verifiedRoute } from "./place";
@@ -3068,10 +3068,16 @@ async function sendToUser(env: Env, userId: string, title: string, body: string,
     `/device_tokens?select=token,apns_env&user_id=eq.${encodeURIComponent(userId)}`
   ) as unknown as { token: string; apns_env: "sandbox" | "production" }[];
   for (const t of tokens.slice(0, 5)) {
-    const status = await sendAlertPush(env, t.token, t.apns_env, APP_BUNDLE_ID,
-                                       { title, body }, collapseId, threadId);
-    if (status !== 200) console.error("alert push non-200:", status, threadId, t.token.slice(0, 8));
-    if (status === 410 || status === 400) {
+    const { status, reason } = await sendAlertPush(env, t.token, t.apns_env, APP_BUNDLE_ID,
+                                                   { title, body }, collapseId, threadId);
+    if (status !== 200) {
+      console.error("alert push non-200:", status, reason ?? "(no reason)", threadId, t.token.slice(0, 8),
+                    tokenIsDead(status, reason) ? "(dropping token)" : "(keeping token)");
+    }
+    // Through tokenIsDead, never on the bare status: a 400 is just as often
+    // a payload APNs could not read, and deleting on it let one malformed
+    // alert take every device token — the whole alert channel — with it.
+    if (tokenIsDead(status, reason)) {
       await sbService(env, "DELETE", `/device_tokens?token=eq.${encodeURIComponent(t.token)}`);
     }
   }
@@ -3100,6 +3106,7 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   const pushedAt: number = prior.pushed_at ?? 0;
   let lastFetch = fetchedAt;
   let dataChanged = false;
+  let alert: { title: string; body: string } | null = null;
   // What this token has established about the gate-to-runway gap, carried
   // between ticks in last_state. Without it every push rebuilt the lock
   // screen's DepartureEvidence from nothing, so the card that said
@@ -3136,6 +3143,20 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
         leg["arr_gate"] !== flight["arr_gate"] ||
         leg["arr_baggage"] !== flight["arr_baggage"]
       );
+      // The banner, decided against the PRIOR leg before it is replaced —
+      // and only when the news is what the banner actually says (gate moved,
+      // delay moved materially), never on `dataChanged` wholesale: a status
+      // flip or a belt appearing used to re-banner the same gate every time.
+      // First fetch stays silent, as it always has (`!!flight` above).
+      if (flight) {
+        alert = laAlert({
+          flightNumber: row.flight_number!,
+          priorGate: (flight["dep_gate"] as string | null) ?? null,
+          gate: (leg["dep_gate"] as string | null) ?? null,
+          priorDelay: Number(flight["delay"] ?? 0),
+          delay: Number(leg["delay"] ?? 0),
+        });
+      }
       flight = leg as Record<string, any>;
     }
     lastFetch = now;
@@ -3281,12 +3302,10 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
       "stale-date": staleAt,
       "content-state": contentState(status, depMs, arrMs, delay, arrDelay, flight, insight,
                                     { offBlockMs: depMs, taxiPrior, evidence, local: prior.local }),
-      ...(dataChanged && flight?.["dep_gate"] ? {
-        alert: {
-          title: `${row.flight_number} update`,
-          body: `Gate ${flight["dep_gate"]}${delay > 0 ? ` · ${delay}m late` : ""}`,
-        },
-      } : {}),
+      // Only inside the watcher's stand-down window (<3h before departure):
+      // farther out the watcher owns gate and delay news through sendToUser,
+      // and both channels speaking put two banners on one fact.
+      ...(alert && now >= depMs - 3 * 3600_000 ? { alert } : {}),
     },
   };
   // What actually went on the wire. A push that is ACCEPTED but carries the
@@ -3452,6 +3471,12 @@ async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[
           event: "start",
           "attributes-type": "FlightActivityAttributes",
           attributes: {
+            // The client's own Flight UUID — user_flights.id IS Flight.id.
+            // Without it a server-started card was unabsorbable for life:
+            // LiveActivityPushSync.absorb keys the model write on flightId,
+            // so every push painted the lock screen and reached neither the
+            // store nor the widget, and the app re-announced it all on open.
+            flightId: f.id ?? null,
             flightNumber: f.flight_number,
             departureIATA: f.departure_iata,
             arrivalIATA: f.arrival_iata,

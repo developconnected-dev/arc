@@ -118,3 +118,39 @@ test("a confirmed cancellation still latches everything behind it", () => {
   const hard = flightNews({ ...base, status: "cancelled" })!;
   assert.equal(flightNews({ ...base, delayMinutes: 60, prior: hard.state }), null);
 });
+
+// ── the Live Activity update banner ──
+
+import { laAlert } from "../src/alerts.ts";
+
+test("a gate change banners, with the delay alongside", () => {
+  const a = laAlert({ flightNumber: "LX2146", priorGate: "A22", gate: "A64", priorDelay: 25, delay: 25 });
+  assert.equal(a!.body, "Gate A64 · 25m late");
+});
+
+test("an unrelated change does not re-banner the same gate", () => {
+  // Status flipped, belt appeared, aircraft seen taxiing — the gate and
+  // delay are what the banner SAYS, and neither moved.
+  assert.equal(laAlert({ flightNumber: "LX2146", priorGate: "A64", gate: "A64", priorDelay: 25, delay: 25 }), null);
+});
+
+test("a delay that moves materially banners without a gate change", () => {
+  const a = laAlert({ flightNumber: "LX2146", priorGate: "A64", gate: "A64", priorDelay: 10, delay: 25 });
+  assert.equal(a!.body, "25m late");
+});
+
+test("small delay churn is not news", () => {
+  assert.equal(laAlert({ flightNumber: "LX2146", priorGate: "A64", gate: "A64", priorDelay: 20, delay: 25 }), null);
+  assert.equal(laAlert({ flightNumber: "LX2146", priorGate: null, gate: null, priorDelay: 0, delay: 9 }), null);
+});
+
+test("a delay that clears from a real one says so", () => {
+  const a = laAlert({ flightNumber: "LX2146", priorGate: "A64", gate: "A64", priorDelay: 25, delay: 0 });
+  assert.equal(a!.body, "back on schedule");
+});
+
+test("the first gate is a banner; a gate going null is not a gate change", () => {
+  const first = laAlert({ flightNumber: "LX2146", priorGate: null, gate: "A64", priorDelay: 0, delay: 0 });
+  assert.equal(first!.body, "Gate A64");
+  assert.equal(laAlert({ flightNumber: "LX2146", priorGate: "A64", gate: null, priorDelay: 30, delay: 30 }), null);
+});
