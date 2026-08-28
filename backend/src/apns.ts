@@ -64,6 +64,13 @@ function b64urlBytes(bytes: Uint8Array): string {
 ///
 /// `collapseId` lets a newer statement about the same fact replace an older
 /// one still queued, instead of stacking two contradictory banners.
+///
+/// Returns status AND reason, like `sendLiveActivityPush`, because the same
+/// trap applies: a bare 400 is just as often a payload APNs could not read
+/// as a token it does not know, and the caller must go through `tokenIsDead`
+/// before dropping anything — deleting on the status alone would let one
+/// malformed alert delete every device token it was sent to, taking the
+/// whole alert channel dark with no error anywhere a phone could show.
 export async function sendAlertPush(
   env: ApnsEnv,
   deviceToken: string,
@@ -72,7 +79,7 @@ export async function sendAlertPush(
   alert: { title: string; body: string },
   collapseId?: string,
   threadId?: string
-): Promise<number> {
+): Promise<ApnsResult> {
   const host = apnsHostEnv === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com";
   const jwt = await apnsJwt(env);
   const res = await fetch(`https://${host}/3/device/${deviceToken}`, {
@@ -96,7 +103,14 @@ export async function sendAlertPush(
       },
     }),
   });
-  return res.status;
+  let reason: string | null = null;
+  if (res.status !== 200) {
+    try {
+      const body = await res.text();
+      if (body) reason = (JSON.parse(body) as { reason?: string }).reason ?? null;
+    } catch { /* an unreadable refusal names nothing */ }
+  }
+  return { status: res.status, reason };
 }
 
 /// Sends one Live Activity push. Returns the APNs HTTP status —

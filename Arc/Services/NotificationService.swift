@@ -92,6 +92,12 @@ enum ArcNotifications {
 
     static func notifyLanded(flight: Flight) {
         guard prefs.object(forKey: "notifyLanding") == nil || prefs.bool(forKey: "notifyLanding") else { return }
+        // Only while the landing is news. A flight that completed with the
+        // app closed flips to landed the moment the app next opens (the
+        // tracker's clock-healing, or the first poll) — and announcing THAT
+        // put a "has landed" banner on every launch after a trip, hours or
+        // days late. The Live Activity said it at the time.
+        guard Date.now.timeIntervalSince(flight.actualArrival ?? flight.effectiveArrival) < 2 * 3600 else { return }
         var body = "\(flight.departureIATA) → \(flight.arrivalIATA)"
         if let gate = flight.arrivalGate { body += " • \(flight.mode.boardingPointLabel) \(gate)" }
         if let baggage = flight.baggageClaim { body += " • Belt \(baggage)" }
@@ -141,6 +147,9 @@ enum ArcNotifications {
 
     static func notifyCancelled(flight: Flight) {
         guard !serverWillSayIt(flight) else { return }
+        // A cancellation discovered a day after the flight's own departure is
+        // history the user lived through, not a banner to wake them with.
+        guard flight.scheduledDeparture.timeIntervalSince(.now) > -24 * 3600 else { return }
         send(
             title: "\(flight.flightNumber) cancelled",
             body: "\(flight.departureIATA) → \(flight.arrivalIATA) has been cancelled.",
@@ -154,6 +163,7 @@ enum ArcNotifications {
     /// real cancellation, so a guess that hardens replaces the hedge.
     static func notifyPossiblyCancelled(flight: Flight) {
         guard !serverWillSayIt(flight) else { return }
+        guard flight.scheduledDeparture.timeIntervalSince(.now) > -24 * 3600 else { return }
         send(
             title: "\(flight.flightNumber) may be cancelled",
             body: "The data feed flags \(flight.departureIATA) → \(flight.arrivalIATA) as possibly cancelled. Worth checking with the airline.",

@@ -91,10 +91,16 @@ enum WidgetRefresh {
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let legs = try? JSONDecoder().decode([Leg].self, from: data)
         else { return nil }
-        // A number flies several legs a day; take ours, else the first.
+        // A number flies several legs a day; take ours. When no leg matches
+        // the route, a lone answer is still plausibly ours with a hollowed
+        // endpoint — but among SEVERAL legs, "the first" is another sector
+        // (or, on an after-midnight route, another day), and patching the
+        // hero card from it stamped a different flight's status onto the
+        // home screen. A flight number is not a flight; better unchanged
+        // than wrong.
         return legs.first { $0.dep_iata.caseInsensitiveCompare(dep) == .orderedSame
                             && $0.arr_iata.caseInsensitiveCompare(arr) == .orderedSame }
-            ?? legs.first
+            ?? (legs.count == 1 ? legs.first : nil)
     }
 
     private static func apply(_ leg: Leg, to f: WidgetFlight, at now: Date) -> WidgetFlight {

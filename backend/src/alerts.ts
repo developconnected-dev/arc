@@ -133,3 +133,34 @@ export function flightNews(args: {
 
   return null;
 }
+
+/// The banner a Live Activity UPDATE push may carry, or null for a silent
+/// card repaint.
+///
+/// An LA update fires on every data change — a status flip, a belt
+/// appearing, a taxi sighting — but the BANNER is only for news a person
+/// re-plans around: the gate moving, or the delay changing materially. It
+/// used to ride `dataChanged` wholesale with the gate as its text, so once
+/// a gate existed every unrelated change re-bannered the same
+/// "Gate A64 · 25m late", over and over, for the whole boarding hour.
+export function laAlert(args: {
+  flightNumber: string;
+  priorGate: string | null;
+  gate: string | null;
+  priorDelay: number;
+  delay: number;
+}): { title: string; body: string } | null {
+  const { flightNumber, priorGate, gate, priorDelay, delay } = args;
+  const gateChanged = !!gate && gate !== priorGate;
+  // Same floor and step as the watcher's delay news: a move under ten
+  // minutes, or churn entirely below the fifteen-minute floor, is not news.
+  const delayMoved = Math.abs(delay - priorDelay) >= 10
+    && (delay >= 15 || priorDelay >= 15);
+  if (!gateChanged && !delayMoved) return null;
+  const parts: string[] = [];
+  if (gateChanged && gate) parts.push(`Gate ${gate}`);
+  if (delay > 0) parts.push(`${delay}m late`);
+  else if (delayMoved) parts.push("back on schedule");
+  if (parts.length === 0) return null;
+  return { title: `${flightNumber} update`, body: parts.join(" · ") };
+}
