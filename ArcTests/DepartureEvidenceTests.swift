@@ -57,6 +57,35 @@ final class DepartureEvidenceTests: XCTestCase {
         XCTAssertEqual(evidence().phase(at: at(21)), .presumedAirborne)
     }
 
+    // MARK: - The early pushback: seen rolling BEFORE off-block
+
+    /// Regression: the phase asked "before off-block?" before consulting a
+    /// fresh sighting — and off-block is the schedule plus the FILED delay,
+    /// so a pushback any earlier than the airline's (routinely overstated)
+    /// delay put the entire real taxi "before departure". Every surface
+    /// held its countdown through the roll and jumped straight to In Air at
+    /// wheels-up; Taxiing never showed.
+    func testSeenRollingBeforeOffBlockIsTaxiing() {
+        let e = evidence(groundState: "taxiing",
+                         groundObservedAt: at(-4), taxiStartedAt: at(-4))
+        XCTAssertEqual(e.phase(at: at(-3)), .taxiing(since: at(-4)))
+    }
+
+    /// A hold in the queue before the printed departure minute is still the
+    /// taxi — the same no-flicker rule as after it.
+    func testAPauseBeforeOffBlockIsStillTaxiing() {
+        let e = evidence(groundState: "at_gate",
+                         groundObservedAt: at(-2), taxiStartedAt: at(-6))
+        XCTAssertEqual(e.phase(at: at(-1)), .taxiing(since: at(-6)))
+    }
+
+    /// Parked at the gate before the gate time is exactly what the timetable
+    /// expects — a fresh at-gate sighting must NOT read as departing early.
+    func testAtGateBeforeOffBlockIsStillBeforeDeparture() {
+        let e = evidence(groundState: "at_gate", groundObservedAt: at(-5))
+        XCTAssertEqual(e.phase(at: at(-4)), .beforeDeparture)
+    }
+
     // MARK: - The incident: a long taxi at a busy airport
 
     /// The airport's learned taxi-out is what the hedge is measured against.

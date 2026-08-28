@@ -101,19 +101,24 @@ public struct DepartureEvidence: Equatable, Sendable {
         if let actual = actualDeparture, actual <= now { return .airborne }
         let sightingIsFresh = groundObservedAt.map { now.timeIntervalSince($0) < Self.freshWindow && $0 <= now } ?? false
         if sightingIsFresh, groundState == "airborne" { return .airborne }
-        if now < offBlock { return .beforeDeparture }
-        // Somebody is looking at the aircraft right now; that outranks every
-        // inference below it.
-        if sightingIsFresh {
-            if groundState == "taxiing" { return .taxiing(since: taxiStartedAt) }
-            if groundState == "at_gate" {
-                // Once it has started rolling, a pause is still the taxi —
-                // most of a 35-minute taxi at a busy hub is spent stopped in
-                // the queue, and flickering between "Taxiing" and "Departing"
-                // every time the aircraft holds is worse than either.
-                return taxiStartedAt == nil ? .departing : .taxiing(since: taxiStartedAt)
-            }
+        // Seen ROLLING outranks the clock in BOTH directions. The old order
+        // asked "before off-block?" first — and off-block is the schedule
+        // plus the FILED delay, so a pushback any earlier than the airline's
+        // (routinely overstated) delay put the entire real taxi "before
+        // departure": every surface held its countdown through the roll and
+        // jumped straight to In Air at wheels-up. Taxiing never showed.
+        if sightingIsFresh, groundState == "taxiing" { return .taxiing(since: taxiStartedAt) }
+        // Once it has started rolling, a pause is still the taxi — most of a
+        // 35-minute taxi at a busy hub is spent stopped in the queue, and
+        // flickering between "Taxiing" and anything else every time the
+        // aircraft holds is worse than either. Clock-independent, like the
+        // roll itself.
+        if sightingIsFresh, groundState == "at_gate", let started = taxiStartedAt {
+            return .taxiing(since: started)
         }
+        if now < offBlock { return .beforeDeparture }
+        // Still parked at the gate, watched, past the gate time: departing.
+        if sightingIsFresh, groundState == "at_gate" { return .departing }
         return now < expectedWheelsUp ? .departing : .presumedAirborne
     }
 }
