@@ -79,3 +79,30 @@ export function predictGate(
     confidence: agreeing / withGate.length,
   };
 }
+
+/// One flight's row off an airport FIDS board, either direction.
+///
+/// What the flight-by-number endpoint doesn't carry, the airport's own board
+/// often does — this is the matching both directions of /arrival-gate share.
+/// Rows are matched the way FIDS numbers them ("U2 1234" ≡ "U21234"); a board
+/// that lists the flight but publishes no gate answers with nulls, which is
+/// an answer ("no gate yet"), not a miss.
+export interface BoardStand {
+  gate: string | null;
+  terminal: string | null;
+  belt: string | null;
+}
+
+export function standFromBoard(
+  rows: Record<string, any>[], flight: string,
+): BoardStand | null {
+  const wanted = flight.toUpperCase().replace(/\s+/g, "");
+  const match = rows.find((r) =>
+    String(r?.number ?? "").toUpperCase().replace(/\s+/g, "") === wanted);
+  if (!match) return null;
+  return {
+    gate: match.movement?.gate ?? null,
+    terminal: match.movement?.terminal ?? null,
+    belt: match.movement?.baggageBelt ?? null,
+  };
+}

@@ -47,7 +47,8 @@ crons = ["* * * * *"]
 #   GET  /flight?number=LX1413&date=2026-07-20      status for one flight
 #   POST /search-flights  {"q": "..."}              freeform search (POST only)
 #   GET  /inbound?reg=HB-JMB&date=2026-07-20        inbound legs (Where's My Plane)
-#   GET  /arrival-gate?icao=EDDF&flight=LX1413      arrival stand, from airport FIDS
+#   GET  /arrival-gate?icao=EDDF&flight=LX1413      gate/stand from airport FIDS
+#        (&direction=Departure for the departure gate; default Arrival)
 #   GET  /position?icao24=4b1815                    live position (airplanes.live —
 #                                                   OpenSky rejects Cloudflare egress)
 #   GET  /weather/airport?iata=ZRH, /weather/hazards
