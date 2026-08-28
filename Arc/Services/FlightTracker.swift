@@ -19,6 +19,7 @@ final class FlightTracker: ObservableObject {
     private var lastPolled: [UUID: Date] = [:]
     private var lastInboundCheck: [UUID: Date] = [:]
     private var lastStandCheck: [UUID: Date] = [:]
+    private var lastDepGateCheck: [UUID: Date] = [:]
     private var lastPositionPoll: [UUID: Date] = [:]
 
     /// Start tracking all active and upcoming flights.
@@ -39,6 +40,7 @@ final class FlightTracker: ObservableObject {
         lastPolled = lastPolled.filter { ids.contains($0.key) }
         lastInboundCheck = lastInboundCheck.filter { ids.contains($0.key) }
         lastStandCheck = lastStandCheck.filter { ids.contains($0.key) }
+        lastDepGateCheck = lastDepGateCheck.filter { ids.contains($0.key) }
         lastPositionPoll = lastPositionPoll.filter { ids.contains($0.key) }
 
         trackingTask = Task {
@@ -474,10 +476,58 @@ final class FlightTracker: ObservableObject {
     /// provider that actually knows them.
     private func updateFlightStatus(_ flight: Flight) async {
         switch flight.mode {
-        case .air: await refreshAirLeg(flight)
+        case .air:
+            await refreshAirLeg(flight)
+            // Runs inside pollWithChangeHandling on purpose: a gate found on
+            // the board rides the same change detection as one found by
+            // number — the notification, the flywheel observation, the
+            // friends mirror.
+            await backfillDepartureGate(flight)
         case .rail: await refreshRailLeg(flight)
         case .sea: await refreshSeaLeg(flight)
         }
+    }
+
+    /// The departure gate off the origin airport's own board, for when the
+    /// by-number record carries none.
+    ///
+    /// AeroDataBox's flight-by-number endpoint publishes no departure gate at
+    /// all for some airports — easyJet out of Basel showed a gate in the
+    /// airline's app for over an hour while Arc showed none, because the
+    /// airport's departure board had it and nothing ever asked. The same
+    /// asymmetry /arrival-gate exists for, on the other side of the flight.
+    /// Only inside the window where boards actually publish gates, only while
+    /// there is no real gate, and never overwriting one: a by-number gate
+    /// arrives with the rest of the leg and stays authoritative.
+    private func backfillDepartureGate(_ flight: Flight) async {
+        guard flight.departureGate == nil,
+              flight.isUpcoming, flight.actualDeparture == nil else { return }
+        // Boards publish gates in the final hours, and a board row is gone
+        // shortly after the flight leaves — outside this window there is
+        // nothing to learn for the price of a whole-airport FIDS call. The
+        // far edge hangs off the printed schedule (boards fill relative to
+        // it); the near edge off the delay-adjusted time, so a delayed
+        // flight still waiting at the gate keeps being asked about.
+        guard flight.scheduledDeparture.timeIntervalSince(.now) <= 3 * 3600,
+              flight.effectiveDeparture.timeIntervalSince(.now) >= -45 * 60 else { return }
+        guard let icao = ReferenceData.shared.airport(flight.departureIATA)?.icao,
+              !icao.isEmpty else { return }
+        // Same modesty as the arrival stand: at most every 10 minutes per
+        // flight — the backend caches the board per airport-direction-hour,
+        // so flights leaving together share one provider call.
+        let last = lastDepGateCheck[flight.id] ?? .distantPast
+        guard Date.now.timeIntervalSince(last) >= 10 * 60 else { return }
+        lastDepGateCheck[flight.id] = .now
+        guard let stand = await FlightAPIClient.shared.departureStand(
+            icao: icao, flight: flight.flightNumber,
+            departure: flight.scheduledDeparture, timeZone: flight.depTimeZone)
+        else { return }
+        // The network round-trip is exactly where a deletion can land.
+        guard !flight.isDeleted, flight.modelContext != nil,
+              flight.departureGate == nil else { return }
+        if let gate = stand.gate, !gate.isEmpty { flight.departureGate = gate }
+        if let terminal = stand.terminal, !terminal.isEmpty,
+           flight.departureTerminal == nil { flight.departureTerminal = terminal }
     }
 
     private func refreshAirLeg(_ flight: Flight) async {

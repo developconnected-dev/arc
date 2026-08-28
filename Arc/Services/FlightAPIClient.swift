@@ -267,39 +267,56 @@ actor FlightAPIClient {
 
     // MARK: - Arrival stand
 
-    /// Gate, terminal and belt for an arriving flight.
+    /// Gate, terminal and belt for one flight, off an airport's FIDS board.
     ///
-    /// The flight-by-number endpoint never carries an arrival gate; the airport
-    /// FIDS feed does, but only where the airport publishes stands — Frankfurt
-    /// does, Zurich and Heathrow don't. So this legitimately returns nil a lot,
-    /// and callers must treat "no gate" as normal rather than as an error.
-    struct ArrivalStand: Codable, Sendable {
+    /// The flight-by-number endpoint never carries an arrival gate — and at
+    /// some airports no departure gate either (easyJet out of Basel); the
+    /// airport FIDS feed does, but only where the airport publishes stands —
+    /// Frankfurt does, Zurich and Heathrow don't. So this legitimately returns
+    /// nil a lot, and callers must treat "no gate" as normal rather than as an
+    /// error.
+    struct Stand: Codable, Sendable {
         let flight: String
         let gate: String?
         let terminal: String?
         let belt: String?
     }
 
-    /// `from`/`to` must be LOCAL to the arrival airport — the backend has no
+    /// `from`/`to` must be LOCAL to the airport — the backend has no
     /// timezone database, the app does.
-    func arrivalStand(icao: String, flight: String,
-                      arrival: Date, timeZone: TimeZone) async -> ArrivalStand? {
+    private func stand(icao: String, flight: String, direction: String,
+                       around: Date, timeZone: TimeZone) async -> Stand? {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
         formatter.timeZone = timeZone
 
-        // A window either side of the scheduled arrival, so an early or late
+        // A window either side of the scheduled movement, so an early or late
         // aircraft is still inside it.
         let url = baseURL.appending(path: "/arrival-gate").appending(queryItems: [
             .init(name: "icao", value: icao.uppercased()),
             .init(name: "flight", value: flight.replacingOccurrences(of: " ", with: "").uppercased()),
-            .init(name: "from", value: formatter.string(from: arrival.addingTimeInterval(-45 * 60))),
-            .init(name: "to", value: formatter.string(from: arrival.addingTimeInterval(45 * 60))),
+            .init(name: "from", value: formatter.string(from: around.addingTimeInterval(-45 * 60))),
+            .init(name: "to", value: formatter.string(from: around.addingTimeInterval(45 * 60))),
+            .init(name: "direction", value: direction),
         ])
         guard let (data, response) = try? await session.data(from: url),
               let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-        return try? JSONDecoder().decode(ArrivalStand.self, from: data)
+        return try? JSONDecoder().decode(Stand.self, from: data)
+    }
+
+    func arrivalStand(icao: String, flight: String,
+                      arrival: Date, timeZone: TimeZone) async -> Stand? {
+        await stand(icao: icao, flight: flight, direction: "Arrival",
+                    around: arrival, timeZone: timeZone)
+    }
+
+    /// The departure gate off the origin's own board — asked only while the
+    /// by-number record has none (see FlightTracker.backfillDepartureGate).
+    func departureStand(icao: String, flight: String,
+                        departure: Date, timeZone: TimeZone) async -> Stand? {
+        await stand(icao: icao, flight: flight, direction: "Departure",
+                    around: departure, timeZone: timeZone)
     }
 
     // MARK: - Airport conditions (what actually delays a departure)

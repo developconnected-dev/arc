@@ -55,3 +55,39 @@ test("gate matching ignores case and stray spacing", () => {
   assert.equal(p.gate, "B24");
   assert.equal(p.agreeing, 2);
 });
+
+// ── standFromBoard ──
+
+import { standFromBoard } from "../src/gates.ts";
+
+const boardRow = (number: string, movement: Record<string, unknown> = {}) =>
+  ({ number, movement });
+
+test("finds a flight's gate on the board, however FIDS spaces the number", () => {
+  const board = [
+    boardRow("LX 318", { gate: "A52", terminal: "1" }),
+    boardRow("U2 1183", { gate: "21", terminal: "" }),
+  ];
+  const stand = standFromBoard(board, "U21183");
+  assert.deepEqual(stand, { gate: "21", terminal: "", belt: null });
+});
+
+test("a flight not in the window is a miss, not a row of nulls", () => {
+  assert.equal(standFromBoard([boardRow("LX318", { gate: "A52" })], "U21183"), null);
+});
+
+test("a listed flight with no gate yet answers with nulls — an answer, not a miss", () => {
+  const stand = standFromBoard([boardRow("U2 1183", {})], "U2 1183");
+  assert.deepEqual(stand, { gate: null, terminal: null, belt: null });
+});
+
+test("a row with no movement at all doesn't throw", () => {
+  const stand = standFromBoard([{ number: "U21183" }], "U21183");
+  assert.deepEqual(stand, { gate: null, terminal: null, belt: null });
+});
+
+test("an arrival row's belt comes through where the airport publishes one", () => {
+  const stand = standFromBoard(
+    [boardRow("LX2146", { gate: null, terminal: "1", baggageBelt: "9" })], "LX2146");
+  assert.deepEqual(stand, { gate: null, terminal: "1", belt: "9" });
+});

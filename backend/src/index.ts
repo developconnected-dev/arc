@@ -1,7 +1,7 @@
 import { apnsConfigured, sendLiveActivityPush, sendAlertPush, apnsJwt, tokenIsDead } from "./apns";
 import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, templatesFromNeighbour, completeLeg, confirmedRunwayTime, movementIsLive, localDay, departsOnLocalDate, answerForDay } from "./legs";
 import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRIOR } from "./ground";
-import { predictGate, type GateObservation } from "./gates";
+import { predictGate, standFromBoard, type GateObservation } from "./gates";
 import { contentState } from "./activity";
 import { flightNews, type WatchState } from "./alerts";
 import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS } from "./freshness";
@@ -1281,7 +1281,7 @@ export default {
                              { headers: { ...cors, "cache-control": "public, max-age=300" } });
     }
 
-    // ── /arrival-gate?icao=&flight=&from=&to= — the stand, where published ──
+    // ── /arrival-gate?icao=&flight=&from=&to=[&direction=] — the gate, where published ──
     //
     // The flight-by-number endpoint returns arrival.gate as null everywhere —
     // checked across eight legs at ZRH, LHR and JFK, landed and airborne. The
@@ -1290,9 +1290,15 @@ export default {
     // Heathrow for none of theirs. (The inverse holds for belts, which ZRH
     // publishes and FRA doesn't — each airport shares what it shares.)
     //
-    // One FIDS call covers a whole arrival window, so it's cached per airport
-    // and hour: several flights landing around the same time cost one request
-    // between them, not one each.
+    // The same asymmetry holds for DEPARTURE gates at some airports: easyJet
+    // out of Basel showed a gate in the airline's own app for an hour while
+    // the by-number record carried none — and the airport's departure board
+    // had it the whole time. `direction=Departure` reads that board; the
+    // default stays Arrival, which is what this path has always meant.
+    //
+    // One FIDS call covers a whole window, so it's cached per airport,
+    // direction and hour: several flights moving around the same time cost
+    // one request between them, not one each.
     //
     // `from`/`to` are LOCAL to the airport and supplied by the caller, which
     // carries a timezone database; the Worker does not.
@@ -1301,6 +1307,7 @@ export default {
       const flight = (url.searchParams.get("flight") ?? "").toUpperCase().replace(/\s+/g, "");
       const from = url.searchParams.get("from") ?? "";
       const to = url.searchParams.get("to") ?? "";
+      const departure = url.searchParams.get("direction") === "Departure";
       if (!/^[A-Z]{4}$/.test(icao) || !flight || !from || !to) {
         return Response.json({ error: "icao, flight, from and to are required" },
                              { status: 400, headers: cors });
@@ -1309,10 +1316,10 @@ export default {
       // Key on the WHOLE window. Start-hour alone made two different windows
       // share one cached board — a flight arriving in the part only the
       // second window covered got a wrong "not found" for 5 minutes.
-      const key = `fids|${icao}|${from.slice(0, 13)}|${to.slice(0, 13)}`;
-      let arrivals = await cachedFids(env, key);
+      const key = `fids|${icao}|${departure ? "dep" : "arr"}|${from.slice(0, 13)}|${to.slice(0, 13)}`;
+      let board = await cachedFids(env, key);
 
-      if (!arrivals) {
+      if (!board) {
         if (!env.RAPIDAPI_KEY) return Response.json(null, { status: 404, headers: cors });
         const budget = await budgetRow(env);
         const remaining = budget["adb_remaining"] as number | null | undefined;
@@ -1322,7 +1329,7 @@ export default {
           return Response.json(null, { status: 404, headers: cors });
         }
         const path = `/flights/airports/icao/${icao}/${encodeURIComponent(from)}/${encodeURIComponent(to)}`
-          + `?withLeg=false&direction=Arrival&withCancelled=false&withCodeshared=true`
+          + `?withLeg=false&direction=${departure ? "Departure" : "Arrival"}&withCancelled=false&withCodeshared=true`
           + `&withCargo=false&withPrivate=false&withLocation=false`;
         const res = await adbFetch(path, env);
         await budgetBump(env, "adb_interactive", (budget["adb_interactive"] as number) ?? 0,
@@ -1332,26 +1339,23 @@ export default {
                                  detail: (await res.text()).slice(0, 200) },
                                { status: 404, headers: cors });
         }
-        const raw = await res.json() as Record<string, any>;
-        arrivals = (raw?.arrivals ?? []) as Record<string, any>[];
-        await storeFids(env, key, arrivals);
+        // An empty board is an answer worth caching; unreadable JSON is not.
+        const rows = await fidsRows(res, departure ? "departures" : "arrivals");
+        if (rows === null) return Response.json(null, { status: 404, headers: cors });
+        board = rows;
+        await storeFids(env, key, board);
       }
 
-      const match = arrivals.find(a =>
-        String(a.number ?? "").toUpperCase().replace(/\s+/g, "") === flight);
+      const match = standFromBoard(board, flight);
       // Report what was actually seen: "no gate published" and "flight not in
       // this window" are different problems and shouldn't look identical.
       if (!match) {
-        return Response.json({ matched: false, arrivalsInWindow: arrivals.length },
+        return Response.json({ matched: false, rowsInWindow: board.length },
                              { status: 404, headers: cors });
       }
 
-      return Response.json({
-        flight,
-        gate: match.movement?.gate ?? null,
-        terminal: match.movement?.terminal ?? null,
-        belt: match.movement?.baggageBelt ?? null,
-      }, { headers: { ...cors, "cache-control": "public, max-age=120" } });
+      return Response.json({ flight, ...match },
+                           { headers: { ...cors, "cache-control": "public, max-age=120" } });
     }
 
     // ── /security/:iata — airport security wait time ──
