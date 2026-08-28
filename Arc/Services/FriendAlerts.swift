@@ -208,7 +208,7 @@ enum FriendAlerts {
                 userId: entry.user.id, urlString: entry.user.avatar_url)
             await LiveActivityManager.shared.startActivity(
                 for: flight, friendName: entry.user.display_name,
-                friendAvatarFile: avatarFile)
+                friendAvatarFile: avatarFile, friendFlightId: f.id)
             await LiveActivityManager.shared.updateActivity(for: flight, friendName: entry.user.display_name)
         }
     }
