@@ -242,11 +242,7 @@ struct FlightLiveActivity: Widget {
             } compactTrailing: {
                 Group {
                     if phase == .inFlight {
-                        Text.minuteCountdown(to: context.state.arrivalTime)
-                            .font(.system(size: 11, weight: .bold).monospacedDigit())
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                            .frame(maxWidth: 48, alignment: .trailing)
+                        compactCountdown(to: context.state.arrivalTime)
                     } else if phase == .landed {
                         if let belt = context.state.baggageClaim {
                             HStack(spacing: 2) {
@@ -271,11 +267,7 @@ struct FlightLiveActivity: Widget {
                         // number still worth the space.
                         gateBadge(context.state.departureGate)
                     } else {
-                        Text.minuteCountdown(to: context.state.departureTime)
-                            .font(.system(size: 11, weight: .bold).monospacedDigit())
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                            .frame(maxWidth: 48, alignment: .trailing)
+                        compactCountdown(to: context.state.departureTime)
                     }
                 }
                 .widgetURL(ArcDeepLink.url(for: context.attributes))
@@ -1013,6 +1005,32 @@ struct FlightLiveActivity: Widget {
 
     /// Yellow gate badge matching Flighty's style: walking person icon + gate code
     @ViewBuilder
+    /// The compact island's countdown, with its dead space put where it
+    /// cannot be seen.
+    ///
+    /// Self-updating text reserves the width of its WIDEST possible
+    /// rendering (so the island doesn't resize every minute) and draws its
+    /// glyphs LEADING-aligned inside that reservation. Capping the frame
+    /// (the fix commit 8e73903 landed) bounded the reservation but not the
+    /// glyphs: "5m" sat at the left of a box sized for "2h 40m", and the
+    /// slack showed up as a slab of black at the island's outer edge —
+    /// exactly where it reads as unfinished. Trailing-aligning the text
+    /// moves the slack to the INNER side, where it merges into the sensor
+    /// housing and is invisible; sizing the reservation for the hour bucket
+    /// actually remaining shrinks the pill itself once the countdown is
+    /// down to minutes. The bucket is judged at render time — every push
+    /// re-renders, and near departure those come minutes apart, so it flips
+    /// long before "5m"; and when a stale render leaves the box too wide,
+    /// the trailing alignment hides the difference anyway.
+    private func compactCountdown(to date: Date) -> some View {
+        Text.minuteCountdown(to: date)
+            .font(.system(size: 11, weight: .bold).monospacedDigit())
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .multilineTextAlignment(.trailing)
+            .frame(maxWidth: date.timeIntervalSinceNow < 3600 ? 30 : 48, alignment: .trailing)
+    }
+
     private func gateBadge(_ gate: String?) -> some View {
         if let gate, !gate.isEmpty {
             HStack(spacing: 4) {
