@@ -27,6 +27,28 @@ function legDepMs(leg: Record<string, unknown>): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
+/// How close together a cancelled row and an operating same-route sibling
+/// must sit before they are one operation re-filed rather than two flights.
+///
+/// A reschedule is sometimes filed as TWO rows: the original operation
+/// marked cancelled, its replacement a separate leg minutes to a couple of
+/// hours away. The closest-by-drift rule alone picks the cancelled row —
+/// the stored time IS the original's — and the app then asserts a
+/// cancellation for a flight that operates. Within this window, two
+/// same-number departures on one route cannot be two operations (no
+/// turnaround is that fast, and no airline files one number twice in three
+/// hours), so a cancelled row with a living sibling this close is the same
+/// flight, moved. Beyond it — a shuttle's other rotation, hours away — the
+/// cancellation is real and must stay loud.
+export const RESCHEDULE_WINDOW_MS = 3 * 3600_000;
+
+/// A row selection should step away from when the same operation also
+/// exists un-disfavoured: a cancellation, or the provider's own
+/// "likely cancelled" guess (`cancel_uncertain` — see legs.ts).
+function disfavored(leg: Record<string, unknown>): boolean {
+  return leg["status"] === "cancelled" || leg["cancel_uncertain"] === true;
+}
+
 export function pickLeg<T extends Record<string, unknown>>(
   legs: T[] | null | undefined,
   want: { depIata?: string | null; arrIata?: string | null; scheduledDepMs: number },
@@ -58,13 +80,47 @@ export function pickLeg<T extends Record<string, unknown>>(
     // Nothing plausible beats something wrong. Every caller already treats a
     // null leg as "the provider had nothing to say about this row", which is
     // the truthful answer when the only candidate is another day's operation.
-    return bestDrift <= MAX_LEG_DRIFT_MS ? best.leg : null;
+    if (bestDrift > MAX_LEG_DRIFT_MS) return null;
+    // A cancelled (or guess-flagged) winner with an operating sibling inside
+    // the reschedule window is the original of a re-filing: the sibling is
+    // the flight. Anchored on the cancelled row's own time, not the wanted
+    // one — the replacement is close to the operation it replaces. Ties
+    // prefer the later sibling; reschedules move flights later.
+    if (disfavored(best.leg)) {
+      const replacement = dated
+        .filter(c => !disfavored(c.leg) && Math.abs(c.depMs - best.depMs) <= RESCHEDULE_WINDOW_MS)
+        .sort((a, b) => (Math.abs(a.depMs - best.depMs) - Math.abs(b.depMs - best.depMs))
+          || (b.depMs - a.depMs))[0];
+      if (replacement) return replacement.leg;
+    }
+    return best.leg;
   }
 
   // No leg on this route carries a scheduled time, so none can be
   // date-checked. Taking the first is the old behaviour, kept for the one
   // case where it was never what went wrong.
   return routed[0];
+}
+
+/// The delay a stored row should display, measured against ITS OWN schedule
+/// rather than the leg's.
+///
+/// Identical schedules hand the leg's own delay back unchanged, so this is
+/// safe everywhere a leg's delay meets a stored scheduled time. Where they
+/// differ — a retiming the provider filed as a new scheduled time, or a
+/// reschedule adopted from a cancelled row's replacement (see pickLeg) —
+/// the shift IS part of the lateness: a row holding 22:00 whose leg departs
+/// 22:25 on its own schedule is 25 minutes late for the person who planned
+/// around 22:00. Never negative: a flight moved earlier renders at the
+/// stored time, the direction it is safe to be wrong in.
+export function effectiveDelayMinutes(
+  leg: Record<string, unknown> | null | undefined,
+  storedScheduledMs: number,
+): number {
+  const raw = Math.max(0, Math.round(Number(leg?.["delay"] ?? 0) || 0));
+  const legSched = Date.parse(String(leg?.["dep_scheduled"] ?? ""));
+  if (!Number.isFinite(legSched) || !Number.isFinite(storedScheduledMs)) return raw;
+  return Math.max(0, Math.round((legSched + raw * 60_000 - storedScheduledMs) / 60_000));
 }
 
 /// How far before its own schedule a departure may plausibly sit.

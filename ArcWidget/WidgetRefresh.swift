@@ -57,6 +57,11 @@ enum WidgetRefresh {
         let dep_iata: String
         let arr_iata: String
         let status: String
+        /// The leg's own schedule — what tells our leg from the daily
+        /// sibling, and a re-filing from the cancelled row it replaces.
+        let dep_scheduled: String?
+        /// The provider's "likely cancelled" guess (see the Worker's legs.ts).
+        let cancel_uncertain: Bool?
         let delay: Int?
         let dep_gate: String?
         let dep_terminal: String?
@@ -91,16 +96,37 @@ enum WidgetRefresh {
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let legs = try? JSONDecoder().decode([Leg].self, from: data)
         else { return nil }
-        // A number flies several legs a day; take ours. When no leg matches
-        // the route, a lone answer is still plausibly ours with a hollowed
-        // endpoint — but among SEVERAL legs, "the first" is another sector
-        // (or, on an after-midnight route, another day), and patching the
-        // hero card from it stamped a different flight's status onto the
-        // home screen. A flight number is not a flight; better unchanged
-        // than wrong.
-        return legs.first { $0.dep_iata.caseInsensitiveCompare(dep) == .orderedSame
-                            && $0.arr_iata.caseInsensitiveCompare(arr) == .orderedSame }
-            ?? (legs.count == 1 ? legs.first : nil)
+        // A number flies several legs a day; take ours — the route matches,
+        // and among route matches the one scheduled closest to our own leg.
+        // When no leg matches the route, a lone answer is still plausibly
+        // ours with a hollowed endpoint; among SEVERAL, "the first" is
+        // another sector (or another day, on an after-midnight route), and
+        // patching the hero card from it stamped a different flight's status
+        // onto the home screen. Better unchanged than wrong.
+        let routed = legs.filter { $0.dep_iata.caseInsensitiveCompare(dep) == .orderedSame
+                                   && $0.arr_iata.caseInsensitiveCompare(arr) == .orderedSame }
+        guard !routed.isEmpty else { return legs.count == 1 ? legs.first : nil }
+        func sched(_ l: Leg) -> Date? { parseAPIDate(l.dep_scheduled) }
+        func drift(_ l: Leg) -> TimeInterval {
+            sched(l).map { abs($0.timeIntervalSince(date)) } ?? .greatestFiniteMagnitude
+        }
+        func disfavored(_ l: Leg) -> Bool { l.status == "cancelled" || l.cancel_uncertain == true }
+        guard let best = routed.min(by: { drift($0) < drift($1) }) else { return nil }
+        // A reschedule filed as two rows: the cancelled original's operating
+        // re-filing within the window IS the flight, moved — same rule as
+        // ScheduleBackfill.preferOperating and the Worker's pickLeg.
+        if disfavored(best), let bestDep = sched(best) {
+            let replacement = routed
+                .filter { !disfavored($0) }
+                .compactMap { l -> (Leg, TimeInterval)? in
+                    guard let d = sched(l) else { return nil }
+                    let gap = abs(d.timeIntervalSince(bestDep))
+                    return gap <= 3 * 3600 ? (l, gap) : nil
+                }
+                .min { $0.1 < $1.1 }?.0
+            if let replacement { return replacement }
+        }
+        return best
     }
 
     private static func apply(_ leg: Leg, to f: WidgetFlight, at now: Date) -> WidgetFlight {
@@ -110,7 +136,7 @@ enum WidgetRefresh {
             departureCity: f.departureCity, arrivalCity: f.arrivalCity,
             scheduledDeparture: f.scheduledDeparture, scheduledArrival: f.scheduledArrival,
             status: leg.status.isEmpty ? f.status : leg.status,
-            delayMinutes: leg.delay ?? f.delayMinutes,
+            delayMinutes: effectiveDelay(leg, storedScheduled: f.scheduledDeparture) ?? f.delayMinutes,
             // A provider null must not erase what the app already knew.
             departureGate: leg.dep_gate ?? f.departureGate,
             progress: f.progress,
@@ -137,6 +163,17 @@ enum WidgetRefresh {
             ? now : f.lastSeenOnGround
         out.updatedAt = now
         return out
+    }
+
+    /// Delay against the SNAPSHOT's schedule: a retimed leg — or the
+    /// re-filing chosen over a cancelled row above — carries its shift as
+    /// lateness, so the countdown lands on the real departure. Identical
+    /// schedules hand the leg's delay back unchanged; never negative.
+    /// Mirrors ScheduleBackfill.effectiveDelayMinutes.
+    private static func effectiveDelay(_ leg: Leg, storedScheduled: Date) -> Int? {
+        guard let raw = leg.delay.map({ max(0, $0) }) else { return nil }
+        guard let legSched = parseAPIDate(leg.dep_scheduled) else { return raw }
+        return max(0, Int((legSched.timeIntervalSince(storedScheduled) / 60 + Double(raw)).rounded()))
     }
 
     private static func parseAPIDate(_ s: String?) -> Date? {

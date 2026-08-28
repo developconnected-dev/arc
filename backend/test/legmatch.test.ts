@@ -136,3 +136,90 @@ test("absent or unparseable stays absent", () => {
   assert.equal(plausibleActualDeparture(undefined, sched), null);
   assert.equal(plausibleActualDeparture("not a date", sched), null);
 });
+
+// ── a reschedule filed as two rows ──
+//
+// The pattern the LX2146 report pointed at: the original operation marked
+// cancelled and its replacement filed as a SECOND leg, minutes away on the
+// same route. Closest-by-drift alone returns the cancelled one — the stored
+// time IS the original's — and every surface then asserts a cancellation
+// for a flight that operates.
+
+const REFILED = [
+  { dep_iata: "ZRH", arr_iata: "VLC", dep_scheduled: "2026-08-25T20:00:00.000Z",
+    status: "cancelled", delay: 0 },
+  { dep_iata: "ZRH", arr_iata: "VLC", dep_scheduled: "2026-08-25T20:25:00.000Z",
+    status: "scheduled", delay: 0 },
+];
+const STORED = Date.parse("2026-08-25T20:00:00.000Z");
+
+test("a cancelled row with its re-filing 25 minutes away yields the re-filing", () => {
+  const leg = pickLeg(REFILED, { depIata: "ZRH", arrIata: "VLC", scheduledDepMs: STORED });
+  assert.equal(leg?.status, "scheduled");
+  assert.equal(leg?.dep_scheduled, "2026-08-25T20:25:00.000Z");
+});
+
+test("...and not because of the order the provider returned them in", () => {
+  const leg = pickLeg([...REFILED].reverse(), { depIata: "ZRH", arrIata: "VLC", scheduledDepMs: STORED });
+  assert.equal(leg?.status, "scheduled");
+});
+
+test("a shuttle's other rotation hours away does not un-cancel the flight", () => {
+  // The 07:00 is genuinely cancelled; the 17:00 is a different operation
+  // with its own passengers. The truth is "your 07:00 is cancelled".
+  const shuttle = [
+    { dep_iata: "ZRH", arr_iata: "LHR", dep_scheduled: "2026-08-25T06:00:00.000Z", status: "cancelled" },
+    { dep_iata: "ZRH", arr_iata: "LHR", dep_scheduled: "2026-08-25T16:00:00.000Z", status: "scheduled" },
+  ];
+  const leg = pickLeg(shuttle, {
+    depIata: "ZRH", arrIata: "LHR", scheduledDepMs: Date.parse("2026-08-25T06:00:00.000Z"),
+  });
+  assert.equal(leg?.status, "cancelled");
+});
+
+test("with every row cancelled, cancelled is the answer", () => {
+  const all = REFILED.map(l => ({ ...l, status: "cancelled" }));
+  const leg = pickLeg(all, { depIata: "ZRH", arrIata: "VLC", scheduledDepMs: STORED });
+  assert.equal(leg?.status, "cancelled");
+  assert.equal(leg?.dep_scheduled, "2026-08-25T20:00:00.000Z");
+});
+
+test("the provider's cancellation guess steps aside for a clean sibling too", () => {
+  const flagged = [
+    { dep_iata: "ZRH", arr_iata: "VLC", dep_scheduled: "2026-08-25T20:00:00.000Z",
+      status: "scheduled", cancel_uncertain: true },
+    { dep_iata: "ZRH", arr_iata: "VLC", dep_scheduled: "2026-08-25T20:25:00.000Z",
+      status: "scheduled", cancel_uncertain: false },
+  ];
+  const leg = pickLeg(flagged, { depIata: "ZRH", arrIata: "VLC", scheduledDepMs: STORED });
+  assert.equal(leg?.dep_scheduled, "2026-08-25T20:25:00.000Z");
+});
+
+// ── effectiveDelayMinutes ──
+
+import { effectiveDelayMinutes } from "../src/legmatch.ts";
+
+test("a leg on the stored schedule reports its own delay unchanged", () => {
+  const leg = { dep_scheduled: "2026-08-25T20:00:00.000Z", delay: 25 };
+  assert.equal(effectiveDelayMinutes(leg, STORED), 25);
+});
+
+test("a retimed schedule counts as lateness against the stored one", () => {
+  // The row holds 22:00; the leg's own schedule says 22:25, on time. For the
+  // person who planned around 22:00 that is a 25-minute delay — and with a
+  // delay of its own on top, the two add.
+  const moved = { dep_scheduled: "2026-08-25T20:25:00.000Z", delay: 0 };
+  assert.equal(effectiveDelayMinutes(moved, STORED), 25);
+  const movedAndLate = { dep_scheduled: "2026-08-25T20:25:00.000Z", delay: 10 };
+  assert.equal(effectiveDelayMinutes(movedAndLate, STORED), 35);
+});
+
+test("a flight moved earlier clamps to zero, the safe direction", () => {
+  const earlier = { dep_scheduled: "2026-08-25T19:40:00.000Z", delay: 0 };
+  assert.equal(effectiveDelayMinutes(earlier, STORED), 0);
+});
+
+test("no readable schedule falls back to the raw delay", () => {
+  assert.equal(effectiveDelayMinutes({ delay: 15 }, STORED), 15);
+  assert.equal(effectiveDelayMinutes(null, STORED), 0);
+});

@@ -557,7 +557,10 @@ final class FlightTracker: ObservableObject {
             // Update status
             flight.statusRaw = FlightStatus.heal(rawValue: latest.status, scheduledArrival: flight.scheduledArrival).rawValue
             flight.cancelUncertain = latest.cancel_uncertain ?? false
-            flight.delayMinutes = latest.delay ?? 0
+            // Against OUR schedule, not the leg's: a retimed leg — or the
+            // re-filing bestLeg chose over a cancelled row — carries its
+            // shift as lateness, so the card counts to the real departure.
+            flight.delayMinutes = ScheduleBackfill.effectiveDelayMinutes(of: latest, against: flight.scheduledDeparture)
 
             // Update actual times when available. Since the runway-time fix,
             // *_actual is a wheels-up/down FACT; the published revision rides
