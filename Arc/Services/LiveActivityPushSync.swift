@@ -295,6 +295,12 @@ enum LiveActivityPushSync {
             out["boarding_lead_minutes"] = Int(
                 (state.offBlock ?? state.departureTime).timeIntervalSince(boarding) / 60)
         }
+        // The current seat: the attributes' copy is frozen at card start, so
+        // a seat edited in the app reaches the lock screen only through the
+        // state — and the Worker must echo it or its next push erases it.
+        if let seat = state.seat {
+            out["seat"] = seat
+        }
         if let companions = state.companions, !companions.isEmpty,
            let encoded = try? JSONEncoder().encode(companions),
            let array = (try? JSONSerialization.jsonObject(with: encoded)) as? [Any] {
@@ -346,7 +352,7 @@ enum LiveActivityPushSync {
                 "arrival_city": attrs.arrivalCity,
                 "airline": attrs.airline,
                 "aircraft_type": attrs.aircraftType as Any,
-                "seat": attrs.seat as Any,
+                "seat": (state.seat ?? attrs.seat) as Any,
                 // state.departureTime/arrivalTime are EFFECTIVE times —
                 // makeState already added the known delay. The Worker adds
                 // the provider's current delay on top of what we send here,

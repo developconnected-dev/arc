@@ -1568,7 +1568,7 @@ export default {
           token?: string; type?: string; env?: string; user_id?: string;
           replaces?: string;
           flight?: Record<string, unknown>;
-          local?: { boarding_lead_minutes?: number; companions?: unknown[] };
+          local?: { boarding_lead_minutes?: number; companions?: unknown[]; seat?: string };
         };
         if (!body.token || (body.type !== "update" && body.type !== "start")) {
           return new Response("bad request", { status: 400, headers: cors });
@@ -1617,6 +1617,9 @@ export default {
           const local: Record<string, unknown> = {};
           if (Number.isFinite(lead) && lead >= 0 && lead <= 240) local.boarding_lead_minutes = Math.round(lead);
           if (Array.isArray(body.local.companions)) local.companions = body.local.companions.slice(0, 8);
+          // The current seat — empty string means "cleared", which is as much
+          // a fact as a seat, so it passes.
+          if (typeof body.local.seat === "string") local.seat = body.local.seat.slice(0, 8);
           // Merge rather than overwrite: last_state also carries the cached
           // leg, the insight and the taxi evidence between ticks.
           const existing = await sbSelect(env,

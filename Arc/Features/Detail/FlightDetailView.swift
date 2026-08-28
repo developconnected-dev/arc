@@ -696,6 +696,18 @@ struct FlightDetailView: View {
         case .notes: flight.notes = editText
         }
         try? modelContext.save()
+        // The edit has to travel: repaint the Live Activity now (the seat
+        // renders from its content state — waiting for the next tracker pass
+        // left the lock screen stale for up to a minute, and looked like the
+        // edit hadn't taken), let syncExtras tell the Worker so its next push
+        // restates the seat instead of erasing it, and mirror to the cloud
+        // rows that the next push-to-start and the companions' screens read.
+        let f = flight
+        Task {
+            await LiveActivityManager.shared.updateActivity(for: f)
+            try? await ArcSupabase.shared.upsertUserFlight(f)
+            _ = try? await ArcSupabase.shared.shareFlight(f)
+        }
         editing = nil
     }
 

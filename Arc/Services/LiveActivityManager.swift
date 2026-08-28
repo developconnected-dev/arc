@@ -59,6 +59,9 @@ final class LiveActivityManager {
             // insight so a 60s local update doesn't wipe the smart line.
             insight: flight.liveActivityInsight ?? existing,
             companions: friendName == nil ? await companionsState(for: flight) : nil,
+            // Authoritative even when empty: the seat lives in the STATE now,
+            // because the attributes' copy is frozen at card start.
+            seat: flight.seat ?? "",
             updatedAt: .now,
             departureGate: flight.departureGate,
             departureTerminal: flight.departureTerminal,

@@ -80,7 +80,10 @@ struct FlightLiveActivity: Widget {
                             } else {
                                 HStack(spacing: 6) {
                                     companionsCluster(context.state, size: 15)
-                                    if let seat = context.attributes.seat, !seat.isEmpty {
+                                    // State first: the attributes' seat is
+                                    // frozen at card start, so a seat added
+                                    // afterwards only exists in the state.
+                                    if let seat = context.state.seat ?? context.attributes.seat, !seat.isEmpty {
                                         HStack(spacing: 3) {
                                             Image(systemName: "carseat.right.fill")
                                                 .font(.system(size: 10))
@@ -806,7 +809,9 @@ struct FlightLiveActivity: Widget {
             } else {
                 HStack(spacing: 8) {
                     companionsCluster(state)
-                    if let seat = attrs.seat, !seat.isEmpty {
+                    // State first — the attributes' seat is frozen at card
+                    // start; a seat added afterwards only exists in the state.
+                    if let seat = state.seat ?? attrs.seat, !seat.isEmpty {
                         HStack(spacing: 3) {
                             Image(systemName: "carseat.right.fill")
                                 .font(.system(size: 10))
