@@ -5,7 +5,7 @@ import { predictGate, standFromBoard, type GateObservation } from "./gates";
 import { contentState } from "./activity";
 import { flightNews, laAlert, type WatchState } from "./alerts";
 import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS } from "./freshness";
-import { pickLeg, plausibleActualDeparture, effectiveDelayMinutes } from "./legmatch";
+import { pickLeg, plausibleActualDeparture, plausibleEstimatedArrival, effectiveDelayMinutes } from "./legmatch";
 import { verifiedRoute } from "./place";
 import { predictionConfirmed, summarise, type PredictionRow } from "./prediction";
 import { handleTransit } from "./routes-transit";
@@ -2816,6 +2816,13 @@ async function refreshOneSharedRow(env: Env, row: Record<string, any>, now: numb
     // from — a leg retimed (or swapped in for a cancelled re-filing, see
     // pickLeg) carries its shift as lateness here.
     const effDelay = effectiveDelayMinutes(leg, Date.parse(String(row.scheduled_departure)));
+    // Screened before it can decide anything: an estimate at or before the
+    // effective departure is another operation's timestamp that reached this
+    // row, and carried forward it read "Arrival not yet confirmed" on a
+    // flight still an hour from pushback.
+    const estArrival = plausibleEstimatedArrival(
+      leg["arr_actual"] ?? leg["arr_estimated"] ?? row.estimated_arrival,
+      Date.parse(String(row.scheduled_departure)) + effDelay * 60_000);
     const changed =
       leg["status"] !== row.status ||
       effDelay !== row.delay_minutes ||
@@ -2824,7 +2831,7 @@ async function refreshOneSharedRow(env: Env, row: Record<string, any>, now: numb
       (leg["arr_baggage"] ?? row.baggage_claim) !== row.baggage_claim ||
       tsDiffers(leg["dep_actual"] ?? row.actual_departure, row.actual_departure) ||
       tsDiffers(leg["arr_actual"] ?? row.actual_arrival, row.actual_arrival) ||
-      tsDiffers(leg["arr_actual"] ?? leg["arr_estimated"] ?? row.estimated_arrival, row.estimated_arrival) ||
+      tsDiffers(estArrival, row.estimated_arrival) ||
       tsDiffers(leg["dep_runway_estimated"] ?? row.est_takeoff, row.est_takeoff) ||
       (leg["aircraft_registration"] ?? row.aircraft_registration) !== row.aircraft_registration ||
       // A new sighting is itself news: it is what the friend's screen reads
@@ -2882,7 +2889,7 @@ async function refreshOneSharedRow(env: Env, row: Record<string, any>, now: numb
       departure_gate: leg["dep_gate"] ?? row.departure_gate ?? null,
       arrival_gate: leg["arr_gate"] ?? row.arrival_gate ?? null,
       baggage_claim: leg["arr_baggage"] ?? row.baggage_claim ?? null,
-      estimated_arrival: leg["arr_actual"] ?? leg["arr_estimated"] ?? row.estimated_arrival ?? null,
+      estimated_arrival: estArrival,
       // A wheels-up already established — by this cron's own sighting or by
       // the traveller's device — is a better witness than the provider's
       // (later, off-block-flavoured) fact: keep the earlier one.

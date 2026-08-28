@@ -726,9 +726,18 @@ enum FriendFlightMath {
     }
 
     static func arrival(_ f: ArcSupabase.SharedFlight) -> Date? {
-        DateHelpers.parseAPIDate(f.estimated_arrival)
-            ?? DateHelpers.parseAPIDate(f.scheduled_arrival)
-                .map { $0.addingTimeInterval(Double(f.delay_minutes) * 60) }
+        // The estimate is screened the way actual departures are: one at or
+        // before the flight's own departure is another operation's timestamp
+        // that reached this row (the old route-only leg match wrote
+        // yesterday's arrival, and the row's carry-forward pinned it there)
+        // — and trusted, it flipped a flight an hour from pushback into
+        // "Arrival not yet confirmed". No flight arrives before it leaves.
+        if let est = DateHelpers.parseAPIDate(f.estimated_arrival),
+           est > (departure(f) ?? .distantPast) {
+            return est
+        }
+        return DateHelpers.parseAPIDate(f.scheduled_arrival)
+            .map { $0.addingTimeInterval(Double(f.delay_minutes) * 60) }
     }
 
     /// Is this flight in the air right now (clock-healed)?

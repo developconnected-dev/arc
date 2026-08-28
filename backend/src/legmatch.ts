@@ -152,3 +152,25 @@ export function plausibleActualDeparture(
   if (!Number.isFinite(scheduledDepMs)) return actual;
   return t < scheduledDepMs - MAX_EARLY_DEPARTURE_MS ? null : actual;
 }
+
+/// An arrival estimate worth carrying on a row, or null.
+///
+/// The mirror of `plausibleActualDeparture` for the other end of the
+/// flight, guarding the same carry-forward: the row write keeps
+/// `row.estimated_arrival` when the provider reports none, so an arrival
+/// another operation's leg once wrote (the old route-only match filed
+/// yesterday's) was pinned there permanently — and a friend's row read
+/// "Arrival not yet confirmed" on a flight that had not yet DEPARTED.
+/// No flight arrives before it leaves: an estimate at or before the
+/// effective departure is another operation's timestamp, and dropping it
+/// on the way through lets a contaminated row heal on the next tick.
+export function plausibleEstimatedArrival(
+  estimate: unknown,
+  effectiveDepMs: number,
+): string | null {
+  if (typeof estimate !== "string" || !estimate) return null;
+  const t = Date.parse(estimate);
+  if (!Number.isFinite(t)) return null;
+  if (!Number.isFinite(effectiveDepMs)) return estimate;
+  return t <= effectiveDepMs ? null : estimate;
+}

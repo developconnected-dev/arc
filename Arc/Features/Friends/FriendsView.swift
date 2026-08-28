@@ -854,11 +854,16 @@ struct FriendFlightRow: View {
             }
             return mode.arrivedVerb
         }
-        // Clock past the schedule, source silent: say exactly that.
-        if FriendFlightMath.arrival(flight).map({ $0 <= now }) ?? false {
-            return "Arrival not yet confirmed"
-        }
+        // Clock past the schedule, source silent: say exactly that. But only
+        // once the flight has actually LEFT — the arrival branches are gated
+        // on the departure, because a flight that hasn't departed has no
+        // arrival story whatever a (possibly contaminated) estimate says: the
+        // old order put "Arrival not yet confirmed" on a flight still an
+        // hour from pushback.
         if FriendFlightMath.departure(flight).map({ $0 <= now }) ?? false {
+            if FriendFlightMath.arrival(flight).map({ $0 <= now }) ?? false {
+                return "Arrival not yet confirmed"
+            }
             return "Departed"
         }
         // Punctuality only where somebody actually reported it. A friend's ferry

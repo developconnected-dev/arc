@@ -128,4 +128,32 @@ final class FriendFlightMathTests: XCTestCase {
         XCTAssertEqual(FriendFlightMath.chip(for: f, at: now).text, "LANDS IN 1H 0M")
         XCTAssertEqual(FriendFlightMath.progress(f, at: now), 2.0 / 3.0, accuracy: 0.001)
     }
+
+    /// Regression: a stale estimated_arrival from another day's leg — written
+    /// by the old route-only leg match and pinned by the row's carry-forward
+    /// — put "Arrival not yet confirmed" on a flight still an hour from
+    /// pushback. No flight arrives before it leaves: an estimate at or
+    /// before the departure is ignored, and the scheduled arrival serves.
+    func testPoisonedEstimateBeforeDepartureIsIgnored() {
+        let f = flight("LX2146", depScheduled: "2026-07-24T13:00:00.000Z",
+                       arrScheduled: "2026-07-24T15:05:00.000Z",
+                       estimatedArrival: "2026-07-23T15:02:00.000Z")
+        XCTAssertEqual(FriendFlightMath.arrival(f),
+                       DateHelpers.parseAPIDate("2026-07-24T15:05:00.000Z"))
+        // And the phase math stays honest: an hour before departure the
+        // flight is upcoming, not past its arrival.
+        XCTAssertEqual(FriendFlightMath.phase(f, at: now), .upcoming)
+    }
+
+    /// A delayed departure moves the plausibility line with it — an estimate
+    /// after the printed schedule but before the delay-adjusted departure is
+    /// still impossible.
+    func testEstimateBeforeDelayedDepartureIsIgnoredToo() {
+        let f = flight("LX14", depScheduled: "2026-07-24T13:00:00.000Z",
+                       arrScheduled: "2026-07-24T17:00:00.000Z",
+                       estimatedArrival: "2026-07-24T13:30:00.000Z", delay: 45)
+        XCTAssertEqual(FriendFlightMath.arrival(f),
+                       DateHelpers.parseAPIDate("2026-07-24T17:00:00.000Z")?
+                           .addingTimeInterval(45 * 60))
+    }
 }
