@@ -1,5 +1,5 @@
 import { apnsConfigured, sendLiveActivityPush, sendAlertPush, apnsJwt, tokenIsDead } from "./apns";
-import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, templatesFromNeighbour, completeLeg, confirmedRunwayTime, movementIsLive, localDay, departsOnLocalDate, answerForDay } from "./legs";
+import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, templatesFromNeighbour, completeLeg, confirmedRunwayTime, movementIsLive, localDay, departsOnLocalDate, answerForDay, normalizeStatus, isCancelUncertain } from "./legs";
 import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRIOR } from "./ground";
 import { predictGate, standFromBoard, type GateObservation } from "./gates";
 import { contentState } from "./activity";
@@ -42,33 +42,10 @@ const ADB_HOST = "aerodatabox.p.rapidapi.com";
 /// The only date shape allowed to reach a provider URL path or Date() math.
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
-// AeroDataBox's full FlightStatus vocabulary (confirmed against the live API +
-// its published OpenAPI schema): unknown, expected, enRoute, checkIn, boarding,
-// gateClosed, departed, delayed, approaching, arrived, canceled, diverted,
-// canceledUncertain. The app only knows 5 buckets, so map into those —
-// anything pre-departure collapses to "scheduled" (delay is tracked separately
-// via the `delay` field, not the status string).
-const STATUS_MAP: Record<string, string> = {
-  unknown: "scheduled",
-  expected: "scheduled",
-  checkin: "scheduled",
-  boarding: "boarding",       // preserve boarding status
-  gateclosed: "gateClosed",   // preserve gate closed status
-  delayed: "scheduled",
-  enroute: "active",
-  departed: "active",
-  approaching: "active",
-  arrived: "landed",
-  canceled: "cancelled",
-  cancelled: "cancelled",
-  canceleduncertain: "cancelled",
-  diverted: "diverted",
-};
-
-function normalizeStatus(raw: unknown): string {
-  const key = String(raw ?? "").toLowerCase();
-  return STATUS_MAP[key] ?? "scheduled";
-}
+// Status normalization lives in legs.ts (normalizeStatus, isCancelUncertain)
+// where it is unit-tested — it went uncovered here for as long as the repo
+// existed, and the one wrong row in the map (a provider's "likely cancelled"
+// guess hardened into the fact) survived exactly that long.
 
 function delayMinutes(scheduled: unknown, revised: unknown): number {
   const s = toISO(scheduled), r = toISO(revised);
@@ -121,6 +98,9 @@ function mapLeg(f: Record<string, any>): Record<string, unknown> {
     // comes back on two dates — see `departsOnLocalDate`.
     dep_local_date: localDay(dep.scheduledTime?.local),
     status: normalizeStatus(f.status),
+    // The provider's cancellation GUESS, beside the status it no longer
+    // impersonates. Surfaces hedge on it; nothing terminal hangs off it.
+    cancel_uncertain: isCancelUncertain(f.status),
     dep_gate: dep.gate ?? null,
     dep_terminal: dep.terminal ?? null,
     arr_gate: arr.gate ?? null,
@@ -3061,6 +3041,7 @@ async function watchUpcoming(env: Env): Promise<void> {
         flightNumber: String(row.flight_number),
         arrivalCity: String(row.arrival_city || row.arrival_iata || "your destination"),
         status: String(leg["status"] ?? row.status ?? "scheduled"),
+        cancelUncertain: leg["cancel_uncertain"] === true,
         delayMinutes: Number(leg["delay"] ?? 0),
         departureGate: (leg["dep_gate"] as string | null) ?? null,
         scheduledDeparture: Date.parse(String(row.scheduled_departure)),

@@ -149,6 +149,19 @@ enum ArcNotifications {
         )
     }
 
+    /// The provider's guess, worded as one — never the certainty above:
+    /// rescheduled flights carry this flag and then operate. Same id as the
+    /// real cancellation, so a guess that hardens replaces the hedge.
+    static func notifyPossiblyCancelled(flight: Flight) {
+        guard !serverWillSayIt(flight) else { return }
+        send(
+            title: "\(flight.flightNumber) may be cancelled",
+            body: "The data feed flags \(flight.departureIATA) → \(flight.arrivalIATA) as possibly cancelled. Worth checking with the airline.",
+            id: "cancelled-\(flight.flightNumber)-\(Int(flight.scheduledDeparture.timeIntervalSince1970))",
+            flight: flight
+        )
+    }
+
     /// "Anna is at ZRH too" — fired once per friend-and-airport, because the
     /// useful moment is discovery: it's when you can still go and find them.
     /// The identifier doubles as the dedupe key, so re-detecting the same

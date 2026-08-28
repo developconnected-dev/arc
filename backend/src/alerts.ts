@@ -12,6 +12,10 @@ export interface WatchState {
   gate?: string;
   /// Set once the cancellation has been announced.
   cancelled?: boolean;
+  /// Set while the provider's "may be cancelled" guess has been announced —
+  /// cleared (with a banner) when the guess clears, unlike `cancelled`,
+  /// which is a fact and latches.
+  uncertainSaid?: boolean;
 }
 
 export interface AlertNews {
@@ -41,6 +45,10 @@ export function flightNews(args: {
   scheduledDeparture: number;
   now: number;
   prior: WatchState;
+  /// The provider's own "likely cancelled" guess (AeroDataBox
+  /// canceledUncertain) — rescheduled flights that go on to operate carry it
+  /// routinely, so it draws a hedged heads-up, never the rebooking advice.
+  cancelUncertain?: boolean;
 }): AlertNews | null {
   const { flightNumber, arrivalCity, status, delayMinutes, departureGate, prior } = args;
   const state: WatchState = { ...prior };
@@ -59,6 +67,32 @@ export function flightNews(args: {
   // Once cancelled, a provider flipping back to "scheduled" is a data glitch
   // far more often than a reinstated flight; don't chase it with a banner.
   if (prior.cancelled) return null;
+
+  // The guess: said once, on the cancellation's collapse id so a later fact
+  // REPLACES it on the lock screen — and deliberately NOT latched like one,
+  // so the delay and gate news below keep flowing for a flight that is
+  // probably still operating.
+  if (args.cancelUncertain && !prior.uncertainSaid) {
+    state.uncertainSaid = true;
+    return {
+      collapseId: `${flightNumber}-cancelled`,
+      title: `${flightNumber} may be cancelled`,
+      body: `The data feed flags your flight to ${arrivalCity} as possibly cancelled — `
+        + `rescheduled flights sometimes carry this mark. Worth checking with the airline.`,
+      state,
+    };
+  }
+  // A guess that clears is worth one line, same as a delay that clears:
+  // whoever saw "may be cancelled" is still wondering.
+  if (!args.cancelUncertain && prior.uncertainSaid) {
+    state.uncertainSaid = false;
+    return {
+      collapseId: `${flightNumber}-cancelled`,
+      title: `${flightNumber} looks like it's operating`,
+      body: `The possibly-cancelled flag on your flight to ${arrivalCity} has cleared.`,
+      state,
+    };
+  }
 
   const announced = prior.delay ?? 0;
   if (delayMinutes >= DELAY_FLOOR && Math.abs(delayMinutes - announced) >= DELAY_STEP) {

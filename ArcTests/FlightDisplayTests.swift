@@ -60,6 +60,37 @@ final class FlightDisplayTests: XCTestCase {
         XCTAssertEqual(f.bannerColor, ArcTheme.onTime)
     }
 
+    // MARK: - The provider's cancellation guess (cancelUncertain)
+
+    /// Regression: the provider's "likely cancelled" guess — filed against
+    /// rescheduled flights that go on to operate — used to be hardened into
+    /// `.cancelled`, so a 25-minute-late flight holding a gate read
+    /// "Flight Cancelled". The guess hedges now instead of asserting.
+    func testCancelUncertainHedgesInsteadOfAsserting() {
+        let f = makeFlight(delay: 25)
+        f.cancelUncertain = true
+        XCTAssertEqual(f.statusText, "May be cancelled")
+        XCTAssertEqual(f.accentColor, .orange)
+        XCTAssertEqual(f.bannerColor, .orange)
+        // A guess must never end tracking or hide the flight.
+        XCTAssertFalse(f.isCompleted)
+        XCTAssertTrue(f.isUpcoming)
+    }
+
+    func testCancelUncertainDoesNotOutlastTheFlight() {
+        let f = makeFlight()
+        f.cancelUncertain = true
+        f.status = .landed
+        XCTAssertEqual(f.statusText, "Landed")
+        XCTAssertNotEqual(f.accentColor, .orange)
+    }
+
+    func testConfirmedCancellationStillAsserts() {
+        let f = makeFlight(status: .cancelled)
+        XCTAssertEqual(f.statusText, "Cancelled")
+        XCTAssertEqual(f.accentColor, ArcTheme.late)
+    }
+
     // MARK: isRecentlyLanded — uses relative Date.now offsets, not the fixed
     // `makeFlight` instant above (which is a fixed future date, not "recent").
 

@@ -94,6 +94,12 @@ final class Flight {
     // Status
     var statusRaw: String = "scheduled"  // scheduled, active, landed, cancelled, diverted
     var delayMinutes: Int = 0
+    /// The provider's own guess that this leg may be cancelled — a guess, so
+    /// it never becomes `statusRaw`: rescheduled flights that go on to
+    /// operate carry it routinely. Surfaces hedge ("May be cancelled")
+    /// instead of asserting, nothing terminal hangs off it, and tracking
+    /// carries on so the answer can resolve either way.
+    var cancelUncertain: Bool = false
 
     // Gate & terminal
     var departureGate: String?

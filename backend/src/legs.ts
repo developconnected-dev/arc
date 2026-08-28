@@ -12,6 +12,48 @@ export function toISO(s: unknown): string {
   return isNaN(d.getTime()) ? "" : d.toISOString();
 }
 
+// AeroDataBox's full FlightStatus vocabulary (confirmed against the live API +
+// its published OpenAPI schema): unknown, expected, enRoute, checkIn, boarding,
+// gateClosed, departed, delayed, approaching, arrived, canceled, diverted,
+// canceledUncertain. The app only knows a handful of buckets, so map into
+// those — anything pre-departure collapses to "scheduled" (delay is tracked
+// separately via the `delay` field, not the status string).
+//
+// canceledUncertain is the provider's own GUESS — its docs word it "likely
+// cancelled", and a retimed filing gets stamped with it when the provider
+// can't reconcile the airline's records. It used to collapse into
+// "cancelled", so a rescheduled flight that went on to operate wore a red
+// "Flight Cancelled", drew a rebooking push, and then had every later delay
+// and gate update swallowed by the said-once cancellation latch. A guess
+// travels as `cancel_uncertain` on a scheduled leg now, never as the fact.
+const STATUS_MAP: Record<string, string> = {
+  unknown: "scheduled",
+  expected: "scheduled",
+  checkin: "scheduled",
+  boarding: "boarding",       // preserve boarding status
+  gateclosed: "gateClosed",   // preserve gate closed status
+  delayed: "scheduled",
+  enroute: "active",
+  departed: "active",
+  approaching: "active",
+  arrived: "landed",
+  canceled: "cancelled",
+  cancelled: "cancelled",
+  canceleduncertain: "scheduled",
+  diverted: "diverted",
+};
+
+export function normalizeStatus(raw: unknown): string {
+  const key = String(raw ?? "").toLowerCase();
+  return STATUS_MAP[key] ?? "scheduled";
+}
+
+/// The provider guessing at a cancellation — a fact about the provider,
+/// carried beside the status rather than dressed up as one.
+export function isCancelUncertain(raw: unknown): boolean {
+  return String(raw ?? "").toLowerCase() === "canceleduncertain";
+}
+
 /// The calendar date at the airport, out of AeroDataBox's own local timestamp.
 ///
 /// Every `scheduledTime` the provider serves carries BOTH `utc` and `local`
@@ -212,6 +254,7 @@ export function shiftLegToDay(
     dep_estimated: null,
     arr_estimated: null,
     status: "scheduled",
+    cancel_uncertain: false,
     delay: 0,
     dep_gate: null,
     arr_gate: null,
