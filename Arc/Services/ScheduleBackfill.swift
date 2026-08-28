@@ -54,11 +54,62 @@ enum ScheduleBackfill {
             guard let d = DateHelpers.parseAPIDate(leg.dep_scheduled) else { return .greatestFiniteMagnitude }
             return abs(d.timeIntervalSince(scheduled))
         }
-        if let best = onRoute.min(by: { distance($0) < distance($1) }) { return best }
+        if let best = onRoute.min(by: { distance($0) < distance($1) }) {
+            return preferOperating(best, among: onRoute)
+        }
         guard allowRouteChange else { return nil }
         guard let fallback = legs.min(by: { distance($0) < distance($1) }),
               distance(fallback) <= 24 * 3600 else { return nil }
         return fallback
+    }
+
+    /// A reschedule is sometimes filed as TWO rows: the original operation
+    /// cancelled (or wearing the provider's "likely cancelled" guess), its
+    /// replacement a separate leg minutes to a couple of hours away on the
+    /// same route. Closest-by-time alone picks the cancelled one — the
+    /// stored time IS the original's — and the app then asserts a
+    /// cancellation for a flight that operates. Within this window two
+    /// same-number departures on one route cannot be two operations (no
+    /// turnaround is that fast), so the living sibling IS the flight,
+    /// moved; beyond it — a shuttle's other rotation, hours away — the
+    /// cancellation is real and stays loud. Mirrors the Worker's pickLeg.
+    nonisolated static let rescheduleWindow: TimeInterval = 3 * 3600
+
+    private nonisolated static func disfavored(_ leg: FlightAPIClient.FlightSearchResult) -> Bool {
+        leg.status == "cancelled" || leg.cancel_uncertain == true
+    }
+
+    nonisolated static func preferOperating(
+        _ best: FlightAPIClient.FlightSearchResult,
+        among candidates: [FlightAPIClient.FlightSearchResult]
+    ) -> FlightAPIClient.FlightSearchResult {
+        guard disfavored(best),
+              let bestDep = DateHelpers.parseAPIDate(best.dep_scheduled) else { return best }
+        let replacement = candidates
+            .filter { !disfavored($0) }
+            .compactMap { leg -> (FlightAPIClient.FlightSearchResult, TimeInterval)? in
+                guard let d = DateHelpers.parseAPIDate(leg.dep_scheduled) else { return nil }
+                let gap = abs(d.timeIntervalSince(bestDep))
+                return gap <= rescheduleWindow ? (leg, gap) : nil
+            }
+            .min { $0.1 < $1.1 }?.0
+        return replacement ?? best
+    }
+
+    /// The delay a stored flight should display, measured against ITS OWN
+    /// schedule rather than the leg's. Identical schedules hand the leg's
+    /// delay back unchanged; a retimed leg — or the re-filing
+    /// `preferOperating` swapped in for a cancelled row — carries its shift
+    /// as lateness, so every surface rendering scheduled-time-plus-delay
+    /// lands on the real departure. Never negative: a flight moved earlier
+    /// renders at the stored time, the safe direction to be wrong in.
+    /// Mirrors the Worker's effectiveDelayMinutes.
+    nonisolated static func effectiveDelayMinutes(
+        of leg: FlightAPIClient.FlightSearchResult, against stored: Date
+    ) -> Int {
+        let raw = max(0, leg.delay ?? 0)
+        guard let legSched = DateHelpers.parseAPIDate(leg.dep_scheduled) else { return raw }
+        return max(0, Int((legSched.timeIntervalSince(stored) / 60 + Double(raw)).rounded()))
     }
 
     /// The published schedule wins over what was typed — that's the whole

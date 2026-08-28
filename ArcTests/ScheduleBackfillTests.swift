@@ -13,13 +13,15 @@ final class ScheduleBackfillTests: XCTestCase {
 
     private func leg(dep: String, arr: String,
                      depTime: String = "2026-09-18T06:05:00.000Z",
-                     arrTime: String = "2026-09-18T08:00:00.000Z") -> FlightAPIClient.FlightSearchResult {
+                     arrTime: String = "2026-09-18T08:00:00.000Z",
+                     status: String = "scheduled",
+                     delay: Int = 0) -> FlightAPIClient.FlightSearchResult {
         .init(flight_number: "A31653", airline_name: "Aegean Airlines", airline_iata: "A3",
               dep_iata: dep, arr_iata: arr, dep_city: "Athens", arr_city: "Munich",
               dep_scheduled: depTime, arr_scheduled: arrTime,
-              dep_actual: nil, arr_actual: nil, status: "scheduled",
+              dep_actual: nil, arr_actual: nil, status: status,
               dep_gate: "A12", dep_terminal: "2", arr_gate: nil, arr_terminal: nil,
-              arr_baggage: nil, delay: 0, aircraft_type: "Airbus A320",
+              arr_baggage: nil, delay: delay, aircraft_type: "Airbus A320",
               aircraft_registration: "SX-DVA", aircraft_icao24: "468001",
               dep_lat: 37.93, dep_lon: 23.94, arr_lat: 48.35, arr_lon: 11.78)
     }
@@ -76,6 +78,72 @@ final class ScheduleBackfillTests: XCTestCase {
         // A whole day away is a different journey, not a corrected airport.
         let farAway = pending(dep: 3 * 86400)
         XCTAssertNil(ScheduleBackfill.bestLeg(legs, matching: farAway, allowRouteChange: true))
+    }
+
+    // MARK: reschedule filed as two rows
+
+    private func routed(_ f: Flight, depTime: String) {
+        f.departureIATA = "ATH"; f.arrivalIATA = "MUC"
+        f.scheduledDeparture = DateHelpers.parseAPIDate(depTime)!
+    }
+
+    /// The LX2146 pattern: the original operation marked cancelled, its
+    /// replacement a second leg 25 minutes away on the same route. Closest
+    /// by time alone returns the cancelled one — the stored time IS the
+    /// original's — and the app then asserts a cancellation for a flight
+    /// that operates.
+    func testCancelledRowYieldsItsReFiling() {
+        let f = pending()
+        routed(f, depTime: "2026-09-18T06:05:00.000Z")
+        let legs = [
+            leg(dep: "ATH", arr: "MUC", status: "cancelled"),
+            leg(dep: "ATH", arr: "MUC", depTime: "2026-09-18T06:30:00.000Z"),
+        ]
+        let best = ScheduleBackfill.bestLeg(legs, matching: f)
+        XCTAssertEqual(best?.status, "scheduled")
+        XCTAssertEqual(best?.dep_scheduled, "2026-09-18T06:30:00.000Z")
+    }
+
+    /// A shuttle's other rotation hours away is a different operation with
+    /// its own passengers — the cancellation is real and must stay loud.
+    func testShuttleRotationHoursAwayStaysCancelled() {
+        let f = pending()
+        routed(f, depTime: "2026-09-18T06:05:00.000Z")
+        let legs = [
+            leg(dep: "ATH", arr: "MUC", status: "cancelled"),
+            leg(dep: "ATH", arr: "MUC", depTime: "2026-09-18T16:05:00.000Z"),
+        ]
+        XCTAssertEqual(ScheduleBackfill.bestLeg(legs, matching: f)?.status, "cancelled")
+    }
+
+    /// The provider's "likely cancelled" guess steps aside the same way.
+    func testGuessFlaggedRowYieldsItsCleanSibling() {
+        let f = pending()
+        routed(f, depTime: "2026-09-18T06:05:00.000Z")
+        var flagged = leg(dep: "ATH", arr: "MUC")
+        flagged.cancel_uncertain = true
+        let clean = leg(dep: "ATH", arr: "MUC", depTime: "2026-09-18T06:30:00.000Z")
+        let best = ScheduleBackfill.bestLeg([flagged, clean], matching: f)
+        XCTAssertEqual(best?.dep_scheduled, "2026-09-18T06:30:00.000Z")
+        XCTAssertNotEqual(best?.cancel_uncertain, true)
+    }
+
+    // MARK: effectiveDelayMinutes
+
+    func testEffectiveDelayCountsTheScheduleShift() {
+        let stored = DateHelpers.parseAPIDate("2026-09-18T06:05:00.000Z")!
+        // Same schedule: the leg's own delay, unchanged.
+        XCTAssertEqual(ScheduleBackfill.effectiveDelayMinutes(
+            of: leg(dep: "ATH", arr: "MUC", delay: 10), against: stored), 10)
+        // Retimed 25 minutes later, on its own schedule: 25 late for the
+        // person who planned around the stored time — and delays add.
+        XCTAssertEqual(ScheduleBackfill.effectiveDelayMinutes(
+            of: leg(dep: "ATH", arr: "MUC", depTime: "2026-09-18T06:30:00.000Z"), against: stored), 25)
+        XCTAssertEqual(ScheduleBackfill.effectiveDelayMinutes(
+            of: leg(dep: "ATH", arr: "MUC", depTime: "2026-09-18T06:30:00.000Z", delay: 10), against: stored), 35)
+        // Moved earlier clamps to zero, the safe direction.
+        XCTAssertEqual(ScheduleBackfill.effectiveDelayMinutes(
+            of: leg(dep: "ATH", arr: "MUC", depTime: "2026-09-18T05:40:00.000Z"), against: stored), 0)
     }
 
     // MARK: apply

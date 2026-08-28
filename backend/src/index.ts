@@ -5,7 +5,7 @@ import { predictGate, standFromBoard, type GateObservation } from "./gates";
 import { contentState } from "./activity";
 import { flightNews, laAlert, type WatchState } from "./alerts";
 import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS } from "./freshness";
-import { pickLeg, plausibleActualDeparture } from "./legmatch";
+import { pickLeg, plausibleActualDeparture, effectiveDelayMinutes } from "./legmatch";
 import { verifiedRoute } from "./place";
 import { predictionConfirmed, summarise, type PredictionRow } from "./prediction";
 import { handleTransit } from "./routes-transit";
@@ -2548,7 +2548,10 @@ async function resolveDelayPredictions(env: Env, now: number): Promise<void> {
       scheduledDepMs: Date.parse(String(p.scheduled_departure)),
     });
     if (!leg) continue;
-    const official = Number(leg["delay"] ?? 0);
+    // Against the prediction's own stored schedule: a retiming (or a
+    // reschedule adopted from a cancelled row's re-filing) is lateness the
+    // prediction was about, even when the leg's own delay field reads zero.
+    const official = effectiveDelayMinutes(leg, Date.parse(String(p.scheduled_departure)));
     if (!predictionConfirmed(Number(p.predicted_minutes), official)) continue;
     await sbService(env, "PATCH", `/delay_predictions?id=eq.${p.id}`, {
       confirmed_at: new Date(now).toISOString(),
@@ -2809,9 +2812,13 @@ async function refreshOneSharedRow(env: Env, row: Record<string, any>, now: numb
     const sample = leg["position"] as ReturnType<typeof adbPositionToSample>;
     const sampleFresh = !!sample && now - Date.parse(sample.reportedAt) < 15 * 60_000;
     const state = sampleFresh ? classifyGround(sample) : "unknown";
+    // Against the ROW's schedule, which is what the friend's screen counts
+    // from — a leg retimed (or swapped in for a cancelled re-filing, see
+    // pickLeg) carries its shift as lateness here.
+    const effDelay = effectiveDelayMinutes(leg, Date.parse(String(row.scheduled_departure)));
     const changed =
       leg["status"] !== row.status ||
-      (leg["delay"] ?? 0) !== row.delay_minutes ||
+      effDelay !== row.delay_minutes ||
       (leg["dep_gate"] ?? row.departure_gate) !== row.departure_gate ||
       (leg["arr_gate"] ?? row.arrival_gate) !== row.arrival_gate ||
       (leg["arr_baggage"] ?? row.baggage_claim) !== row.baggage_claim ||
@@ -2867,7 +2874,7 @@ async function refreshOneSharedRow(env: Env, row: Record<string, any>, now: numb
       ...ground,
       status: confirmedDeparture && leg["status"] !== "landed" && leg["status"] !== "cancelled"
         && leg["status"] !== "diverted" ? "active" : leg["status"],
-      delay_minutes: leg["delay"] ?? 0,
+      delay_minutes: effDelay,
       // A provider null must not erase device-reported values — for ANY of
       // these. estimated/actual used to be written `?? null`, so one provider
       // response without them blanked what the traveler's device had already
@@ -3042,7 +3049,7 @@ async function watchUpcoming(env: Env): Promise<void> {
         arrivalCity: String(row.arrival_city || row.arrival_iata || "your destination"),
         status: String(leg["status"] ?? row.status ?? "scheduled"),
         cancelUncertain: leg["cancel_uncertain"] === true,
-        delayMinutes: Number(leg["delay"] ?? 0),
+        delayMinutes: effectiveDelayMinutes(leg, Date.parse(String(row.scheduled_departure))),
         departureGate: (leg["dep_gate"] as string | null) ?? null,
         scheduledDeparture: Date.parse(String(row.scheduled_departure)),
         now,
@@ -3121,7 +3128,10 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   // Phase-aware provider refresh through the SHARED cache (source "cron",
   // capped by its own monthly budget — it can never eat the interactive
   // reserve that reconnecting devices depend on).
-  const priorDelayMs = ((flight?.["delay"] as number) ?? 0) * 60_000;
+  // Delay against the ROW's schedule (see effectiveDelayMinutes): a leg the
+  // provider retimed, or the re-filing pickLeg swapped in for a cancelled
+  // row, carries its shift as lateness so the card counts to the real time.
+  const priorDelayMs = effectiveDelayMinutes(flight, schedDepGuess) * 60_000;
   const knownDep = flight?.["dep_actual"] ? new Date(flight["dep_actual"]).getTime() : schedDepGuess + priorDelayMs;
   const knownArr = flight?.["arr_actual"] ? new Date(flight["arr_actual"]).getTime()
     : new Date(row.scheduled_arrival ?? row.scheduled_departure!).getTime() + priorDelayMs;
@@ -3149,12 +3159,15 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
       // flip or a belt appearing used to re-banner the same gate every time.
       // First fetch stays silent, as it always has (`!!flight` above).
       if (flight) {
+        // Effective delays, so the banner sings the same number the card
+        // counts to — and so a reschedule adopted by pickLeg announces
+        // itself as the delay it is.
         alert = laAlert({
           flightNumber: row.flight_number!,
           priorGate: (flight["dep_gate"] as string | null) ?? null,
           gate: (leg["dep_gate"] as string | null) ?? null,
-          priorDelay: Number(flight["delay"] ?? 0),
-          delay: Number(leg["delay"] ?? 0),
+          priorDelay: effectiveDelayMinutes(flight, schedDepGuess),
+          delay: effectiveDelayMinutes(leg, schedDepGuess),
         });
       }
       flight = leg as Record<string, any>;
@@ -3173,8 +3186,8 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
     });
   }
 
-  const delay: number = flight?.["delay"] ?? 0;
   const schedDepMs = new Date(row.scheduled_departure!).getTime();
+  const delay: number = effectiveDelayMinutes(flight, schedDepMs);
   const schedArrMs = new Date(row.scheduled_arrival ?? row.scheduled_departure!).getTime();
   const depMs = flight?.["dep_actual"] ? new Date(flight["dep_actual"]).getTime() : schedDepMs + delay * 60_000;
   const arrMs = flight?.["arr_actual"] ? new Date(flight["arr_actual"]).getTime() : schedArrMs + delay * 60_000;
