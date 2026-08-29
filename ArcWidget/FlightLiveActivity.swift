@@ -1008,8 +1008,6 @@ struct FlightLiveActivity: Widget {
         }
     }
 
-    /// Yellow gate badge matching Flighty's style: walking person icon + gate code
-    @ViewBuilder
     /// The compact island's countdown, with its dead space put where it
     /// cannot be seen.
     ///
@@ -1036,6 +1034,8 @@ struct FlightLiveActivity: Widget {
             .frame(maxWidth: date.timeIntervalSinceNow < 3600 ? 30 : 48, alignment: .trailing)
     }
 
+    /// Yellow gate badge matching Flighty's style: walking person icon + gate code
+    @ViewBuilder
     private func gateBadge(_ gate: String?) -> some View {
         if let gate, !gate.isEmpty {
             HStack(spacing: 4) {
