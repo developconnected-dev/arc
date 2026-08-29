@@ -108,9 +108,15 @@ final class FriendAlertsTests: XCTestCase {
     }
 
     func testBaselineValueEncodesPhaseAndDelay() {
-        let f = flight("f1", "LX2084", dep: "2026-07-24T11:30:00.000Z",
-                       arr: "2026-07-24T14:00:00.000Z", delay: 30)
-        XCTAssertEqual(FriendAlerts.baselineValue(f, at: now), "airborne|30")
+        // The WITNESSED phase, not the clock's: past the gate time with the
+        // status still "scheduled", the baseline holds "upcoming" so the
+        // eventual confirmation can still fire the takeoff alert.
+        let unwitnessed = flight("f1", "LX2084", dep: "2026-07-24T11:30:00.000Z",
+                                 arr: "2026-07-24T14:00:00.000Z", delay: 30)
+        XCTAssertEqual(FriendAlerts.baselineValue(unwitnessed, at: now), "upcoming|30")
+        let witnessed = flight("f1", "LX2084", dep: "2026-07-24T11:30:00.000Z",
+                               arr: "2026-07-24T14:00:00.000Z", status: "active", delay: 30)
+        XCTAssertEqual(FriendAlerts.baselineValue(witnessed, at: now), "airborne|30")
     }
 
     // MARK: - Where a tapped friend alert lands
