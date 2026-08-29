@@ -144,14 +144,15 @@ final class LiveActivityManager {
         }
     }
 
-    /// staleDate doubles as our offline phase-flip scheduler: iOS re-renders
+    /// staleDate doubles as our offline *copy* scheduler: iOS re-renders
     /// the Live Activity view once when content goes stale, and that render
-    /// re-evaluates the phase from the clock. Pointing staleDate at the NEXT
-    /// boundary makes the copy switch pre → Departing…/Taxiing… → Takeoff
-    /// unconfirmed → after at exactly the right moment even with the app
-    /// dead and the device offline. Airborne chrome is NOT on this timer:
-    /// that requires a takeoff witness. While online, pushes keep resetting
-    /// it anyway.
+    /// re-evaluates the phase from the clock. Pointing staleDate at expected
+    /// wheels-up lets Departing…/Taxiing… become Takeoff unconfirmed with
+    /// the app dead and the radio off. That is all the clock may do.
+    /// Airborne chrome is NOT on this timer — a witness (AeroDataBox
+    /// actualDeparture or a fresh airborne sample) arrives via Worker APNs
+    /// or an app refresh after reconnect. There is no on-device takeoff
+    /// detector.
     private static func staleDate(for state: FlightActivityAttributes.ContentState) -> Date {
         if state.status == "landed" { return .now.addingTimeInterval(3600) }
         // The "directions to the airport" pill retires ~1¾ h before

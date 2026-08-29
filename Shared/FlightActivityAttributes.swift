@@ -144,10 +144,11 @@ struct FlightActivityAttributes: ActivityAttributes {
         }
 
         /// When the wheels are expected to leave the ground — what staleDate
-        /// is pointed at, so the lock screen can change *copy* (Departing…
-        /// / Taxiing… → Takeoff unconfirmed) at the right moment with no app
-        /// running and no network. That re-render must not promote airborne
-        /// chrome: layout follows `usesAirborneLayout`, not the clock.
+        /// is pointed at, so copy can become Takeoff unconfirmed with no app
+        /// running and no radio. That re-render must not promote airborne
+        /// chrome and must not invent a witness: layout follows
+        /// `usesAirborneLayout` until AeroDataBox actualDeparture or a fresh
+        /// airborne sample arrives after reconnect.
         var expectedWheelsUp: Date { departureEvidence.expectedWheelsUp }
     }
 }

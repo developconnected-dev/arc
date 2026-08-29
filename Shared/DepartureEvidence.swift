@@ -25,14 +25,17 @@ import Foundation
 /// Past the expected wheels-up with nothing confirmed, Arc does not invent
 /// an "In Air". It says `presumedAirborne` — user-facing, "Takeoff
 /// unconfirmed" — and every surface keeps ground chrome until a real
-/// takeoff witness arrives.
+/// takeoff witness arrives: AeroDataBox `actualDeparture` (runway time)
+/// or a fresh airborne ADS-B sample, via Worker push or an app refresh
+/// after reconnect. An airplane-mode phone is allowed to sit on Takeoff
+/// unconfirmed; there is no on-device (barometer, GPS, Motion) witness.
 public struct DepartureEvidence: Equatable, Sendable {
     /// Gate departure: the schedule plus whatever delay the airline admits.
     public var offBlock: Date
     /// The provider's own estimate of wheels-up, when it offers one.
     public var estimatedTakeoff: Date?
-    /// A take-off somebody reported: the provider, ADS-B, or the phone's own
-    /// sensors. The one thing that ends every hedge.
+    /// A take-off somebody reported: AeroDataBox runway time, or a fresh
+    /// airborne ADS-B sample. Not the clock, and not the phone's sensors.
     public var actualDeparture: Date?
     /// The last classification of an ADS-B sample: at_gate, taxiing, airborne.
     public var groundState: String?
@@ -102,9 +105,10 @@ public struct DepartureEvidence: Equatable, Sendable {
         let sightingIsFresh = groundObservedAt.map { now.timeIntervalSince($0) < Self.freshWindow && $0 <= now } ?? false
         if sightingIsFresh, groundState == "airborne" { return .airborne }
         if now < offBlock { return .beforeDeparture }
-        // The wheels-up clock ends Taxiing/Departing. A fresh taxi sample is
-        // not a takeoff witness — past this point Arc says takeoff unconfirmed
-        // (ground layout) rather than lingering on Taxiing or inventing In Air.
+        // The wheels-up clock ends Taxiing/Departing. It is not a takeoff
+        // witness — past this point Arc says takeoff unconfirmed (ground
+        // layout) and stays there until a network witness arrives. An
+        // airplane-mode phone is allowed to sit; no on-device detection.
         if now >= expectedWheelsUp { return .presumedAirborne }
         // Inside the taxi window: once it has started rolling, a pause is
         // still the taxi — most of a 35-minute taxi at a busy hub is spent

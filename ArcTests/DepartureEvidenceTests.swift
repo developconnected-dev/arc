@@ -223,6 +223,21 @@ final class DepartureEvidenceTests: XCTestCase {
         XCTAssertEqual(DeparturePhase.takeoffUnconfirmedSubtitle, "We'll confirm when we have a signal.")
         XCTAssertNil(evidence(actualDeparture: at(24)).phase(at: at(25)).groundHeroTitle(mode: .air))
     }
+
+    /// Airplane mode: no new facts will arrive until reconnect. Hours past
+    /// expected wheels-up with no actualDeparture and no airborne sample
+    /// must stay Takeoff unconfirmed on ground layout. The clock is not a
+    /// witness, and there is no on-device detector in this contract.
+    func testAirplaneModeSitsOnTakeoffUnconfirmedUntilANetworkWitness() {
+        let dark = evidence()
+        XCTAssertEqual(dark.phase(at: at(180)), .presumedAirborne)
+        XCTAssertFalse(dark.phase(at: at(180)).isOffTheGround)
+        XCTAssertFalse(dark.phase(at: at(180)).isConfirmed)
+        XCTAssertEqual(dark.phase(at: at(180)).groundHeroTitle(mode: .air), "Takeoff unconfirmed")
+        let afterReconnect = evidence(actualDeparture: at(24))
+        XCTAssertEqual(afterReconnect.phase(at: at(180)), .airborne)
+        XCTAssertTrue(afterReconnect.phase(at: at(180)).isOffTheGround)
+    }
 }
 
 /// The same evidence, as the app's own screens read it.
@@ -353,6 +368,9 @@ final class LiveActivityDepartureLayoutTests: XCTestCase {
         XCTAssertEqual(s.departurePhase(at: at(21)), .presumedAirborne)
         XCTAssertFalse(s.usesAirborneLayout(at: at(21)),
                        "staleDate re-render at expected wheels-up must not flip to airborne chrome")
+        // Hours later, still no witness (the radio is off): still ground.
+        XCTAssertFalse(s.usesAirborneLayout(at: at(180)))
+        XCTAssertEqual(s.departurePhase(at: at(180)), .presumedAirborne)
     }
 
     func testActualDeparturePromotesAirborneChrome() {
