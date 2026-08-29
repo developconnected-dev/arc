@@ -1,0 +1,68 @@
+# The check the repo never had: nothing on GitHub compiled the app.
+#
+# The backend workflow typechecks the Worker and cross-checks the wire
+# contracts — but every Swift surface (app, widget, Live Activity, the
+# tests themselves) built only on whichever Mac happened to run ⌘U next.
+# Whole sessions of view-layer work shipped to main between builds, and the
+# first compiler to read them was somebody's laptop at night.
+#
+# This builds the real project the way a contributor does: xcodegen from
+# project.yml (the committed .xcodeproj lags the spec whenever a file was
+# added — regenerating is the point, not a workaround), then the Arc scheme's
+# tests on a simulator. Signing is disabled: simulators don't need it, and a
+# CI machine must never hold the team's certificates.
+name: ios
+
+on:
+  push:
+  pull_request:
+
+# A new push to the same branch makes the previous run's answer irrelevant.
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # The newest Xcode on the image, by version sort — the plain default can
+      # lag a release behind, and project.yml pins xcodeVersion 26.
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      # No hardcoded device: image updates rename simulators ("iPhone 16" →
+      # "iPhone 17") and a name that stopped existing fails every build for a
+      # reason that has nothing to do with the code. Ask the image what it has.
+      - name: Pick a simulator
+        id: sim
+        run: |
+          DEVICE=$(xcrun simctl list devices available | grep -E '^\s+iPhone' \
+            | head -1 | sed -E 's/^ +//; s/ \([0-9A-F-]+\).*$//')
+          if [ -z "$DEVICE" ]; then
+            echo "No iPhone simulator on this image:" >&2
+            xcrun simctl list devices >&2
+            exit 1
+          fi
+          echo "device=$DEVICE" >> "$GITHUB_OUTPUT"
+          echo "Using simulator: $DEVICE"
+
+      - name: Build and test
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Arc.xcodeproj \
+            -scheme Arc \
+            -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.device }}" \
+            CODE_SIGNING_ALLOWED=NO
