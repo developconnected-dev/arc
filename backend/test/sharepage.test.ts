@@ -136,3 +136,24 @@ test("the provider's own wheels-up estimate extends the hedge past the prior", (
   assert.equal(phaseAt(D, OFF + 30 * MIN), "departing");
   assert.equal(phaseAt(D, OFF + 45 * MIN), "presumed");
 });
+
+/// The witness-first order the app fixed (seen rolling outranks the clock in
+/// BOTH directions) had not reached this page: a pushback earlier than the
+/// filed delay hid the taxi behind the countdown here too.
+test("seen rolling before off-block is the taxi, not the countdown", () => {
+  const D = make({}, {
+    state: "taxiing", observedAt: iso(OFF - 4 * MIN), taxiStartedAt: iso(OFF - 4 * MIN),
+  });
+  assert.equal(phaseAt(D, OFF - 3 * MIN), "taxiing");
+});
+
+/// Adopted from PR #4: a sample rotting mid-taxi must not flick the page
+/// back to "Departing" — the started taxi holds until the slid wheels-up
+/// (about one taxi-time after the last sighting), then the presumption.
+test("a rotted sample mid-taxi is still the taxi, until the slid wheels-up", () => {
+  const D = make({}, {
+    state: "taxiing", observedAt: iso(OFF + 10 * MIN), taxiStartedAt: iso(OFF + 3 * MIN),
+  });
+  assert.equal(phaseAt(D, OFF + 28 * MIN), "taxiing");
+  assert.equal(phaseAt(D, OFF + 31 * MIN), "presumed");
+});
