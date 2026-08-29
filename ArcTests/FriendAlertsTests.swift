@@ -23,13 +23,46 @@ final class FriendAlertsTests: XCTestCase {
     private let now = DateHelpers.parseAPIDate("2026-07-24T12:00:00.000Z")!
 
     func testTakeoffTransitionFires() {
-        // Baseline saw it upcoming; the clock now places it mid-flight.
-        let f = flight("f1", "LX2084", dep: "2026-07-24T11:30:00.000Z", arr: "2026-07-24T14:00:00.000Z")
+        // Baseline saw it upcoming; a SOURCE now calls the leg active.
+        let f = flight("f1", "LX2084", dep: "2026-07-24T11:30:00.000Z",
+                       arr: "2026-07-24T14:00:00.000Z", status: "active")
         let events = FriendAlerts.events(
             baseline: ["f1": "upcoming|0"],
             flights: [(anna, f)], levels: [:], at: now)
         XCTAssertEqual(events.map(\.kind), [.tookOff])
         XCTAssertEqual(events.first?.friendName, "Anna")
+    }
+
+    /// The clock is not a takeoff witness. "Anna is in the air ✈️" used to
+    /// fire the moment the gate time passed — a push asserting a takeoff
+    /// nobody reported, while she could still be sitting in a ground hold.
+    func testClockAloneFiresNoTakeoffPush() {
+        let f = flight("f1", "LX2084", dep: "2026-07-24T11:30:00.000Z",
+                       arr: "2026-07-24T14:00:00.000Z")   // status still "scheduled"
+        let events = FriendAlerts.events(
+            baseline: ["f1": "upcoming|0"],
+            flights: [(anna, f)], levels: [:], at: now)
+        XCTAssertTrue(events.isEmpty)
+        // The baseline stays "upcoming" too, so the witness fires the
+        // transition when it lands — late, not never.
+        XCTAssertTrue(FriendAlerts.baselineValue(f, at: now).hasPrefix("upcoming|"))
+        var confirmed = f
+        confirmed.actual_departure = "2026-07-24T11:41:00.000Z"
+        let late = FriendAlerts.events(
+            baseline: ["f1": FriendAlerts.baselineValue(f, at: now)],
+            flights: [(anna, confirmed)], levels: [:], at: now)
+        XCTAssertEqual(late.map(\.kind), [.tookOff])
+    }
+
+    /// Landing is a fact only the source states; the clock crossing the
+    /// scheduled arrival is not it.
+    func testClockAloneFiresNoLandedPush() {
+        let f = flight("f1", "LX2084", dep: "2026-07-24T08:00:00.000Z",
+                       arr: "2026-07-24T11:00:00.000Z", status: "active")
+        let events = FriendAlerts.events(
+            baseline: ["f1": "airborne|0"],
+            flights: [(anna, f)], levels: [:], at: now)   // an hour past the ETA
+        XCTAssertTrue(events.isEmpty)
     }
 
     func testLandingTransitionFires() {

@@ -908,6 +908,25 @@ enum FriendFlightMath {
 
     /// Coarse lifecycle bucket — the unit friend alerts diff on.
     enum Phase: String { case upcoming, airborne, landed }
+    /// The phase an ALERT may claim — witnessed, never inferred.
+    ///
+    /// The feed and map keep using `phase` below (clock-healed: a friend
+    /// mid-flight with a quiet row still deserves a moving arc and an
+    /// arrival countdown). A push notification is different in kind: it is
+    /// words on a lock screen with no muted colour to hedge them, so "Anna
+    /// is in the air" and "Anna landed" are only said once a source said
+    /// them first — a reported departure, the provider calling the leg
+    /// active, a fresh airborne sighting; landed only from the status. The
+    /// alert baseline stores THIS phase, so a witness that arrives after
+    /// the clock has already crossed still fires the transition, late
+    /// rather than never.
+    static func witnessedPhase(_ f: ArcSupabase.SharedFlight, at now: Date = .now) -> Phase {
+        if f.status == "landed" { return .landed }
+        if f.status == "active" || f.status == "diverted" { return .airborne }
+        if evidence(f).phase(at: now) == .airborne { return .airborne }
+        return .upcoming
+    }
+
     static func phase(_ f: ArcSupabase.SharedFlight, at now: Date = .now) -> Phase {
         if f.status == "cancelled" { return .upcoming }
         if f.status == "landed" { return .landed }
