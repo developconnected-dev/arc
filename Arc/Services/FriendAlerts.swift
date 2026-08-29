@@ -79,7 +79,12 @@ enum FriendAlerts {
             let parts = prior.split(separator: "|")
             let priorPhase = FriendFlightMath.Phase(rawValue: String(parts.first ?? "")) ?? .upcoming
             let priorDelay = Int(parts.count > 1 ? parts[1] : "0") ?? 0
-            let phase = FriendFlightMath.phase(f, at: now)
+            // The WITNESSED phase, not the clock-healed one: "Anna is in the
+            // air ✈️" used to fire the moment the gate time passed — a push
+            // asserting a takeoff nobody reported, to her family, while she
+            // could still be sitting in a ground hold. A push has no muted
+            // colour to carry a hedge; it waits for a source.
+            let phase = FriendFlightMath.witnessedPhase(f, at: now)
 
             let event: Event.Kind?
             if priorPhase != .airborne && phase == .airborne {
@@ -105,7 +110,11 @@ enum FriendAlerts {
     }
 
     nonisolated static func baselineValue(_ f: ArcSupabase.SharedFlight, at now: Date) -> String {
-        "\(FriendFlightMath.phase(f, at: now).rawValue)|\(f.delay_minutes)"
+        // The witnessed phase, matching `events`: were the clock-healed phase
+        // recorded here, the clock crossing would quietly park the baseline
+        // at "airborne" and the real witness would arrive to a transition
+        // already spent — the takeoff alert would fire never instead of late.
+        "\(FriendFlightMath.witnessedPhase(f, at: now).rawValue)|\(f.delay_minutes)"
     }
 
     // MARK: - Processing (called from every FriendsStore refresh)
