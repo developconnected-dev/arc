@@ -119,6 +119,15 @@ public struct DepartureEvidence: Equatable, Sendable {
         if now < offBlock { return .beforeDeparture }
         // Still parked at the gate, watched, past the gate time: departing.
         if sightingIsFresh, groundState == "at_gate" { return .departing }
+        // A started taxi also holds through a ROTTED sample — a sighting
+        // aging past the fresh window mid-queue used to flick the card back
+        // to "Departing" with the aircraft still rolling. Bounded by the
+        // slid expected wheels-up (every ground sighting pushes it forward),
+        // so a taxi whose witness went quiet ends about one taxi-time after
+        // the last sighting instead of holding for ever.
+        if let started = taxiStartedAt, now < expectedWheelsUp {
+            return .taxiing(since: started)
+        }
         return now < expectedWheelsUp ? .departing : .presumedAirborne
     }
 }

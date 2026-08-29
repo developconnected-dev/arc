@@ -3787,12 +3787,20 @@ function depPhase(){
   // A confirmation that hasn't happened yet is a filing, not a fact — and a
   // sighting older than the fresh window says nothing about now.
   if((dep&&dep<=now)||(fresh&&g.state==='airborne'))return 'airborne';
-  if(now<offBlockT())return 'before';
+  // Seen ROLLING outranks the clock in both directions — the witness-first
+  // order DepartureEvidence.phase follows: a pushback earlier than the
+  // airline's filed delay must not hide the taxi behind the countdown.
+  // (This page had drifted from that rule, again.)
   if(fresh&&g.state==='taxiing')return 'taxiing';
   // Once it has started rolling, a pause is still the taxi: most of a
   // 35-minute taxi at a busy hub is spent stopped in the queue, and
   // flickering between Taxiing and Departing on every hold is worse.
-  if(fresh&&g.state==='at_gate')return g.taxiStartedAt?'taxiing':'departing';
+  if(fresh&&g.state==='at_gate'&&g.taxiStartedAt)return 'taxiing';
+  if(now<offBlockT())return 'before';
+  if(fresh&&g.state==='at_gate')return 'departing';
+  // A started taxi also holds through a ROTTED sample, bounded by the slid
+  // wheels-up — about one taxi-time after the last sighting.
+  if(g.taxiStartedAt&&now<wheelsUpT())return 'taxiing';
   return now<wheelsUpT()?'departing':'presumed';
 }
 function phase(){

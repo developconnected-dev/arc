@@ -117,6 +117,20 @@ final class DepartureEvidenceTests: XCTestCase {
         XCTAssertEqual(e.phase(at: at(21)), .taxiing(since: at(6)))
     }
 
+    /// Adopted from PR #4's one clean idea: a sample rotting mid-taxi must
+    /// not flick the card back to "Departing" — the started taxi holds until
+    /// the slid expected wheels-up (about one taxi-time after the last
+    /// sighting), then hands over to the presumption exactly as before.
+    func testARottedSampleMidTaxiIsStillTheTaxi() {
+        let e = evidence(groundState: "taxiing", groundObservedAt: at(10),
+                         taxiStartedAt: at(6), lastSeenOnGround: at(10))
+        // 18 minutes after the last sighting: rotted, but wheels-up slid to
+        // minute 30, so the taxi holds…
+        XCTAssertEqual(e.phase(at: at(28)), .taxiing(since: at(6)))
+        // …and past the slid wheels-up the presumption takes over.
+        XCTAssertEqual(e.phase(at: at(31)), .presumedAirborne)
+    }
+
     /// Evidence rots. An hour-old sighting says nothing about now, so the
     /// clock takes over again rather than pinning the flight to the gate.
     func testStaleGroundObservationStopsCounting() {
