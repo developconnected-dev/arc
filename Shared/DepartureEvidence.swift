@@ -22,10 +22,10 @@ import Foundation
 ///      provider's own estimate, or off-block plus what this airport's taxi
 ///      actually takes (`taxiPriorMinutes`, learned per airport per hour)
 ///
-/// Past the expected wheels-up with nothing confirmed, Arc commits — but to
-/// `presumedAirborne`, which surfaces render muted and never as a green
-/// fact. It is the difference between "she's flying" and "she should be
-/// flying by now, nobody has told us".
+/// Past the expected wheels-up with nothing confirmed, Arc does not invent
+/// an "In Air". It says `presumedAirborne` — user-facing, "Takeoff
+/// unconfirmed" — and every surface keeps ground chrome until a real
+/// takeoff witness arrives.
 public struct DepartureEvidence: Equatable, Sendable {
     /// Gate departure: the schedule plus whatever delay the airline admits.
     public var offBlock: Date
@@ -102,19 +102,19 @@ public struct DepartureEvidence: Equatable, Sendable {
         let sightingIsFresh = groundObservedAt.map { now.timeIntervalSince($0) < Self.freshWindow && $0 <= now } ?? false
         if sightingIsFresh, groundState == "airborne" { return .airborne }
         if now < offBlock { return .beforeDeparture }
-        // Somebody is looking at the aircraft right now; that outranks every
-        // inference below it.
-        if sightingIsFresh {
-            if groundState == "taxiing" { return .taxiing(since: taxiStartedAt) }
-            if groundState == "at_gate" {
-                // Once it has started rolling, a pause is still the taxi —
-                // most of a 35-minute taxi at a busy hub is spent stopped in
-                // the queue, and flickering between "Taxiing" and "Departing"
-                // every time the aircraft holds is worse than either.
-                return taxiStartedAt == nil ? .departing : .taxiing(since: taxiStartedAt)
-            }
+        // The wheels-up clock ends Taxiing/Departing. A fresh taxi sample is
+        // not a takeoff witness — past this point Arc says takeoff unconfirmed
+        // (ground layout) rather than lingering on Taxiing or inventing In Air.
+        if now >= expectedWheelsUp { return .presumedAirborne }
+        // Inside the taxi window: once it has started rolling, a pause is
+        // still the taxi — most of a 35-minute taxi at a busy hub is spent
+        // stopped in the queue, and flickering between "Taxiing" and
+        // "Departing" every time the aircraft holds (or the sample goes stale)
+        // is worse than either. Hold Taxiing until the clock above forces #3.
+        if taxiStartedAt != nil || (sightingIsFresh && groundState == "taxiing") {
+            return .taxiing(since: taxiStartedAt)
         }
-        return now < expectedWheelsUp ? .departing : .presumedAirborne
+        return .departing
     }
 }
 
@@ -126,11 +126,19 @@ public enum DeparturePhase: Equatable, Sendable {
     case departing
     /// Seen rolling. `since` is when the taxi started, when that is known.
     case taxiing(since: Date?)
-    /// Past the expected wheels-up, with nobody confirming it. Arc believes
-    /// it is flying and says so *as a presumption* — muted, never green.
+    /// Past the expected wheels-up, with nobody confirming a take-off.
+    /// User-facing: "Takeoff unconfirmed" — ground chrome, never muted In Air.
     case presumedAirborne
     /// Confirmed off the ground by a source that would know.
     case airborne
+
+    /// Lock-card / widget hero while still on the ground. Nil once a takeoff
+    /// witness exists (or the leg hasn't left the gate yet) — those surfaces
+    /// use their own in-transit / upcoming copy.
+    public static let departingTitle = "Departing…"
+    public static let taxiingTitle = "Taxiing…"
+    public static let takeoffUnconfirmedTitle = "Takeoff unconfirmed"
+    public static let takeoffUnconfirmedSubtitle = "We'll confirm when we have a signal."
 
     /// True while Arc is hedging rather than stating a confirmed fact.
     public var isHedged: Bool {
@@ -141,17 +149,33 @@ public enum DeparturePhase: Equatable, Sendable {
     }
 
     /// Whether the surfaces should treat the leg as under way — countdowns
-    /// to arrival, progress bars, in-transit layout.
+    /// to arrival, progress bars, in-transit layout. Only a real takeoff
+    /// witness clears this: presumed takeoff keeps ground chrome.
     public var isOffTheGround: Bool {
         switch self {
-        case .presumedAirborne, .airborne: return true
-        case .beforeDeparture, .departing, .taxiing: return false
+        case .airborne: return true
+        case .beforeDeparture, .departing, .taxiing, .presumedAirborne: return false
         }
     }
 
     /// Whether a source has actually confirmed the take-off — the bar for
     /// green, for "In Air", and for anything stated as fact.
     public var isConfirmed: Bool { self == .airborne }
+
+    /// Hero copy for the four Staff-locked states. `nil` when this phase
+    /// isn't one of them (before off-block, or confirmed airborne).
+    public func groundHeroTitle(mode: TripMode) -> String? {
+        switch self {
+        case .departing:
+            return Self.departingTitle
+        case .taxiing:
+            return mode == .air ? Self.taxiingTitle : Self.departingTitle
+        case .presumedAirborne:
+            return mode == .air ? Self.takeoffUnconfirmedTitle : nil
+        case .beforeDeparture, .airborne:
+            return nil
+        }
+    }
 }
 
 /// What one ADS-B sample says the aircraft is doing. Mirror of the Worker's

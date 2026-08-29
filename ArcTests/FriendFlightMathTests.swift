@@ -23,12 +23,15 @@ final class FriendFlightMathTests: XCTestCase {
 
     // MARK: - Airborne / progress (clock wins over stale status)
 
-    func testAirborneByClockDespiteStaleScheduledStatus() {
+    func testClockPastDepartureWithoutWitnessIsNotAirborne() {
         // Friend's device last synced before takeoff — status still says
-        // "scheduled", but the clock is mid-flight.
+        // "scheduled", clock is mid-flight. The clock is not a takeoff
+        // witness: Takeoff unconfirmed, not In Air.
         let f = flight("LX14", depScheduled: "2026-07-24T10:00:00.000Z",
                        arrScheduled: "2026-07-24T18:00:00.000Z")
-        XCTAssertTrue(FriendFlightMath.isAirborne(f, at: now))
+        XCTAssertFalse(FriendFlightMath.isAirborne(f, at: now))
+        XCTAssertEqual(FriendFlightMath.departurePhase(f, at: now), .presumedAirborne)
+        XCTAssertEqual(FriendFlightMath.chip(for: f, at: now).text, "UNCONFIRMED")
         XCTAssertEqual(FriendFlightMath.progress(f, at: now), 0.25, accuracy: 0.001)
     }
 
@@ -94,8 +97,9 @@ final class FriendFlightMathTests: XCTestCase {
     // MARK: - Chips
 
     func testChipLandsInWhileAirborne() {
-        let f = flight("LX14", depScheduled: "2026-07-24T10:00:00.000Z",
+        var f = flight("LX14", depScheduled: "2026-07-24T10:00:00.000Z",
                        arrScheduled: "2026-07-24T14:30:00.000Z", status: "active")
+        f.actual_departure = "2026-07-24T10:12:00.000Z"
         let chip = FriendFlightMath.chip(for: f, at: now)
         XCTAssertEqual(chip.text, "LANDS IN 2H 30M")
         XCTAssertEqual(chip.kind, .inFlight)
@@ -122,9 +126,10 @@ final class FriendFlightMathTests: XCTestCase {
     /// The estimated arrival (when the friend's device synced one) beats
     /// scheduled+delay for both progress and lands-in.
     func testEstimatedArrivalWins() {
-        let f = flight("LX14", depScheduled: "2026-07-24T10:00:00.000Z",
+        var f = flight("LX14", depScheduled: "2026-07-24T10:00:00.000Z",
                        arrScheduled: "2026-07-24T14:00:00.000Z",
                        estimatedArrival: "2026-07-24T13:00:00.000Z", status: "active")
+        f.actual_departure = "2026-07-24T10:12:00.000Z"
         XCTAssertEqual(FriendFlightMath.chip(for: f, at: now).text, "LANDS IN 1H 0M")
         XCTAssertEqual(FriendFlightMath.progress(f, at: now), 2.0 / 3.0, accuracy: 0.001)
     }

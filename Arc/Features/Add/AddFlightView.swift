@@ -1377,7 +1377,8 @@ struct AddFlightView: View {
             guard mode == .air else { return "En route" }
             switch resultPhase(r) {
             case .taxiing, .departing: return "Departing"
-            case .beforeDeparture, .presumedAirborne, .airborne: return "In the air"
+            case .presumedAirborne: return "Takeoff unconfirmed"
+            case .beforeDeparture, .airborne: return "In the air"
             }
         case "cancelled": return "Cancelled"
         case "diverted": return "Diverted"

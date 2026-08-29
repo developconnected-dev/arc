@@ -835,6 +835,13 @@ enum FriendFlightMath {
             }
             return (f.tripMode.inTransitShort, .inFlight)
         }
+        switch departurePhase(f, at: now) {
+        case .taxiing: return (f.tripMode == .air ? "TAXIING" : "DEPARTING", .countdown)
+        case .departing: return ("DEPARTING", .countdown)
+        case .presumedAirborne:
+            return (f.tripMode == .air ? "UNCONFIRMED" : f.tripMode.inTransitShort, .countdown)
+        default: break
+        }
         // "LANDED" is a fact only the source can state. Past the last
         // published arrival with no confirmation, the honest chip is DUE — a
         // friend holding over the airport must not be told to their family

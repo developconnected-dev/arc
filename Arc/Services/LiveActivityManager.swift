@@ -147,10 +147,11 @@ final class LiveActivityManager {
     /// staleDate doubles as our offline phase-flip scheduler: iOS re-renders
     /// the Live Activity view once when content goes stale, and that render
     /// re-evaluates the phase from the clock. Pointing staleDate at the NEXT
-    /// boundary makes the layout switch pre → taxi → in-flight → after at
-    /// exactly the right moment even with the app dead and the device
-    /// offline — which is precisely the in-flight situation. While online,
-    /// pushes keep resetting it anyway.
+    /// boundary makes the copy switch pre → Departing…/Taxiing… → Takeoff
+    /// unconfirmed → after at exactly the right moment even with the app
+    /// dead and the device offline. Airborne chrome is NOT on this timer:
+    /// that requires a takeoff witness. While online, pushes keep resetting
+    /// it anyway.
     private static func staleDate(for state: FlightActivityAttributes.ContentState) -> Date {
         if state.status == "landed" { return .now.addingTimeInterval(3600) }
         // The "directions to the airport" pill retires ~1¾ h before
@@ -158,12 +159,9 @@ final class LiveActivityManager {
         let directionsCutoff = state.departureTime.addingTimeInterval(-105 * 60)
         if Date.now < directionsCutoff { return directionsCutoff }
         if Date.now < state.departureTime { return state.departureTime }
-        // The hedge ends at the EXPECTED WHEELS-UP, not at the gate time
-        // plus a constant: at a hub that taxis 35 minutes, a 20-minute grace
-        // expires while the aircraft is still in the queue for the runway,
-        // and the lock screen of someone sitting in that queue announced she
-        // was flying. Schedule the re-render for the moment the label may
-        // legitimately change (the offline-takeoff case).
+        // Re-render at expected wheels-up so copy can become "Takeoff
+        // unconfirmed". Layout stays ground chrome until a witness lands —
+        // this used to auto-promote the lock card to muted In Air.
         let wheelsUp = state.expectedWheelsUp
         if state.actualDeparture == nil, Date.now < wheelsUp { return wheelsUp }
         return max(state.arrivalTime, .now.addingTimeInterval(60))

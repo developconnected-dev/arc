@@ -236,11 +236,21 @@ struct WidgetFlight: Identifiable {
         return phase
     }
 
-    /// Believed still on the ground: taxiing, or not yet expected to be off
-    /// it. The widget hedges here — "Departing"/"Taxiing", never green.
+    /// Believed still on the ground: taxiing, departing, or past expected
+    /// wheels-up with no takeoff witness. The widget hedges here —
+    /// "Departing…"/"Taxiing…"/"Takeoff unconfirmed", never green In Air.
     func isDepartingUnconfirmed(at date: Date) -> Bool {
         guard actualDeparture == nil, phase(at: date) == .inFlight else { return false }
         return !departurePhase(at: date).isOffTheGround
+    }
+
+    /// Progress bar, arrival countdown, airborne chrome. Air only gets this
+    /// with a takeoff witness; a presumed takeoff keeps ground layout.
+    /// Non-air legs have no taxi/takeoff distinction, so the clock phase wins.
+    func showsAirborneLayout(at date: Date) -> Bool {
+        guard phase(at: date) == .inFlight else { return false }
+        if mode != .air { return true }
+        return departurePhase(at: date).isOffTheGround
     }
 
     /// When the wheels are expected to leave the ground — the moment the
@@ -255,8 +265,8 @@ struct WidgetFlight: Identifiable {
     /// moment it changes — otherwise the home screen keeps showing the last
     /// render, with the app dead and the device offline, which is exactly
     /// the situation this whole hedge exists for. Three moments: the gate
-    /// time, the expected wheels-up (while nobody has confirmed one), and
-    /// the arrival.
+    /// time, the expected wheels-up (copy flips to Takeoff unconfirmed —
+    /// still ground layout, never muted In Air), and the arrival.
     func layoutFlips(after now: Date) -> [Date] {
         var flips = [effectiveDeparture, effectiveArrival]
         if actualDeparture == nil { flips.append(expectedWheelsUp) }
@@ -268,11 +278,8 @@ struct WidgetFlight: Identifiable {
         if status == "diverted" { return "Diverted" }
         switch phase {
         case .inFlight:
-            switch departurePhase(at: date) {
-            case .taxiing: return mode == .air ? "Taxiing" : "Departing"
-            case .departing: return "Departing"
-            case .beforeDeparture, .presumedAirborne, .airborne: return mode.inTransitTitle
-            }
+            if let hero = departurePhase(at: date).groundHeroTitle(mode: mode) { return hero }
+            return mode.inTransitTitle
         case .landed: return status == "landed" ? mode.arrivedVerb : "\(mode.arrivingVerb) soon"
         case .upcoming:
             if showsPrediction { return "Arc +\(predictedDelayMinutes)m" }

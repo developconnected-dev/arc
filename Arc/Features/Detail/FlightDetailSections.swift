@@ -332,7 +332,9 @@ struct WheresMyPlaneSection: View {
         switch flight.departurePhase {
         case .taxiing: return flight.mode == .air ? "This flight — taxiing" : "This Flight"
         case .departing: return "This flight — departing"
-        case .presumedAirborne, .airborne:
+        case .presumedAirborne:
+            return flight.mode == .air ? "This flight — takeoff unconfirmed" : "This Flight"
+        case .airborne:
             return flight.isActive ? "This flight — in the air" : "This Flight"
         case .beforeDeparture: return "This Flight"
         }
@@ -341,7 +343,9 @@ struct WheresMyPlaneSection: View {
     private var statusText: String {
         if case .taxiing = flight.departurePhase { return "On the ground, moving" }
         if flight.isActive, flight.departurePhase == .presumedAirborne {
-            return "Tracking live position · takeoff unconfirmed"
+            return flight.mode == .air
+                ? DeparturePhase.takeoffUnconfirmedSubtitle
+                : "Tracking live position"
         }
         if flight.isActive { return "Tracking live position" }
         if flight.status == .cancelled { return "This flight was cancelled" }

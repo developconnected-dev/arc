@@ -192,19 +192,20 @@ final class FriendsFeedTests: XCTestCase {
                        .taxiing(since: DateHelpers.parseAPIDate(f.taxi_started_at)))
         XCTAssertFalse(FriendFlightMath.isAirborne(f), "taxiing is not flying")
         XCTAssertEqual(Int((FriendFlightMath.taxiElapsed(f) ?? 0) / 60), 12)
-        XCTAssertEqual(FriendsStore().transientFlight(for: item(f)).statusText, "Taxiing")
+        XCTAssertEqual(FriendsStore().transientFlight(for: item(f)).statusText, "Taxiing…")
     }
 
     /// Past the expected wheels-up with nothing confirmed, the feed does
-    /// treat the leg as under way — a friend still wants the arrival
-    /// countdown — but it got there by evidence, not by the gate clock.
+    /// not treat the leg as airborne. Takeoff unconfirmed, ground layout.
     func testTransientFlightPresumesAirborneOnlyAfterTheTaxiWindow() {
         let iso = ISO8601DateFormatter()
         let f = flight("LX1950", dep: iso.string(from: .now.addingTimeInterval(-45 * 60)),
                        arr: iso.string(from: .now.addingTimeInterval(75 * 60)))
         XCTAssertEqual(FriendFlightMath.departurePhase(f), .presumedAirborne)
-        XCTAssertTrue(FriendFlightMath.isAirborne(f))
-        XCTAssertTrue(FriendsStore().transientFlight(for: item(f)).isActive)
+        XCTAssertFalse(FriendFlightMath.isAirborne(f))
+        let transient = FriendsStore().transientFlight(for: item(f))
+        XCTAssertEqual(transient.statusText, "Takeoff unconfirmed")
+        XCTAssertFalse(transient.departurePhase.isOffTheGround)
     }
 
     /// A reported take-off crosses to the reader: the shared row's

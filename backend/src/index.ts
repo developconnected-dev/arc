@@ -3219,8 +3219,9 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   // The boundary after an unconfirmed departure is the EXPECTED WHEELS-UP —
   // off-block plus this airport's learned taxi-out, or the provider's own
   // estimate — not the gate time plus a constant. A 20-minute grace expires
-  // mid-taxi at any busy hub, and the re-render it schedules is what flipped
-  // a lock screen to "In Air" while its owner sat in an ATC hold.
+  // mid-taxi at any busy hub. That re-render changes copy to "Takeoff
+  // unconfirmed" and keeps ground chrome — it must not flip a lock screen
+  // to muted "In Air" while its owner sat in an ATC hold.
   // The provider's own position block, from the same leg call — the witness
   // that tells taxiing from flying with no app open. Same freshness rule as
   // refreshSharedFlights: a sighting older than 15 minutes says nothing about
@@ -3755,12 +3756,15 @@ function depPhase(){
   // sighting older than the fresh window says nothing about now.
   if((dep&&dep<=now)||(fresh&&g.state==='airborne'))return 'airborne';
   if(now<offBlockT())return 'before';
-  if(fresh&&g.state==='taxiing')return 'taxiing';
+  // The wheels-up clock ends Taxiing/Departing. A fresh taxi sample is not a
+  // takeoff witness — past this point the page says takeoff unconfirmed
+  // (ground layout) rather than lingering on Taxiing or inventing In Air.
+  if(now>=wheelsUpT())return 'presumed';
   // Once it has started rolling, a pause is still the taxi: most of a
   // 35-minute taxi at a busy hub is spent stopped in the queue, and
   // flickering between Taxiing and Departing on every hold is worse.
-  if(fresh&&g.state==='at_gate')return g.taxiStartedAt?'taxiing':'departing';
-  return now<wheelsUpT()?'departing':'presumed';
+  if(g.taxiStartedAt||(fresh&&g.state==='taxiing'))return 'taxiing';
+  return 'departing';
 }
 function phase(){
   var f=D.flight,now=Date.now();
@@ -3773,7 +3777,7 @@ function phase(){
 }
 function prog(){
   var ph=phase();
-  if(ph==='pre'||ph==='departing'||ph==='taxiing')return 0;
+  if(ph==='pre'||ph==='departing'||ph==='taxiing'||ph==='presumed')return 0;
   if(ph==='landed')return 1;
   var d=depT(),a=arrT();
   if(!d||!a||a<=d)return D.flight.progress||0;
@@ -3881,8 +3885,8 @@ function tick(){
   else if(ph==='taxiing'){var ts=P((f.ground||{}).taxiStartedAt)||offBlockT();
     chip.textContent='Taxiing';chip.className='chip ghost';
     cl.textContent='Taxiing for';c.textContent=fmtDur(Date.now()-ts);}
-  else if(ph==='presumed'){chip.textContent='Presumed airborne';chip.className='chip ghost';
-    cl.textContent='${mode === "air" ? "Landing in" : "Arriving in"}';c.textContent=fmtDur(arrT()-Date.now());}
+  else if(ph==='presumed'){chip.textContent='Takeoff unconfirmed';chip.className='chip ghost';
+    cl.textContent='Takeoff';c.textContent='We\'ll confirm when we have a signal.';}
   else if(ph==='air'){chip.textContent='${inTransitLabel}';chip.className='chip';
     cl.textContent='${mode === "air" ? "Landing in" : "Arriving in"}';c.textContent=fmtDur(arrT()-Date.now());}
   else if(ph==='landing'){chip.textContent='${mode === "air" ? "Landing soon" : "Arriving soon"}';chip.className='chip';

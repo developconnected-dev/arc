@@ -34,17 +34,20 @@ struct NextFlightProvider: TimelineProvider {
         // anything computed from Date.now in the view is frozen into that
         // render. Live movement comes from two places instead: auto-updating
         // date text/progress styles (system-animated, no process needed), and
-        // extra entries at the exact moments the *layout* changes phase
-        // (departure → in-flight look, arrival → landed look, arrival+30m →
-        // done). Entries are pre-scheduled local renders, so all of this
-        // works with the app closed AND the device offline.
+            // extra entries at the exact moments the *layout* changes phase
+            // (departure → in-flight look only with a takeoff witness,
+            // expected wheels-up → Takeoff unconfirmed still on ground chrome,
+            // arrival → landed look). Entries are pre-scheduled local renders,
+            // so all of this works with the app closed AND the device offline.
         var entries = [NextFlightEntry(date: now, flight: next, all: flights)]
         if let f = next {
             // Gate time, expected wheels-up, arrival — see layoutFlips. The
             // middle one is not the gate time plus a constant: it is
-            // off-block plus what this airport's taxi actually takes, which
-            // is the difference between a home screen that announces "In
-            // Air" to someone in an ATC hold and one that doesn't.
+            // off-block plus what this airport's taxi actually takes. At
+            // that moment the label becomes "Takeoff unconfirmed" and the
+            // layout STAYS on the ground — the old entry used to draw a
+            // progress bar and muted "In Air" with the phone in airplane
+            // mode and nothing able to correct it.
             for moment in f.layoutFlips(after: now) {
                 entries.append(NextFlightEntry(date: moment, flight: f, all: flights))
             }
@@ -91,6 +94,7 @@ struct NextFlightSmallView: View {
             // status — that's what makes pre → in-flight → landed flips
             // happen automatically (see the timeline provider).
             let phase = flight.phase(at: entry.date)
+            let airborneLayout = flight.showsAirborneLayout(at: entry.date)
             VStack(alignment: .leading, spacing: 6) {
                 // Countdown — live minute-precision text is system-animated:
                 // it keeps ticking on the lock/home screen with no app process
@@ -106,7 +110,12 @@ struct NextFlightSmallView: View {
                         // the one live style every render path supports. The
                         // landed timeline entry retires the in-flight countdown
                         // before it could start counting up past the ETA.
-                        case .inFlight: Text(flight.effectiveArrival, style: .relative)
+                        case .inFlight:
+                            if airborneLayout {
+                                Text(flight.effectiveArrival, style: .relative)
+                            } else {
+                                Text(flight.statusText(phase: phase, at: entry.date))
+                            }
                         case .upcoming: Text(flight.effectiveDeparture, style: .relative)
                         case .landed: Text(flight.terminalLabel)
                         }
@@ -140,8 +149,10 @@ struct NextFlightSmallView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
 
-                // In-flight: system-animated progress bar (moves offline too)
-                if phase == .inFlight {
+                // In-flight: system-animated progress bar (moves offline too).
+                // Ground states (Departing… / Taxiing… / Takeoff unconfirmed)
+                // draw none — a filling bar is a claim the flight left.
+                if airborneLayout {
                     ProgressView(
                         timerInterval: min(flight.effectiveDeparture, flight.effectiveArrival - 60)...flight.effectiveArrival,
                         countsDown: false,
@@ -309,6 +320,7 @@ struct NextFlightMediumView: View {
     @ViewBuilder
     private func heroCard(_ f: WidgetFlight) -> some View {
         let phase = f.phase(at: entry.date)
+        let airborneLayout = f.showsAirborneLayout(at: entry.date)
         VStack(alignment: .leading, spacing: 5) {
             // Row 1: identity ⟷ status
             HStack(spacing: 5) {
@@ -339,7 +351,7 @@ struct NextFlightMediumView: View {
                     .font(.system(size: 12, weight: .semibold).monospacedDigit())
                     .foregroundStyle(f.reportsPunctuality && f.delayMinutes > 0 ? .orange : .secondary)
                 Spacer(minLength: 6)
-                if phase == .inFlight {
+                if airborneLayout {
                     // System-animated — keeps filling with no process running.
                     ProgressView(
                         timerInterval: min(f.effectiveDeparture, f.effectiveArrival - 60)...f.effectiveArrival,
@@ -378,6 +390,7 @@ struct NextFlightMediumView: View {
     @ViewBuilder
     private func countdownLine(_ f: WidgetFlight, phase: WidgetFlight.Phase) -> some View {
         let color = countdownColor(f, phase: phase)
+        let airborneLayout = f.showsAirborneLayout(at: entry.date)
         HStack(spacing: 4) {
             if f.isDisrupted {
                 Text(f.terminalLabel)
@@ -390,10 +403,15 @@ struct NextFlightMediumView: View {
                     Text(f.effectiveDeparture, style: .relative)
                         .font(.system(size: 13, weight: .heavy).monospacedDigit())
                 case .inFlight:
-                    Text("\(f.mode.arrivingVerb == "Landing" ? "Lands" : "Arrives") in")
-                        .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
-                    Text(f.effectiveArrival, style: .relative)
-                        .font(.system(size: 13, weight: .heavy).monospacedDigit())
+                    if airborneLayout {
+                        Text("\(f.mode.arrivingVerb == "Landing" ? "Lands" : "Arrives") in")
+                            .font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+                        Text(f.effectiveArrival, style: .relative)
+                            .font(.system(size: 13, weight: .heavy).monospacedDigit())
+                    } else {
+                        Text(f.statusText(phase: phase, at: entry.date))
+                            .font(.system(size: 13, weight: .heavy))
+                    }
                 case .landed:
                     Text(f.terminalLabel)
                         .font(.system(size: 13, weight: .heavy))
@@ -413,6 +431,13 @@ struct NextFlightMediumView: View {
             guard !f.isDisrupted else { return [] }
             switch phase {
             case .upcoming:
+                var p: [String] = []
+                if let t = f.departureTerminal, !t.isEmpty { p.append("T\(t)") }
+                if let g = f.departureGate, !g.isEmpty { p.append("\(f.mode.boardingPointLabel) \(g)") }
+                return p
+            case .inFlight where !f.showsAirborneLayout(at: entry.date):
+                // Still on the ground (Departing… / Taxiing… / Takeoff
+                // unconfirmed): the departure gate is the useful fact.
                 var p: [String] = []
                 if let t = f.departureTerminal, !t.isEmpty { p.append("T\(t)") }
                 if let g = f.departureGate, !g.isEmpty { p.append("\(f.mode.boardingPointLabel) \(g)") }

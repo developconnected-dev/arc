@@ -310,6 +310,9 @@ struct FlightDetailView: View {
             // Activity uses, so the lock screen and this screen can't tell
             // the user two different stories about the same minute.
             if flight.isDepartingUnconfirmed {
+                if flight.isPresumedAirborne, flight.mode == .air {
+                    return DeparturePhase.takeoffUnconfirmedSubtitle
+                }
                 return flight.mode == .air
                     ? "Waiting for takeoff confirmation"
                     : "Waiting for departure confirmation"

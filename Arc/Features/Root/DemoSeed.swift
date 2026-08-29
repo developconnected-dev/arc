@@ -191,7 +191,7 @@ enum DemoSeed {
         // Air"; it must read "Taxiing…" with the elapsed time and the
         // expected wheels-up.
         // -laDemoPresumed: past the expected wheels-up with nothing
-        // confirmed — in-flight layout, but nothing stated as fact.
+        // confirmed — ground layout, "Takeoff unconfirmed", never muted In Air.
         if args.contains("-laDemoTaxi") || args.contains("-laDemoPresumed") {
             let presumed = args.contains("-laDemoPresumed")
             let offBlock = Date.now.addingTimeInterval(presumed ? -52 * 60 : -14 * 60)

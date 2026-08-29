@@ -817,7 +817,9 @@ struct FriendFlightRow: View {
         switch FriendFlightMath.departurePhase(flight, at: now) {
         case .taxiing: return mode == .air ? "TAXIING" : "DEPARTING"
         case .departing: return "DEPARTING"
-        case .beforeDeparture, .presumedAirborne, .airborne: break
+        case .presumedAirborne:
+            return mode == .air ? "UNCONFIRMED" : mode.inTransitShort
+        case .beforeDeparture, .airborne: break
         }
         if airborne { return mode.inTransitShort }
         if flight.status == "landed" { return mode.arrivedShort }
@@ -842,7 +844,11 @@ struct FriendFlightRow: View {
             return "Taxiing for \(FriendFlightMath.hmLower(Int(taxi / 60)))"
         case .departing:
             return "Takeoff not yet confirmed"
-        case .beforeDeparture, .presumedAirborne, .airborne: break
+        case .presumedAirborne:
+            return mode == .air
+                ? DeparturePhase.takeoffUnconfirmedSubtitle
+                : "\(mode.arrivingVerb) in \(FriendFlightMath.hmLower(Int((FriendFlightMath.arrival(flight) ?? now).timeIntervalSince(now) / 60)))"
+        case .beforeDeparture, .airborne: break
         }
         if airborne, let arr = FriendFlightMath.arrival(flight) {
             return "\(mode.arrivingVerb) in \(FriendFlightMath.hmLower(Int(arr.timeIntervalSince(now) / 60)))"

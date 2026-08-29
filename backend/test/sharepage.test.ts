@@ -102,9 +102,14 @@ test("...and still hedges before that cap is reached", () => {
 /// flickering Taxiing → Departing on every hold is worse than either.
 test("a pause once rolling is still the taxi", () => {
   const D = make({}, {
-    state: "at_gate", observedAt: iso(OFF + 24 * MIN), taxiStartedAt: iso(OFF + 3 * MIN),
+    state: "at_gate", observedAt: iso(OFF + 18 * MIN), taxiStartedAt: iso(OFF + 3 * MIN),
   });
-  assert.equal(phaseAt(D, OFF + 25 * MIN), "taxiing");
+  assert.equal(phaseAt(D, OFF + 19 * MIN), "taxiing");
+});
+
+test("the wheels-up clock ends taxiing when nothing slides it", () => {
+  const D = make({}, { state: "taxiing", taxiStartedAt: iso(OFF + 3 * MIN) });
+  assert.equal(phaseAt(D, OFF + 25 * MIN), "presumed");
 });
 
 test("at the gate having never moved is departing, not taxiing", () => {

@@ -131,9 +131,9 @@ extension Flight {
         isUpcoming && effectiveDeparture.addingTimeInterval(60) < .now
     }
 
-    /// Believed to be on the ground still: past the gate time, but the
-    /// evidence says taxiing — or says nothing yet, and wheels-up isn't even
-    /// expected. Inside this, EVERY surface hedges ("Departing", "Taxiing",
+    /// Believed to be on the ground still: past the gate time, taxiing, or
+    /// past expected wheels-up with no takeoff witness. Inside this, EVERY
+    /// surface hedges ("Departing…", "Taxiing…", "Takeoff unconfirmed",
     /// "Xm past schedule") rather than assert a departure nobody reported.
     /// One property so the banner, the endpoint row and the tracking line
     /// can't drift apart — the detail screen used to say "Departing" and
@@ -145,13 +145,12 @@ extension Flight {
 
     /// A take-off some source actually reported. The bar for green, for the
     /// past tense, and for anything the app states as fact — a flight Arc
-    /// merely *presumes* is airborne (past the expected wheels-up, nobody
+    /// merely *presumes* has taken off (past the expected wheels-up, nobody
     /// confirming) clears none of them.
     var isDepartureConfirmed: Bool { departurePhase.isConfirmed }
 
-    /// Airborne only by inference. Renders in the same muted idiom as the
-    /// other hedges: the word can stay natural ("In Air") as long as the
-    /// colour never claims the airline said so.
+    /// Past expected wheels-up with no takeoff witness. User-facing copy is
+    /// "Takeoff unconfirmed", ground chrome, never muted "In Air".
     var isPresumedAirborne: Bool { departurePhase == .presumedAirborne }
 
     var isDelayed: Bool { (reportsPunctuality && delayMinutes > 0) || status == .cancelled }
@@ -211,14 +210,10 @@ extension Flight {
         case .cancelled: return "Cancelled"
         case .landed: return mode == .air ? "Landed" : "Arrived"
         case .active:
-            // Flipped to active by the clock, not by a source. Until the
-            // evidence puts it off the ground, name what it is actually
-            // doing — rolling, or waiting to — rather than "In Air" on faith.
-            switch departurePhase {
-            case .taxiing: return mode == .air ? "Taxiing" : "Departing"
-            case .beforeDeparture, .departing: return "Departing"
-            case .presumedAirborne, .airborne: break
-            }
+            // Flipped to active by the clock, not by a source. Until a
+            // takeoff witness exists, name the honest ground state rather
+            // than "In Air" on faith — including past expected wheels-up.
+            if let hero = departurePhase.groundHeroTitle(mode: mode) { return hero }
             let moving = mode.inTransitTitle
             guard reportsPunctuality, delayMinutes > 0 else { return moving }
             return "\(moving) • \(delayMinutes)m late"
@@ -229,7 +224,7 @@ extension Flight {
             // A source may still call it scheduled while something has
             // watched the aircraft push back and roll. Saying so beats both
             // "Boarding" and "Not yet departed".
-            if case .taxiing = departurePhase { return mode == .air ? "Taxiing" : "Departing" }
+            if let hero = departurePhase.groundHeroTitle(mode: mode) { return hero }
             if isDepartureUnconfirmed { return "Not yet departed" }
             // Nothing published a revised time, so say where the time came from
             // rather than claiming it is being kept to.
@@ -346,15 +341,21 @@ extension Flight {
         case .active:
             switch departurePhase {
             case .taxiing(let since):
-                guard mode == .air else { return "Departing" }
+                guard mode == .air else { return DeparturePhase.departingTitle }
                 // Flighty's framing, and the right one: the number a person
                 // in seat 14B actually wants is how long this has gone on.
                 // "Taxiing · 0m" is noise; the number earns its place once
                 // there is a number worth reading.
-                guard let since, Date.now.timeIntervalSince(since) >= 60 else { return "Taxiing" }
+                guard let since, Date.now.timeIntervalSince(since) >= 60 else {
+                    return DeparturePhase.taxiingTitle
+                }
                 return "Taxiing · \(compactAgo(since))"
-            case .beforeDeparture, .departing: return "Departing"
-            case .presumedAirborne, .airborne: break
+            case .departing:
+                return DeparturePhase.departingTitle
+            case .presumedAirborne:
+                return mode == .air ? DeparturePhase.takeoffUnconfirmedTitle : mode.inTransitTitle
+            case .beforeDeparture, .airborne:
+                break
             }
             if let t = compactUntil(effectiveArrival) { return "\(mode.arrivingVerb) in \(t)" }
             return "Arrival not yet confirmed"

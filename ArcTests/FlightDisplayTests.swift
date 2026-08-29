@@ -439,11 +439,15 @@ final class WidgetFlightTests: XCTestCase {
         let f = widgetFlight(status: "active", depOffset: -600)   // clock-flipped, no take-off reported
         let dep = f.effectiveDeparture
         XCTAssertTrue(f.isDepartingUnconfirmed(at: dep.addingTimeInterval(60)))
-        XCTAssertEqual(f.statusText(phase: .inFlight, at: dep.addingTimeInterval(60)), "Departing")
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: dep.addingTimeInterval(60)), "Departing…")
         XCTAssertTrue(f.isDepartingUnconfirmed(at: dep.addingTimeInterval(19 * 60)))
-        // Past the grace the widget commits, like every other surface.
-        XCTAssertFalse(f.isDepartingUnconfirmed(at: dep.addingTimeInterval(21 * 60)))
-        XCTAssertEqual(f.statusText(phase: .inFlight, at: dep.addingTimeInterval(21 * 60)), "In Air")
+        XCTAssertFalse(f.showsAirborneLayout(at: dep.addingTimeInterval(19 * 60)))
+        // Past the grace the widget does NOT commit to In Air. Copy becomes
+        // Takeoff unconfirmed and layout stays on the ground.
+        XCTAssertTrue(f.isDepartingUnconfirmed(at: dep.addingTimeInterval(21 * 60)))
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: dep.addingTimeInterval(21 * 60)), "Takeoff unconfirmed")
+        XCTAssertFalse(f.departurePhase(at: dep.addingTimeInterval(21 * 60)).isOffTheGround)
+        XCTAssertFalse(f.showsAirborneLayout(at: dep.addingTimeInterval(21 * 60)))
     }
 
     func testWidgetHedgeAppliesToClockFlippedStaleStatusToo() {
@@ -452,7 +456,8 @@ final class WidgetFlightTests: XCTestCase {
         let at = f.effectiveDeparture.addingTimeInterval(5 * 60)
         XCTAssertEqual(f.phase(at: at), .inFlight)
         XCTAssertTrue(f.isDepartingUnconfirmed(at: at))
-        XCTAssertEqual(f.statusText(phase: .inFlight, at: at), "Departing")
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: at), "Departing…")
+        XCTAssertFalse(f.showsAirborneLayout(at: at))
     }
 
     func testWidgetConfirmedTakeoffEndsTheHedge() {
@@ -466,7 +471,7 @@ final class WidgetFlightTests: XCTestCase {
         XCTAssertEqual(f.statusText(phase: .inFlight, at: at), "In Air")
 
         let beforeItLeft = f.actualDeparture!.addingTimeInterval(-60)
-        XCTAssertEqual(f.statusText(phase: .inFlight, at: beforeItLeft), "Departing")
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: beforeItLeft), "Departing…")
     }
 
     func testWidgetHedgeNeverBeforeDepartureOrAfterArrival() {
@@ -510,8 +515,9 @@ final class WidgetFlightTests: XCTestCase {
         f.taxiPriorMinutes = 35                                   // a slow hub
         let at = f.offBlock.addingTimeInterval(25 * 60)
         XCTAssertEqual(f.departurePhase(at: at), .departing)
-        XCTAssertEqual(f.statusText(phase: .inFlight, at: at), "Departing")
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: at), "Departing…")
         XCTAssertTrue(f.isDepartingUnconfirmed(at: at))
+        XCTAssertFalse(f.showsAirborneLayout(at: at))
     }
 
     func testWidgetSaysTaxiingWhenSomethingSawItRolling() {
@@ -520,18 +526,39 @@ final class WidgetFlightTests: XCTestCase {
         f.taxiStartedAt = f.offBlock.addingTimeInterval(2 * 60)
         f.groundObservedAt = f.offBlock.addingTimeInterval(11 * 60)
         let at = f.offBlock.addingTimeInterval(12 * 60)
-        XCTAssertEqual(f.statusText(phase: .inFlight, at: at), "Taxiing")
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: at), "Taxiing…")
         XCTAssertFalse(f.departurePhase(at: at).isOffTheGround)
+        XCTAssertFalse(f.showsAirborneLayout(at: at))
     }
 
-    /// Past the expected wheels-up the widget stops hedging and says the leg
-    /// is under way — but as a presumption, so nothing goes green.
+    /// Taxiing is held through an at_gate pause until the wheels-up clock,
+    /// which then forces Takeoff unconfirmed (still ground layout).
+    func testWidgetHoldsTaxiingThroughAtGateUntilWheelsUp() {
+        var f = widgetFlight(status: "active", depOffset: -18 * 60)
+        f.taxiStartedAt = f.offBlock.addingTimeInterval(2 * 60)
+        f.groundState = "at_gate"
+        f.groundObservedAt = f.offBlock.addingTimeInterval(17 * 60)
+        let stillTaxiing = f.offBlock.addingTimeInterval(18 * 60)
+        XCTAssertEqual(f.departurePhase(at: stillTaxiing), .taxiing(since: f.taxiStartedAt))
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: stillTaxiing), "Taxiing…")
+        XCTAssertFalse(f.showsAirborneLayout(at: stillTaxiing))
+        let pastWheelsUp = f.offBlock.addingTimeInterval(21 * 60)
+        XCTAssertEqual(f.departurePhase(at: pastWheelsUp), .presumedAirborne)
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: pastWheelsUp), "Takeoff unconfirmed")
+        XCTAssertFalse(f.showsAirborneLayout(at: pastWheelsUp))
+    }
+
+    /// Past the expected wheels-up the widget does not invent In Air. Copy
+    /// is Takeoff unconfirmed, layout stays on the ground.
     func testWidgetPresumesAirborneWithoutClaimingConfirmation() {
         let f = widgetFlight(status: "active", depOffset: -45 * 60)
         let at = f.offBlock.addingTimeInterval(45 * 60)
         XCTAssertEqual(f.departurePhase(at: at), .presumedAirborne)
-        XCTAssertEqual(f.statusText(phase: .inFlight, at: at), "In Air")
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: at), "Takeoff unconfirmed")
         XCTAssertFalse(f.departurePhase(at: at).isConfirmed)
+        XCTAssertFalse(f.departurePhase(at: at).isOffTheGround)
+        XCTAssertFalse(f.showsAirborneLayout(at: at))
+        XCTAssertTrue(f.isDepartingUnconfirmed(at: at))
     }
 
     func testWidgetConfirmedTakeoffIsTheOnlyConfirmedState() {
@@ -540,6 +567,8 @@ final class WidgetFlightTests: XCTestCase {
         let at = f.offBlock.addingTimeInterval(45 * 60)
         XCTAssertTrue(f.departurePhase(at: at).isConfirmed)
         XCTAssertFalse(f.isDepartingUnconfirmed(at: at))
+        XCTAssertTrue(f.showsAirborneLayout(at: at))
+        XCTAssertEqual(f.statusText(phase: .inFlight, at: at), "In Air")
     }
 
     /// The flips are pre-rendered while the app is dead and the device
@@ -709,16 +738,18 @@ final class FlightTenseTests: XCTestCase {
         XCTAssertFalse(f.departureRelText.hasSuffix(" ago"))
     }
 
-    /// Flipped to active by the clock a few minutes ago: "Departing", not
+    /// Flipped to active by the clock a few minutes ago: "Departing…", not
     /// "In Air" on faith. Once the source reports a real departure, In Air.
+    /// Past expected wheels-up with no witness is Takeoff unconfirmed.
     func testFreshlyActiveHedgesThenCommits() {
         let f = flight(depIn: -5 * 60, status: .active)
-        XCTAssertEqual(f.statusText, "Departing")
-        XCTAssertEqual(f.bannerHeadline, "Departing")
+        XCTAssertEqual(f.statusText, "Departing…")
+        XCTAssertEqual(f.bannerHeadline, "Departing…")
         f.actualDeparture = f.scheduledDeparture
         XCTAssertEqual(f.statusText, "In Air")
         let later = flight(depIn: -40 * 60, status: .active)
-        XCTAssertEqual(later.statusText, "In Air")
+        XCTAssertEqual(later.statusText, "Takeoff unconfirmed")
+        XCTAssertFalse(later.departurePhase.isOffTheGround)
     }
 
     /// The hedge speaks with ONE voice. While the banner says "Departing"
@@ -737,19 +768,26 @@ final class FlightTenseTests: XCTestCase {
         XCTAssertFalse(f.isDepartingUnconfirmed)
         XCTAssertTrue(f.departureRelText.hasSuffix(" ago"))
         // The window running out is NOT a confirmation. Past the expected
-        // wheels-up Arc presumes the flight is airborne — it stops saying
-        // "Departing", but "Departed 40m ago" remains a claim no source has
+        // wheels-up Arc says Takeoff unconfirmed — still unconfirmed, still
+        // on the ground, and "Departed 40m ago" remains a claim no source has
         // made, so the row still measures from the schedule.
         let presumed = flight(depIn: -40 * 60, status: .active)
-        XCTAssertFalse(presumed.isDepartingUnconfirmed)
+        XCTAssertTrue(presumed.isDepartingUnconfirmed)
         XCTAssertTrue(presumed.isPresumedAirborne)
+        XCTAssertEqual(presumed.statusText, "Takeoff unconfirmed")
+        XCTAssertFalse(presumed.departurePhase.isOffTheGround)
         XCTAssertTrue(presumed.departureRelText.hasSuffix("past schedule"))
         XCTAssertNotEqual(presumed.bannerColor, ArcTheme.onTime)
     }
 
     /// An active flight past its ETA is not "Arrived" until the source says so.
+    /// Without a takeoff witness the banner stays on Takeoff unconfirmed even
+    /// past the ETA — we never confirmed they left, so we cannot confirm they
+    /// landed from the clock either.
     func testArrivalNotClaimedFromClock() {
         let f = flight(depIn: -4 * 3600, status: .active)   // ETA was 2h ago
+        XCTAssertEqual(f.bannerHeadline, "Takeoff unconfirmed")
+        f.actualDeparture = f.scheduledDeparture
         XCTAssertEqual(f.arrivalRelText, "Arrival not yet confirmed")
         XCTAssertEqual(f.bannerHeadline, "Arrival not yet confirmed")
         f.status = .landed

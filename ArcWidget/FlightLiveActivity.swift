@@ -29,7 +29,7 @@ struct FlightLiveActivity: Widget {
                 .activityBackgroundTint(Color.black.opacity(0.6))
                 .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
-            let phase = effectivePhase(context.state)
+            let phase = effectivePhase(context.state, mode: context.attributes.mode)
             return DynamicIsland {
                 // Flighty's expanded in-flight layout: flight number top-left,
                 // seat top-right, then the full-width route/path/countdown
@@ -158,10 +158,12 @@ struct FlightLiveActivity: Widget {
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundStyle(IntelligenceShimmerText.gradient)
                                 IntelligenceShimmerText(
-                                    text: "Departing…",
+                                    text: departingHero(context.state, context.attributes),
                                     font: .system(size: 12, weight: .bold),
-                                    sweep: context.state.departureTime...context.state.departureTime.addingTimeInterval(Self.departureGrace))
-                                Text("awaiting confirmation")
+                                    sweep: context.state.departureTime...max(
+                                        context.state.expectedWheelsUp,
+                                        context.state.departureTime.addingTimeInterval(Self.departureGrace)))
+                                Text(departingIslandSub(context.state, context.attributes))
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(.secondary)
                                 Spacer()
@@ -353,7 +355,8 @@ struct FlightLiveActivity: Widget {
         attrs.mode == .air ? "airplane.arrival" : attrs.mode.symbol
     }
 
-    private func effectivePhase(_ state: FlightActivityAttributes.ContentState) -> Phase {
+    private func effectivePhase(_ state: FlightActivityAttributes.ContentState,
+                                mode: TripMode = .air) -> Phase {
         if state.status == "landed" { return .landed }
         // The departure question is answered from evidence, never from the
         // clock alone — and NOT from the status either: providers flip to
@@ -368,7 +371,15 @@ struct FlightLiveActivity: Widget {
             // there is nothing sensible left to say about arriving; the
             // hedge itself expires via DepartureEvidence's own cap.
             return .departing
-        case .presumedAirborne, .airborne:
+        case .presumedAirborne:
+            // Takeoff unconfirmed: keep ground chrome. A staleDate re-render
+            // at expected wheels-up must not promote the progress bar or
+            // UNTIL GATE ARRIVAL. Non-air legs have no takeoff to witness.
+            if mode != .air {
+                return Date.now >= state.arrivalTime ? .landed : .inFlight
+            }
+            return .departing
+        case .airborne:
             // "active" must NOT bypass the clock: offline nobody flips the
             // status to landed, so the staleDate re-render at arrival has to
             // conclude "landed" from the time alone — otherwise the island
@@ -378,12 +389,9 @@ struct FlightLiveActivity: Widget {
     }
 
     /// Whether a source actually reported the take-off. Everything the lock
-    /// screen states in green depends on it: past the expected wheels-up with
-    /// nobody confirming, Arc still shows the in-flight layout (that IS the
-    /// best guess) but in secondary, the same way every other Arc surface
-    /// marks a fact it cannot back. No standing "not confirmed" label: for a
-    /// traveller who went offline at the door that would sit there for five
-    /// hours, which is noise rather than honesty. The colour carries it.
+    /// screen states in green depends on it. Past expected wheels-up with
+    /// nobody confirming, Arc keeps ground chrome and says "Takeoff
+    /// unconfirmed" — never muted In Air, never a progress bar.
     private func departureConfirmed(_ state: FlightActivityAttributes.ContentState) -> Bool {
         state.departurePhase(at: .now).isConfirmed
     }
@@ -396,13 +404,27 @@ struct FlightLiveActivity: Widget {
         return nil
     }
 
+    private func departingHero(_ state: FlightActivityAttributes.ContentState,
+                               _ attrs: FlightActivityAttributes) -> String {
+        state.departurePhase(at: .now).groundHeroTitle(mode: attrs.mode)
+            ?? DeparturePhase.departingTitle
+    }
+
+    private func departingIslandSub(_ state: FlightActivityAttributes.ContentState,
+                                    _ attrs: FlightActivityAttributes) -> String {
+        if attrs.mode == .air, state.departurePhase(at: .now) == .presumedAirborne {
+            return DeparturePhase.takeoffUnconfirmedSubtitle
+        }
+        return "awaiting confirmation"
+    }
+
     // MARK: - Lock Screen
 
     @ViewBuilder
     private func lockScreenView(context: ActivityViewContext<FlightActivityAttributes>) -> some View {
         let state = context.state
         let attrs = context.attributes
-        switch effectivePhase(state) {
+        switch effectivePhase(state, mode: attrs.mode) {
         case .preDeparture: preDepartureView(attrs: attrs, state: state)
         case .departing:    departingView(attrs: attrs, state: state)
         case .inFlight:     inFlightView(attrs: attrs, state: state)
@@ -443,26 +465,33 @@ struct FlightLiveActivity: Widget {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(IntelligenceShimmerText.gradient)
                     VStack(alignment: .leading, spacing: 1) {
-                        // The intelligence voice, not status-green: Arc is
-                        // WAITING on confirmation, and the gradient sweeps
-                        // across the text over the hedge window.
-                        IntelligenceShimmerText(
-                            text: taxiSince(state) != nil ? "Taxiing…" : "Departing…",
-                            font: .system(size: 14, weight: .bold),
-                            sweep: (state.offBlock ?? state.departureTime)...max(
-                                state.expectedWheelsUp,
-                                (state.offBlock ?? state.departureTime).addingTimeInterval(60)))
-                        // Seen rolling: say for how long, and when the wheels
-                        // are expected up. Otherwise say plainly that nobody
-                        // has confirmed anything yet.
-                        if let since = taxiSince(state) {
-                            Text("\(Text(since, style: .timer)) · takeoff expected \(attrs.depTime(state.expectedWheelsUp))")
-                                .font(.system(size: 10, weight: .medium).monospacedDigit())
-                                .foregroundStyle(.tertiary)
-                        } else {
-                            Text(attrs.mode == .air ? "Waiting for takeoff confirmation" : "Waiting for departure confirmation")
+                        // Takeoff unconfirmed is an honest ground state, not
+                        // an error — same weight as Departing…/Taxiing…,
+                        // secondary not red. The shimmer is the waiting voice
+                        // for the taxi window; past wheels-up the copy is still.
+                        if state.departurePhase(at: .now) == .presumedAirborne, attrs.mode == .air {
+                            Text(DeparturePhase.takeoffUnconfirmedTitle)
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(.secondary)
+                            Text(DeparturePhase.takeoffUnconfirmedSubtitle)
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(.tertiary)
+                        } else {
+                            IntelligenceShimmerText(
+                                text: departingHero(state, attrs),
+                                font: .system(size: 14, weight: .bold),
+                                sweep: (state.offBlock ?? state.departureTime)...max(
+                                    state.expectedWheelsUp,
+                                    (state.offBlock ?? state.departureTime).addingTimeInterval(60)))
+                            if let since = taxiSince(state) {
+                                Text("\(Text(since, style: .timer)) · takeoff expected \(attrs.depTime(state.expectedWheelsUp))")
+                                    .font(.system(size: 10, weight: .medium).monospacedDigit())
+                                    .foregroundStyle(.tertiary)
+                            } else {
+                                Text(attrs.mode == .air ? "Waiting for takeoff confirmation" : "Waiting for departure confirmation")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
                     }
                 }

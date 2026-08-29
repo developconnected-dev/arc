@@ -135,9 +135,19 @@ struct FlightActivityAttributes: ActivityAttributes {
             return phase
         }
 
+        /// Lock-card chrome. Airborne layout (progress bar, UNTIL GATE
+        /// ARRIVAL) only with a takeoff witness — a staleDate re-render at
+        /// expected wheels-up must keep ground chrome and say
+        /// "Takeoff unconfirmed", never muted In Air.
+        func usesAirborneLayout(at date: Date) -> Bool {
+            departurePhase(at: date).isOffTheGround
+        }
+
         /// When the wheels are expected to leave the ground — what staleDate
-        /// is pointed at, so the lock screen changes its mind at the right
-        /// moment with no app running and no network.
+        /// is pointed at, so the lock screen can change *copy* (Departing…
+        /// / Taxiing… → Takeoff unconfirmed) at the right moment with no app
+        /// running and no network. That re-render must not promote airborne
+        /// chrome: layout follows `usesAirborneLayout`, not the clock.
         var expectedWheelsUp: Date { departureEvidence.expectedWheelsUp }
     }
 }
