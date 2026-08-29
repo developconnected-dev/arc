@@ -4,7 +4,7 @@ import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRI
 import { predictGate, standFromBoard, type GateObservation } from "./gates";
 import { contentState } from "./activity";
 import { flightNews, laAlert, type WatchState } from "./alerts";
-import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS } from "./freshness";
+import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS, adbGate, resetAtFromHeader, ADB_MONTHLY_UNITS, ADB_UNITS_PER_CALL } from "./freshness";
 import { pickLeg, plausibleActualDeparture, plausibleEstimatedArrival, effectiveDelayMinutes } from "./legmatch";
 import { verifiedRoute } from "./place";
 import { predictionConfirmed, summarise, type PredictionRow } from "./prediction";
@@ -485,25 +485,33 @@ export default {
           waitport: true,
         },
         budget: budget ? (() => {
-          // Report against the REAL plan, not the bootstrap constant. Dividing
-          // by ADB_MONTHLY_CALLS made a healthy account read "2246/900" — an
-          // alarming number for something nothing was actually gating on,
-          // since the gate is RapidAPI's own `remaining` (see fetchLegsCached).
-          const used = (budget.adb_cron ?? 0) + (budget.adb_interactive ?? 0);
+          // Report in the plan's own currency: UNITS, with our call counters
+          // converted at the measured rate (see adbGate). Reporting calls
+          // against a unit quota is how "30% spent" and RapidAPI's "100%
+          // reached" email described the same month.
+          const cronCalls = (budget.adb_cron ?? 0) as number;
+          const calls = cronCalls + ((budget.adb_interactive ?? 0) as number);
           const remaining = budget.adb_remaining as number | null | undefined;
-          const planQuota = typeof remaining === "number" ? used + remaining : ADB_MONTHLY_CALLS;
-          const cronReserve = Math.max(50, Math.floor(planQuota * ADB_CRON_RESERVE_SHARE));
+          const gate = adbGate("cron", cronCalls, calls, remaining);
+          const resetAt = (budget.adb_reset_at as string | null | undefined) ?? null;
+          const resetMs = resetAt ? Date.parse(resetAt) - Date.now() : NaN;
           return {
             month: budget.month,
-            adb_used: `${used}/${planQuota}`,
-            adb_cron: `${budget.adb_cron}/${planQuota}`,
-            // What RapidAPI itself last reported — the authority, unlike our count.
+            adb_calls: calls,
+            adb_units_est: `${gate.estUnitsUsed}/${gate.planUnits}`,
+            adb_units_per_call_assumed: ADB_UNITS_PER_CALL,
+            // What RapidAPI itself last reported — the authority, unlike our
+            // count. UNITS, not calls.
             adb_remaining_per_rapidapi: remaining ?? null,
+            // The answer to the question a "100% reached" email raises.
+            adb_resets_at: resetAt,
+            adb_resets_in_days: Number.isFinite(resetMs)
+              ? Math.max(0, Math.round(resetMs / 8_640_000) / 10) : null,
             // Where each caller actually stops. The cron yields first so an
             // interactive search still works on the last of the quota.
             adb_plan_known: typeof remaining === "number",
-            adb_cron_stops_below: typeof remaining === "number" ? cronReserve : null,
-            adb_throttled: typeof remaining === "number" ? remaining <= cronReserve : used >= ADB_MONTHLY_CALLS,
+            adb_cron_stops_below: typeof remaining === "number" ? gate.cronReserveUnits : null,
+            adb_throttled: gate.blocked,
             airlabs: `${budget.airlabs_calls}/${AIRLABS_BUDGET}`,
           };
         })() : null,
@@ -1313,7 +1321,8 @@ export default {
           + `&withCargo=false&withPrivate=false&withLocation=false`;
         const res = await adbFetch(path, env);
         await budgetBump(env, "adb_interactive", (budget["adb_interactive"] as number) ?? 0,
-                         res.headers.get("x-ratelimit-requests-remaining"));
+                         res.headers.get("x-ratelimit-requests-remaining"),
+                     res.headers.get("x-ratelimit-requests-reset"));
         if (!res.ok) {
           return Response.json({ error: "fids", status: res.status,
                                  detail: (await res.text()).slice(0, 200) },
@@ -1949,7 +1958,8 @@ async function adbRouteDiscovery(
         res = await adbFetch(path, env);
       }
       await budgetBump(env, "adb_interactive", (budget["adb_interactive"] as number) ?? 0,
-                       res.headers.get("x-ratelimit-requests-remaining"));
+                       res.headers.get("x-ratelimit-requests-remaining"),
+                     res.headers.get("x-ratelimit-requests-reset"));
       if (!res.ok) continue;
       const rows = await fidsRows(res, "departures");
       if (rows === null) continue;
@@ -2025,7 +2035,8 @@ async function arrivalBoardNumbers(
         res = await adbFetch(path, env);
       }
       await budgetBump(env, "adb_interactive", (budget["adb_interactive"] as number) ?? 0,
-                       res.headers.get("x-ratelimit-requests-remaining"));
+                       res.headers.get("x-ratelimit-requests-remaining"),
+                     res.headers.get("x-ratelimit-requests-reset"));
       if (!res.ok) continue;
       const rows = await fidsRows(res, "arrivals");
       if (rows === null) continue;
@@ -2215,17 +2226,10 @@ function synthesizeAirportStatus(w: AirportWeather | null, faa: FaaDelay | null)
 // take at most a share of the pool, so an interactive search always has room,
 // and unused cron budget is available instead of stranded.
 //
-// Sized for the AeroDataBox PRO plan: 6,000 units/month, and the endpoints we
-// call cost several units each, so the ceiling is in calls and deliberately
-// conservative. `adb_remaining` records what RapidAPI itself reports so /health
-// shows the real number instead of only our guess at it.
-const ADB_MONTHLY_CALLS = 900;
-const ADB_CRON_SHARE = 0.6;
-// Once RapidAPI has told us what's left we use that instead of guessing, and
-// only stop the cron early so a search always has quota behind it. The
-// reserve is a SHARE of the observed plan (spent + remaining), not a fixed
-// count — a fixed 2000 permanently silenced the cron on any smaller plan.
-const ADB_CRON_RESERVE_SHARE = 0.25;
+// The gate itself lives in freshness.ts (adbGate), tested, and denominated
+// in the plan's own currency: UNITS, with our call counters converted at
+// the measured ~2 units/call. The old version added calls to units — how
+// the Worker still saw headroom while RapidAPI mailed "100% reached".
 const AIRLABS_BUDGET = 800;           // per month (plan is 1k)
 
 function monthKey(): string {
@@ -2253,26 +2257,34 @@ async function budgetRow(env: Env): Promise<Record<string, any>> {
 }
 
 async function budgetBump(env: Env, field: string, current: number,
-                          remaining?: string | null): Promise<void> {
+                          remaining?: string | null,
+                          reset?: string | null): Promise<void> {
   // RapidAPI reports what's actually left on every response. Recording it means
   // /health shows the provider's own number, not just our count of attempts —
-  // the two disagreeing is exactly how a plan upgrade went unnoticed.
+  // the two disagreeing is exactly how a plan upgrade went unnoticed. The
+  // reset header rides along (seconds until the quota window rolls over):
+  // it is the only place the answer to "when am I back?" exists at all.
   const left = remaining == null ? NaN : Number(remaining);
+  const resetAt = resetAtFromHeader(reset);
   if (budgetMemo) {
     budgetMemo.row[field] = ((budgetMemo.row[field] as number) ?? current) + 1;
     if (Number.isFinite(left)) budgetMemo.row["adb_remaining"] = left;
+    if (resetAt) budgetMemo.row["adb_reset_at"] = resetAt;
   }
-  // SQL-side increment (migration 014): a fanned-out search fires several of
-  // these concurrently, and read-modify-write PATCHes counted them as one.
+  // SQL-side increment (migration 014, extended by 021): a fanned-out search
+  // fires several of these concurrently, and read-modify-write PATCHes
+  // counted them as one.
   const res = await sbService(env, "POST", "/rpc/bump_api_budget", {
     p_month: monthKey(), p_field: field,
     p_remaining: Number.isFinite(left) ? left : null,
+    p_reset_at: resetAt,
   });
   if (!res.ok && res.status !== 503) {
     // RPC missing (migration not applied yet): fall back to the old PATCH so
     // accounting degrades to approximate instead of stopping.
     const patch: Record<string, unknown> = { [field]: current + 1 };
     if (Number.isFinite(left)) patch["adb_remaining"] = left;
+    if (resetAt) patch["adb_reset_at"] = resetAt;
     await sbService(env, "PATCH", `/api_budget?month=eq.${monthKey()}`, patch);
   }
 }
@@ -2312,15 +2324,11 @@ async function fetchLegsCached(
   const remaining = budget["adb_remaining"] as number | null | undefined;
   // Prefer what the provider reports; our own count can't know the plan, which
   // is how an upgrade left searches blocked against a ceiling that no longer
-  // existed. The local cap is only the bootstrap, before the first response.
-  const planQuota = typeof remaining === "number" ? totalUsed + remaining : ADB_MONTHLY_CALLS;
-  const cronReserve = Math.max(50, Math.floor(planQuota * ADB_CRON_RESERVE_SHARE));
-  const blocked = typeof remaining === "number"
-    ? remaining <= (source === "cron" ? cronReserve : 0)
-    : source === "cron"
-      ? cronUsed >= ADB_MONTHLY_CALLS * ADB_CRON_SHARE
-      : totalUsed >= ADB_MONTHLY_CALLS;
-  if (blocked) {
+  // existed. The local cap is only the bootstrap, before the first response —
+  // and the whole comparison runs in UNITS (see adbGate), because adding our
+  // call counters to the provider's unit counter is how last month blew
+  // through the plan while this gate believed it was pacing it.
+  if (adbGate(source, cronUsed, totalUsed, remaining).blocked) {
     return { legs: cachedLegs, cache: cachedLegs ? "stale" : "none" };
   }
 
@@ -2331,7 +2339,8 @@ async function fetchLegsCached(
     const res = await adbFetch(path, env);
     // Count attempts, not just successes — a 429 burns real quota state.
     await budgetBump(env, field, (budget[field] as number) ?? 0,
-                     res.headers.get("x-ratelimit-requests-remaining"));
+                     res.headers.get("x-ratelimit-requests-remaining"),
+                     res.headers.get("x-ratelimit-requests-reset"));
     if (res.ok || res.status === 404) {
       // "No such flight that day" comes back as a 2xx with an EMPTY BODY, not
       // a 404. res.json() throws on that, and the throw used to escape to the

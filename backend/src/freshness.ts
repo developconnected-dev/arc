@@ -131,3 +131,56 @@ export function watchIntervalMs(depMs: number, now: number): number {
 /// so it has to be the tightest any row can want — anything longer would leave
 /// a due flight unselected and `watchIntervalMs` would never see it.
 export const WATCH_MIN_INTERVAL_MS = 15 * 60_000;
+
+// ── The AeroDataBox budget gate ──
+
+/// The plan is denominated in UNITS, and a unit is not a call: this key holds
+/// the PRO plan's 6,000 units/month, and this workload measures about two
+/// units per call (the by-number endpoint bills per included data block;
+/// airport boards cost more). The Worker's own counters count CALLS, and the
+/// provider's `x-ratelimit-requests-remaining` counts UNITS — the old gate
+/// added the two together, so the Worker still saw headroom while RapidAPI
+/// mailed "100% reached". Every comparison here converts calls to estimated
+/// units before mixing currencies. The constants only bootstrap a fresh
+/// month: after the first response, the provider's own number governs.
+export const ADB_MONTHLY_UNITS = 6000;
+export const ADB_UNITS_PER_CALL = 2;
+/// The cron may spend at most this share of the bootstrap month.
+export const ADB_CRON_SHARE = 0.6;
+/// Once the provider's remaining is known, the cron stands down while this
+/// share of the observed plan is still left — an interactive search must
+/// always have quota behind it, so only searches may spend the last of it.
+export const ADB_CRON_RESERVE_SHARE = 0.25;
+
+export function adbGate(
+  source: "cron" | "interactive",
+  cronCalls: number,
+  totalCalls: number,
+  remainingUnits: number | null | undefined,
+): { blocked: boolean; estUnitsUsed: number; planUnits: number; cronReserveUnits: number } {
+  const estUnitsUsed = totalCalls * ADB_UNITS_PER_CALL;
+  const planUnits = typeof remainingUnits === "number"
+    ? estUnitsUsed + remainingUnits
+    : ADB_MONTHLY_UNITS;
+  const cronReserveUnits = Math.max(100, Math.floor(planUnits * ADB_CRON_RESERVE_SHARE));
+  const blocked = typeof remainingUnits === "number"
+    ? remainingUnits <= (source === "cron" ? cronReserveUnits : 0)
+    : source === "cron"
+      ? cronCalls * ADB_UNITS_PER_CALL >= ADB_MONTHLY_UNITS * ADB_CRON_SHARE
+      : estUnitsUsed >= ADB_MONTHLY_UNITS;
+  return { blocked, estUnitsUsed, planUnits, cronReserveUnits };
+}
+
+/// When the provider's quota window rolls over, from the
+/// `x-ratelimit-requests-reset` header (seconds until reset). The one
+/// question a "100% reached" email raises — when am I back? — had no answer
+/// anywhere: the Worker read the remaining header and threw this one away.
+/// Bounded to a sane window so a garbage header can't write a reset date
+/// years out.
+export function resetAtFromHeader(
+  seconds: string | null | undefined, now: number = Date.now(),
+): string | null {
+  const s = Number(seconds);
+  if (!Number.isFinite(s) || s <= 0 || s > 45 * 86_400) return null;
+  return new Date(now + s * 1000).toISOString();
+}

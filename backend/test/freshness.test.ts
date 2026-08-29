@@ -177,3 +177,44 @@ test("a flight whose time has passed is not watched more eagerly", () => {
 test("an unreadable departure time falls back rather than dividing by nothing", () => {
   assert.equal(watchIntervalMs(NaN, WATCH_NOW), 30 * 60_000);
 });
+
+// ── the AeroDataBox budget gate ──
+
+import { adbGate, resetAtFromHeader, ADB_MONTHLY_UNITS, ADB_UNITS_PER_CALL } from "../src/freshness.ts";
+
+test("the plan is counted in units, not calls — the mix that blew the month", () => {
+  // 1,000 calls with 4,000 units reported left: the plan is 6,000 units
+  // (1,000 × 2 spent + 4,000 left) — NOT the 5,000 the old calls-plus-units
+  // addition produced.
+  const g = adbGate("interactive", 0, 1000, 4000);
+  assert.equal(g.estUnitsUsed, 2000);
+  assert.equal(g.planUnits, 6000);
+  assert.equal(g.blocked, false);
+});
+
+test("the cron stands down while a quarter of the plan is left; searches run to zero", () => {
+  // 2,000 calls ≈ 4,000 units spent, 1,300 left → observed plan 5,300 and a
+  // reserve of 1,325: inside it the cron yields, the search still runs.
+  assert.equal(adbGate("cron", 500, 2000, 1300).blocked, true);
+  assert.equal(adbGate("interactive", 500, 2000, 1300).blocked, false);
+  assert.equal(adbGate("interactive", 500, 2000, 0).blocked, true);
+});
+
+test("the bootstrap month is bounded by the plan's units at the measured rate", () => {
+  const calls = ADB_MONTHLY_UNITS / ADB_UNITS_PER_CALL;   // exactly the plan
+  assert.equal(adbGate("interactive", 0, calls, null).blocked, true);
+  assert.equal(adbGate("interactive", 0, calls - 1, null).blocked, false);
+  // The cron's bootstrap share, on the same basis.
+  assert.equal(adbGate("cron", calls * 0.6, calls * 0.6, null).blocked, true);
+  assert.equal(adbGate("cron", calls * 0.5, calls * 0.5, null).blocked, false);
+});
+
+test("the reset header becomes a date, and garbage becomes nothing", () => {
+  const now = Date.parse("2026-08-29T12:00:00Z");
+  assert.equal(resetAtFromHeader("86400", now), "2026-08-30T12:00:00.000Z");
+  assert.equal(resetAtFromHeader("0", now), null);
+  assert.equal(resetAtFromHeader("-5", now), null);
+  assert.equal(resetAtFromHeader(String(90 * 86_400), now), null);
+  assert.equal(resetAtFromHeader("not a number", now), null);
+  assert.equal(resetAtFromHeader(null, now), null);
+});
