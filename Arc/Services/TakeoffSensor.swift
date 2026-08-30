@@ -226,6 +226,9 @@ final class TakeoffSensor: NSObject {
                 guard let self, let data else { return }
                 Task { @MainActor in
                     self.handle(self.detector.altitude(data.relativeAltitude.doubleValue, at: .now))
+                    // The barometer is also the grounded phase's metronome:
+                    // it re-judges the GPS profile as delay estimates slide.
+                    self.reapplyGPSProfileIfDue()
                 }
             }
         }
@@ -255,9 +258,12 @@ final class TakeoffSensor: NSObject {
         guard !gpsRunning else { return }
         gpsRunning = true
         holdTimer?.invalidate(); holdTimer = nil; holding = false
-        // The hold may have dialed these down; the takeoff roll needs Best.
+        // Best is the safe default (the hold may have dialed these down);
+        // the profile then relaxes it while a posted delay holds the roll
+        // far away.
         location.desiredAccuracy = kCLLocationAccuracyBest
         location.distanceFilter = kCLDistanceFilterNone
+        applyGPSProfile()
         // The background session is what lets a While-Using grant keep
         // delivering after the phone is pocketed — with the system's own
         // indicator showing, which is the honest version of this feature.
@@ -268,6 +274,31 @@ final class TakeoffSensor: NSObject {
         }
         location.allowsBackgroundLocationUpdates = true
         location.startUpdatingLocation()
+    }
+
+    /// Full GPS earns its power only when a takeoff roll is plausibly
+    /// imminent. A posted delay slides expectedWheelsUp hours out — the
+    /// window rightly stays open, but hunting satellites at Best accuracy
+    /// through a three-hour gate delay is how an app earns its uninstall.
+    /// Coarse until the final stretch; Best inside expectedWheelsUp−20m.
+    /// The barometer never stops either way, and it re-checks this each
+    /// minute, so a delay posted (or cleared) mid-window changes the
+    /// profile within sixty seconds.
+    private var lastProfileCheck = Date.distantPast
+
+    private func applyGPSProfile() {
+        guard let id = watching, !detector.airborne,
+              let f = fetchFlights()?.first(where: { $0.id == id }) else { return }
+        let rollNear = Date.now >= f.expectedWheelsUp.addingTimeInterval(-20 * 60)
+        location.desiredAccuracy = rollNear ? kCLLocationAccuracyBest
+                                            : kCLLocationAccuracyHundredMeters
+        location.distanceFilter = rollNear ? kCLDistanceFilterNone : 100
+    }
+
+    private func reapplyGPSProfileIfDue() {
+        guard gpsRunning, Date.now.timeIntervalSince(lastProfileCheck) > 60 else { return }
+        lastProfileCheck = .now
+        applyGPSProfile()
     }
 
     private func stopGPS() {
@@ -409,8 +440,15 @@ final class TakeoffSensor: NSObject {
     /// patient timer to end the watch if no landing is ever sensed.
     private func downgradeToLandingWatch() {
         guard gpsRunning else { return }   // no grant: foreground-only watch, nothing to keep alive
-        location.desiredAccuracy = kCLLocationAccuracyThreeKilometers
-        location.distanceFilter = 1000
+        // REDUCED, not three-kilometre: 3 km is served from cell towers, and
+        // an ocean in airplane mode has none — CoreLocation can fall back to
+        // GPS acquisition, the most expensive state the chip has, hunted for
+        // hours inside a metal tube. Reduced is the tier Apple designed to be
+        // served lazily from whatever is cheapest, including nothing. The
+        // position is irrelevant anyway: this update stream exists solely to
+        // keep the process — and with it the barometer — alive.
+        location.desiredAccuracy = kCLLocationAccuracyReduced
+        location.distanceFilter = 3000
         holdTimer?.invalidate()
         holdTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { _ in
             Task { @MainActor in TakeoffSensor.shared.expireLandingWatchIfDue() }
