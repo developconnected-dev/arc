@@ -68,6 +68,9 @@ targets:
         NSMotionUsageDescription: >-
           Arc reads the barometer to sense takeoff and landing from cabin
           pressure — it works even in airplane mode.
+        NSCameraUsageDescription: >-
+          Arc scans the barcode on a boarding pass to add the flight —
+          decoded on your device, nothing is uploaded.
         BGTaskSchedulerPermittedIdentifiers: [com.arc.flighttracker.refresh]
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
