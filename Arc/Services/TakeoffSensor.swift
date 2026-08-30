@@ -132,11 +132,24 @@ final class TakeoffSensor: NSObject {
     private var backgroundSession: CLBackgroundActivitySession?
     private var gpsRunning = false
 
+    /// The wake ladder: sensors run fine in the background once STARTED, but
+    /// a dead process cannot start one — no permission changes that. What
+    /// Always authorization buys is the wake: iOS relaunches the app when it
+    /// enters a monitored region, even force-quit. So with Always held, a
+    /// geofence rings the departure airport; arrival relaunches us, a
+    /// low-power location hold keeps the process alive to the window, and
+    /// the window starts the real sensors — app never opened that day.
+    private var container: ModelContainer?
+    private var holdTimer: Timer?
+    private var holding = false
+    private nonisolated static let wakeRegionPrefix = "arc.takeoffwake."
+
     /// Called from the tracker's loop each pass. One aircraft at a time —
     /// a person boards one plane — and the sensor owns its own lifecycle
     /// past the takeoff (the landing watch outlives `watchingForTakeoff`).
     func reconcile(flights: [Flight], modelContext: ModelContext) {
         self.modelContext = modelContext
+        armAirportWake(flights: flights)
 
         if let id = watching {
             guard let flight = flights.first(where: { $0.id == id }),
@@ -183,13 +196,21 @@ final class TakeoffSensor: NSObject {
         }
 
         switch location.authorizationStatus {
-        case .authorizedWhenInUse, .authorizedAlways:
+        case .authorizedAlways:
             startGPS()
+        case .authorizedWhenInUse:
+            startGPS()
+            // The one escalation dialog iOS ever grants an app: spent here,
+            // at the gate, where "wake Arc when you arrive at the airport"
+            // is a sentence about the trip the user is on. A "keep While
+            // Using" answer keeps today's behavior exactly.
+            location.requestAlwaysAuthorization()
         case .notDetermined:
             // Asked at the one moment the question answers itself: the user
-            // is at the gate with a flight about to leave. The usage string
-            // carries the why; a refusal degrades to barometer-only.
-            location.requestWhenInUseAuthorization()
+            // is at the gate with a flight about to leave. Asking for Always
+            // shows the While-Using dialog now and lets iOS pose its own
+            // upgrade question later; a refusal degrades to barometer-only.
+            location.requestAlwaysAuthorization()
         default:
             break   // denied/restricted: barometer-only, foreground-only
         }
@@ -198,10 +219,18 @@ final class TakeoffSensor: NSObject {
     private func startGPS() {
         guard !gpsRunning else { return }
         gpsRunning = true
+        holdTimer?.invalidate(); holdTimer = nil; holding = false
+        // The hold may have dialed these down; the takeoff roll needs Best.
+        location.desiredAccuracy = kCLLocationAccuracyBest
+        location.distanceFilter = kCLDistanceFilterNone
         // The background session is what lets a While-Using grant keep
         // delivering after the phone is pocketed — with the system's own
         // indicator showing, which is the honest version of this feature.
-        backgroundSession = CLBackgroundActivitySession()
+        // An Always grant needs no session (and a background relaunch could
+        // not legally create one).
+        if location.authorizationStatus != .authorizedAlways {
+            backgroundSession = CLBackgroundActivitySession()
+        }
         location.allowsBackgroundLocationUpdates = true
         location.startUpdatingLocation()
     }
@@ -213,6 +242,112 @@ final class TakeoffSensor: NSObject {
         location.allowsBackgroundLocationUpdates = false
         backgroundSession?.invalidate()
         backgroundSession = nil
+    }
+
+    // MARK: - Airport wake (Always authorization only)
+
+    /// Called from ArcApp.init so that a BACKGROUND RELAUNCH — iOS starting
+    /// a dead Arc because it entered an airport geofence — has everything a
+    /// wake needs: a data container, and an instantiated location manager
+    /// whose delegate receives the very region event that caused the launch.
+    func adoptContainer(_ container: ModelContainer) {
+        self.container = container
+        _ = location
+    }
+
+    /// Ring the departure airport of the next flight (or two) with a
+    /// geofence. Entry relaunches the app even from force-quit; everything
+    /// after that is `wake()`. Without Always this arms nothing.
+    private func armAirportWake(flights: [Flight]) {
+        guard location.authorizationStatus == .authorizedAlways,
+              CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self) else { return }
+        let soon = Date.now.addingTimeInterval(36 * 3600)
+        let wanted = flights
+            .filter {
+                $0.mode == .air && !$0.isCompleted && !$0.isDeleted
+                    && $0.actualDeparture == nil
+                    && $0.offBlock < soon
+                    && Date.now <= $0.expectedWheelsUp.addingTimeInterval(DepartureEvidence.hardCap)
+            }
+            .sorted { $0.offBlock < $1.offBlock }
+            .prefix(2)
+        var regions: [String: CLCircularRegion] = [:]
+        for f in wanted {
+            guard let airport = ReferenceData.shared.airport(f.departureIATA) else { continue }
+            let region = CLCircularRegion(
+                center: airport.coordinate, radius: 2500,
+                identifier: Self.wakeRegionPrefix + f.id.uuidString)
+            region.notifyOnEntry = true
+            region.notifyOnExit = false
+            regions[region.identifier] = region
+        }
+        for monitored in location.monitoredRegions
+        where monitored.identifier.hasPrefix(Self.wakeRegionPrefix) && regions[monitored.identifier] == nil {
+            location.stopMonitoring(for: monitored)
+        }
+        for (id, region) in regions
+        where !location.monitoredRegions.contains(where: { $0.identifier == id }) {
+            location.startMonitoring(for: region)
+            // Arming can happen when the user is ALREADY inside the fence
+            // (flight added at the airport) — entry then never fires, so ask.
+            location.requestState(for: region)
+        }
+    }
+
+    /// A wake with no UI: the geofence fired, the hold timer ticked, or
+    /// Always was just granted. Decide from the data alone what this moment
+    /// needs — full sensors, a low-power hold until the window, or nothing.
+    private func wake() {
+        guard let flights = fetchFlights() else { return }
+        armAirportWake(flights: flights)
+        if watching != nil { stopHold(); return }
+        if let due = flights.first(where: { inTakeoffWindow($0) }) {
+            start(for: due)
+            stopHold()
+            return
+        }
+        // At the airport before the window: a coarse location hold is what
+        // legally keeps the process alive until the window opens. Cell-tower
+        // accuracy — the point is the heartbeat, not the position.
+        let holdHorizon = Date.now.addingTimeInterval(3 * 3600)
+        let upcoming = flights.contains {
+            $0.mode == .air && !$0.isCompleted && !$0.isDeleted
+                && $0.actualDeparture == nil
+                && $0.offBlock.addingTimeInterval(-15 * 60) > .now
+                && $0.offBlock < holdHorizon
+        }
+        upcoming ? startHold() : stopHold()
+    }
+
+    private func startHold() {
+        guard location.authorizationStatus == .authorizedAlways,
+              !gpsRunning, !holding else { return }
+        holding = true
+        location.desiredAccuracy = kCLLocationAccuracyThreeKilometers
+        location.distanceFilter = 500
+        location.allowsBackgroundLocationUpdates = true
+        location.startUpdatingLocation()
+        // The process is alive, so a plain timer runs: re-judge each minute
+        // and hand over to the real sensors the moment the window opens.
+        holdTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+            Task { @MainActor in TakeoffSensor.shared.wake() }
+        }
+    }
+
+    private func stopHold() {
+        guard holding else { return }
+        holding = false
+        holdTimer?.invalidate(); holdTimer = nil
+        if !gpsRunning {
+            location.stopUpdatingLocation()
+            location.allowsBackgroundLocationUpdates = false
+        }
+    }
+
+    private func fetchFlights() -> [Flight]? {
+        if modelContext == nil, let container { modelContext = ModelContext(container) }
+        guard let context = modelContext else { return nil }
+        return try? context.fetch(FetchDescriptor<Flight>())
     }
 
     private func stop() {
@@ -293,10 +428,25 @@ extension TakeoffSensor: CLLocationManagerDelegate {
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
         Task { @MainActor in
-            guard self.watching != nil else { return }
-            if status == .authorizedWhenInUse || status == .authorizedAlways {
+            if self.watching != nil,
+               status == .authorizedWhenInUse || status == .authorizedAlways {
                 self.startGPS()
             }
+            // A fresh Always grant is the moment the airport geofences can
+            // finally be armed — don't wait for the next tracker pass.
+            if status == .authorizedAlways { self.wake() }
         }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
+        guard region.identifier.hasPrefix(TakeoffSensor.wakeRegionPrefix) else { return }
+        Task { @MainActor in self.wake() }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager,
+                                     didDetermineState state: CLRegionState, for region: CLRegion) {
+        guard state == .inside,
+              region.identifier.hasPrefix(TakeoffSensor.wakeRegionPrefix) else { return }
+        Task { @MainActor in self.wake() }
     }
 }

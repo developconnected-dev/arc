@@ -65,6 +65,14 @@ targets:
           Arc uses your location only around takeoff, to confirm the moment
           your flight actually leaves the ground. It is processed on your
           device and never uploaded.
+        # Always exists for one thing: waking Arc when the user ARRIVES at
+        # the departure airport (a geofence relaunches the app, even from
+        # force-quit), so takeoff detection works without opening the app
+        # that day. Same privacy posture: on-device, never uploaded.
+        NSLocationAlwaysAndWhenInUseUsageDescription: >-
+          Arc can wake itself when you arrive at the airport, so takeoff
+          detection works even if you don't open the app. Your location is
+          processed on your device and never uploaded.
         NSMotionUsageDescription: >-
           Arc reads the barometer to sense takeoff and landing from cabin
           pressure — it works even in airplane mode.

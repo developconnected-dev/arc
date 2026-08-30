@@ -19,6 +19,11 @@ struct ArcApp: App {
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }
+        // In init, not onAppear: when an airport geofence RELAUNCHES a dead
+        // Arc in the background, no scene ever appears — this is the only
+        // line that runs early enough to hand the sensor its data and let
+        // its delegate receive the very region event that caused the launch.
+        TakeoffSensor.shared.adoptContainer(modelContainer)
     }
 
     var body: some Scene {
