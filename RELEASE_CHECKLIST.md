@@ -36,7 +36,11 @@ The parts CI cannot do. Work top to bottom; each is safe to redo.
       about new permissions; the prompts fire in-app at the moment of use:
       - Motion & Fitness + Location: appear together the first time a tracked
         flight enters its takeoff window while the app is open (T−15 min from
-        off-block). Expect BOTH dialogs back to back at the gate.
+        off-block). Expect BOTH dialogs back to back at the gate. iOS later
+        poses its own "Change to Always Allow?" question — Always is what
+        lets the airport geofence relaunch a closed Arc, so the sensors work
+        without opening the app on travel day; "Keep While Using" simply
+        keeps the open-the-app behavior.
       - Camera: appears on first tap of the boarding-pass scan button.
       - Notifications: existing users keep their prior decision; nothing new.
 - [ ] Scan a real boarding pass (paper PDF417 and a wallet Aztec/QR).
