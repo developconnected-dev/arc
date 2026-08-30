@@ -11,6 +11,27 @@ enum ArcNotifications {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
+    /// Quiet delivery from day one, no dialog: provisional authorization
+    /// lands alerts silently in Notification Center. The REAL dialog used to
+    /// fire cold on first launch — the single question most likely to be
+    /// answered "no" is the one asked before the app has shown any reason to
+    /// say yes. It now waits for the moment the value is obvious: right
+    /// after the first flight is added (ArcRootView's primer), when "Arc
+    /// watches this flight for you" is a claim the user just acted on.
+    static func requestProvisionalPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(
+            options: [.alert, .sound, .badge, .provisional]) { _, _ in }
+    }
+
+    /// Whether the primer is still worth showing: only while the user has
+    /// never explicitly decided. Provisional counts as undecided — that is
+    /// its whole point.
+    static func permissionUndecided() async -> Bool {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        return settings.authorizationStatus == .notDetermined
+            || settings.authorizationStatus == .provisional
+    }
+
     // MARK: - Scheduled Alerts
 
     /// 2h before the *effective* departure (delay-adjusted), or nil if that

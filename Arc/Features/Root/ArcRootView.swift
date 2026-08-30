@@ -90,6 +90,13 @@ struct ArcRootView: View {
             bootstrapTrackingAndWidgets()
             // A tap that arrived before SwiftData had loaded gets its flight now.
             drainPendingOpen()
+            maybeShowNotificationPrimer()
+        }
+        .alert("Get told when this flight changes?", isPresented: $showNotificationPrimer) {
+            Button("Not now", role: .cancel) {}
+            Button("Turn on notifications") { ArcNotifications.requestPermission() }
+        } message: {
+            Text("Arc watches your flights for gate changes, delays, boarding and cancellations — even while the app is closed.")
         }
         .onChange(of: tab) { _, newTab in
             updateCameraForTab(newTab)
@@ -246,6 +253,30 @@ struct ArcRootView: View {
             return
         }
         controller.fitAll(mapFlights, padding: tab == .passport ? 1.5 : 1.25)
+    }
+
+    /// The notification dialog, asked at the one moment it answers itself:
+    /// the user just added a flight for Arc to watch. Asked cold at first
+    /// launch — the old behaviour — it is the question most likely to be
+    /// answered "no". Once per install, only while the user has never
+    /// explicitly decided (provisional delivery runs quietly meanwhile),
+    /// and never re-nagged after a real answer either way.
+    @State private var showNotificationPrimer = false
+
+    private func maybeShowNotificationPrimer() {
+        let key = "notificationPrimer.shown"
+        guard !DemoSeed.suppressPrompts,
+              !allFlights.isEmpty,
+              !UserDefaults.standard.bool(forKey: key) else { return }
+        Task { @MainActor in
+            guard await ArcNotifications.permissionUndecided() else {
+                // Already granted or denied elsewhere — nothing to ask, ever.
+                UserDefaults.standard.set(true, forKey: key)
+                return
+            }
+            UserDefaults.standard.set(true, forKey: key)
+            showNotificationPrimer = true
+        }
     }
 
     private func bootstrapTrackingAndWidgets() {

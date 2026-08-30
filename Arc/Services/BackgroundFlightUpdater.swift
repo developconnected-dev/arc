@@ -44,10 +44,20 @@ final class BackgroundFlightUpdater {
         guard let flights = try? context.fetch(descriptor) else { return }
 
         for activity in activities {
-            let flight = flights.first(where: {
-                $0.flightNumber == activity.attributes.flightNumber &&
-                $0.departureIATA == activity.attributes.departureIATA
-            }) ?? flights.first(where: { $0.flightNumber == activity.attributes.flightNumber })
+            // The card's own flightId first — a flight number is not a
+            // flight, and the number-plus-route fallback can hold TWO stored
+            // flights on an after-midnight route (today's and tomorrow's), so
+            // it repainted whichever the store returned first. The fallbacks
+            // stay for cards started before flightId existed, disambiguated
+            // by the departure nearest to now.
+            let flight = flights.first(where: { $0.id.uuidString == activity.attributes.flightId })
+                ?? flights.filter({
+                    $0.flightNumber == activity.attributes.flightNumber &&
+                    $0.departureIATA == activity.attributes.departureIATA
+                }).min(by: {
+                    abs($0.scheduledDeparture.timeIntervalSinceNow) < abs($1.scheduledDeparture.timeIntervalSinceNow)
+                })
+                ?? flights.first(where: { $0.flightNumber == activity.attributes.flightNumber })
             if let flight, !flight.isDeleted {
                 await LiveActivityManager.shared.updateActivity(for: flight)
             }
