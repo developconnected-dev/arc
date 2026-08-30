@@ -48,6 +48,12 @@ The parts CI cannot do. Work top to bottom; each is safe to redo.
       answer in ~a second with no `/parse-booking` request in the Worker logs.
 - [ ] Takeoff sensor on a real flight: card flips to confirmed In Air in
       airplane mode; blue location indicator only during the takeoff window.
+- [ ] Battery after that flight (Settings → Battery → Arc): the acceptance
+      test for the whole sensor pipeline. Expect roughly 5% attributable to
+      Arc on a long-haul day — the coarse landing-watch heartbeat and the
+      delay-aware GPS profile are designed for that number. Meaningfully
+      more means CoreLocation isn't honoring Reduced accuracy in airplane
+      mode and the heartbeat needs rethinking.
 
 ## Housekeeping
 
