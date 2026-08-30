@@ -54,6 +54,12 @@ struct AddFlightView: View {
     @State private var boardDepartures: [FlightAPIClient.RailDeparture] = []
     @State private var isLoadingBoard = false
     @State private var boardLoadFailed = false
+    /// Boarding-pass scan: the sheet, and the two facts the barcode carries
+    /// that no search result does — applied to whichever flight is added
+    /// next, cleared the moment the user searches for something else.
+    @State private var showPassScanner = false
+    @State private var scannedSeat: String?
+    @State private var scannedBooking: String?
 
     // Manual entry state
     @State private var manualNumber = ""
@@ -102,10 +108,66 @@ struct AddFlightView: View {
             Spacer(minLength: 0)
         }
         .background(Color(.systemBackground))
+        .sheet(isPresented: $showPassScanner) {
+            BoardingPassScanSheet { pass in handleScannedPass(pass) }
+        }
         .onAppear {
             if let q = initialQuery, query.isEmpty { query = q }
             applyDebugHooks()
         }
+    }
+
+    /// A scanned pass resolves through the SAME pipeline a typed number
+    /// takes — searchFlight for the pass's own date, filtered to its route,
+    /// adopted into the results step — so live times, gates and the aircraft
+    /// arrive exactly as they would for a search. The pass's two facts no
+    /// search result carries (seat and booking code) ride along and land on
+    /// whichever flight is added.
+    private func handleScannedPass(_ pass: BoardingPass) {
+        showPassScanner = false
+        scannedSeat = pass.seat
+        scannedBooking = pass.bookingCode
+        guard let date = pass.flightDate() else { return }
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { isParsingNatural = true }
+        Task {
+            let dateStr = DateHelpers.apiDate(date, at: pass.departureIATA)
+            let legs = (try? await FlightAPIClient.shared.searchFlight(
+                number: pass.flightNumber, date: dateStr)) ?? []
+            let onRoute = legs.filter {
+                $0.dep_iata.caseInsensitiveCompare(pass.departureIATA) == .orderedSame
+            }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                isParsingNatural = false
+                if !onRoute.isEmpty {
+                    adoptNaturalResults(onRoute)
+                } else if !legs.isEmpty {
+                    adoptNaturalResults(legs)
+                } else {
+                    prefillManualFromPass(pass, date: date)
+                }
+            }
+        }
+    }
+
+    /// Offline at the airport is exactly when a pass gets scanned, and the
+    /// decode already holds everything a manual add needs — the live lookup
+    /// failing must not throw the scan away.
+    private func prefillManualFromPass(_ pass: BoardingPass, date: Date) {
+        if let split = FlightQueryParser.splitCode(pass.flightNumber) {
+            airline = ReferenceData.shared.airline(split.designator)
+            number = split.number
+        }
+        enterManual(prefillingFrom: date)
+        manualDep = ReferenceData.shared.airport(pass.departureIATA)
+        manualArr = ReferenceData.shared.airport(pass.arrivalIATA)
+        parseStatusMessage = "Scanned \(pass.flightNumber) — no live schedule reachable right now. Check the times below and add it; Arc picks up the real ones once it can."
+    }
+
+    /// The two facts a scan knows that no search result carries. Never
+    /// overwrites something the user already typed.
+    private func applyScannedExtras(to f: Flight) {
+        if f.seat?.isEmpty != false, let seat = scannedSeat { f.seat = seat }
+        if f.bookingCode?.isEmpty != false, let code = scannedBooking { f.bookingCode = code }
     }
 
     /// Test-only launch-argument hooks for headless screenshot verification.
@@ -200,6 +262,18 @@ struct AddFlightView: View {
             HStack(alignment: .center) {
                 Text(subtitle).font(.system(size: 15)).foregroundStyle(.secondary)
                 Spacer()
+                // Scan a boarding pass: the one artifact every traveller is
+                // actually holding, decoded deterministically and offline.
+                if step == .search {
+                    Button { showPassScanner = true } label: {
+                        Image(systemName: "barcode.viewfinder")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 34, height: 34)
+                            .background(Color(.secondarySystemFill), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
                 // The search action lives up here, top-right above the bar —
                 // the space under the field belongs to what emerges from it.
                 if step == .search || step == .results, !query.isEmpty {
@@ -295,7 +369,11 @@ struct AddFlightView: View {
                 .padding(.top, 6)
                 .onSubmit { Task { await runUnifiedSearch() } }
                 .onChange(of: query) { _, newValue in
-                    // Suggestions belong to the query that produced them.
+                    // Suggestions belong to the query that produced them —
+                    // and so do a scan's seat and booking code: typing a new
+                    // search means the next add is NOT the scanned flight.
+                    scannedSeat = nil
+                    scannedBooking = nil
                     if !newValue.hasPrefix("ferry ") || newValue.count < 8 {
                         stationSuggestions = []; portSuggestions = []; boardStop = nil
                     }
@@ -1283,6 +1361,7 @@ struct AddFlightView: View {
         let reg = manualRegistration.trimmingCharacters(in: .whitespaces)
         f.aircraftType = aircraft.isEmpty ? nil : aircraft
         f.aircraftRegistration = reg.isEmpty ? nil : reg
+        applyScannedExtras(to: f)
 
         modelContext.insert(f)
         do {
@@ -1883,6 +1962,7 @@ struct AddFlightView: View {
         if let path = r.route_path, path.count >= 3 {
             f.routePathData = try? JSONEncoder().encode(path)
         }
+        applyScannedExtras(to: f)
 
         modelContext.insert(f)
         do {
