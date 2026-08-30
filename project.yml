@@ -55,7 +55,19 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         UILaunchScreen: {}
-        UIBackgroundModes: [fetch]
+        # `location` exists for exactly one bounded thing: the takeoff
+        # window's sensor witness (TakeoffSensor). A While-Using grant plus
+        # CLBackgroundActivitySession keeps GPS delivering after the phone
+        # is pocketed — with the system's own indicator showing — and the
+        # session ends at the first confirmed wheels-up.
+        UIBackgroundModes: [fetch, location]
+        NSLocationWhenInUseUsageDescription: >-
+          Arc uses your location only around takeoff, to confirm the moment
+          your flight actually leaves the ground. It is processed on your
+          device and never uploaded.
+        NSMotionUsageDescription: >-
+          Arc reads the barometer to sense takeoff and landing from cabin
+          pressure — it works even in airplane mode.
         BGTaskSchedulerPermittedIdentifiers: [com.arc.flighttracker.refresh]
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

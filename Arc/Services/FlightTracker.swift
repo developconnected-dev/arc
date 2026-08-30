@@ -296,6 +296,12 @@ final class FlightTracker: ObservableObject {
                 guard !Task.isCancelled else { return }
                 try? modelContext.save()
 
+                // The device's own takeoff witness: starts the barometer and
+                // a bounded background location session for whichever flight
+                // is in its takeoff window, and owns its own lifecycle from
+                // there (the landing watch outlives the window).
+                TakeoffSensor.shared.reconcile(flights: flights, modelContext: modelContext)
+
                 // Re-write the App Group after every cycle: gate changes and
                 // delays otherwise reached the Live Activity but not the
                 // home-screen widget until the app was next foregrounded.
