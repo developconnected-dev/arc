@@ -181,6 +181,12 @@ export function cacheTTLms(legs: Record<string, any>[]): number {
   // same bytes: the cache, not the watcher, would have been the latency.
   if (now < dep - 3 * 3600_000) return 15 * 60_000;         // day-of, close in
   if (now < dep + 20 * 60_000) return 5 * 60_000;           // boarding/departure
+  // Twenty minutes past the gate with NO confirmed take-off, the answer is
+  // still moving: the runway estimate slides, the actual is imminent, and
+  // the card's flip to In Air waits on exactly this row. A cruise-length
+  // hold here put that flip on a fifteen-minute clock at any slow hub.
+  // Bounded by the same hard cap as the hedge itself.
+  if (!leg["dep_actual"] && now < dep + 90 * 60_000) return 5 * 60_000;
   if (now < arr - 45 * 60_000) return 15 * 60_000;          // cruise
   if (now < arr + 45 * 60_000) return 2 * 60_000;           // arrival window
   return 24 * 3600_000;                                     // flight is history

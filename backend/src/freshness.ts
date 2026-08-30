@@ -184,3 +184,49 @@ export function resetAtFromHeader(
   if (!Number.isFinite(s) || s <= 0 || s > 45 * 86_400) return null;
   return new Date(now + s * 1000).toISOString();
 }
+
+// ── The Live Activity cron's takeoff clocks ──
+
+/// Mirrors DepartureEvidence.hardCap: past this, the presumption has spoken
+/// and there is nothing minute-fresh left to learn about the departure.
+export const TAKEOFF_HARD_CAP_MS = 90 * 60_000;
+
+/// How often the cron re-consults the provider, by flight phase. Progress
+/// ticks between refreshes cost nothing — they're computed from stored
+/// times. Only the windows where data really moves get tight cadence.
+///
+/// `departureConfirmed` matters at one boundary: twenty minutes past the
+/// gate time the old curve dropped to cruise cadence whether or not anyone
+/// had confirmed a take-off — so a 35-minute taxi at a slow hub had its
+/// runway-time confirmation, the very fact the card flips to In Air on,
+/// arriving on a THIRTY-minute clock. Unconfirmed, the tight cadence holds
+/// to the hedge's own hard cap.
+export function cronRefreshIntervalMs(
+  depMs: number, arrMs: number, now: number, departureConfirmed: boolean,
+): number {
+  if (now < depMs - 90 * 60_000) return 10 * 60_000;        // pre-departure, far
+  // Gate assignment and boarding land in the last ~hour; a 10-minute cron
+  // hold on top of the 5-minute cache TTL is how Arc told someone their
+  // gate a quarter hour after the airline's own app did. The fetch rides
+  // the shared cache, so tightening here costs one provider call per TTL
+  // window at most, shared with every device asking about the same flight.
+  if (now < depMs + 20 * 60_000) return 5 * 60_000;         // gate/boarding/departure
+  if (!departureConfirmed && now < depMs + TAKEOFF_HARD_CAP_MS) {
+    return 5 * 60_000;                                       // still on the ground, maybe
+  }
+  if (now < arrMs - 45 * 60_000) return 30 * 60_000;        // cruise
+  return 10 * 60_000;                                        // arrival window
+}
+
+/// Whether this tick should spend an ADS-B look on the aircraft: only the
+/// takeoff window (just before off-block until the hard cap), only while
+/// nobody has confirmed the departure, and not once a sighting already saw
+/// it flying. The aggregators are free, but every look is a subrequest —
+/// this window is what keeps it to a handful of aircraft per tick.
+export function takeoffWatchDue(
+  depMs: number, now: number,
+  departureConfirmed: boolean, groundState: string | null | undefined,
+): boolean {
+  if (departureConfirmed || groundState === "airborne") return false;
+  return now >= depMs - 15 * 60_000 && now <= depMs + TAKEOFF_HARD_CAP_MS;
+}

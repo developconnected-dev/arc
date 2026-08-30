@@ -218,3 +218,39 @@ test("the reset header becomes a date, and garbage becomes nothing", () => {
   assert.equal(resetAtFromHeader("not a number", now), null);
   assert.equal(resetAtFromHeader(null, now), null);
 });
+
+// ── the cron's takeoff clocks ──
+
+import { cronRefreshIntervalMs, takeoffWatchDue, TAKEOFF_HARD_CAP_MS } from "../src/freshness.ts";
+
+const DEP = Date.parse("2026-08-30T20:00:00Z");
+const ARR = DEP + 5 * 3600_000;
+
+test("an unconfirmed departure holds the five-minute clock through the taxi", () => {
+  const midTaxi = DEP + 30 * 60_000;
+  assert.equal(cronRefreshIntervalMs(DEP, ARR, midTaxi, false), 5 * 60_000);
+  // Confirmed at the same moment: cruise — the flip already happened.
+  assert.equal(cronRefreshIntervalMs(DEP, ARR, midTaxi, true), 30 * 60_000);
+});
+
+test("past the hard cap the presumption has spoken and cruise cadence returns", () => {
+  const past = DEP + TAKEOFF_HARD_CAP_MS + 60_000;
+  assert.equal(cronRefreshIntervalMs(DEP, ARR, past, false), 30 * 60_000);
+});
+
+test("the other bands are untouched", () => {
+  assert.equal(cronRefreshIntervalMs(DEP, ARR, DEP - 2 * 3600_000, false), 10 * 60_000);
+  assert.equal(cronRefreshIntervalMs(DEP, ARR, DEP + 10 * 60_000, false), 5 * 60_000);
+  assert.equal(cronRefreshIntervalMs(DEP, ARR, ARR - 10 * 60_000, true), 10 * 60_000);
+});
+
+test("the ADS-B look spends only inside the takeoff window", () => {
+  // Before the window, after the cap, once confirmed, once seen flying: no.
+  assert.equal(takeoffWatchDue(DEP, DEP - 30 * 60_000, false, null), false);
+  assert.equal(takeoffWatchDue(DEP, DEP + TAKEOFF_HARD_CAP_MS + 1, false, null), false);
+  assert.equal(takeoffWatchDue(DEP, DEP + 10 * 60_000, true, null), false);
+  assert.equal(takeoffWatchDue(DEP, DEP + 10 * 60_000, false, "airborne"), false);
+  // Rolling up to the gate time and through the taxi: yes.
+  assert.equal(takeoffWatchDue(DEP, DEP - 10 * 60_000, false, null), true);
+  assert.equal(takeoffWatchDue(DEP, DEP + 25 * 60_000, false, "taxiing"), true);
+});
