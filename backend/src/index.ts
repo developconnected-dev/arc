@@ -4,7 +4,7 @@ import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRI
 import { predictGate, standFromBoard, type GateObservation } from "./gates";
 import { contentState } from "./activity";
 import { flightNews, laAlert, type WatchState } from "./alerts";
-import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS, adbGate, resetAtFromHeader, ADB_MONTHLY_UNITS, ADB_UNITS_PER_CALL } from "./freshness";
+import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS, adbGate, resetAtFromHeader, ADB_MONTHLY_UNITS, ADB_UNITS_PER_CALL, cronRefreshIntervalMs, takeoffWatchDue } from "./freshness";
 import { pickLeg, plausibleActualDeparture, plausibleEstimatedArrival, effectiveDelayMinutes } from "./legmatch";
 import { verifiedRoute } from "./place";
 import { predictionConfirmed, summarise, type PredictionRow } from "./prediction";
@@ -3122,17 +3122,10 @@ async function sendToUser(env: Env, userId: string, title: string, body: string,
 /// How often the cron re-consults the provider, by flight phase. Progress
 /// ticks between refreshes cost nothing — they're computed from stored
 /// times. Only the windows where data really moves get tight cadence.
-function cronRefreshIntervalMs(depMs: number, arrMs: number, now: number): number {
-  if (now < depMs - 90 * 60_000) return 10 * 60_000;        // pre-departure, far
-  // Gate assignment and boarding land in the last ~hour; a 10-minute cron
-  // hold on top of the 5-minute cache TTL is how Arc told someone their
-  // gate a quarter hour after the airline's own app did. The fetch rides
-  // the shared cache, so tightening here costs one provider call per TTL
-  // window at most, shared with every device asking about the same flight.
-  if (now < depMs + 20 * 60_000) return 5 * 60_000;         // gate/boarding/departure
-  if (now < arrMs - 45 * 60_000) return 30 * 60_000;        // cruise
-  return 10 * 60_000;                                        // arrival window
-}
+// cronRefreshIntervalMs lives in freshness.ts now — tested, and taught that
+// an UNCONFIRMED departure holds the tight cadence to the hedge's hard cap:
+// the old curve dropped to the 30-minute cruise clock twenty minutes past
+// the gate whether or not anything had taken off.
 
 async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   const now = Date.now();
@@ -3164,7 +3157,7 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   const knownDep = flight?.["dep_actual"] ? new Date(flight["dep_actual"]).getTime() : schedDepGuess + priorDelayMs;
   const knownArr = flight?.["arr_actual"] ? new Date(flight["arr_actual"]).getTime()
     : new Date(row.scheduled_arrival ?? row.scheduled_departure!).getTime() + priorDelayMs;
-  if (now - fetchedAt > cronRefreshIntervalMs(knownDep, knownArr, now)) {
+  if (now - fetchedAt > cronRefreshIntervalMs(knownDep, knownArr, now, !!flight?.["dep_actual"])) {
     const day = row.scheduled_departure!.slice(0, 10);
     const { legs } = await fetchLegsCached(env, "flight", row.flight_number!, day, "cron");
     // A flight number can have multiple legs that day — and on a route that
@@ -3182,6 +3175,14 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
         leg["arr_gate"] !== flight["arr_gate"] ||
         leg["arr_baggage"] !== flight["arr_baggage"]
       );
+      // The takeoff facts push IMMEDIATELY: the runway-time confirmation is
+      // the very thing the card flips to In Air on, and a slid estimate is
+      // what the ground hedge counts against — neither was in dataChanged,
+      // so both could sit out a routine five-minute tick.
+      dataChanged = dataChanged || (!!flight && (
+        leg["dep_actual"] !== flight["dep_actual"] ||
+        leg["dep_runway_estimated"] !== flight["dep_runway_estimated"]
+      ));
       // The banner, decided against the PRIOR leg before it is replaced —
       // and only when the news is what the banner actually says (gate moved,
       // delay moved materially), never on `dataChanged` wholesale: a status
@@ -3274,17 +3275,44 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   // refreshSharedFlights: a sighting older than 15 minutes says nothing about
   // now, and `flight` is a cached leg that can outlive its own position.
   const sample = flight?.["position"] as ReturnType<typeof adbPositionToSample> | undefined;
-  const groundState = (sample && now - Date.parse(sample.reportedAt) < 15 * 60_000)
-    ? classifyGround(sample) : "unknown";
+  // The server's own eyes on the aircraft, inside the takeoff window. The
+  // provider's position block above is only as fresh as the last leg fetch —
+  // five minutes at best — but the moment the card flips to In Air deserves
+  // the cron's own minute. The aggregators are free and now answer this
+  // Worker (ADSB_CONTACT in the UA); the window (takeoffWatchDue) is what
+  // keeps this to the one or two aircraft actually rolling right now.
+  let live: { on_ground: boolean; velocity: number; altitude: number; reportedAt: string } | null = null;
+  if (env.ADSB_CONTACT && flight?.["aircraft_icao24"]
+      && takeoffWatchDue(depMs, now, !!flight["dep_actual"], evidence.ground_state)) {
+    const pos = await fetchADSB(env, "icao", String(flight["aircraft_icao24"]));
+    if (pos && (pos.age_seconds == null || pos.age_seconds < 900)) {
+      live = {
+        on_ground: pos.on_ground, velocity: pos.velocity, altitude: pos.altitude,
+        reportedAt: new Date(now - (pos.age_seconds ?? 0) * 1000).toISOString(),
+      };
+    }
+  }
+  // Freshest witness wins between the provider's block and our own look.
+  const chosen = live && (!sample || Date.parse(live.reportedAt) > Date.parse(sample.reportedAt))
+    ? live : sample;
+  const groundState = (chosen && now - Date.parse(chosen.reportedAt) < 15 * 60_000)
+    ? classifyGround(chosen) : "unknown";
   if (groundState !== "unknown") {
     if (groundState === "taxiing" && !evidence.taxi_started_at) {
-      evidence.taxi_started_at = sample!.reportedAt;
+      evidence.taxi_started_at = chosen!.reportedAt;
+    }
+    // A sighting still on the ground slides the wheels-up hedge, exactly as
+    // a device's own sample would — forward only, never rewinding.
+    if (groundState !== "airborne") {
+      const seen = Date.parse(chosen!.reportedAt);
+      const prior = evidence.last_seen_on_ground ? Date.parse(evidence.last_seen_on_ground) : 0;
+      if (seen > prior) evidence.last_seen_on_ground = chosen!.reportedAt;
     }
     // A first sighting on the move, or off the ground, is worth the user's
     // attention now rather than at the next routine tick.
     if (groundState !== evidence.ground_state) dataChanged = true;
     evidence.ground_state = groundState;
-    evidence.ground_observed_at = sample!.reportedAt;
+    evidence.ground_observed_at = chosen!.reportedAt;
   }
   const depActualMs = flight?.["dep_actual"] ? Date.parse(String(flight["dep_actual"])) : NaN;
   const estTakeoffMs = flight?.["dep_runway_estimated"]

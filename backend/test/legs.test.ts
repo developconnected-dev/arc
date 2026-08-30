@@ -436,3 +436,22 @@ test("a status nobody has heard of asserts nothing", () => {
   assert.equal(normalizeStatus(null), "scheduled");
   assert.equal(isCancelUncertain(undefined), false);
 });
+
+/// Twenty minutes past the gate with NO confirmed take-off, the answer is
+/// still moving — the runway estimate and the actual are what the card's
+/// flip to In Air waits on. The old curve dropped to the cruise hold here,
+/// so a 35-minute taxi had its confirmation on a fifteen-minute clock.
+test("an unconfirmed departure holds the tight TTL through the taxi", () => {
+  const dep = Date.now() - 30 * 60_000;   // half an hour past the gate
+  const unconfirmed = { dep_scheduled: new Date(dep).toISOString(),
+                        arr_scheduled: new Date(dep + 5 * 3600_000).toISOString() };
+  assert.equal(cacheTTLms([unconfirmed]), 5 * 60_000);
+  // A departure CONFIRMED half an hour ago is cruising: cruise hold.
+  const confirmed = { ...unconfirmed, dep_actual: new Date(dep).toISOString() };
+  assert.equal(cacheTTLms([confirmed]), 15 * 60_000);
+  // And the hedge's hard cap bounds it — past 90 minutes the presumption
+  // has spoken, nothing minute-fresh is left to learn.
+  const long = { dep_scheduled: new Date(Date.now() - 100 * 60_000).toISOString(),
+                 arr_scheduled: new Date(Date.now() + 4 * 3600_000).toISOString() };
+  assert.equal(cacheTTLms([long]), 15 * 60_000);
+});
