@@ -1801,8 +1801,10 @@ struct AddFlightView: View {
     /// what the user is offered is addable — the extractor alone yields only a
     /// number and a date, which is not yet a flight.
     static func resolveBooking(_ text: String) async -> [FlightAPIClient.FlightSearchResult] {
-        guard let items = try? await FlightAPIClient.shared.parseBooking(text: text), !items.isEmpty
-        else { return [] }
+        // On-device extraction where the device has a model, Worker where it
+        // doesn't — either way the items resolve against real schedules below.
+        let items = await BookingExtractor.extract(text: text)
+        guard !items.isEmpty else { return [] }
         var out: [FlightAPIClient.FlightSearchResult] = []
         for item in items.prefix(6) {
             let legs = (try? await FlightAPIClient.shared.searchFlight(
