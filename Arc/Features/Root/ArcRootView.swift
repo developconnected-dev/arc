@@ -92,12 +92,12 @@ struct ArcRootView: View {
             drainPendingOpen()
             maybeShowNotificationPrimer()
         }
-        .alert("Get told when this flight changes?", isPresented: $showNotificationPrimer) {
-            Button("Not now", role: .cancel) {}
-            Button("Turn on notifications") { ArcNotifications.requestPermission() }
-        } message: {
-            Text("Arc watches your flights for gate changes, delays, boarding and cancellations — even while the app is closed.")
-        }
+        // A ViewModifier, not an inline .alert: body's chain is already at
+        // the type-checker's limit (see `tabs`), and the alert's closures
+        // inlined here tipped it into "unable to type-check in reasonable
+        // time" — caught by CI, on a build the simulator would have shown
+        // the same way.
+        .modifier(NotificationPrimerAlert(isPresented: $showNotificationPrimer))
         .onChange(of: tab) { _, newTab in
             updateCameraForTab(newTab)
             if newTab == .friends {
@@ -276,6 +276,18 @@ struct ArcRootView: View {
             }
             UserDefaults.standard.set(true, forKey: key)
             showNotificationPrimer = true
+        }
+    }
+
+    fileprivate struct NotificationPrimerAlert: ViewModifier {
+        @Binding var isPresented: Bool
+        func body(content: Content) -> some View {
+            content.alert("Get told when this flight changes?", isPresented: $isPresented) {
+                Button("Not now", role: .cancel) {}
+                Button("Turn on notifications") { ArcNotifications.requestPermission() }
+            } message: {
+                Text("Arc watches your flights for gate changes, delays, boarding and cancellations — even while the app is closed.")
+            }
         }
     }
 
