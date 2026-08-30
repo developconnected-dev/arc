@@ -1,5 +1,6 @@
 import SwiftUI
 import VisionKit
+import AVFoundation
 
 /// Point the camera at any boarding pass — paper, mobile, a screenshot on
 /// another phone — and the BCBP barcode hands over flight number, date,
@@ -9,26 +10,38 @@ import VisionKit
 struct BoardingPassScanSheet: View {
     @Environment(\.dismiss) private var dismiss
     let onFound: (BoardingPass) -> Void
+    /// Tracked explicitly because `DataScannerViewController.isAvailable`
+    /// is true only once access is GRANTED — on the first-ever tap it still
+    /// reads false, and gating on it alone showed "allow in Settings" to a
+    /// user who had never been asked. The tap on the scan button is the
+    /// context the question needs, so undecided access prompts right here.
+    @State private var cameraAccess = AVCaptureDevice.authorizationStatus(for: .video)
 
     var body: some View {
         NavigationStack {
             Group {
-                if DataScannerViewController.isSupported && DataScannerViewController.isAvailable {
-                    BoardingPassScanView(onFound: onFound)
-                        .ignoresSafeArea()
+                if !DataScannerViewController.isSupported {
+                    fallback("This device can't scan barcodes.")
                 } else {
-                    // Simulator, camera restricted, or access denied — say
-                    // which action fixes it rather than showing black.
-                    VStack(spacing: 10) {
-                        Image(systemName: "camera.badge.ellipsis")
-                            .font(.system(size: 40)).foregroundStyle(.tertiary)
-                        Text("Camera unavailable")
-                            .font(.system(size: 15, weight: .semibold))
-                        Text("Allow camera access in Settings to scan boarding passes.")
-                            .font(.system(size: 13)).foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+                    switch cameraAccess {
+                    case .authorized:
+                        if DataScannerViewController.isAvailable {
+                            BoardingPassScanView(onFound: onFound)
+                                .ignoresSafeArea()
+                        } else {
+                            fallback("The camera can't start right now — close any app using it and try again.")
+                        }
+                    case .notDetermined:
+                        ProgressView()
+                            .task {
+                                _ = await AVCaptureDevice.requestAccess(for: .video)
+                                cameraAccess = AVCaptureDevice.authorizationStatus(for: .video)
+                            }
+                    default:
+                        // Denied or restricted — say which action fixes it
+                        // rather than showing black.
+                        fallback("Allow camera access in Settings to scan boarding passes.")
                     }
-                    .padding(32)
                 }
             }
             .navigationTitle("Scan Boarding Pass")
@@ -39,6 +52,19 @@ struct BoardingPassScanSheet: View {
                 }
             }
         }
+    }
+
+    private func fallback(_ message: String) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: "camera.badge.ellipsis")
+                .font(.system(size: 40)).foregroundStyle(.tertiary)
+            Text("Camera unavailable")
+                .font(.system(size: 15, weight: .semibold))
+            Text(message)
+                .font(.system(size: 13)).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(32)
     }
 }
 
