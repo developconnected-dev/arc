@@ -93,6 +93,41 @@ struct TakeoffDetector {
     }
 }
 
+/// The wake ladder's brain — pure, no CoreLocation, so its what-if
+/// scenarios run as tests: given the flights' windows and the clock, what
+/// should a UI-less wake do — start the sensors, hold the process alive
+/// until the window, or let iOS reclaim it?
+enum TakeoffWakePlanner {
+    enum Call: Equatable { case sensors(UUID), hold, sleep }
+    struct Candidate {
+        let id: UUID
+        let offBlock: Date
+        let windowEnd: Date     // expectedWheelsUp + DepartureEvidence.hardCap
+        let departed: Bool
+    }
+
+    /// The window opens this far before off-block.
+    static let windowLead: TimeInterval = 15 * 60
+    /// A hold is only worth the power when the window is this close.
+    static let holdHorizon: TimeInterval = 3 * 3600
+
+    /// Candidates must arrive sorted by off-block; the earliest due flight
+    /// wins, because a person boards one plane at a time.
+    static func call(_ candidates: [Candidate], now: Date) -> Call {
+        if let due = candidates.first(where: {
+            !$0.departed
+                && now >= $0.offBlock.addingTimeInterval(-windowLead)
+                && now <= $0.windowEnd
+        }) { return .sensors(due.id) }
+        let holds = candidates.contains {
+            !$0.departed
+                && $0.offBlock.addingTimeInterval(-windowLead) > now
+                && $0.offBlock < now.addingTimeInterval(holdHorizon)
+        }
+        return holds ? .hold : .sleep
+    }
+}
+
 /// The device's own eyes on the takeoff — the one witness that works in
 /// FULL airplane mode, where even the push channel is dark.
 ///
@@ -159,10 +194,10 @@ final class TakeoffSensor: NSObject {
                 return
             }
             // Take-off confirmed by someone else (the provider beat us to
-            // it): drop GPS, keep the barometer's landing watch.
+            // it): drop precise GPS, keep the barometer's landing watch.
             if flight.actualDeparture != nil, !detector.airborne {
                 detector.noteAirborne()
-                stopGPS()
+                downgradeToLandingWatch()
             }
             return
         }
@@ -175,7 +210,7 @@ final class TakeoffSensor: NSObject {
     private func inTakeoffWindow(_ f: Flight) -> Bool {
         f.mode == .air && !f.isCompleted && !f.isDeleted
             && f.actualDeparture == nil
-            && Date.now >= f.offBlock.addingTimeInterval(-15 * 60)
+            && Date.now >= f.offBlock.addingTimeInterval(-TakeoffWakePlanner.windowLead)
             && Date.now <= f.expectedWheelsUp.addingTimeInterval(DepartureEvidence.hardCap)
     }
 
@@ -295,28 +330,31 @@ final class TakeoffSensor: NSObject {
     }
 
     /// A wake with no UI: the geofence fired, the hold timer ticked, or
-    /// Always was just granted. Decide from the data alone what this moment
-    /// needs — full sensors, a low-power hold until the window, or nothing.
+    /// Always was just granted. The pure planner decides what this moment
+    /// needs — full sensors, a coarse location hold that legally keeps the
+    /// process alive until the window, or nothing.
     private func wake() {
         guard let flights = fetchFlights() else { return }
         armAirportWake(flights: flights)
-        if watching != nil { stopHold(); return }
-        if let due = flights.first(where: { inTakeoffWindow($0) }) {
-            start(for: due)
+        if watching != nil { return }
+        let candidates = flights
+            .filter { $0.mode == .air && !$0.isCompleted && !$0.isDeleted }
+            .map {
+                TakeoffWakePlanner.Candidate(
+                    id: $0.id, offBlock: $0.offBlock,
+                    windowEnd: $0.expectedWheelsUp.addingTimeInterval(DepartureEvidence.hardCap),
+                    departed: $0.actualDeparture != nil)
+            }
+            .sorted { $0.offBlock < $1.offBlock }
+        switch TakeoffWakePlanner.call(candidates, now: .now) {
+        case .sensors(let id):
+            if let due = flights.first(where: { $0.id == id }) { start(for: due) }
             stopHold()
-            return
+        case .hold:
+            startHold()
+        case .sleep:
+            stopHold()
         }
-        // At the airport before the window: a coarse location hold is what
-        // legally keeps the process alive until the window opens. Cell-tower
-        // accuracy — the point is the heartbeat, not the position.
-        let holdHorizon = Date.now.addingTimeInterval(3 * 3600)
-        let upcoming = flights.contains {
-            $0.mode == .air && !$0.isCompleted && !$0.isDeleted
-                && $0.actualDeparture == nil
-                && $0.offBlock.addingTimeInterval(-15 * 60) > .now
-                && $0.offBlock < holdHorizon
-        }
-        upcoming ? startHold() : stopHold()
     }
 
     private func startHold() {
@@ -352,12 +390,42 @@ final class TakeoffSensor: NSObject {
 
     private func stop() {
         watching = nil
+        holdTimer?.invalidate(); holdTimer = nil; holding = false
         stopGPS()
         if altimeterRunning {
             altimeter.stopRelativeAltitudeUpdates()
             altimeterRunning = false
         }
         detector = TakeoffDetector()
+    }
+
+    /// After wheels-up the barometer alone senses the landing — but only a
+    /// LIVE process hears a barometer. Stopping location entirely lets iOS
+    /// suspend a backgrounded app within moments, and a suspended app has no
+    /// sensors at all: the landing watch would exist only on paper. So the
+    /// takeoff downgrades location to cell-tower accuracy instead of
+    /// stopping it — the heartbeat that keeps the process (and the altimeter)
+    /// alive through the flight, at a fraction of full GPS power — with a
+    /// patient timer to end the watch if no landing is ever sensed.
+    private func downgradeToLandingWatch() {
+        guard gpsRunning else { return }   // no grant: foreground-only watch, nothing to keep alive
+        location.desiredAccuracy = kCLLocationAccuracyThreeKilometers
+        location.distanceFilter = 1000
+        holdTimer?.invalidate()
+        holdTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { _ in
+            Task { @MainActor in TakeoffSensor.shared.expireLandingWatchIfDue() }
+        }
+    }
+
+    private func expireLandingWatchIfDue() {
+        guard let id = watching,
+              let flights = fetchFlights(),
+              let f = flights.first(where: { $0.id == id }), !f.isDeleted,
+              Date.now < f.effectiveArrival.addingTimeInterval(3600) else {
+            stop()
+            wake()   // a connection's next leg may deserve a hold right now
+            return
+        }
     }
 
     private func handle(_ verdict: TakeoffDetector.Verdict) {
@@ -380,7 +448,7 @@ final class TakeoffSensor: NSObject {
                 flight.statusRaw = FlightStatus.active.rawValue
             }
             try? context.save()
-            stopGPS()   // the altimeter alone watches for the landing
+            downgradeToLandingWatch()   // coarse heartbeat; the altimeter watches
             let f = flight
             Task {
                 await LiveActivityManager.shared.updateActivity(for: f)
@@ -408,6 +476,11 @@ final class TakeoffSensor: NSObject {
                 WidgetSync.sync(flights: all)
             }
             stop()
+            // Landed at the airport a connection departs from means standing
+            // INSIDE the next leg's geofence — its entry event already fired
+            // and will not fire again. Re-judge now, so a short layover gets
+            // its hold without the app being opened.
+            wake()
 
         case .none:
             break
