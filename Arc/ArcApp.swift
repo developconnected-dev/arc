@@ -28,8 +28,11 @@ struct ArcApp: App {
                     // The notification delegate is assigned in RemotePush's
                     // didFinishLaunchingWithOptions — assigning it here missed
                     // the very tap that launched the app.
+                    // Provisional, not the dialog: the full prompt waits for
+                    // the first added flight (see ArcRootView's primer),
+                    // where the question answers itself.
                     if !DemoSeed.suppressPrompts {
-                        ArcNotifications.requestPermission()
+                        ArcNotifications.requestProvisionalPermission()
                     }
                     NetworkMonitor.shared.start()
                     LiveActivityPushSync.start(modelContainer: modelContainer)

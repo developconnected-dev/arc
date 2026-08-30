@@ -1823,6 +1823,16 @@ export default {
     // closed the app, for a key the refresher never needed.
     if (!env.SUPABASE_SERVICE_KEY) return;
     ctx.waitUntil(runLiveActivityCron(env));
+    // flight_cache only ever grew: every number-and-date ever searched, every
+    // FIDS board window, a row for eternity — long after cacheTTLms stopped
+    // considering any of it fresh (its longest hold is three days). One
+    // DELETE an hour, at a minute the rest of the tick doesn't care about,
+    // keeps the table bounded; 45 days is far beyond anything a reader could
+    // still want, so this can never race a legitimate cache hit.
+    if (new Date().getUTCMinutes() === 7) {
+      const cutoff = new Date(Date.now() - 45 * 86_400_000).toISOString();
+      ctx.waitUntil(sbService(env, "DELETE", `/flight_cache?fetched_at=lt.${cutoff}`));
+    }
   },
 };
 
