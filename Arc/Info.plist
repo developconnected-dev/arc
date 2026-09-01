@@ -40,11 +40,20 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Arc scans the barcode on a boarding pass to add the flight — decoded on your device, nothing is uploaded.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Arc can wake itself when you arrive at the airport, so takeoff detection works even if you don't open the app. Your location is processed on your device and never uploaded.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Arc uses your location only around takeoff, to confirm the moment your flight actually leaves the ground. It is processed on your device and never uploaded.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Arc reads the barometer to sense takeoff and landing from cabin pressure — it works even in airplane mode.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
+		<string>location</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
