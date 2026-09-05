@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { contentState } from "../src/activity.ts";
+import { contentState, liveActivityClock } from "../src/activity.ts";
 
 /// Seconds between the unix epoch and Apple's reference date (2001-01-01).
 /// ActivityKit decodes remote content-state with a default JSONDecoder, whose
@@ -108,4 +108,75 @@ test("progress is clamped and never runs past the arrival", () => {
   assert.equal(past.progress, 1);
   const future = contentState("scheduled", Date.now() + 3600_000, Date.now() + 7200_000, 0, 0, null);
   assert.equal(future.progress, 0);
+});
+
+// VY8462 on the lock screen vs Dynamic Island: same flight, two writers.
+// The Worker used to count arrival as scheduled + *departure* delay and
+// ignore arr_estimated, so a push replaced a 35-minute-early ETA with
+// "5m Late" and the Island counted down to a time 40 minutes later.
+const VY_DEP = Date.parse("2026-09-02T17:45:00Z"); // 19:45 BCN (UTC+2)
+const VY_ARR = Date.parse("2026-09-02T20:35:00Z"); // 21:35 LIS (UTC+1)
+const VY_EST = "2026-09-02T20:00:00.000Z";         // 21:00 LIS — 35m early
+const VY_WHEELS = "2026-09-02T17:41:00.000Z";      // 19:41 BCN wheels-up
+
+test("the Live Activity clock uses the provider's arrival estimate, not departure delay", () => {
+  const clock = liveActivityClock({
+    schedDepMs: VY_DEP,
+    schedArrMs: VY_ARR,
+    delay: 5,
+    arrEstimated: VY_EST,
+  });
+  assert.equal(clock.depMs, VY_DEP + 5 * 60_000);
+  assert.equal(clock.arrMs, Date.parse(VY_EST));
+  assert.equal(clock.delay, 5);
+  assert.equal(clock.arrDelay, -35);
+  // Gate time stays the taxi origin even when wheels-up is known later.
+  assert.equal(clock.offBlockMs, VY_DEP + 5 * 60_000);
+});
+
+test("a confirmed wheels-up is the displayed departure, and does not wipe the arrival estimate", () => {
+  const clock = liveActivityClock({
+    schedDepMs: VY_DEP,
+    schedArrMs: VY_ARR,
+    delay: 5,
+    depActual: VY_WHEELS,
+    arrEstimated: VY_EST,
+  });
+  assert.equal(clock.depMs, Date.parse(VY_WHEELS));
+  assert.equal(clock.arrMs, Date.parse(VY_EST));
+  assert.equal(clock.arrDelay, -35);
+  assert.equal(clock.offBlockMs, VY_DEP + 5 * 60_000);
+});
+
+test("a device-witnessed takeoff is echoed when the provider has not confirmed one", () => {
+  const clock = liveActivityClock({
+    schedDepMs: VY_DEP,
+    schedArrMs: VY_ARR,
+    delay: 5,
+    deviceActualDeparture: VY_WHEELS,
+    arrEstimated: VY_EST,
+  });
+  assert.equal(clock.depMs, Date.parse(VY_WHEELS));
+  assert.equal(clock.arrMs, Date.parse(VY_EST));
+});
+
+test("an estimate at or before departure is another operation and is dropped", () => {
+  const clock = liveActivityClock({
+    schedDepMs: VY_DEP,
+    schedArrMs: VY_ARR,
+    delay: 5,
+    arrEstimated: "2026-09-02T17:40:00.000Z",
+  });
+  assert.equal(clock.arrMs, VY_ARR + 5 * 60_000);
+  assert.equal(clock.arrDelay, 5);
+});
+
+test("a device actual_departure survives the content-state replace", () => {
+  const s = contentState("active", VY_DEP + 5 * 60_000, Date.parse(VY_EST), 5, -35,
+                         null, null, {
+                           offBlockMs: VY_DEP + 5 * 60_000,
+                           taxiPrior: 20,
+                           local: { actual_departure: VY_WHEELS },
+                         });
+  assert.equal(s.actualDeparture, Date.parse(VY_WHEELS) / 1000 - APPLE_EPOCH);
 });

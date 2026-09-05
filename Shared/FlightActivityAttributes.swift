@@ -152,6 +152,49 @@ struct FlightActivityAttributes: ActivityAttributes {
         /// is pointed at, so the lock screen changes its mind at the right
         /// moment with no app running and no network.
         var expectedWheelsUp: Date { departureEvidence.expectedWheelsUp }
+
+        /// The clock lock, compact Island, and expanded Island all read.
+        /// Built once so a Worker push and a local `update()` cannot disagree
+        /// on departure, arrival, delay labels, countdown target, or progress.
+        struct Clock: Equatable {
+            var departureTime: Date
+            var arrivalTime: Date
+            var delayMinutes: Int
+            var arrivalDelayMinutes: Int
+        }
+
+        /// Same formula as `backend/src/activity.ts` `liveActivityClock`.
+        /// Arrival is the provider's own estimate (or actual), never
+        /// `scheduledArrival + departureDelay` — that substitution is how
+        /// VY8462's Island said 21:40 / 1h 5m while the lock said 21:00 / 26m.
+        static func clock(scheduledDeparture: Date,
+                          scheduledArrival: Date,
+                          delayMinutes: Int,
+                          actualDeparture: Date? = nil,
+                          estimatedArrival: Date? = nil,
+                          actualArrival: Date? = nil) -> Clock {
+            let departure: Date
+            if let actualDeparture {
+                departure = actualDeparture
+            } else if delayMinutes > 0 {
+                departure = scheduledDeparture.addingTimeInterval(Double(delayMinutes) * 60)
+            } else {
+                departure = scheduledDeparture
+            }
+            let arrival: Date
+            if let actualArrival {
+                arrival = actualArrival
+            } else if let est = estimatedArrival, est > departure {
+                arrival = est
+            } else {
+                arrival = scheduledArrival.addingTimeInterval(Double(max(0, delayMinutes)) * 60)
+            }
+            return Clock(
+                departureTime: departure,
+                arrivalTime: arrival,
+                delayMinutes: delayMinutes,
+                arrivalDelayMinutes: Int((arrival.timeIntervalSince(scheduledArrival) / 60).rounded()))
+        }
     }
 }
 

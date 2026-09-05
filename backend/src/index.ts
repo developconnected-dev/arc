@@ -2,7 +2,7 @@ import { apnsConfigured, sendLiveActivityPush, sendAlertPush, apnsJwt, tokenIsDe
 import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, templatesFromNeighbour, completeLeg, confirmedRunwayTime, movementIsLive, localDay, departsOnLocalDate, answerForDay, normalizeStatus, isCancelUncertain } from "./legs";
 import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRIOR } from "./ground";
 import { predictGate, standFromBoard, type GateObservation } from "./gates";
-import { contentState } from "./activity";
+import { contentState, liveActivityClock } from "./activity";
 import { flightNews, laAlert, type WatchState } from "./alerts";
 import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS, adbGate, resetAtFromHeader, ADB_MONTHLY_UNITS, ADB_UNITS_PER_CALL, cronRefreshIntervalMs, takeoffWatchDue } from "./freshness";
 import { pickLeg, plausibleActualDeparture, plausibleEstimatedArrival, effectiveDelayMinutes } from "./legmatch";
@@ -3219,8 +3219,16 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   const schedDepMs = new Date(row.scheduled_departure!).getTime();
   const delay: number = effectiveDelayMinutes(flight, schedDepMs);
   const schedArrMs = new Date(row.scheduled_arrival ?? row.scheduled_departure!).getTime();
-  const depMs = flight?.["dep_actual"] ? new Date(flight["dep_actual"]).getTime() : schedDepMs + delay * 60_000;
-  const arrMs = flight?.["arr_actual"] ? new Date(flight["arr_actual"]).getTime() : schedArrMs + delay * 60_000;
+  const clock = liveActivityClock({
+    schedDepMs,
+    schedArrMs,
+    delay,
+    depActual: flight?.["dep_actual"],
+    arrActual: flight?.["arr_actual"],
+    arrEstimated: flight?.["arr_estimated"],
+    deviceActualDeparture: (prior.local as { actual_departure?: string } | undefined)?.actual_departure,
+  });
+  const { depMs, arrMs, arrDelay } = clock;
 
   // Status: the provider's value, UNTOUCHED. The widget already flips its
   // layout by clock on its own; the status string is its CONFIRMATION
@@ -3237,9 +3245,9 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
         timestamp: Math.floor(now / 1000),
         event: "end",
         "dismissal-date": Math.floor(now / 1000) + 3600,
-        "content-state": contentState(status, depMs, arrMs, delay, Math.round((arrMs - schedArrMs) / 60_000),
+        "content-state": contentState(status, depMs, arrMs, delay, arrDelay,
                                       flight, null,
-                                      { offBlockMs: depMs, taxiPrior: DEFAULT_TAXI_PRIOR, evidence, local: prior.local }),
+                                      { offBlockMs: clock.offBlockMs, taxiPrior: DEFAULT_TAXI_PRIOR, evidence, local: prior.local }),
       },
     };
     const end = await sendLiveActivityPush(env, row.token, row.apns_env, APP_BUNDLE_ID, endPayload, 5);
@@ -3334,7 +3342,6 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   // The smart line: regenerated only when the situation FINGERPRINT changes
   // (a new delay, a gate move, a status flip); routine ticks re-push the
   // cached line, so Haiku runs a handful of times per flight, not per push.
-  const arrDelay = Math.round((arrMs - schedArrMs) / 60_000);
   const insightKey = [status, delay, arrDelay, flight?.["dep_gate"] ?? "", flight?.["arr_baggage"] ?? ""].join("|");
   // No line by DEFAULT. A normal flight — on time, gate where it was, no
   // trend — gets nothing; only a situation with an actual story is worth a
@@ -3371,7 +3378,7 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
       event: "update",
       "stale-date": staleAt,
       "content-state": contentState(status, depMs, arrMs, delay, arrDelay, flight, insight,
-                                    { offBlockMs: depMs, taxiPrior, evidence, local: prior.local }),
+                                    { offBlockMs: clock.offBlockMs, taxiPrior, evidence, local: prior.local }),
       // Only inside the watcher's stand-down window (<3h before departure):
       // farther out the watcher owns gate and delay news through sendToUser,
       // and both channels speaking put two banners on one fact.
@@ -3533,8 +3540,15 @@ async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[
       );
       if (alreadyLive || (sent[key] && now - sent[key] < 6 * 60 * 60 * 1000)) continue;
 
-      const depMs = new Date(f.scheduled_departure).getTime() + (f.delay_minutes ?? 0) * 60_000;
-      const arrMs = new Date(f.scheduled_arrival ?? f.scheduled_departure).getTime() + (f.delay_minutes ?? 0) * 60_000;
+      const startClock = liveActivityClock({
+        schedDepMs: new Date(f.scheduled_departure).getTime(),
+        schedArrMs: new Date(f.scheduled_arrival ?? f.scheduled_departure).getTime(),
+        delay: f.delay_minutes ?? 0,
+        depActual: f.actual_departure,
+        arrActual: f.actual_arrival,
+        arrEstimated: f.estimated_arrival,
+      });
+      const { depMs, arrMs, delay: startDelay, arrDelay: startArrDelay } = startClock;
       const payload = {
         aps: {
           timestamp: Math.floor(now / 1000),
@@ -3562,7 +3576,7 @@ async function pushStarts(env: Env, startRows: TokenRow[], updateRows: TokenRow[
             departureTZID: f.departure_tz ?? null,
             arrivalTZID: f.arrival_tz ?? null,
           },
-          "content-state": contentState(f.status ?? "scheduled", depMs, arrMs, f.delay_minutes ?? 0, f.delay_minutes ?? 0, {
+          "content-state": contentState(f.status ?? "scheduled", depMs, arrMs, startDelay, startArrDelay, {
             dep_gate: f.departure_gate, dep_terminal: f.departure_terminal,
             arr_gate: f.arrival_gate, arr_terminal: f.arrival_terminal,
             arr_baggage: f.baggage_claim,

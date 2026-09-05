@@ -301,6 +301,12 @@ enum LiveActivityPushSync {
         if let seat = state.seat {
             out["seat"] = seat
         }
+        // Wheels-up the device witnessed. The Worker cannot see TakeoffSensor,
+        // and a push that omits this replaces departureTime with gate+delay —
+        // lock 19:50 vs Island 19:41 on the same activity.
+        if let actual = state.actualDeparture {
+            out["actual_departure"] = ISO8601DateFormatter().string(from: actual)
+        }
         if let companions = state.companions, !companions.isEmpty,
            let encoded = try? JSONEncoder().encode(companions),
            let array = (try? JSONSerialization.jsonObject(with: encoded)) as? [Any] {
