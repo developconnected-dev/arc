@@ -26,35 +26,32 @@ final class LiveActivityManager {
 
     private func makeState(for flight: Flight, preservingInsight existing: String? = nil,
                            friendName: String? = nil) async -> FlightActivityAttributes.ContentState {
-        // Use actual departure if available, otherwise adjust scheduled by delay
-        let depTime: Date
-        if let actual = flight.actualDeparture {
-            depTime = actual
-        } else if flight.delayMinutes > 0 {
-            depTime = flight.scheduledDeparture.addingTimeInterval(Double(flight.delayMinutes) * 60)
-        } else {
-            depTime = flight.scheduledDeparture
-        }
+        // One clock, the same function the Worker uses. Lock, compact Island
+        // and expanded Island all bind these fields — a second formula here
+        // is how they drifted apart on VY8462.
+        let clock = FlightActivityAttributes.ContentState.clock(
+            scheduledDeparture: flight.scheduledDeparture,
+            scheduledArrival: flight.scheduledArrival,
+            delayMinutes: flight.delayMinutes,
+            actualDeparture: flight.actualDeparture,
+            estimatedArrival: flight.estimatedArrival,
+            actualArrival: flight.actualArrival)
         // Boarding windows are airport concepts. A rail leg's "BER" is
         // Berlin Hbf, not Berlin Brandenburg — asking the airport tables
         // about it returns another vehicle's answer.
         let boardingLead = Self.boardingLeadMinutes(for: flight)
-        let boardingTime = boardingLead.map { depTime.addingTimeInterval(TimeInterval(-$0 * 60)) }
-        // Delay shifts the arrival too, matching depTime above — the
-        // lock screen otherwise counts down to an arrival that passed.
-        let arrTime = flight.estimatedArrival
-            ?? flight.scheduledArrival.addingTimeInterval(Double(max(0, flight.delayMinutes)) * 60)
+        let boardingTime = boardingLead.map { clock.departureTime.addingTimeInterval(TimeInterval(-$0 * 60)) }
 
         return FlightActivityAttributes.ContentState(
             status: flight.statusRaw,
-            departureTime: depTime,
-            arrivalTime: arrTime,
+            departureTime: clock.departureTime,
+            arrivalTime: clock.arrivalTime,
             boardingTime: boardingTime,
-            delayMinutes: flight.delayMinutes,
+            delayMinutes: clock.delayMinutes,
             // Arrival delay is its own number: the provider revises arrival
             // independently (estimatedArrival), so a 20m late departure can
             // still arrive on time — or vice versa.
-            arrivalDelayMinutes: Int((arrTime.timeIntervalSince(flight.scheduledArrival) / 60).rounded()),
+            arrivalDelayMinutes: clock.arrivalDelayMinutes,
             // Local knock-on wins when it's live; otherwise keep a Worker
             // insight so a 60s local update doesn't wipe the smart line.
             insight: flight.liveActivityInsight ?? existing,
@@ -92,15 +89,54 @@ final class LiveActivityManager {
             : "friend-\(flight.flightNumber)-\(flight.departureIATA)"
     }
 
+    /// Same plane: number + route, ignoring spaces on the number. Own and
+    /// friend cards for VY8462 BCN→LIS are one flight — the Island and the
+    /// lock screen each pick a card, so two activities is two clocks.
+    nonisolated static func isSamePlane(_ a: FlightActivityAttributes,
+                                        _ b: FlightActivityAttributes) -> Bool {
+        isSamePlane(a, number: b.flightNumber, departureIATA: b.departureIATA, arrivalIATA: b.arrivalIATA)
+    }
+
+    nonisolated static func isSamePlane(_ a: FlightActivityAttributes,
+                                        number: String, departureIATA: String, arrivalIATA: String) -> Bool {
+        a.flightNumber.replacingOccurrences(of: " ", with: "").uppercased()
+            == number.replacingOccurrences(of: " ", with: "").uppercased()
+            && a.departureIATA.uppercased() == departureIATA.uppercased()
+            && a.arrivalIATA.uppercased() == arrivalIATA.uppercased()
+    }
+
+    /// Starting (or keeping) the traveller's own card ends the friend's.
+    /// Companions already live on the own card; a second activity for the
+    /// same plane is what let lock and Island disagree.
+    nonisolated static func preferOwnOverFriend(existing: FlightActivityAttributes,
+                                                incomingIsOwn: Bool) -> Bool {
+        incomingIsOwn && existing.friendName != nil
+    }
+
     func startActivity(for flight: Flight, friendName: String? = nil, friendAvatarFile: String? = nil,
                        friendFlightId: String? = nil) async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let key = Self.activityKey(for: flight, friendName: friendName)
 
-        // Don't start a duplicate. OWN and FRIEND activities for the same
-        // flight are different things — you and Anna can be on LX318 at once,
-        // and adopting hers as yours put her name on your lock screen (and
-        // your landing ended her card).
+        // One card per plane. If this is the traveller's own activity, any
+        // friend card for the same route goes — companions already appear
+        // on this header, and a leftover friend card is a second ContentState.
+        if friendName == nil {
+            await endFriendActivity(flightNumber: flight.flightNumber,
+                                    departureIATA: flight.departureIATA)
+        } else if Activity<FlightActivityAttributes>.activities.contains(where: {
+            $0.attributes.friendName == nil &&
+            Self.isSamePlane($0.attributes,
+                             number: flight.flightNumber,
+                             departureIATA: flight.departureIATA,
+                             arrivalIATA: flight.arrivalIATA)
+        }) {
+            // Traveller is on this plane — companions live on the own card.
+            return
+        }
+
+        // Don't start a duplicate of the SAME kind. Own vs friend used to
+        // both be kept; that is exactly two clocks on one plane.
         if let existing = Activity<FlightActivityAttributes>.activities.first(where: {
             $0.attributes.flightNumber == flight.flightNumber &&
             $0.attributes.departureIATA == flight.departureIATA &&
@@ -200,6 +236,9 @@ final class LiveActivityManager {
 
         let state = await makeState(for: flight, preservingInsight: activity.content.state.insight,
                                     friendName: friendName)
+        // One ActivityContent, one update. ActivityKit replaces the whole
+        // state on every presentation — there is no "lock only" or "Island
+        // only" write. A half-updated card is worse than a stale matching one.
         let content = ActivityContent(state: state, staleDate: Self.staleDate(for: state))
         nonisolated(unsafe) let act = activity
         await act.update(content)
@@ -229,25 +268,24 @@ final class LiveActivityManager {
     /// old adoption bug or a relaunch race; the lock screen must never stack
     /// two cards for one plane. Called once per app start.
     func reapDuplicateActivities() async {
-        var keep: [String: String] = [:]   // identity -> activity id
+        var keep: [String: Activity<FlightActivityAttributes>] = [:]
         let tracked = Set(activeActivities.values.map(\.id))
         for activity in Activity<FlightActivityAttributes>.activities {
             let a = activity.attributes
-            let identity = "\(a.friendName == nil)|\(a.flightNumber.replacingOccurrences(of: " ", with: "").uppercased())|\(a.departureIATA)"
+            // One identity per plane — not per own/friend kind. A leftover
+            // friend card next to the traveller's own is two ContentStates
+            // for one flight, which is the VY8462 lock-vs-Island split.
+            let identity = "\(a.flightNumber.replacingOccurrences(of: " ", with: "").uppercased())|\(a.departureIATA.uppercased())|\(a.arrivalIATA.uppercased())"
             if let kept = keep[identity] {
-                nonisolated(unsafe) let act = activity
-                // Prefer the one the manager drives; end the other.
-                if tracked.contains(activity.id) && !tracked.contains(kept) {
-                    if let loser = Activity<FlightActivityAttributes>.activities.first(where: { $0.id == kept }) {
-                        nonisolated(unsafe) let l = loser
-                        await l.end(nil, dismissalPolicy: .immediate)
-                    }
-                    keep[identity] = activity.id
-                } else {
-                    await act.end(nil, dismissalPolicy: .immediate)
-                }
+                let dropKept = (a.friendName == nil && kept.attributes.friendName != nil)
+                    || (tracked.contains(activity.id) && !tracked.contains(kept.id))
+                let loser = dropKept ? kept : activity
+                let winner = dropKept ? activity : kept
+                nonisolated(unsafe) let act = loser
+                await act.end(nil, dismissalPolicy: .immediate)
+                keep[identity] = winner
             } else {
-                keep[identity] = activity.id
+                keep[identity] = activity
             }
         }
     }
@@ -280,14 +318,20 @@ final class LiveActivityManager {
             return
         }
 
-        let finalArrival = flight.actualArrival ?? flight.effectiveArrival
+        let clock = FlightActivityAttributes.ContentState.clock(
+            scheduledDeparture: flight.scheduledDeparture,
+            scheduledArrival: flight.scheduledArrival,
+            delayMinutes: flight.delayMinutes,
+            actualDeparture: flight.actualDeparture,
+            estimatedArrival: flight.estimatedArrival,
+            actualArrival: flight.actualArrival)
         let finalState = FlightActivityAttributes.ContentState(
             status: "landed",
-            departureTime: flight.actualDeparture ?? flight.scheduledDeparture,
-            arrivalTime: finalArrival,
+            departureTime: clock.departureTime,
+            arrivalTime: clock.arrivalTime,
             boardingTime: nil,
-            delayMinutes: flight.delayMinutes,
-            arrivalDelayMinutes: Int((finalArrival.timeIntervalSince(flight.scheduledArrival) / 60).rounded()),
+            delayMinutes: clock.delayMinutes,
+            arrivalDelayMinutes: clock.arrivalDelayMinutes,
             departureGate: flight.departureGate,
             departureTerminal: flight.departureTerminal,
             arrivalGate: flight.arrivalGate,
