@@ -328,10 +328,11 @@ extension Flight {
     var effectiveArrival: Date {
         // Once it has landed, the actual time is the truth; an estimate that
         // outlived the landing must not keep the screen on a prediction.
-        if let actualArrival { return actualArrival }
-        if let estimatedArrival { return estimatedArrival }
-        if delayMinutes > 0 { return scheduledArrival.addingTimeInterval(Double(delayMinutes) * 60) }
-        return scheduledArrival
+        // Same formula as the Live Activity / Worker hero arrival — applying
+        // the departure delay when an estimate exists is the VY8462 1h jump.
+        FlightClock.heroArrival(
+            scheduled: scheduledArrival, delayMinutes: delayMinutes,
+            estimated: estimatedArrival, actual: actualArrival)
     }
 
     var departureChanged: Bool { abs(effectiveDeparture.timeIntervalSince(scheduledDeparture)) >= 60 }
@@ -341,13 +342,9 @@ extension Flight {
     var effectiveArrTimeLocal: String { hhmm(effectiveArrival, arrTimeZone) }
 
     /// "1h 38m" style countdown to a date; nil if past.
+    /// Epoch remaining via `FlightClock` — never airport-local HH:mm math.
     private func compactUntil(_ date: Date) -> String? {
-        let s = Int(date.timeIntervalSince(.now))
-        guard s > 0 else { return nil }
-        let d = s / 86400, h = (s % 86400) / 3600, m = (s % 3600) / 60
-        if d >= 1 { return "\(d)d \(h)h" }
-        if h >= 1 { return "\(h)h \(m)m" }
-        return "\(max(1, m))m"
+        FlightClock.compactUntil(date)
     }
 
     /// Banner headline: "Gate Departure in 1h 38m", "Landing in 6h 43m", etc.
