@@ -31,13 +31,50 @@ final class LiveActivityClockTests: XCTestCase {
         XCTAssertEqual(c.arrivalDelayMinutes, -35)
     }
 
-    /// Island snapshot mixed a wheels-up departure with scheduled+delay arrival.
-    /// The clock must keep the estimate even when takeoff is confirmed.
-    func testWheelsUpDoesNotReplaceTheArrivalEstimate() {
+    /// Mira: stale-but-matching. Wheels-up next to "5m Late" is a card that
+    /// disagrees with itself — lock 19:50 / Island 19:41 on VY8462.
+    func testDisplayedDepartureIsTheGateTimeTheAirlineTagDescribes() {
         let c = clock(actualDeparture: wheelsUp, estimatedArrival: estimatedArr)
-        XCTAssertEqual(c.departureTime, wheelsUp)
+        XCTAssertEqual(c.departureTime, scheduledDep.addingTimeInterval(5 * 60))
         XCTAssertEqual(c.arrivalTime, estimatedArr)
+        XCTAssertEqual(c.delayMinutes, 5)
         XCTAssertEqual(c.arrivalDelayMinutes, -35)
+    }
+
+    /// Arc ✦ arrival tag, airline dep tag, until-gate, and progress share
+    /// one snapshot. Inventing the arrival tag from the departure delay is
+    /// how 21:00 sat next to "5m Late".
+    func testArrivalTagDoesNotFallBackToDepartureDelay() {
+        let state = FlightActivityAttributes.ContentState(
+            status: "active",
+            departureTime: scheduledDep.addingTimeInterval(5 * 60),
+            arrivalTime: estimatedArr,
+            boardingTime: nil,
+            delayMinutes: 5,
+            arrivalDelayMinutes: nil,
+            departureGate: nil, departureTerminal: nil,
+            arrivalGate: nil, arrivalTerminal: nil,
+            baggageClaim: nil, progress: 0.6)
+        XCTAssertEqual(state.departureDelayMinutes, 5)
+        XCTAssertNil(state.matchedArrivalDelayMinutes)
+        XCTAssertEqual(state.gateArrival, estimatedArr)
+        XCTAssertEqual(state.progressInterval.lowerBound, state.departureTime)
+        XCTAssertEqual(state.progressInterval.upperBound, state.arrivalTime)
+    }
+
+    func testMatchingSnapshotKeepsArrivalTagWithTheETA() {
+        let state = FlightActivityAttributes.ContentState(
+            status: "active",
+            departureTime: scheduledDep.addingTimeInterval(5 * 60),
+            arrivalTime: estimatedArr,
+            boardingTime: nil,
+            delayMinutes: 5,
+            arrivalDelayMinutes: -35,
+            departureGate: nil, departureTerminal: nil,
+            arrivalGate: nil, arrivalTerminal: nil,
+            baggageClaim: nil, progress: 0.6)
+        XCTAssertEqual(state.matchedArrivalDelayMinutes, -35)
+        XCTAssertEqual(state.gateArrival, estimatedArr)
     }
 
     /// An estimate that is not after departure is yesterday's leftover, not this ETA.

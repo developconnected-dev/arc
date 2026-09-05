@@ -118,7 +118,10 @@ export function liveActivityClock(opts: {
 }): { depMs: number; arrMs: number; delay: number; arrDelay: number; offBlockMs: number } {
   const delay = Math.max(0, Math.round(Number(opts.delay) || 0));
   const offBlockMs = opts.schedDepMs + delay * 60_000;
-  const depMs = parseMs(opts.depActual) ?? parseMs(opts.deviceActualDeparture) ?? offBlockMs;
+  // Displayed departure is the GATE time the airline tag describes.
+  // Wheels-up (dep_actual / TakeoffSensor) is evidence, not this clock —
+  // putting 19:41 next to "5m Late" is a half-updated card (Mira).
+  const depMs = offBlockMs;
 
   const arrActual = parseMs(opts.arrActual);
   const est = typeof opts.arrEstimated === "string"

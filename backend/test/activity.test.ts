@@ -134,7 +134,10 @@ test("the Live Activity clock uses the provider's arrival estimate, not departur
   assert.equal(clock.offBlockMs, VY_DEP + 5 * 60_000);
 });
 
-test("a confirmed wheels-up is the displayed departure, and does not wipe the arrival estimate", () => {
+test("wheels-up is evidence, not the displayed clock — tags and until-gate stay one snapshot", () => {
+  // Mira: stale-but-matching over half-updated. Putting 19:41 (wheels-up)
+  // next to "5m Late" (gate delay) is a card that disagrees with itself;
+  // lock then showed 19:50 and the Island 19:41.
   const clock = liveActivityClock({
     schedDepMs: VY_DEP,
     schedArrMs: VY_ARR,
@@ -142,13 +145,14 @@ test("a confirmed wheels-up is the displayed departure, and does not wipe the ar
     depActual: VY_WHEELS,
     arrEstimated: VY_EST,
   });
-  assert.equal(clock.depMs, Date.parse(VY_WHEELS));
+  assert.equal(clock.depMs, VY_DEP + 5 * 60_000);
   assert.equal(clock.arrMs, Date.parse(VY_EST));
+  assert.equal(clock.delay, 5);
   assert.equal(clock.arrDelay, -35);
   assert.equal(clock.offBlockMs, VY_DEP + 5 * 60_000);
 });
 
-test("a device-witnessed takeoff is echoed when the provider has not confirmed one", () => {
+test("a device-witnessed takeoff does not move the displayed departure", () => {
   const clock = liveActivityClock({
     schedDepMs: VY_DEP,
     schedArrMs: VY_ARR,
@@ -156,7 +160,7 @@ test("a device-witnessed takeoff is echoed when the provider has not confirmed o
     deviceActualDeparture: VY_WHEELS,
     arrEstimated: VY_EST,
   });
-  assert.equal(clock.depMs, Date.parse(VY_WHEELS));
+  assert.equal(clock.depMs, VY_DEP + 5 * 60_000);
   assert.equal(clock.arrMs, Date.parse(VY_EST));
 });
 

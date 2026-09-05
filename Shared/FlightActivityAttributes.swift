@@ -173,14 +173,13 @@ struct FlightActivityAttributes: ActivityAttributes {
                           actualDeparture: Date? = nil,
                           estimatedArrival: Date? = nil,
                           actualArrival: Date? = nil) -> Clock {
-            let departure: Date
-            if let actualDeparture {
-                departure = actualDeparture
-            } else if delayMinutes > 0 {
-                departure = scheduledDeparture.addingTimeInterval(Double(delayMinutes) * 60)
-            } else {
-                departure = scheduledDeparture
-            }
+            // Gate time, not wheels-up. `actualDeparture` is phase evidence;
+            // putting it on the clock next to "Xm Late" is a half-updated card
+            // (lock 19:50 / Island 19:41 on VY8462). Unused on purpose.
+            _ = actualDeparture
+            let departure = delayMinutes > 0
+                ? scheduledDeparture.addingTimeInterval(Double(delayMinutes) * 60)
+                : scheduledDeparture
             let arrival: Date
             if let actualArrival {
                 arrival = actualArrival
@@ -194,6 +193,23 @@ struct FlightActivityAttributes: ActivityAttributes {
                 arrivalTime: arrival,
                 delayMinutes: delayMinutes,
                 arrivalDelayMinutes: Int((arrival.timeIntervalSince(scheduledArrival) / 60).rounded()))
+        }
+
+        /// Airline dep tag. Same number the displayed `departureTime` was built from.
+        var departureDelayMinutes: Int { delayMinutes }
+
+        /// Arc ✦ arrival tag. Nil means no independent claim — never invent
+        /// one from the departure delay (that is how 21:00 sat next to "5m Late").
+        var matchedArrivalDelayMinutes: Int? { arrivalDelayMinutes }
+
+        /// Until-gate countdown target. Same instant as the arrival time and
+        /// the arrival tag; progress uses this as its end as well.
+        var gateArrival: Date { arrivalTime }
+
+        /// Progress fill. Same endpoints as the displayed times and countdown.
+        /// A different interval is a card that lies about how far along it is.
+        var progressInterval: ClosedRange<Date> {
+            departureTime...max(arrivalTime, departureTime.addingTimeInterval(60))
         }
     }
 }

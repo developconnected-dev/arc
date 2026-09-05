@@ -101,9 +101,9 @@ struct FlightLiveActivity: Widget {
                             VStack(alignment: .trailing, spacing: 2) {
                                 Text(context.attributes.arrivalIATA)
                                     .font(.system(size: 22, weight: .bold))
-                                Text(context.attributes.arrTime(context.state.arrivalTime))
+                                Text(context.attributes.arrTime(context.state.gateArrival))
                                     .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(arrivalDelay(context.state) > 0 ? .orange : .secondary)
+                                    .foregroundStyle((arrivalDelay(context.state) ?? 0) > 0 ? .orange : .secondary)
                             }
                             .padding(.top, 4)
                         }
@@ -245,7 +245,7 @@ struct FlightLiveActivity: Widget {
             } compactTrailing: {
                 Group {
                     if phase == .inFlight {
-                        compactCountdown(to: context.state.arrivalTime)
+                        compactCountdown(to: context.state.gateArrival)
                     } else if phase == .landed {
                         if let belt = context.state.baggageClaim {
                             HStack(spacing: 2) {
@@ -368,7 +368,7 @@ struct FlightLiveActivity: Widget {
             // status to landed, so the staleDate re-render at arrival has to
             // conclude "landed" from the time alone — otherwise the island
             // wears its in-flight clothes forever.
-            return Date.now >= state.arrivalTime ? .landed : .inFlight
+            return Date.now >= state.gateArrival ? .landed : .inFlight
         }
     }
 
@@ -634,7 +634,7 @@ struct FlightLiveActivity: Widget {
         HStack {
             Spacer()
             VStack(spacing: 2) {
-                if Date.now >= state.arrivalTime {
+                if Date.now >= state.gateArrival {
                     if isConfirmedLanded(state) {
                         Text(attrs.mode.arrivedShort)
                             .font(.system(size: 16, weight: .bold).monospacedDigit())
@@ -660,7 +660,7 @@ struct FlightLiveActivity: Widget {
                     // TimeDataSource countdown (placeholder dashes). The
                     // arrival staleDate re-render flips this branch before
                     // it could start counting up.
-                    Text(state.arrivalTime, style: .relative)
+                    Text(state.gateArrival, style: .relative)
                         .font(.system(size: 16, weight: .bold).monospacedDigit())
                         .foregroundStyle(departureConfirmed(state) ? Color.green : Color.secondary)
                         .multilineTextAlignment(.center)
@@ -684,7 +684,7 @@ struct FlightLiveActivity: Widget {
     /// Valid interval even for odd data (delayed departure recorded after
     /// scheduled arrival).
     private func progressInterval(_ state: FlightActivityAttributes.ContentState) -> ClosedRange<Date> {
-        state.departureTime...max(state.arrivalTime, state.departureTime.addingTimeInterval(60))
+        state.progressInterval
     }
 
     // ── LANDED ──
@@ -849,9 +849,9 @@ struct FlightLiveActivity: Widget {
             }
             Spacer()
             HStack(spacing: 4) {
-                Text(attrs.arrTime(state.arrivalTime))
+                Text(attrs.arrTime(state.gateArrival))
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(arrivalDelay(state) > 0 ? .orange : .secondary)
+                    .foregroundStyle((arrivalDelay(state) ?? 0) > 0 ? .orange : .secondary)
                     .contentTransition(.numericText())
                 Text(attrs.arrivalIATA)
                     .font(.system(size: 20, weight: .bold))
@@ -931,7 +931,7 @@ struct FlightLiveActivity: Widget {
     private func arrivalStatusView(_ state: FlightActivityAttributes.ContentState,
                                    _ attrs: FlightActivityAttributes) -> some View {
         let d = arrivalDelay(state)
-        if attrs.reportsPunctuality, d != 0, !isConfirmedLanded(state) {
+        if attrs.reportsPunctuality, let d, d != 0, !isConfirmedLanded(state) {
             let from = state.updatedAt ?? state.departureTime
             HStack(spacing: 3) {
                 Image(systemName: "sparkles")
@@ -942,6 +942,8 @@ struct FlightLiveActivity: Widget {
                     font: .system(size: 12, weight: .semibold),
                     sweep: from...from.addingTimeInterval(5))
             }
+        } else if arrivalStatusText(state, attrs).isEmpty {
+            EmptyView()
         } else {
             Text(arrivalStatusText(state, attrs))
                 .font(.system(size: 12, weight: .medium))
@@ -1063,30 +1065,30 @@ struct FlightLiveActivity: Widget {
     private func departureStatusText(_ s: FlightActivityAttributes.ContentState,
                                      _ a: FlightActivityAttributes) -> String {
         guard a.reportsPunctuality else { return a.dataTier.qualifier ?? "Scheduled" }
-        if s.delayMinutes < 0 { return "\(abs(s.delayMinutes))m Early" }
-        if s.delayMinutes > 0 { return "\(s.delayMinutes)m Late" }
+        let d = s.departureDelayMinutes
+        if d < 0 { return "\(abs(d))m Early" }
+        if d > 0 { return "\(d)m Late" }
         return "On Time"
     }
 
     private func departureStatusColor(_ s: FlightActivityAttributes.ContentState,
                                       _ a: FlightActivityAttributes) -> Color {
         guard a.reportsPunctuality else { return .secondary }
-        if s.delayMinutes < 0 { return .green }
-        if s.delayMinutes > 0 { return .orange }
+        if s.departureDelayMinutes < 0 { return .green }
+        if s.departureDelayMinutes > 0 { return .orange }
         return .green
     }
 
-    /// Arrival has its own delay when the provider revised the arrival time
-    /// independently; older pushes without the field fall back to the shared
-    /// departure delay.
-    private func arrivalDelay(_ s: FlightActivityAttributes.ContentState) -> Int {
-        s.arrivalDelayMinutes ?? s.delayMinutes
+    /// Arrival tag from the same snapshot as until-gate. No fallback to the
+    /// departure delay — that invented "5m Late" beside a 35m-early ETA.
+    private func arrivalDelay(_ s: FlightActivityAttributes.ContentState) -> Int? {
+        s.matchedArrivalDelayMinutes
     }
 
     private func arrivalStatusText(_ s: FlightActivityAttributes.ContentState,
                                    _ a: FlightActivityAttributes) -> String {
         guard a.reportsPunctuality else { return a.dataTier.qualifier ?? "Scheduled" }
-        let d = arrivalDelay(s)
+        guard let d = arrivalDelay(s) else { return "" }
         if d < 0 { return "\(abs(d))m Early" }
         if d > 0 { return "\(d)m Late" }
         return "On Time"
@@ -1095,7 +1097,7 @@ struct FlightLiveActivity: Widget {
     private func arrivalStatusColor(_ s: FlightActivityAttributes.ContentState,
                                     _ a: FlightActivityAttributes) -> Color {
         guard a.reportsPunctuality else { return .secondary }
-        return arrivalDelay(s) > 0 ? .orange : .green
+        return (arrivalDelay(s) ?? 0) > 0 ? .orange : .green
     }
 }
 
@@ -1133,7 +1135,7 @@ struct FlightPathProgress: View {
                     .shadow(color: tint.opacity(0.7), radius: 3)
                     .mask(
                         ProgressView(
-                            timerInterval: state.departureTime...max(state.arrivalTime, state.departureTime.addingTimeInterval(60)),
+                            timerInterval: state.progressInterval,
                             countsDown: false,
                             label: { EmptyView() },
                             currentValueLabel: { EmptyView() }
