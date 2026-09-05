@@ -419,36 +419,62 @@ final class Flight {
 
     // MARK: - Smarter Arrival ETA
 
+    /// Same approach/taxi buffer `InboundMonitor` already uses on the inbound
+    /// leg. Great-circle remaining at cruise speed is optimistic — it skips
+    /// the descent and the last miles to the gate, which is how a live
+    /// projection undershoots Flighty by a quarter hour.
+    static let approachBuffer: TimeInterval = 15 * 60
+    /// A position older than this is a trail, not an ETA input.
+    static let liveETAFreshWindow: TimeInterval = 5 * 60
+
     /// Estimated arrival computed from actual departure + scheduled flight duration,
     /// rather than just adding departure delay to scheduled arrival.
     /// When live position data is available, computes ETA from remaining distance / speed.
-    var smartETA: Date {
-        // If API provided an actual/estimated arrival, trust it
-        if let est = estimatedArrival { return est }
+    func smartETA(at now: Date = .now) -> Date {
         if let actual = actualArrival { return actual }
 
-        // Compute from actual departure + scheduled flight duration
-        // This naturally gives a better ETA because airlines pad schedules
-        let flightDuration = scheduledArrival.timeIntervalSince(scheduledDeparture)
-        let depTime = actualDeparture ?? scheduledDeparture.addingTimeInterval(Double(delayMinutes) * 60)
+        let live = liveProjectedArrival(at: now)
 
-        // If we have live position and speed, compute remaining distance ETA
-        if let lat = liveLat, let lon = liveLon, let speed = liveSpeed, speed > 10 {
-            let remainingKm = greatCircleDistance(
-                lat1: lat, lon1: lon,
-                lat2: arrivalLat, lon2: arrivalLon
-            )
-            let remainingSeconds = (remainingKm * 1000) / speed  // speed is m/s
-            let liveETA = Date.now.addingTimeInterval(remainingSeconds)
-
-            // Sanity check: live ETA should be within reasonable range
-            let scheduledETA = depTime.addingTimeInterval(flightDuration)
-            if liveETA > depTime && liveETA < scheduledETA.addingTimeInterval(3600) {
-                return liveETA
+        if let est = estimatedArrival {
+            // VY8462: airline revisedTime 20:00 LIS was already behind the
+            // clock while the aircraft was still south of Setúbal. A stale
+            // early filing must not block a live remaining-time projection.
+            if est <= now, let live { return live }
+            // Only replace a still-future estimate when live is *later*
+            // (holding, longer remaining) and within a tight cap — never
+            // invent an earlier arrival from great-circle optimism.
+            if let live, live > est, live < est.addingTimeInterval(45 * 60) {
+                return live
             }
+            return est
         }
 
+        if let live { return live }
+
+        let flightDuration = scheduledArrival.timeIntervalSince(scheduledDeparture)
+        let depTime = actualDeparture ?? scheduledDeparture.addingTimeInterval(Double(delayMinutes) * 60)
         return depTime.addingTimeInterval(flightDuration)
+    }
+
+    /// Remaining great-circle at current speed, plus the approach buffer.
+    /// Nil when there is no fresh airborne sample, or the projection fails
+    /// a duration sanity check (same window `smartETA` used to apply).
+    func liveProjectedArrival(at now: Date = .now) -> Date? {
+        guard let lat = liveLat, let lon = liveLon, let speed = liveSpeed, speed > 10,
+              arrivalLat != 0 || arrivalLon != 0 else { return nil }
+        if let updated = liveUpdatedAt, now.timeIntervalSince(updated) > Self.liveETAFreshWindow {
+            return nil
+        }
+        let remainingKm = greatCircleDistance(
+            lat1: lat, lon1: lon,
+            lat2: arrivalLat, lon2: arrivalLon
+        )
+        let liveETA = now.addingTimeInterval((remainingKm * 1000) / speed + Self.approachBuffer)
+        let flightDuration = scheduledArrival.timeIntervalSince(scheduledDeparture)
+        let depTime = actualDeparture ?? scheduledDeparture.addingTimeInterval(Double(delayMinutes) * 60)
+        let scheduledETA = depTime.addingTimeInterval(flightDuration)
+        guard liveETA > depTime, liveETA < scheduledETA.addingTimeInterval(3600) else { return nil }
+        return liveETA
     }
 
     private func greatCircleDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double) -> Double {
