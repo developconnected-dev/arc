@@ -236,6 +236,9 @@ final class LiveActivityManager {
 
         let state = await makeState(for: flight, preservingInsight: activity.content.state.insight,
                                     friendName: friendName)
+        // One ActivityContent, one update. ActivityKit replaces the whole
+        // state on every presentation — there is no "lock only" or "Island
+        // only" write. A half-updated card is worse than a stale matching one.
         let content = ActivityContent(state: state, staleDate: Self.staleDate(for: state))
         nonisolated(unsafe) let act = activity
         await act.update(content)
