@@ -35,9 +35,11 @@ enum FlightClock {
 
     /// The arrival instant every surface counts down to.
     ///
-    /// Actual wheels-down, then the provider estimate, then scheduled
-    /// arrival plus departure delay — never the delay when an estimate
-    /// exists. That substitution is the VY8462 30m / 90m Live Activity flip.
+    /// Actual wheels-down, then the provider/airline estimate, then
+    /// scheduled arrival plus departure delay — never the delay when an
+    /// estimate exists (the VY8462 30m / 90m flip), and never Arc's own
+    /// remaining-time guess. That guess is a labeled prediction only
+    /// when this stamp is missing.
     static func heroArrival(scheduled: Date, delayMinutes: Int,
                             estimated: Date? = nil, actual: Date? = nil) -> Date {
         if let actual { return actual }

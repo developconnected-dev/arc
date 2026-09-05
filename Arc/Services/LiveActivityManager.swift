@@ -40,6 +40,9 @@ final class LiveActivityManager {
         // Berlin Hbf, not Berlin Brandenburg — asking the airport tables
         // about it returns another vehicle's answer.
         let boardingLead = Self.boardingLeadMinutes(for: flight)
+        // One clock: boarding tracks the same departure the lock and Island
+        // print. Arrival is already clock.arrivalTime (provider/actual via
+        // FlightClock.heroArrival) — a second formula here is two ETAs.
         let boardingTime = boardingLead.map { clock.departureTime.addingTimeInterval(TimeInterval(-$0 * 60)) }
 
         return FlightActivityAttributes.ContentState(

@@ -116,8 +116,9 @@ function mapLeg(f: Record<string, any>): Record<string, unknown> {
     // aggregator, all of which refuse Cloudflare's shared egress IPs.
     position: adbPositionToSample(f.location),
     dep_estimated: depRev !== depSched ? toISO(depRev) : null,
-    // predictedTime (ADB's own projection) over revisedTime (airline filing)
-    // when the payload has one — same call, no extra RapidAPI spend.
+    // Airline/airport revisedTime only. ADB predictedTime is not a
+    // provider ETA — dressing it as arr_estimated would paint a
+    // projection as fact.
     arr_estimated: pickEstimatedArrival(arr),
     aircraft_type: ac.model ?? null,
     aircraft_registration: ac.reg ?? null,

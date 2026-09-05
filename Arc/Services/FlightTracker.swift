@@ -821,13 +821,9 @@ final class FlightTracker: ObservableObject {
             if !pos.on_ground {
                 flight.appendTrackPoint(lat: pos.lat, lon: pos.lon, altitude: pos.altitude)
             }
-            if pos.velocity > 10, !pos.on_ground, flight.arrivalLat != 0 {
-                let smartArrival = flight.smartETA
-                let currentEst = flight.estimatedArrival ?? flight.scheduledArrival
-                if abs(smartArrival.timeIntervalSince(currentEst)) > 120 {
-                    flight.estimatedArrival = smartArrival
-                }
-            }
+            // Live remaining is a labeled prediction only. It is never
+            // written onto estimatedArrival — that field is the
+            // provider/airline stamp (see Flight.applyingLiveArrival).
         } catch { }
     }
 }

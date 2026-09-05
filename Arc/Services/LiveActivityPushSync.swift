@@ -255,12 +255,15 @@ enum LiveActivityPushSync {
             changed = true
         }
 
-        // The arrival the card is counting down to. Only when the push carries
-        // a revision — `arrivalTime` falls back to schedule+delay, and writing
-        // that over a provider estimate would be a downgrade dressed as news.
-        if state.arrivalDelayMinutes != nil, state.arrivalTime != flight.scheduledArrival,
-           flight.estimatedArrival != state.arrivalTime {
-            flight.estimatedArrival = state.arrivalTime
+        // Only a provider revision may land on estimatedArrival.
+        // Schedule+delay is the timetable fallback — storing it would
+        // make the next hero treat a delay formula as an airline ETA.
+        if let provider = providerArrival(
+            arrivalTime: state.arrivalTime,
+            scheduledArrival: flight.scheduledArrival,
+            delayMinutes: state.delayMinutes),
+           flight.estimatedArrival != provider {
+            flight.estimatedArrival = provider
             changed = true
         }
 
@@ -378,6 +381,18 @@ enum LiveActivityPushSync {
 
     private static func hex(_ data: Data) -> String {
         data.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The arrival instant a Live Activity push may write onto
+    /// `estimatedArrival`. Schedule+delay is the timetable fallback, not
+    /// a provider revision — storing it would dress a delay formula up
+    /// as an airline ETA.
+    nonisolated static func providerArrival(arrivalTime: Date, scheduledArrival: Date,
+                                            delayMinutes: Int) -> Date? {
+        let timetable = FlightClock.heroArrival(
+            scheduled: scheduledArrival, delayMinutes: delayMinutes)
+        guard arrivalTime != scheduledArrival, arrivalTime != timetable else { return nil }
+        return arrivalTime
     }
 
     /// The stored flight a card with no flightId describes, or nil when no

@@ -469,6 +469,9 @@ struct FlightDetailView: View {
                                 .strikethrough().foregroundStyle(.secondary)
                         }
                     }
+                    if isArrival, flight.showsArrivalPrediction {
+                        SmartLabel(text: "Predicted", size: 12)
+                    }
                     // Completed flights drop the relative clock ("39d 8h ago"
                     // says nothing useful about a flight already flown).
                     // An unconfirmed departure can't be "On Time" — but it can
@@ -544,6 +547,8 @@ struct FlightDetailView: View {
         if flight.status == .cancelled || flight.status == .diverted { return ArcTheme.late }
         guard flight.reportsPunctuality else { return flight.bannerColor }
         if !isArrival, flight.isDepartureUnconfirmed || flight.isDepartingUnconfirmed { return Color(.secondaryLabel) }
+        // A live remaining-time guess is not a green early fact.
+        if isArrival, flight.showsArrivalPrediction { return .orange }
         let effective = isArrival ? flight.effectiveArrival : flight.effectiveDeparture
         let scheduled = isArrival ? flight.scheduledArrival : flight.scheduledDeparture
         return effective.timeIntervalSince(scheduled) >= 60 ? ArcTheme.late : ArcTheme.onTime

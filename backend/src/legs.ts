@@ -24,12 +24,11 @@ export function adbDateTime(dt: { utc?: unknown; local?: unknown } | null | unde
 
 /// The arrival estimate worth putting on `arr_estimated`.
 ///
-/// AeroDataBox serves three stamps on the same payload we already fetch:
-/// `scheduledTime`, `revisedTime` (airline/airport filing), `predictedTime`
-/// (ADB's own projection). VY8462's 20:00 LIS was the airline revision;
-/// Flighty's 20:18 was closer to `predictedTime`. Prefer the prediction
-/// when it actually differs from the timetable — a restated schedule is
-/// not news. No extra RapidAPI call.
+/// Airline/airport `revisedTime` only. AeroDataBox also serves
+/// `predictedTime` — its own projection — and stuffing that into
+/// `arr_estimated` would present Flighty-chasing 20:18 as a provider
+/// fact. Arc may still show a labeled prediction on device when this
+/// is empty. A restated schedule is not news.
 export function pickEstimatedArrival(arr: {
   scheduledTime?: { utc?: unknown; local?: unknown } | null;
   revisedTime?: { utc?: unknown; local?: unknown } | null;
@@ -37,8 +36,6 @@ export function pickEstimatedArrival(arr: {
 } | null | undefined): string | null {
   if (!arr) return null;
   const sched = adbDateTime(arr.scheduledTime);
-  const predicted = adbDateTime(arr.predictedTime);
-  if (predicted && predicted !== sched) return predicted;
   const revised = adbDateTime(arr.revisedTime);
   if (revised && revised !== sched) return revised;
   return null;

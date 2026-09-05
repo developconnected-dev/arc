@@ -326,10 +326,12 @@ extension Flight {
         return scheduledDeparture
     }
     var effectiveArrival: Date {
-        // Once it has landed, the actual time is the truth; an estimate that
-        // outlived the landing must not keep the screen on a prediction.
-        // Same formula as the Live Activity / Worker hero arrival — applying
-        // the departure delay when an estimate exists is the VY8462 1h jump.
+        // Provider/airline estimate or actual always wins the hero.
+        // A live remaining-time guess is labeled separately (Arc ✦) and
+        // must not replace this instant — that is how a prediction gets
+        // painted as "35m Early" in green. Same formula as the Live
+        // Activity / Worker: applying the departure delay when an
+        // estimate exists is the VY8462 1h jump.
         FlightClock.heroArrival(
             scheduled: scheduledArrival, delayMinutes: delayMinutes,
             estimated: estimatedArrival, actual: actualArrival)
@@ -427,7 +429,12 @@ extension Flight {
         return "On Time"
     }
     var departureStatusText: String { deltaLabel(effective: effectiveDeparture, scheduled: scheduledDeparture) }
-    var arrivalStatusText: String { deltaLabel(effective: effectiveArrival, scheduled: scheduledArrival) }
+    var arrivalStatusText: String {
+        // Arc ✦ is a prediction, not an airline claim. "35m Early" in
+        // green is a fact about a provider filing; we do not invent one.
+        if showsArrivalPrediction { return "Predicted" }
+        return deltaLabel(effective: effectiveArrival, scheduled: scheduledArrival)
+    }
 
     var departureRelText: String {
         if let t = compactUntil(effectiveDeparture) { return "Departs in \(t)" }

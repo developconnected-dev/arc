@@ -181,14 +181,13 @@ struct FlightActivityAttributes: ActivityAttributes {
             let departure = delayMinutes > 0
                 ? scheduledDeparture.addingTimeInterval(Double(delayMinutes) * 60)
                 : scheduledDeparture
-            let arrival: Date
-            if let actualArrival {
-                arrival = actualArrival
-            } else if let est = estimatedArrival, est > departure {
-                arrival = est
-            } else {
-                arrival = scheduledArrival.addingTimeInterval(Double(max(0, delayMinutes)) * 60)
-            }
+            // Provider/actual via FlightClock.heroArrival. An estimate at or
+            // before departure is another operation's stamp (PR #5) — drop
+            // it so the one clock does not inherit a poisoned ETA.
+            let screened = estimatedArrival.flatMap { $0 > departure ? $0 : nil }
+            let arrival = FlightClock.heroArrival(
+                scheduled: scheduledArrival, delayMinutes: delayMinutes,
+                estimated: screened, actual: actualArrival)
             return Clock(
                 departureTime: departure,
                 arrivalTime: arrival,

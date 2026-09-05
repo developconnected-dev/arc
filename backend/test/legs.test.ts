@@ -458,9 +458,10 @@ test("an unconfirmed departure holds the tight TTL through the taxi", () => {
 
 // ── arrival estimate from the AeroDataBox movement we already fetch ──
 //
-// VY8462 BCN→LIS showed LIS 20:00 (airline revisedTime) while Flighty was
-// on 20:18. predictedTime rides the same payload; mapLeg used to ignore it
-// and keep only the airline's rounded revision.
+// Mira: provider/airline arr_estimated always wins the hero. ADB's own
+// predictedTime is a projection — stuffing it into arr_estimated would
+// paint Flighty-chasing 20:18 as an airline fact. We do not know that
+// feed; honesty first.
 
 import { pickEstimatedArrival, adbDateTime } from "../src/legs.ts";
 
@@ -474,24 +475,24 @@ test("adbDateTime prefers the UTC instant over the airport-local wall clock", ()
   assert.equal(adbDateTime(null), "");
 });
 
-test("pickEstimatedArrival prefers AeroDataBox predictedTime over airline revisedTime", () => {
+test("pickEstimatedArrival uses the airline revision, not AeroDataBox predictedTime", () => {
   assert.equal(
     pickEstimatedArrival({
       scheduledTime: VY_ARR_SCHED,
       revisedTime: VY_ARR_REVISED,
       predictedTime: VY_ARR_PREDICTED,
     }),
-    "2026-09-02T19:18:00.000Z",
+    "2026-09-02T19:00:00.000Z",
   );
 });
 
-test("pickEstimatedArrival falls back to the airline revision when ADB has no prediction", () => {
+test("pickEstimatedArrival ignores predictedTime when the airline has not revised", () => {
   assert.equal(
     pickEstimatedArrival({
       scheduledTime: VY_ARR_SCHED,
-      revisedTime: VY_ARR_REVISED,
+      predictedTime: VY_ARR_PREDICTED,
     }),
-    "2026-09-02T19:00:00.000Z",
+    null,
   );
 });
 
