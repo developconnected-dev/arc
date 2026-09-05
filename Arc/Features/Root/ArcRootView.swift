@@ -38,6 +38,10 @@ struct ArcRootView: View {
     /// and swapping a presented sheet's item can drop the replacement on the
     /// floor — so both cases dismiss first and come back through here.
     @State private var queuedDetail: Flight?
+    /// Trips saved while the Add sheet was still up, waiting to draw
+    /// themselves onto the map. The map is behind that sheet, so the moment
+    /// belongs to its dismissal rather than to the save.
+    @State private var pendingReveal: [Flight] = []
 
 
     /// Test hooks for headless screenshots.
@@ -54,10 +58,13 @@ struct ArcRootView: View {
 
         .sheet(isPresented: $showAdd) {
             AddFlightView(initialQuery: clipboardQuery ?? addInitialQuery,
-                          onAdded: { added in queuedDetail = added })
+                          onAdded: { added in pendingReveal.append(added) })
             .presentationDetents([.large])
             .onDisappear {
                 clipboardQuery = nil
+                // The map only becomes visible now, so this is where the
+                // route draws itself on — the whole point of waiting.
+                drainPendingReveal()
                 presentQueuedDetail()
             }
         }
@@ -81,11 +88,20 @@ struct ArcRootView: View {
         // present whenever nothing is in front of it any more — a cancelled
         // Add presentation (showAdd flipped back before the sheet appeared)
         // never fires onDisappear, and stranded the queued flight forever.
+        //
+        // Deliberately NOT a belt for the reveal, which has the opposite
+        // problem: this fires as the sheet STARTS sliding away, so draining
+        // here would spend the first third of the draw behind it. Nothing can
+        // be waiting to draw unless the sheet appeared and saved something,
+        // and in that case its onDisappear is guaranteed.
         .onChange(of: showAdd) { _, presented in
             if !presented { DispatchQueue.main.async { presentQueuedDetail() } }
         }
         .onChange(of: allFlights.map(\.id)) { _, _ in
-            refitMapForCurrentData()
+            // Saving a trip is what changed this list, so the refit that
+            // normally hangs off it would frame every route the user owns and
+            // undo the fit the add moment is built around.
+            if !addMomentOwnsTheCamera { refitMapForCurrentData() }
             openDetailIfPending()
             bootstrapTrackingAndWidgets()
             // A tap that arrived before SwiftData had loaded gets its flight now.
@@ -242,6 +258,41 @@ struct ArcRootView: View {
     private func refitMapForCurrentData() {
         lastCameraTab = tab
         applyCameraForCurrentTab()
+    }
+
+    /// The add / import moment.
+    ///
+    /// Every path that saves a trip ends up here — the Add search, a scanned
+    /// boarding pass, a leg off a pasted booking, a train picked off a station
+    /// board, manual entry, an accepted trip invite — so what happens next is
+    /// identical whichever one it was: the row is in My Trips and the map
+    /// draws the route across it in about a second. Nothing is loading by this
+    /// point, which is precisely why there is nothing here that says so.
+    private func revealTrips(_ flights: [Flight]) {
+        guard !flights.isEmpty else { return }
+        // The row lands in My Trips, so that's the list the map draws behind.
+        tab = .myFlights
+        // The reveal owns the camera for the next second. Claiming the tab
+        // here is what stops the tab-change hook from refitting to every
+        // route the user has and fighting it.
+        lastCameraTab = .myFlights
+        controller.revealRoutes(for: flights)
+    }
+
+    /// A trip that just landed has the camera — either waiting for the Add
+    /// sheet to get out of the way, or already drawing.
+    private var addMomentOwnsTheCamera: Bool {
+        !pendingReveal.isEmpty || controller.isRevealingRoutes
+    }
+
+    /// Whatever the Add sheet saved, drawn now that it's out of the way.
+    /// One session's worth goes in a single batch: one camera move framing
+    /// all of it, one shared draw, however many legs it turned out to be.
+    private func drainPendingReveal() {
+        guard !pendingReveal.isEmpty else { return }
+        let batch = pendingReveal
+        pendingReveal = []
+        revealTrips(batch)
     }
 
     private func applyCameraForCurrentTab() {
@@ -525,7 +576,13 @@ struct ArcRootView: View {
 
     /// Presents a flight's detail. Never opens a second sheet on top of Add —
     /// that silently does nothing in SwiftUI — it queues behind its dismissal
-    /// instead, the same path a freshly added flight takes.
+    /// instead.
+    ///
+    /// Adding a trip does NOT come through here. A save used to open the new
+    /// trip's detail, which meant the confirmation was a sheet covering both
+    /// the list the row had just joined and the map the route had just been
+    /// drawn on. The add lands on the list now; this is for a widget, a
+    /// notification or an `arc://` link, where a specific flight was asked for.
     private func show(_ flight: Flight?) -> Bool {
         tab = .myFlights
         guard let flight else {
@@ -576,7 +633,11 @@ struct ArcRootView: View {
     private var tabs: some View {
         TabView(selection: $tab) {
                 Tab(ArcTab.myFlights.title, systemImage: ArcTab.myFlights.icon, value: ArcTab.myFlights) {
-                    tabSurface { MyFlightsView(onSelect: { detailFlight = $0 }, onAdd: { showAdd = true }) }
+                    tabSurface {
+                        MyFlightsView(onSelect: { detailFlight = $0 },
+                                      onAdd: { showAdd = true },
+                                      onImported: { imported in revealTrips([imported]) })
+                    }
                 }
                 // Trips friends added for the two of you, waiting on an answer.
                 .badge(friendsStore.tripInvites.count)

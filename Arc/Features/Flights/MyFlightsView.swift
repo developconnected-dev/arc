@@ -10,6 +10,10 @@ struct MyFlightsView: View {
     @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
     var onSelect: (Flight) -> Void
     var onAdd: () -> Void = {}
+    /// A trip that just became the user's — an accepted invite is an import,
+    /// and gets the same beat an add does: the row appears and the map draws
+    /// the route on.
+    var onImported: (Flight) -> Void = { _ in }
 
     @State private var showSettings = false
     @State private var shareFlight: Flight?
@@ -143,7 +147,13 @@ struct MyFlightsView: View {
     }
 
     private func accept(_ item: FriendsStore.TripInviteItem) {
-        Task { await friendsStore.accept(item, into: modelContext) }
+        Task { @MainActor in
+            // Only a trip that really materialised gets the moment — a failed
+            // save leaves the card and its error, with nothing to draw.
+            if let imported = await friendsStore.accept(item, into: modelContext) {
+                onImported(imported)
+            }
+        }
     }
 
     private func delete(_ flight: Flight) {
