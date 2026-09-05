@@ -147,7 +147,7 @@ struct MyFlightsView: View {
     }
 
     private func accept(_ item: FriendsStore.TripInviteItem) {
-        Task { @MainActor in
+        Task {
             // Only a trip that really materialised gets the moment — a failed
             // save leaves the card and its error, with nothing to draw.
             if let imported = await friendsStore.accept(item, into: modelContext) {

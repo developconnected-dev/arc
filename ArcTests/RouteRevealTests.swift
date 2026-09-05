@@ -282,7 +282,8 @@ final class RouteRevealTests: XCTestCase {
         let controller = MapController()
         let first = trip(.air, from: zrh, to: jfk)
         controller.revealRoutes(for: [first])
-        XCTAssertEqual(await awaitReveals(controller).first?.id, first.id)
+        let started = await awaitReveals(controller)
+        XCTAssertEqual(started.first?.id, first.id)
 
         let second = trip(.sea, from: piraeus, to: santorini)
         controller.revealRoutes(for: [second])

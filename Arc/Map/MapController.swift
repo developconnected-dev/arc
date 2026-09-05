@@ -254,7 +254,7 @@ final class MapController {
             routeReveals = planned
             // Camera first, so the stroke draws into a frame that already
             // holds the whole route instead of chasing it off the edge.
-            frameInUpperHalf(planned.flatMap(\.path), padding: 1.3)
+            frameInUpperHalf(planned.flatMap { $0.path }, padding: 1.3)
 
             let startedAt = Date.now
             while !Task.isCancelled {
