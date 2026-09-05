@@ -73,6 +73,10 @@
 		8D123A8F76E2E356082F43AF /* ShareFlightSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EB4B844E836C4A35AC54D33 /* ShareFlightSheet.swift */; };
 		8ED498F91B66740B412D0611 /* SupabaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B5B63F833E1CB9C679CD6C1 /* SupabaseClient.swift */; };
 		8F183C5AACBAEDC17407ABD8 /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED3BBC117AA0A74224DAF8AB /* WidgetData.swift */; };
+		A11F100C10C100C10C100002 /* FlightClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11F100C10C100C10C100001 /* FlightClock.swift */; };
+		A11F100C10C100C10C100003 /* FlightClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11F100C10C100C10C100001 /* FlightClock.swift */; };
+		A11F100C10C100C10C100005 /* FlightClockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11F100C10C100C10C100004 /* FlightClockTests.swift */; };
+		A11F100C10C100C10C100007 /* SmartETATests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11F100C10C100C10C100006 /* SmartETATests.swift */; };
 		8F71B31BFA1A05112FD005B3 /* TaxiCameraTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BF7D3153A1277104EAE2B7C /* TaxiCameraTests.swift */; };
 		91538C97272ECB2B1CE14434 /* BrandingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8296407C7B6624104AE2703D /* BrandingTests.swift */; };
 		924DB162E900325F8772FA91 /* BoardingPassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0DA1605596C9C30A7CEC40C /* BoardingPassTests.swift */; };
@@ -275,6 +279,9 @@
 		E21CAF83A7006D3DEE031E7A /* SupabaseSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseSyncTests.swift; sourceTree = "<group>"; };
 		E909886CA15B1B79B6D631A0 /* WidgetSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSync.swift; sourceTree = "<group>"; };
 		ED3BBC117AA0A74224DAF8AB /* WidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetData.swift; sourceTree = "<group>"; };
+		A11F100C10C100C10C100001 /* FlightClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightClock.swift; sourceTree = "<group>"; };
+		A11F100C10C100C10C100004 /* FlightClockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightClockTests.swift; sourceTree = "<group>"; };
+		A11F100C10C100C10C100006 /* SmartETATests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartETATests.swift; sourceTree = "<group>"; };
 		F70B4249290027FDAFA9D021 /* DelayRiskTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelayRiskTests.swift; sourceTree = "<group>"; };
 		F9D60FB79B4585323258D954 /* RemotePush.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePush.swift; sourceTree = "<group>"; };
 		FA61B45722DDEC3425D45B09 /* DepartureEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DepartureEvidence.swift; sourceTree = "<group>"; };
@@ -459,6 +466,7 @@
 			isa = PBXGroup;
 			children = (
 				FA61B45722DDEC3425D45B09 /* DepartureEvidence.swift */,
+				A11F100C10C100C10C100001 /* FlightClock.swift */,
 				4B59DFF600FEDEB5C44BEED7 /* FlightActivityAttributes.swift */,
 				0DDFB16C2832C0B19003EA0D /* TripMode.swift */,
 				ED3BBC117AA0A74224DAF8AB /* WidgetData.swift */,
@@ -545,6 +553,7 @@
 				F70B4249290027FDAFA9D021 /* DelayRiskTests.swift */,
 				76A7ACD292B7C11B780E694F /* DepartureEvidenceTests.swift */,
 				14FAE84C003F055E6FD5E1EC /* FlightAudienceTests.swift */,
+				A11F100C10C100C10C100004 /* FlightClockTests.swift */,
 				64047F33627992F4D8030E71 /* FlightDisplayTests.swift */,
 				345D5BC68228BFA3CD7DD4DB /* FlightExporterTests.swift */,
 				C8B050595CEBC559BB3F8B48 /* FlightQueryParserTests.swift */,
@@ -559,6 +568,7 @@
 				A136200E180C33472B503DE3 /* ReferenceDataTests.swift */,
 				38329F5149CBA92432A823C7 /* RotationChainTests.swift */,
 				283EE3258EC82F97B3FD8892 /* ScheduleBackfillTests.swift */,
+				A11F100C10C100C10C100006 /* SmartETATests.swift */,
 				8011F1F9596F27743C731E2F /* SmokeTests.swift */,
 				2AD3936B9A068A6D1B734331 /* SupabaseErrorTests.swift */,
 				E21CAF83A7006D3DEE031E7A /* SupabaseSyncTests.swift */,
@@ -699,6 +709,7 @@
 				FD48EDF02229BF53B07CF93B /* NextFlightWidget.swift in Sources */,
 				971EC6990D98EC46BEC7C50D /* TripMode.swift in Sources */,
 				8F183C5AACBAEDC17407ABD8 /* WidgetData.swift in Sources */,
+				A11F100C10C100C10C100003 /* FlightClock.swift in Sources */,
 				6695013CD5AAF30A7BEA4081 /* WidgetRefresh.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -715,7 +726,9 @@
 				C1A749BDDC82ED06F27F8715 /* DelayRiskTests.swift in Sources */,
 				A9BD4EA4BA0EB46F87F971B3 /* DepartureEvidenceTests.swift in Sources */,
 				1EB9E39748B4D282482786CE /* FlightAudienceTests.swift in Sources */,
+				A11F100C10C100C10C100005 /* FlightClockTests.swift in Sources */,
 				FF28A915F2E461B6A44D4F3A /* FlightDisplayTests.swift in Sources */,
+				A11F100C10C100C10C100007 /* SmartETATests.swift in Sources */,
 				76A42DE217B99FCC67076406 /* FlightExporterTests.swift in Sources */,
 				0966F06D128CF6A589B4C579 /* FlightQueryParserTests.swift in Sources */,
 				76727308C5C701DE0720CCF0 /* FriendAlertsTests.swift in Sources */,
@@ -820,6 +833,7 @@
 				C0DE555A6BBA8CA7E40648A8 /* TripLogoView.swift in Sources */,
 				B898832B7AC151BC27E0C6FD /* TripMode.swift in Sources */,
 				9C4509B5E588A11B545D2021 /* WidgetData.swift in Sources */,
+				A11F100C10C100C10C100002 /* FlightClock.swift in Sources */,
 				E64226C8F2F29728DFB84855 /* WidgetSync.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

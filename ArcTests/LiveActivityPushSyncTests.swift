@@ -44,4 +44,26 @@ final class LiveActivityPushSyncTests: XCTestCase {
         XCTAssertNil(LiveActivityPushSync.matchFlight(
             [otherRoute], number: "LX2146", dep: "ZRH", arr: "VLC", around: dep))
     }
+
+    /// Schedule+delay is the timetable fallback, not an airline revision.
+    /// Writing it onto `estimatedArrival` would make the next hero treat
+    /// a delay formula as a provider ETA.
+    func testSchedulePlusDelayIsNotAbsorbedAsAProviderEstimate() {
+        let scheduled = Date(timeIntervalSince1970: 1_788_377_700)
+        let delay = 25
+        let timetable = scheduled.addingTimeInterval(Double(delay) * 60)
+        XCTAssertNil(LiveActivityPushSync.providerArrival(
+            arrivalTime: timetable, scheduledArrival: scheduled, delayMinutes: delay))
+        XCTAssertNil(LiveActivityPushSync.providerArrival(
+            arrivalTime: scheduled, scheduledArrival: scheduled, delayMinutes: delay))
+    }
+
+    func testAirlineRevisionIsAbsorbedAsAProviderEstimate() {
+        let scheduled = Date(timeIntervalSince1970: 1_788_377_700)
+        let revised = Date(timeIntervalSince1970: 1_788_375_600)
+        XCTAssertEqual(
+            LiveActivityPushSync.providerArrival(
+                arrivalTime: revised, scheduledArrival: scheduled, delayMinutes: 25),
+            revised)
+    }
 }
