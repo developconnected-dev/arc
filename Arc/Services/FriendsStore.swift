@@ -93,7 +93,6 @@ final class FriendsStore {
     /// Returns the materialised trip, so an accept gets the same beat an add
     /// does: the row appears and the map draws its route on. nil means nothing
     /// was materialised — a duplicate tap, or a save that failed and said so.
-    @discardableResult
     func accept(_ item: TripInviteItem, into context: ModelContext) async -> Flight? {
         // Two fast taps enqueue two Tasks with the same item — only the one
         // that still finds the invite listed may materialise it.
