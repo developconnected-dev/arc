@@ -787,6 +787,34 @@ final class FlightTenseTests: XCTestCase {
         XCTAssertEqual(f.arrivalRelText, "Arrived")
     }
 
+    /// Airline 20:00 vs 20:35 is their claim — green early is a fact about
+    /// the filing, not Arc ✦. We do not relabel it as a prediction.
+    func testProviderEarlyArrivalIsAFactNotAPrediction() {
+        let f = flight(depIn: -90 * 60, durationH: 2, status: .active)
+        f.estimatedArrival = f.scheduledArrival.addingTimeInterval(-35 * 60)
+        XCTAssertFalse(f.showsArrivalPrediction)
+        XCTAssertEqual(f.arrivalStatusText, "35m Early")
+        XCTAssertEqual(f.effectiveArrival, f.estimatedArrival)
+        XCTAssertNotEqual(f.arrivalRelText, "Arrived")
+    }
+
+    /// No provider ETA + a fresh live remaining-time projection: Arc ✦,
+    /// labeled prediction. Never "Xm Early" as fact, never "Arrived".
+    func testArrivalPredictionIsLabeledWhenProviderETAIsMissing() {
+        let f = flight(depIn: -90 * 60, durationH: 2, status: .active)
+        f.actualDeparture = f.scheduledDeparture
+        f.departureLat = 41.297; f.departureLon = 2.078
+        f.arrivalLat = 38.774; f.arrivalLon = -9.134
+        f.liveLat = 38.42; f.liveLon = -8.90
+        f.liveSpeed = 131
+        f.liveUpdatedAt = .now
+        XCTAssertNil(f.estimatedArrival)
+        XCTAssertTrue(f.showsArrivalPrediction)
+        XCTAssertEqual(f.arrivalStatusText, "Predicted")
+        XCTAssertFalse(f.arrivalStatusText.contains("Early"))
+        XCTAssertNotEqual(f.arrivalRelText, "Arrived")
+    }
+
     /// A habit is not an assignment: the usual-gate guess shows only while
     /// the airline hasn't gated the flight, and a filed gate replaces it.
     func testPredictedGateYieldsToRealGate() {

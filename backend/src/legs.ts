@@ -12,6 +12,35 @@ export function toISO(s: unknown): string {
   return isNaN(d.getTime()) ? "" : d.toISOString();
 }
 
+/// One AeroDataBox `DateTimeContract` → a UTC ISO instant.
+///
+/// The pair is `{ utc, local }`. Prefer `utc` so a Lisbon wall clock
+/// (`20:35+01:00`) cannot be read as 20:35Z and shift every countdown
+/// by the WEST offset. `local` is the fallback when the UTC side is hollow.
+export function adbDateTime(dt: { utc?: unknown; local?: unknown } | null | undefined): string {
+  if (!dt || typeof dt !== "object") return "";
+  return toISO(dt.utc) || toISO(dt.local);
+}
+
+/// The arrival estimate worth putting on `arr_estimated`.
+///
+/// Airline/airport `revisedTime` only. AeroDataBox also serves
+/// `predictedTime` — its own projection — and stuffing that into
+/// `arr_estimated` would present Flighty-chasing 20:18 as a provider
+/// fact. Arc may still show a labeled prediction on device when this
+/// is empty. A restated schedule is not news.
+export function pickEstimatedArrival(arr: {
+  scheduledTime?: { utc?: unknown; local?: unknown } | null;
+  revisedTime?: { utc?: unknown; local?: unknown } | null;
+  predictedTime?: { utc?: unknown; local?: unknown } | null;
+} | null | undefined): string | null {
+  if (!arr) return null;
+  const sched = adbDateTime(arr.scheduledTime);
+  const revised = adbDateTime(arr.revisedTime);
+  if (revised && revised !== sched) return revised;
+  return null;
+}
+
 // AeroDataBox's full FlightStatus vocabulary (confirmed against the live API +
 // its published OpenAPI schema): unknown, expected, enRoute, checkIn, boarding,
 // gateClosed, departed, delayed, approaching, arrived, canceled, diverted,

@@ -156,4 +156,26 @@ final class FriendFlightMathTests: XCTestCase {
                        DateHelpers.parseAPIDate("2026-07-24T17:00:00.000Z")?
                            .addingTimeInterval(45 * 60))
     }
+
+    /// Friend flight BCN→LIS. Remaining is the epoch gap to estimated_arrival,
+    /// not Lisbon HH:mm minus the viewer's CEST clock. At 20:30 CEST a 20:00
+    /// LIS estimate is 30m out; schedule+25m would read 90m — the 1h jump.
+    func testBCNtoLISUntilLandingUsesEstimateNotSchedulePlusDelay() {
+        let f = ArcSupabase.SharedFlight(
+            id: "vy", user_id: "u1", flight_number: "VY8462",
+            airline: "Vueling", departure_iata: "BCN", arrival_iata: "LIS",
+            departure_city: "Barcelona", arrival_city: "Lisbon",
+            departure_lat: 41.3, departure_lon: 2.08,
+            arrival_lat: 38.78, arrival_lon: -9.14,
+            scheduled_departure: "2026-09-02T17:25:00.000Z",
+            scheduled_arrival: "2026-09-02T19:35:00.000Z",
+            estimated_arrival: "2026-09-02T19:00:00.000Z",
+            status: "active", delay_minutes: 25,
+            departure_gate: "B27", arrival_gate: nil, baggage_claim: nil,
+            live_lat: nil, live_lon: nil, progress: 0.9, updated_at: nil)
+        let now = DateHelpers.parseAPIDate("2026-09-02T18:30:00.000Z")!
+        XCTAssertEqual(FriendFlightMath.arrival(f),
+                       DateHelpers.parseAPIDate("2026-09-02T19:00:00.000Z"))
+        XCTAssertEqual(FriendFlightMath.chip(for: f, at: now).text, "LANDS IN 30M")
+    }
 }

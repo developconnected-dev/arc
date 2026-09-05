@@ -632,8 +632,13 @@ final class FriendsStore {
         // Each end's own zone. A friend's train from Berlin to Zürich crosses
         // one, and without these the times render in the reader's zone instead
         // of the station's — the same bug the ferry work exists to prevent.
+        // IATA fallback when the shared row predates departure_tz/arrival_tz:
+        // a friend Activity with nil zones printed Lisbon's arrival in the
+        // viewer's CEST clock, which is the other half of the 1h jump.
         flight.departureTZID = f.departure_tz
+            ?? (f.tripMode == .air ? ReferenceData.shared.timezone(f.departure_iata)?.identifier : nil)
         flight.arrivalTZID = f.arrival_tz
+            ?? (f.tripMode == .air ? ReferenceData.shared.timezone(f.arrival_iata)?.identifier : nil)
         flight.vesselName = f.vessel_name
         flight.operatorLogoURL = f.operator_logo_url
         flight.disruptionNote = f.disruption_note
@@ -839,12 +844,14 @@ enum FriendFlightMath {
         // yesterday's arrival, and the row's carry-forward pinned it there)
         // — and trusted, it flipped a flight an hour from pushback into
         // "Arrival not yet confirmed". No flight arrives before it leaves.
-        if let est = DateHelpers.parseAPIDate(f.estimated_arrival),
-           est > (departure(f) ?? .distantPast) {
-            return est
+        guard let scheduled = DateHelpers.parseAPIDate(f.scheduled_arrival) else { return nil }
+        let screened = DateHelpers.parseAPIDate(f.estimated_arrival).flatMap { est -> Date? in
+            est > (departure(f) ?? .distantPast) ? est : nil
         }
-        return DateHelpers.parseAPIDate(f.scheduled_arrival)
-            .map { $0.addingTimeInterval(Double(f.delay_minutes) * 60) }
+        return FlightClock.heroArrival(
+            scheduled: scheduled, delayMinutes: f.delay_minutes,
+            estimated: screened,
+            actual: DateHelpers.parseAPIDate(f.actual_arrival))
     }
 
     /// Is this flight in the air right now (clock-healed)?

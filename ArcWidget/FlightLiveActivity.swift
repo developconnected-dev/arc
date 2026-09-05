@@ -603,9 +603,8 @@ struct FlightLiveActivity: Widget {
                     .foregroundStyle(departureStatusColor(state, attrs))
                     .contentTransition(.numericText())
                 Spacer()
-                // Pre-landing, this number IS the prediction — it wears the
-                // intelligence voice (sparkle + shimmer) instead of a whole
-                // sentence-long insight row, and turns plain once confirmed.
+                // Arrival delay is the provider's claim when they filed one.
+                // Arc ✦ lives on the insight line, not on "35m Early".
                 arrivalStatusView(state, attrs)
             }
             .padding(.top, 3)
@@ -930,19 +929,11 @@ struct FlightLiveActivity: Widget {
     @ViewBuilder
     private func arrivalStatusView(_ state: FlightActivityAttributes.ContentState,
                                    _ attrs: FlightActivityAttributes) -> some View {
-        let d = arrivalDelay(state)
-        if attrs.reportsPunctuality, let d, d != 0, !isConfirmedLanded(state) {
-            let from = state.updatedAt ?? state.departureTime
-            HStack(spacing: 3) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(IntelligenceShimmerText.gradient)
-                IntelligenceShimmerText(
-                    text: arrivalStatusText(state, attrs),
-                    font: .system(size: 12, weight: .semibold),
-                    sweep: from...from.addingTimeInterval(5))
-            }
-        } else if arrivalStatusText(state, attrs).isEmpty {
+        // Provider early/late is their claim — plain text, not Arc ✦.
+        // Sparkles here used to paint VY8462's airline 35m-early filing
+        // as an Arc prediction. The insight line still wears the mark.
+        // Empty when there is no arrival delta (PR #5): do not invent one.
+        if arrivalStatusText(state, attrs).isEmpty {
             EmptyView()
         } else {
             Text(arrivalStatusText(state, attrs))
