@@ -375,10 +375,10 @@ struct ArcMapView: View {
     ///
     /// Grown, not trimmed: `MapPolyline` draws exactly the coordinates it is
     /// handed, so each frame hands it a longer prefix of the finished
-    /// geometry. Colour and stroke are the leg's OWN settled ones — a
-    /// hand-logged past trip draws on muted, an upcoming one bright with its
-    /// glow — so when the reveal ends and the settled map takes the line back,
-    /// nothing changes but who is drawing it.
+    /// geometry. Colour and stroke are the leg's OWN settled ones — bright
+    /// with the glow while it's upcoming, muted if its status settles to past
+    /// mid-draw — so when the reveal ends and the settled map takes the line
+    /// back, nothing changes but who is drawing it.
     @MapContentBuilder
     private func revealStroke(_ reveal: RouteReveal,
                               style: RouteStyle,

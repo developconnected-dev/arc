@@ -276,7 +276,16 @@ struct ArcRootView: View {
         // here is what stops the tab-change hook from refitting to every
         // route the user has and fighting it.
         lastCameraTab = .myFlights
-        controller.revealRoutes(for: flights)
+        // Only what THIS tab's map will actually draw (`mapFlights` shows
+        // upcoming and active legs). A hand-logged past trip must not get a
+        // reveal: its line would draw itself on and then vanish at the
+        // handover, because the settled map was never going to hold it.
+        controller.revealRoutes(for: flights.filter { $0.isUpcoming || $0.isActive })
+        // Nothing drawable — a past trip, a hand-typed train with no
+        // coordinates — means the row appearing is the whole event. The
+        // camera was never claimed, so the list change still gets the refit
+        // it would normally trigger.
+        if !controller.isRevealingRoutes { refitMapForCurrentData() }
     }
 
     /// A trip that just landed has the camera — either waiting for the Add
