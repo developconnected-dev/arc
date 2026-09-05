@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { contentState, liveActivityClock } from "../src/activity.ts";
+import { contentState, liveActivityClock, sanitizeLiveActivityLocal } from "../src/activity.ts";
 
 /// Seconds between the unix epoch and Apple's reference date (2001-01-01).
 /// ActivityKit decodes remote content-state with a default JSONDecoder, whose
@@ -175,6 +175,34 @@ test("an estimate at or before departure is another operation and is dropped", (
   assert.equal(clock.arrDelay, 5);
 });
 
+test("a push without arr_estimated restates the device hero ETA instead of schedule-plus-delay", () => {
+  // ActivityKit REPLACES the whole content state. Local makeState had 21:00
+  // (estimatedArrival). A Worker tick whose cached leg omitted arr_estimated
+  // used to write 21:40 and take until-gate / Arc ✦ / progress with it.
+  const clock = liveActivityClock({
+    schedDepMs: VY_DEP,
+    schedArrMs: VY_ARR,
+    delay: 5,
+    deviceEstimatedArrival: VY_EST,
+  });
+  assert.equal(clock.arrMs, Date.parse(VY_EST));
+  assert.equal(clock.arrDelay, -35);
+  assert.equal(clock.depMs, VY_DEP + 5 * 60_000);
+});
+
+test("the provider's own estimate wins over a stale device echo", () => {
+  const newer = "2026-09-02T20:05:00.000Z";
+  const clock = liveActivityClock({
+    schedDepMs: VY_DEP,
+    schedArrMs: VY_ARR,
+    delay: 5,
+    arrEstimated: newer,
+    deviceEstimatedArrival: VY_EST,
+  });
+  assert.equal(clock.arrMs, Date.parse(newer));
+  assert.equal(clock.arrDelay, -30);
+});
+
 test("a device actual_departure survives the content-state replace", () => {
   const s = contentState("active", VY_DEP + 5 * 60_000, Date.parse(VY_EST), 5, -35,
                          null, null, {
@@ -183,4 +211,56 @@ test("a device actual_departure survives the content-state replace", () => {
                            local: { actual_departure: VY_WHEELS },
                          });
   assert.equal(s.actualDeparture, Date.parse(VY_WHEELS) / 1000 - APPLE_EPOCH);
+});
+
+test("the APNs payload restates the same clock local makeState would write", () => {
+  // sendLiveActivityPush JSON.stringifies this object. ActivityKit replaces
+  // the whole state with it — lock and Island both read these fields.
+  const clock = liveActivityClock({
+    schedDepMs: VY_DEP,
+    schedArrMs: VY_ARR,
+    delay: 5,
+    deviceActualDeparture: VY_WHEELS,
+    deviceEstimatedArrival: VY_EST,
+  });
+  const s = contentState("active", clock.depMs, clock.arrMs, clock.delay, clock.arrDelay,
+                         null, null, {
+                           offBlockMs: clock.offBlockMs,
+                           taxiPrior: 20,
+                           local: { actual_departure: VY_WHEELS, estimated_arrival: VY_EST },
+                         });
+  assert.equal(s.departureTime, (VY_DEP + 5 * 60_000) / 1000 - APPLE_EPOCH);
+  assert.equal(s.arrivalTime, Date.parse(VY_EST) / 1000 - APPLE_EPOCH);
+  assert.equal(s.delayMinutes, 5);
+  assert.equal(s.arrivalDelayMinutes, -35);
+  assert.equal(s.actualDeparture, Date.parse(VY_WHEELS) / 1000 - APPLE_EPOCH);
+});
+
+test("register keeps the device hero ETA and wheels-up for the next replace", () => {
+  // /la/register used to persist only boarding / companions / seat. The
+  // extras the device echoed never reached prior.local, so the next APNs
+  // push invented schedule+delay and ActivityKit wrote that over 21:00.
+  const local = sanitizeLiveActivityLocal({
+    boarding_lead_minutes: 40,
+    seat: "14C",
+    actual_departure: VY_WHEELS,
+    estimated_arrival: VY_EST,
+    companions: [{ name: "Victoria" }],
+  });
+  assert.equal(local.estimated_arrival, VY_EST);
+  assert.equal(local.actual_departure, VY_WHEELS);
+  assert.equal(local.boarding_lead_minutes, 40);
+  assert.equal(local.seat, "14C");
+  assert.deepEqual(local.companions, [{ name: "Victoria" }]);
+});
+
+test("register drops unparseable extras rather than parking them for a push", () => {
+  const local = sanitizeLiveActivityLocal({
+    estimated_arrival: "not a date",
+    actual_departure: "",
+    boarding_lead_minutes: 999,
+  });
+  assert.equal(local.estimated_arrival, undefined);
+  assert.equal(local.actual_departure, undefined);
+  assert.equal(local.boarding_lead_minutes, undefined);
 });

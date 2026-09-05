@@ -301,12 +301,16 @@ enum LiveActivityPushSync {
         if let seat = state.seat {
             out["seat"] = seat
         }
-        // Wheels-up the device witnessed. The Worker cannot see TakeoffSensor,
-        // and a push that omits this replaces departureTime with gate+delay —
-        // lock 19:50 vs Island 19:41 on the same activity.
+        let iso = ISO8601DateFormatter()
+        // Wheels-up the device witnessed. Evidence only — not the displayed
+        // departure clock. A push that omits this loses TakeoffSensor.
         if let actual = state.actualDeparture {
-            out["actual_departure"] = ISO8601DateFormatter().string(from: actual)
+            out["actual_departure"] = iso.string(from: actual)
         }
+        // Hero arrival (until-gate / Arc ✦). ActivityKit REPLACES the whole
+        // state: if the Worker's cached leg has no arr_estimated, it must
+        // restate this or the next push writes schedule+delay over 21:00.
+        out["estimated_arrival"] = iso.string(from: state.heroArrival)
         if let companions = state.companions, !companions.isEmpty,
            let encoded = try? JSONEncoder().encode(companions),
            let array = (try? JSONSerialization.jsonObject(with: encoded)) as? [Any] {

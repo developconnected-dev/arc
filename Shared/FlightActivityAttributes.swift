@@ -84,9 +84,10 @@ struct FlightActivityAttributes: ActivityAttributes {
         let arrivalTime: Date
         let boardingTime: Date?     // typically 30-45 min before departure
         let delayMinutes: Int
-        /// Arrival-side delay, from the provider's revised arrival time.
-        /// Optional so pushes from an older Worker still decode (falls back
-        /// to `delayMinutes` in the widget).
+        /// Arrival-side delay, from the same hero ETA the countdown uses.
+        /// Optional so pushes from an older Worker still decode. The widget
+        /// must not invent this from `delayMinutes` — that is the airline
+        /// departure tag, not the Arc ✦ arrival tag.
         var arrivalDelayMinutes: Int? = nil
         /// The "smart line": one short sentence of understanding (delay
         /// trend, knock-on expectation, time made up in the air), phrased
@@ -202,9 +203,13 @@ struct FlightActivityAttributes: ActivityAttributes {
         /// one from the departure delay (that is how 21:00 sat next to "5m Late").
         var matchedArrivalDelayMinutes: Int? { arrivalDelayMinutes }
 
-        /// Until-gate countdown target. Same instant as the arrival time and
-        /// the arrival tag; progress uses this as its end as well.
-        var gateArrival: Date { arrivalTime }
+        /// Hero ETA (Mira). Arrival time, Arc ✦ early/late, and until-gate
+        /// all read this. Airline "Xm Late" is departure-only — it does not
+        /// compete here. Same instant as `arrivalTime`.
+        var heroArrival: Date { arrivalTime }
+
+        /// Until-gate countdown target — the hero ETA.
+        var gateArrival: Date { heroArrival }
 
         /// Progress fill. Same endpoints as the displayed times and countdown.
         /// A different interval is a card that lies about how far along it is.

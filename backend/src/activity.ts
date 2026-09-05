@@ -29,9 +29,13 @@ export function contentState(
       boarding_lead_minutes?: number;
       companions?: unknown[];
       seat?: string;
-      /// Device-witnessed wheels-up (TakeoffSensor). Echoed so a push
-      /// cannot replace 19:41 with the delay-adjusted gate time.
+      /// Device-witnessed wheels-up (TakeoffSensor). Echoed so phase
+      /// evidence survives a replace. Not the displayed departure clock.
       actual_departure?: string;
+      /// Hero arrival the card is counting to (until-gate / Arc ✦).
+      /// A push whose cached leg omitted arr_estimated used to replace
+      /// this with schedule+delay — ActivityKit does not merge.
+      estimated_arrival?: string;
     };
   } | null = null
 ): Record<string, unknown> {
@@ -115,6 +119,9 @@ export function liveActivityClock(opts: {
   arrActual?: string | number | null;
   arrEstimated?: string | null;
   deviceActualDeparture?: string | number | null;
+  /// Hero ETA last written by local makeState. Restated when the provider
+  /// cache has no arr_estimated so a replace cannot invent schedule+delay.
+  deviceEstimatedArrival?: string | number | null;
 }): { depMs: number; arrMs: number; delay: number; arrDelay: number; offBlockMs: number } {
   const delay = Math.max(0, Math.round(Number(opts.delay) || 0));
   const offBlockMs = opts.schedDepMs + delay * 60_000;
@@ -124,8 +131,14 @@ export function liveActivityClock(opts: {
   const depMs = offBlockMs;
 
   const arrActual = parseMs(opts.arrActual);
-  const est = typeof opts.arrEstimated === "string"
-    ? plausibleEstimatedArrival(opts.arrEstimated, depMs) : null;
+  const asIso = (v: string | number | null | undefined): string | null => {
+    if (typeof v === "string") return v;
+    const n = parseMs(v);
+    return n == null ? null : new Date(n).toISOString();
+  };
+  const providerEst = plausibleEstimatedArrival(asIso(opts.arrEstimated), depMs);
+  const deviceEst = plausibleEstimatedArrival(asIso(opts.deviceEstimatedArrival), depMs);
+  const est = providerEst ?? deviceEst;
   const estMs = est ? Date.parse(est) : NaN;
   const arrMs = arrActual ?? (Number.isFinite(estMs) ? estMs : opts.schedArrMs + delay * 60_000);
 
@@ -142,4 +155,41 @@ function parseMs(v: string | number | null | undefined): number | null {
   if (v == null || v === "") return null;
   const n = typeof v === "number" ? v : Date.parse(String(v));
   return Number.isFinite(n) ? n : null;
+}
+
+/// What `/la/register` may park on `last_state.local` for the next replace.
+/// ActivityKit does not merge: if a device fact is dropped here, the next
+/// APNs push cannot restate it and the card loses the local `makeState` clock.
+export function sanitizeLiveActivityLocal(raw: unknown): {
+  boarding_lead_minutes?: number;
+  companions?: unknown[];
+  seat?: string;
+  actual_departure?: string;
+  estimated_arrival?: string;
+} {
+  if (!raw || typeof raw !== "object") return {};
+  const src = raw as Record<string, unknown>;
+  const out: {
+    boarding_lead_minutes?: number;
+    companions?: unknown[];
+    seat?: string;
+    actual_departure?: string;
+    estimated_arrival?: string;
+  } = {};
+  const lead = Number(src.boarding_lead_minutes);
+  if (Number.isFinite(lead) && lead >= 0 && lead <= 240) {
+    out.boarding_lead_minutes = Math.round(lead);
+  }
+  if (Array.isArray(src.companions)) out.companions = src.companions.slice(0, 8);
+  if (typeof src.seat === "string") out.seat = src.seat.slice(0, 8);
+  const iso = (v: unknown): string | undefined => {
+    if (typeof v !== "string" && typeof v !== "number") return undefined;
+    const t = parseMs(v);
+    return t == null ? undefined : new Date(t).toISOString();
+  };
+  const actual = iso(src.actual_departure);
+  if (actual) out.actual_departure = actual;
+  const est = iso(src.estimated_arrival);
+  if (est) out.estimated_arrival = est;
+  return out;
 }

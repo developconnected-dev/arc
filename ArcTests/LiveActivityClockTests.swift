@@ -75,6 +75,12 @@ final class LiveActivityClockTests: XCTestCase {
             baggageClaim: nil, progress: 0.6)
         XCTAssertEqual(state.matchedArrivalDelayMinutes, -35)
         XCTAssertEqual(state.gateArrival, estimatedArr)
+        // Mira: one hero ETA — time, Arc ✦ tag, until-gate, progress end.
+        // Airline "Xm Late" is departure-only and does not compete here.
+        XCTAssertEqual(state.heroArrival, estimatedArr)
+        XCTAssertEqual(state.heroArrival, state.gateArrival)
+        XCTAssertEqual(state.progressInterval.upperBound, state.heroArrival)
+        XCTAssertEqual(state.departureDelayMinutes, 5)
     }
 
     /// An estimate that is not after departure is yesterday's leftover, not this ETA.

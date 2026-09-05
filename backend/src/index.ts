@@ -2,7 +2,7 @@ import { apnsConfigured, sendLiveActivityPush, sendAlertPush, apnsJwt, tokenIsDe
 import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, templatesFromNeighbour, completeLeg, confirmedRunwayTime, movementIsLive, localDay, departsOnLocalDate, answerForDay, normalizeStatus, isCancelUncertain } from "./legs";
 import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRIOR } from "./ground";
 import { predictGate, standFromBoard, type GateObservation } from "./gates";
-import { contentState, liveActivityClock } from "./activity";
+import { contentState, liveActivityClock, sanitizeLiveActivityLocal } from "./activity";
 import { flightNews, laAlert, type WatchState } from "./alerts";
 import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS, adbGate, resetAtFromHeader, ADB_MONTHLY_UNITS, ADB_UNITS_PER_CALL, cronRefreshIntervalMs, takeoffWatchDue } from "./freshness";
 import { pickLeg, plausibleActualDeparture, plausibleEstimatedArrival, effectiveDelayMinutes } from "./legmatch";
@@ -1577,7 +1577,13 @@ export default {
           token?: string; type?: string; env?: string; user_id?: string;
           replaces?: string;
           flight?: Record<string, unknown>;
-          local?: { boarding_lead_minutes?: number; companions?: unknown[]; seat?: string };
+          local?: {
+            boarding_lead_minutes?: number;
+            companions?: unknown[];
+            seat?: string;
+            actual_departure?: string;
+            estimated_arrival?: string;
+          };
         };
         if (!body.token || (body.type !== "update" && body.type !== "start")) {
           return new Response("bad request", { status: 400, headers: cors });
@@ -1616,19 +1622,13 @@ export default {
           scheduled_arrival: f["scheduled_arrival"] ?? null,
           updated_at: new Date().toISOString(),
         };
-        // Facts only the device can know — the airline's boarding lead and the
-        // friends on this flight — parked where every push can echo them back.
-        // A Live Activity push REPLACES the content state wholesale, so
-        // whatever the Worker cannot restate is erased from the lock screen
-        // until the app next runs; these two were being erased every tick.
+        // Facts only the device can know — parked where every push can
+        // restate them. ActivityKit REPLACES the whole content state: a
+        // field dropped here is gone from lock and Island until the app
+        // runs. Boarding, companions, seat, TakeoffSensor wheels-up, and
+        // the hero ETA (until-gate / Arc ✦) all have to survive.
         if (body.local) {
-          const lead = Number(body.local.boarding_lead_minutes);
-          const local: Record<string, unknown> = {};
-          if (Number.isFinite(lead) && lead >= 0 && lead <= 240) local.boarding_lead_minutes = Math.round(lead);
-          if (Array.isArray(body.local.companions)) local.companions = body.local.companions.slice(0, 8);
-          // The current seat — empty string means "cleared", which is as much
-          // a fact as a seat, so it passes.
-          if (typeof body.local.seat === "string") local.seat = body.local.seat.slice(0, 8);
+          const local = sanitizeLiveActivityLocal(body.local);
           // Merge rather than overwrite: last_state also carries the cached
           // leg, the insight and the taxi evidence between ticks.
           const existing = await sbSelect(env,
@@ -3226,7 +3226,8 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
     depActual: flight?.["dep_actual"],
     arrActual: flight?.["arr_actual"],
     arrEstimated: flight?.["arr_estimated"],
-    deviceActualDeparture: (prior.local as { actual_departure?: string } | undefined)?.actual_departure,
+    deviceActualDeparture: (prior.local as { actual_departure?: string; estimated_arrival?: string } | undefined)?.actual_departure,
+    deviceEstimatedArrival: (prior.local as { estimated_arrival?: string } | undefined)?.estimated_arrival,
   });
   const { depMs, arrMs, arrDelay } = clock;
 

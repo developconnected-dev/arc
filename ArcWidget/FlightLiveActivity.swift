@@ -101,7 +101,7 @@ struct FlightLiveActivity: Widget {
                             VStack(alignment: .trailing, spacing: 2) {
                                 Text(context.attributes.arrivalIATA)
                                     .font(.system(size: 22, weight: .bold))
-                                Text(context.attributes.arrTime(context.state.gateArrival))
+                                Text(context.attributes.arrTime(context.state.heroArrival))
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle((arrivalDelay(context.state) ?? 0) > 0 ? .orange : .secondary)
                             }
@@ -245,7 +245,7 @@ struct FlightLiveActivity: Widget {
             } compactTrailing: {
                 Group {
                     if phase == .inFlight {
-                        compactCountdown(to: context.state.gateArrival)
+                        compactCountdown(to: context.state.heroArrival)
                     } else if phase == .landed {
                         if let belt = context.state.baggageClaim {
                             HStack(spacing: 2) {
@@ -368,7 +368,7 @@ struct FlightLiveActivity: Widget {
             // status to landed, so the staleDate re-render at arrival has to
             // conclude "landed" from the time alone — otherwise the island
             // wears its in-flight clothes forever.
-            return Date.now >= state.gateArrival ? .landed : .inFlight
+            return Date.now >= state.heroArrival ? .landed : .inFlight
         }
     }
 
@@ -634,7 +634,7 @@ struct FlightLiveActivity: Widget {
         HStack {
             Spacer()
             VStack(spacing: 2) {
-                if Date.now >= state.gateArrival {
+                if Date.now >= state.heroArrival {
                     if isConfirmedLanded(state) {
                         Text(attrs.mode.arrivedShort)
                             .font(.system(size: 16, weight: .bold).monospacedDigit())
@@ -649,7 +649,7 @@ struct FlightLiveActivity: Widget {
                         IntelligenceShimmerText(
                             text: "\(attrs.mode.arrivingVerb.uppercased()) SOON",
                             font: .system(size: 16, weight: .bold),
-                            sweep: state.arrivalTime...state.arrivalTime.addingTimeInterval(15 * 60))
+                            sweep: state.heroArrival...state.heroArrival.addingTimeInterval(15 * 60))
                         Text("WAITING FOR CONFIRMATION")
                             .font(.system(size: 8, weight: .semibold))
                             .foregroundStyle(.tertiary)
@@ -660,7 +660,7 @@ struct FlightLiveActivity: Widget {
                     // TimeDataSource countdown (placeholder dashes). The
                     // arrival staleDate re-render flips this branch before
                     // it could start counting up.
-                    Text(state.gateArrival, style: .relative)
+                    Text(state.heroArrival, style: .relative)
                         .font(.system(size: 16, weight: .bold).monospacedDigit())
                         .foregroundStyle(departureConfirmed(state) ? Color.green : Color.secondary)
                         .multilineTextAlignment(.center)
@@ -712,7 +712,7 @@ struct FlightLiveActivity: Widget {
                     IntelligenceShimmerText(
                         text: "\(attrs.mode.arrivingVerb.uppercased()) SOON",
                         font: .system(size: 11, weight: .bold),
-                        sweep: state.arrivalTime...state.arrivalTime.addingTimeInterval(15 * 60))
+                        sweep: state.heroArrival...state.heroArrival.addingTimeInterval(15 * 60))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
                         .background(Color(.secondarySystemFill).opacity(0.6), in: Capsule())
@@ -849,7 +849,7 @@ struct FlightLiveActivity: Widget {
             }
             Spacer()
             HStack(spacing: 4) {
-                Text(attrs.arrTime(state.gateArrival))
+                Text(attrs.arrTime(state.heroArrival))
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle((arrivalDelay(state) ?? 0) > 0 ? .orange : .secondary)
                     .contentTransition(.numericText())
