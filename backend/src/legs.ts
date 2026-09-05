@@ -12,6 +12,38 @@ export function toISO(s: unknown): string {
   return isNaN(d.getTime()) ? "" : d.toISOString();
 }
 
+/// One AeroDataBox `DateTimeContract` → a UTC ISO instant.
+///
+/// The pair is `{ utc, local }`. Prefer `utc` so a Lisbon wall clock
+/// (`20:35+01:00`) cannot be read as 20:35Z and shift every countdown
+/// by the WEST offset. `local` is the fallback when the UTC side is hollow.
+export function adbDateTime(dt: { utc?: unknown; local?: unknown } | null | undefined): string {
+  if (!dt || typeof dt !== "object") return "";
+  return toISO(dt.utc) || toISO(dt.local);
+}
+
+/// The arrival estimate worth putting on `arr_estimated`.
+///
+/// AeroDataBox serves three stamps on the same payload we already fetch:
+/// `scheduledTime`, `revisedTime` (airline/airport filing), `predictedTime`
+/// (ADB's own projection). VY8462's 20:00 LIS was the airline revision;
+/// Flighty's 20:18 was closer to `predictedTime`. Prefer the prediction
+/// when it actually differs from the timetable — a restated schedule is
+/// not news. No extra RapidAPI call.
+export function pickEstimatedArrival(arr: {
+  scheduledTime?: { utc?: unknown; local?: unknown } | null;
+  revisedTime?: { utc?: unknown; local?: unknown } | null;
+  predictedTime?: { utc?: unknown; local?: unknown } | null;
+} | null | undefined): string | null {
+  if (!arr) return null;
+  const sched = adbDateTime(arr.scheduledTime);
+  const predicted = adbDateTime(arr.predictedTime);
+  if (predicted && predicted !== sched) return predicted;
+  const revised = adbDateTime(arr.revisedTime);
+  if (revised && revised !== sched) return revised;
+  return null;
+}
+
 // AeroDataBox's full FlightStatus vocabulary (confirmed against the live API +
 // its published OpenAPI schema): unknown, expected, enRoute, checkIn, boarding,
 // gateClosed, departed, delayed, approaching, arrived, canceled, diverted,

@@ -1,5 +1,5 @@
 import { apnsConfigured, sendLiveActivityPush, sendAlertPush, apnsJwt, tokenIsDead } from "./apns";
-import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, templatesFromNeighbour, completeLeg, confirmedRunwayTime, movementIsLive, localDay, departsOnLocalDate, answerForDay, normalizeStatus, isCancelUncertain } from "./legs";
+import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, templatesFromNeighbour, completeLeg, confirmedRunwayTime, movementIsLive, localDay, departsOnLocalDate, answerForDay, normalizeStatus, isCancelUncertain, pickEstimatedArrival } from "./legs";
 import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRIOR } from "./ground";
 import { predictGate, standFromBoard, type GateObservation } from "./gates";
 import { contentState, liveActivityClock, sanitizeLiveActivityLocal } from "./activity";
@@ -64,7 +64,6 @@ function mapLeg(f: Record<string, any>): Record<string, unknown> {
   const depSched = dep.scheduledTime?.utc ?? dep.scheduledTime?.local;
   const depRev = dep.revisedTime?.utc ?? dep.revisedTime?.local ?? depSched;
   const arrSched = arr.scheduledTime?.utc ?? arr.scheduledTime?.local;
-  const arrRev = arr.revisedTime?.utc ?? arr.revisedTime?.local ?? arrSched;
   // revisedTime is a published ESTIMATE that airlines file before anything has
   // moved; runwayTime is the wheels-up/-down time — but AeroDataBox documents
   // it as "actual / estimated", so it too can be a projection for a flight
@@ -117,7 +116,9 @@ function mapLeg(f: Record<string, any>): Record<string, unknown> {
     // aggregator, all of which refuse Cloudflare's shared egress IPs.
     position: adbPositionToSample(f.location),
     dep_estimated: depRev !== depSched ? toISO(depRev) : null,
-    arr_estimated: arrRev !== arrSched ? toISO(arrRev) : null,
+    // predictedTime (ADB's own projection) over revisedTime (airline filing)
+    // when the payload has one — same call, no extra RapidAPI spend.
+    arr_estimated: pickEstimatedArrival(arr),
     aircraft_type: ac.model ?? null,
     aircraft_registration: ac.reg ?? null,
     aircraft_icao24: ac.modeS ?? null,

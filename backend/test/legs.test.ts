@@ -455,3 +455,53 @@ test("an unconfirmed departure holds the tight TTL through the taxi", () => {
                  arr_scheduled: new Date(Date.now() + 4 * 3600_000).toISOString() };
   assert.equal(cacheTTLms([long]), 15 * 60_000);
 });
+
+// ── arrival estimate from the AeroDataBox movement we already fetch ──
+//
+// VY8462 BCN→LIS showed LIS 20:00 (airline revisedTime) while Flighty was
+// on 20:18. predictedTime rides the same payload; mapLeg used to ignore it
+// and keep only the airline's rounded revision.
+
+import { pickEstimatedArrival, adbDateTime } from "../src/legs.ts";
+
+const VY_ARR_SCHED = { utc: "2026-09-02 19:35Z", local: "2026-09-02 20:35+01:00" };
+const VY_ARR_REVISED = { utc: "2026-09-02 19:00Z", local: "2026-09-02 20:00+01:00" };
+const VY_ARR_PREDICTED = { utc: "2026-09-02 19:18Z", local: "2026-09-02 20:18+01:00" };
+
+test("adbDateTime prefers the UTC instant over the airport-local wall clock", () => {
+  assert.equal(adbDateTime(VY_ARR_SCHED), "2026-09-02T19:35:00.000Z");
+  assert.equal(adbDateTime({ local: "2026-09-02 20:35+01:00" }), "2026-09-02T19:35:00.000Z");
+  assert.equal(adbDateTime(null), "");
+});
+
+test("pickEstimatedArrival prefers AeroDataBox predictedTime over airline revisedTime", () => {
+  assert.equal(
+    pickEstimatedArrival({
+      scheduledTime: VY_ARR_SCHED,
+      revisedTime: VY_ARR_REVISED,
+      predictedTime: VY_ARR_PREDICTED,
+    }),
+    "2026-09-02T19:18:00.000Z",
+  );
+});
+
+test("pickEstimatedArrival falls back to the airline revision when ADB has no prediction", () => {
+  assert.equal(
+    pickEstimatedArrival({
+      scheduledTime: VY_ARR_SCHED,
+      revisedTime: VY_ARR_REVISED,
+    }),
+    "2026-09-02T19:00:00.000Z",
+  );
+});
+
+test("pickEstimatedArrival is silent when the only stamp restates the schedule", () => {
+  assert.equal(
+    pickEstimatedArrival({
+      scheduledTime: VY_ARR_SCHED,
+      revisedTime: VY_ARR_SCHED,
+      predictedTime: VY_ARR_SCHED,
+    }),
+    null,
+  );
+});

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { contentState, liveActivityClock, sanitizeLiveActivityLocal } from "../src/activity.ts";
+import { contentState, liveActivityClock, sanitizeLiveActivityLocal, heroArrivalMs } from "../src/activity.ts";
 
 /// Seconds between the unix epoch and Apple's reference date (2001-01-01).
 /// ActivityKit decodes remote content-state with a default JSONDecoder, whose
@@ -263,4 +263,64 @@ test("register drops unparseable extras rather than parking them for a push", ()
   assert.equal(local.estimated_arrival, undefined);
   assert.equal(local.actual_departure, undefined);
   assert.equal(local.boarding_lead_minutes, undefined);
+});
+
+// ── Bug 2b: VY8462 BCN→LIS until-landing jump ──
+//
+// Scheduled 19:25 BCN / 20:35 LIS. Airline departure delay 25m. Provider
+// arrival revision 20:00 LIS. At 20:30 CEST (18:30Z):
+//   local card (arr_estimated) → 30m remaining
+//   Worker push (schedule + departure delay) → 90m remaining
+// That is the ±1 hour flip. It looks like CEST vs WEST; it is two instants.
+
+const VY_SCHED_ARR = Date.parse("2026-09-02T19:35:00.000Z"); // 20:35 LIS (WEST)
+const VY_EST_ARR = "2026-09-02T19:00:00.000Z";               // 20:00 LIS
+const VY_NOW = Date.parse("2026-09-02T18:30:00.000Z");       // 20:30 CEST / 19:30 WEST
+
+test("until-landing uses arr_estimated, not schedule plus departure delay", () => {
+  const hero = heroArrivalMs({
+    schedArrMs: VY_SCHED_ARR,
+    delayMinutes: 25,
+    arrEstimated: VY_EST_ARR,
+  });
+  assert.equal(hero, Date.parse(VY_EST_ARR));
+  assert.equal((hero - VY_NOW) / 60_000, 30);
+  // The formula the Worker used to push: 20:35 LIS + 25m = 21:00 LIS = 90m.
+  const invented = VY_SCHED_ARR + 25 * 60_000;
+  assert.equal((invented - VY_NOW) / 60_000, 90);
+  assert.notEqual(hero, invented);
+});
+
+test("until-landing remaining is the epoch gap — display TZ does not move it", () => {
+  const eta = Date.parse("2026-09-02T19:18:00.000Z"); // 20:18 LIS / 21:18 CEST
+  const now = Date.parse("2026-09-02T19:02:00.000Z"); // 20:02 WEST / 21:02 CEST
+  assert.equal((eta - now) / 60_000, 16);
+
+  const hhmm = (ms: number, tz: string) =>
+    new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false })
+      .format(new Date(ms));
+  assert.equal(hhmm(eta, "Europe/Lisbon"), "20:18");
+  assert.equal(hhmm(eta, "Europe/Madrid"), "21:18");
+  // Relabeling the same instant in CEST vs WEST must not change remaining.
+  assert.equal((eta - now) / 60_000, 16);
+});
+
+test("heroArrivalMs falls back to schedule plus delay only when no estimate exists", () => {
+  assert.equal(
+    heroArrivalMs({ schedArrMs: VY_SCHED_ARR, delayMinutes: 25 }),
+    VY_SCHED_ARR + 25 * 60_000,
+  );
+});
+
+test("a confirmed landing beats both the estimate and the delay fallback", () => {
+  const actual = "2026-09-02T19:22:00.000Z";
+  assert.equal(
+    heroArrivalMs({
+      schedArrMs: VY_SCHED_ARR,
+      delayMinutes: 25,
+      arrEstimated: VY_EST_ARR,
+      arrActual: actual,
+    }),
+    Date.parse(actual),
+  );
 });

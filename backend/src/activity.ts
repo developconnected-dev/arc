@@ -193,3 +193,20 @@ export function sanitizeLiveActivityLocal(raw: unknown): {
   if (est) out.estimated_arrival = est;
   return out;
 }
+
+/// The arrival instant every until-landing countdown must target.
+///
+/// Same order as `liveActivityClock` / `FlightClock.heroArrival`: actual
+/// wheels-down, then the provider estimate, then scheduled arrival plus
+/// the *departure* delay. Applying that delay when an estimate exists is
+/// how VY8462 jumped 30m (20:00 LIS) to 90m (21:00 LIS = 20:35 + 25m).
+export function heroArrivalMs(opts: {
+  schedArrMs: number;
+  delayMinutes: number;
+  arrActual?: string | number | null;
+  arrEstimated?: string | number | null;
+}): number {
+  return parseMs(opts.arrActual)
+    ?? parseMs(opts.arrEstimated)
+    ?? (opts.schedArrMs + Math.max(0, Number(opts.delayMinutes) || 0) * 60_000);
+}
