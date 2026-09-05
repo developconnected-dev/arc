@@ -37,6 +37,19 @@ extension RouteReveal {
     /// distance.
     static let drawDuration: TimeInterval = 1.0
 
+    /// The beat a ground segment waits out before it starts reaching across
+    /// the map, so the one line here that isn't a real route doesn't snap out
+    /// at the same instant a flight's arc does.
+    ///
+    /// Emphatically NOT a wait for geometry. Nothing in this app delivers a
+    /// rail routed path after the save: it arrives with the search result
+    /// (`AddFlightView.add` encodes `route_path` before the insert) or with a
+    /// trip invite's `materialize`, and no refresh writes one afterwards —
+    /// `FlightTracker`'s only routed-path backfill is for sea legs, and the
+    /// shared `apply(_:to:)` never touches the field. A hold justified as
+    /// "the rails may still turn up" would be waiting for nothing.
+    static let railHold: TimeInterval = 0.4
+
     /// ~60fps. The line grows by re-rendering, so this is how often the map's
     /// content is rebuilt — for one second, and only while a trip is landing.
     static let frameInterval: TimeInterval = 1.0 / 60.0
@@ -69,6 +82,12 @@ extension RouteReveal {
                                          longitude: flight.departureLon),
             to: CLLocationCoordinate2D(latitude: flight.arrivalLat,
                                        longitude: flight.arrivalLon))
+    }
+
+    /// The pause before the stroke starts reaching out. Only a rail leg drawn
+    /// on something other than its own rails takes one.
+    static func hold(for flight: Flight) -> TimeInterval {
+        flight.mode == .rail && flight.routePath.count < 3 ? railHold : 0
     }
 
     /// Smoothstep, so the stroke eases out of the departure dot and settles

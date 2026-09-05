@@ -100,6 +100,18 @@ final class RouteRevealTests: XCTestCase {
         XCTAssertTrue(RouteReveal.geometry(for: typed).isEmpty)
     }
 
+    // MARK: - The hold
+
+    func testOnlyARailLegMissingItsRailsTakesTheBeat() {
+        XCTAssertEqual(RouteReveal.hold(for: trip(.rail, from: lisbon, to: moscow)),
+                       RouteReveal.railHold, accuracy: 0.0001)
+        XCTAssertEqual(RouteReveal.hold(for: trip(.air, from: zrh, to: jfk)), 0)
+        XCTAssertEqual(RouteReveal.hold(for: trip(.sea, from: piraeus, to: santorini)), 0)
+        let routed = trip(.rail, from: lisbon, to: moscow,
+                          routePath: [[48.14, 11.56], [50.11, 8.68], [53.55, 10.00]])
+        XCTAssertEqual(RouteReveal.hold(for: routed), 0)
+    }
+
     // MARK: - Growing the line
 
     func testTheLineGrowsFromNothingToTheWholeRoute() {
@@ -222,22 +234,48 @@ final class RouteRevealTests: XCTestCase {
                                     abs(jfk.longitude - santorini.longitude))
     }
 
-    /// There is no hold to wait out: nothing in the app delivers rail
-    /// geometry after the save (a routed path arrives WITH the search result,
-    /// or never), so a rail leg without rails draws its ground segment
-    /// immediately rather than pausing for data that cannot come.
-    func testARailLegWithoutRailsDrawsTheGroundImmediately() {
+    /// One beat for the batch: a flight sharing the moment with a rail leg
+    /// that takes the hold waits with it instead of drawing on ahead and
+    /// splitting one event into two.
+    func testTheBatchTakesItsSlowestBeat() async {
+        let controller = MapController()
+        controller.revealRoutes(for: [trip(.air, from: zrh, to: jfk),
+                                      trip(.rail, from: lisbon, to: moscow)])
+        XCTAssertEqual(controller.routeReveals.count, 2)
+
+        try? await Task.sleep(for: .milliseconds(120))
+        for reveal in controller.routeReveals {
+            XCTAssertEqual(reveal.progress, 0, accuracy: 0.0001,
+                           "a leg drew ahead of the batch's beat")
+        }
+
+        try? await Task.sleep(for: .seconds(RouteReveal.railHold))
+        XCTAssertGreaterThan(controller.routeReveals.first?.progress ?? 1, 0)
+    }
+
+    /// The beat a ground segment gets: the moment is claimed and framed at
+    /// once — no list refit can slip in — but the line itself waits before it
+    /// starts reaching out, and what it then draws is the ground, never an arc.
+    func testARailLegWithoutRailsHoldsTheBeatThenDrawsTheGround() async {
         let controller = MapController()
         controller.revealRoutes(for: [trip(.rail, from: lisbon, to: moscow)])
 
-        guard let reveal = controller.routeReveals.first else {
-            return XCTFail("the train never drew at all")
+        guard let held = controller.routeReveals.first else {
+            return XCTFail("the train never claimed the moment")
         }
         XCTAssertTrue(controller.isRevealingRoutes)
+        XCTAssertNotNil(controller.position.region, "the camera waited for the hold")
+        // Claimed and framed, but nothing on the map yet. That is the hold.
+        XCTAssertLessThan(held.drawnPath.count, 2)
+
         let ground = GeoMath.rhumbLine(from: lisbon, to: moscow)
-        XCTAssertEqual(reveal.path.count, ground.count)
-        XCTAssertEqual(reveal.path[reveal.path.count / 2].longitude,
+        XCTAssertEqual(held.path.count, ground.count)
+        XCTAssertEqual(held.path[held.path.count / 2].longitude,
                        ground[ground.count / 2].longitude, accuracy: 0.001)
+
+        try? await Task.sleep(for: .seconds(RouteReveal.railHold + 0.15))
+        XCTAssertGreaterThan(controller.routeReveals.first?.progress ?? 1, 0,
+                             "the train never started drawing")
     }
 
     func testATripTheMapWontDrawGetsNoReveal() {

@@ -220,21 +220,32 @@ final class MapController {
         // the reveal: exactly what the settled map will draw for each leg, so
         // nothing shifts at the handover — and no await ever separates these
         // reads from the models they come from, so a later swipe-delete can't
-        // pull a trip out from underneath them. (There is nothing to wait for
-        // anyway: a rail leg's routed path arrives WITH its search result or
-        // never, and no refresh delivers one after the save.)
-        let planned: [RouteReveal] = flights.compactMap { flight in
+        // pull a trip out from underneath them.
+        var planned: [RouteReveal] = []
+        // One beat for the batch, so a train that takes the hold doesn't
+        // split the moment in two by starting to draw after everything else.
+        var hold: TimeInterval = 0
+        for flight in flights {
             let path = RouteReveal.geometry(for: flight)
-            guard path.count >= 2 else { return nil }
-            return RouteReveal(id: flight.id, mode: flight.mode, path: path, progress: 0)
+            guard path.count >= 2 else { continue }
+            planned.append(RouteReveal(id: flight.id, mode: flight.mode,
+                                       path: path, progress: 0))
+            hold = max(hold, RouteReveal.hold(for: flight))
         }
         guard !planned.isEmpty else { return }
         routeReveals = planned
-        // Camera first, so the stroke draws into a frame that already
-        // holds the whole route instead of chasing it off the edge.
+        // Camera first, so the stroke draws into a frame that already holds
+        // the whole route instead of chasing it off the edge. Claimed before
+        // the hold rather than after it, so the frame settles while there is
+        // nothing on it to watch yet.
         frameInUpperHalf(planned.flatMap { $0.path }, padding: 1.3)
 
         revealTask = Task { @MainActor in
+            // The beat a ground segment waits out before it starts reaching
+            // across the map. Nothing is being waited FOR — see `railHold`;
+            // the reveal is already planned and framed, and progress 0 draws
+            // no line, so the hold costs only itself.
+            if hold > 0 { try? await Task.sleep(for: .seconds(hold)) }
             let startedAt = Date.now
             while !Task.isCancelled {
                 // Progress comes from the wall clock rather than a frame
