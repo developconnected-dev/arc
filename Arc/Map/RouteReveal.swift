@@ -37,11 +37,6 @@ extension RouteReveal {
     /// distance.
     static let drawDuration: TimeInterval = 1.0
 
-    /// How long a rail leg waits for its real routed path before settling for
-    /// a ground segment — long enough for MOTIS geometry that is already on
-    /// its way, short enough that the add still feels immediate.
-    static let railHold: TimeInterval = 0.4
-
     /// ~60fps. The line grows by re-rendering, so this is how often the map's
     /// content is rebuilt — for one second, and only while a trip is landing.
     static let frameInterval: TimeInterval = 1.0 / 60.0
@@ -74,14 +69,6 @@ extension RouteReveal {
                                          longitude: flight.departureLon),
             to: CLLocationCoordinate2D(latitude: flight.arrivalLat,
                                        longitude: flight.arrivalLon))
-    }
-
-    /// The pause before the stroke starts. Only a rail leg with no routed path
-    /// takes one: rail geometry frequently lands a fraction of a second after
-    /// the save, and a train drawn as a straight line and then silently
-    /// redrawn onto its rails is worse than a train that waited a beat.
-    static func hold(for flight: Flight) -> TimeInterval {
-        flight.mode == .rail && flight.routePath.count < 3 ? railHold : 0
     }
 
     /// Smoothstep, so the stroke eases out of the departure dot and settles

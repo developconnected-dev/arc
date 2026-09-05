@@ -1,8 +1,5 @@
 import SwiftUI
 import MapKit
-// For `isDeleted` / `modelContext` on a trip the reveal re-reads after its
-// hold — a swipe-delete inside that window must not be followed.
-import SwiftData
 
 @MainActor
 @Observable
@@ -47,15 +44,11 @@ final class MapController {
     /// pan instead of on the tap.
     var routeReveals: [RouteReveal] = []
 
-    /// True from the instant a reveal is asked for until its stroke lands —
-    /// including a rail leg's hold, when `routeReveals` is still empty because
-    /// there is nothing to draw yet.
-    ///
-    /// The camera belongs to the reveal for that whole window. Saving a trip
-    /// also changes the flight list, and the refit that hangs off THAT would
-    /// otherwise frame every route the user owns and undo the fit the moment
-    /// was built around.
-    var isRevealingRoutes = false
+    /// True while a just-added trip's route is drawing itself on. The camera
+    /// belongs to the reveal for that window: saving a trip also changes the
+    /// flight list, and the refit that hangs off THAT would otherwise frame
+    /// every route the user owns and undo the fit the moment was built around.
+    var isRevealingRoutes: Bool { !routeReveals.isEmpty }
     private var revealTask: Task<Void, Never>?
 
     /// Published SIGMET/AIRMET areas, refreshed at most every 10 minutes —
@@ -219,43 +212,29 @@ final class MapController {
     /// fit apiece is exactly the loading theatre this exists instead of.
     func revealRoutes(for flights: [Flight]) {
         // A second add mid-draw belongs to the newer trip: cancel first, and
-        // clear as we go so the previous route is handed straight back to the
-        // settled map rather than freezing part-drawn for the hold's duration.
+        // clear so the previous route is handed straight back to the settled
+        // map rather than freezing part-drawn.
         revealTask?.cancel()
         routeReveals = []
-        isRevealingRoutes = false
-        let subjects = flights.filter(RouteReveal.isDrawable)
-        guard !subjects.isEmpty else { return }
-        isRevealingRoutes = true
-        // One hold for the batch, so a train that needs the pause doesn't
-        // split the moment in two by drawing after everything else.
-        let hold = subjects.map(RouteReveal.hold(for:)).max() ?? 0
+        // Geometry is fixed HERE, synchronously with the save that asked for
+        // the reveal: exactly what the settled map will draw for each leg, so
+        // nothing shifts at the handover — and no await ever separates these
+        // reads from the models they come from, so a later swipe-delete can't
+        // pull a trip out from underneath them. (There is nothing to wait for
+        // anyway: a rail leg's routed path arrives WITH its search result or
+        // never, and no refresh delivers one after the save.)
+        let planned: [RouteReveal] = flights.compactMap { flight in
+            let path = RouteReveal.geometry(for: flight)
+            guard path.count >= 2 else { return nil }
+            return RouteReveal(id: flight.id, mode: flight.mode, path: path, progress: 0)
+        }
+        guard !planned.isEmpty else { return }
+        routeReveals = planned
+        // Camera first, so the stroke draws into a frame that already
+        // holds the whole route instead of chasing it off the edge.
+        frameInUpperHalf(planned.flatMap { $0.path }, padding: 1.3)
 
         revealTask = Task { @MainActor in
-            if hold > 0 { try? await Task.sleep(for: .seconds(hold)) }
-            // A newer add cancelled this one and has already claimed the
-            // camera, so leave both its flags alone on the way out.
-            if Task.isCancelled { return }
-            // Geometry is read AFTER the hold, which is the only reason to
-            // hold at all: a rail leg's routed path may have arrived by now.
-            let planned: [RouteReveal] = subjects.compactMap { flight in
-                // A trip can be swiped away inside the hold, and a deleted
-                // model's properties are no longer safe to read. `isDeleted`
-                // only means anything for a model a store actually holds.
-                guard flight.modelContext == nil || !flight.isDeleted else { return nil }
-                let path = RouteReveal.geometry(for: flight)
-                guard path.count >= 2 else { return nil }
-                return RouteReveal(id: flight.id, mode: flight.mode, path: path, progress: 0)
-            }
-            guard !planned.isEmpty else {
-                isRevealingRoutes = false
-                return
-            }
-            routeReveals = planned
-            // Camera first, so the stroke draws into a frame that already
-            // holds the whole route instead of chasing it off the edge.
-            frameInUpperHalf(planned.flatMap { $0.path }, padding: 1.3)
-
             let startedAt = Date.now
             while !Task.isCancelled {
                 // Progress comes from the wall clock rather than a frame
@@ -269,10 +248,11 @@ final class MapController {
             }
             // Hand the routes and the camera back to the settled map. It
             // draws the same geometry the reveal just finished, so nothing
-            // moves — the reveal only ever owned the line while it grew.
+            // moves — the reveal only ever owned the line while it grew. A
+            // cancelled task leaves `routeReveals` alone on the way out: a
+            // newer add owns it already.
             if !Task.isCancelled {
                 routeReveals = []
-                isRevealingRoutes = false
             }
         }
     }
