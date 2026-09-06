@@ -89,16 +89,20 @@ final class FriendsStore {
     /// mirrored like any other add. Runs the network answer AFTER the local
     /// save so a dead connection can never lose the trip — worst case the
     /// invite is answered again on the next refresh via `reconcile`.
-    func accept(_ item: TripInviteItem, into context: ModelContext) async {
+    ///
+    /// Returns the materialised trip, so an accept gets the same beat an add
+    /// does: the row appears and the map draws its route on. nil means nothing
+    /// was materialised — a duplicate tap, or a save that failed and said so.
+    func accept(_ item: TripInviteItem, into context: ModelContext) async -> Flight? {
         // Two fast taps enqueue two Tasks with the same item — only the one
         // that still finds the invite listed may materialise it.
-        guard tripInvites.contains(where: { $0.id == item.id }) else { return }
+        guard tripInvites.contains(where: { $0.id == item.id }) else { return nil }
         let flight = item.invite.flight.materialize()
         context.insert(flight)
         do { try context.save() } catch {
             context.delete(flight)
             lastError = "Couldn't save this trip: \(error.localizedDescription)"
-            return
+            return nil
         }
         withAnimation { tripInvites.removeAll { $0.id == item.id } }
         if flight.isUpcoming { ArcNotifications.scheduleDepartureReminder(for: flight) }
@@ -107,6 +111,7 @@ final class FriendsStore {
             _ = try? await ArcSupabase.shared.shareFlight(flight)
             try? await ArcSupabase.shared.respondToTripInvite(id: item.id, accept: true)
         }
+        return flight
     }
 
     func decline(_ item: TripInviteItem) {
@@ -377,6 +382,9 @@ final class FriendsStore {
         let id: String
         let dep: CLLocationCoordinate2D
         let arr: CLLocationCoordinate2D
+        /// So the camera frames the geometry the overlay draws: a sailing's
+        /// rhumb line is not where a flight's arc is.
+        let mode: TripMode
         static func == (a: Self, b: Self) -> Bool { a.id == b.id }
     }
     var focusedRoute: FocusedRoute?

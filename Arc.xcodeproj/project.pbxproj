@@ -23,6 +23,8 @@
 		147ED96EDE432F34CFA07B0F /* GeoMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A38232A6E768DF2669A448 /* GeoMathTests.swift */; };
 		174541C286F7C1FAFD253F1A /* FriendsFeedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5460A62472771819DEC2B78A /* FriendsFeedTests.swift */; };
 		1BC8E88E19F9A7AD30EA6489 /* RemotePush.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9D60FB79B4585323258D954 /* RemotePush.swift */; };
+		A11F100C10C100C10C100011 /* RouteReveal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11F100C10C100C10C100012 /* RouteReveal.swift */; };
+		A11F100C10C100C10C100013 /* RouteRevealTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11F100C10C100C10C100014 /* RouteRevealTests.swift */; };
 		1D39A49F3A94F85646D62092 /* DelayRisk.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F45EC7B8D2BEC6A79A78C9B /* DelayRisk.swift */; };
 		1EB9E39748B4D282482786CE /* FlightAudienceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FAE84C003F055E6FD5E1EC /* FlightAudienceTests.swift */; };
 		23E38F386FC1075984846921 /* FlightDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 734A69EC4EB99125C060E4F5 /* FlightDetailView.swift */; };
@@ -267,6 +269,8 @@
 		C8B050595CEBC559BB3F8B48 /* FlightQueryParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightQueryParserTests.swift; sourceTree = "<group>"; };
 		C966E39F13C47E5E918B92FA /* BookingExtractorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookingExtractorTests.swift; sourceTree = "<group>"; };
 		CD77AF2CE7584E492AA0A637 /* MapController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapController.swift; sourceTree = "<group>"; };
+		A11F100C10C100C10C100012 /* RouteReveal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteReveal.swift; sourceTree = "<group>"; };
+		A11F100C10C100C10C100014 /* RouteRevealTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteRevealTests.swift; sourceTree = "<group>"; };
 		CDD5E5B4DD8F4AFBCE5230CD /* TripInvites.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripInvites.swift; sourceTree = "<group>"; };
 		CE57FDA3B828171629338130 /* FlightQueryParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightQueryParser.swift; sourceTree = "<group>"; };
 		CFCE4AEB3F85D01514383989 /* TravelCompanionsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TravelCompanionsSheet.swift; sourceTree = "<group>"; };
@@ -298,6 +302,7 @@
 				D318093F38973AB568D94123 /* ArcMapView.swift */,
 				5CCB5157053AA1F3BD9AF495 /* GeoMath.swift */,
 				CD77AF2CE7584E492AA0A637 /* MapController.swift */,
+				A11F100C10C100C10C100012 /* RouteReveal.swift */,
 			);
 			path = Map;
 			sourceTree = "<group>";
@@ -567,6 +572,7 @@
 				B48F84455243D0E4149FB369 /* PlanePositionTests.swift */,
 				A136200E180C33472B503DE3 /* ReferenceDataTests.swift */,
 				38329F5149CBA92432A823C7 /* RotationChainTests.swift */,
+				A11F100C10C100C10C100014 /* RouteRevealTests.swift */,
 				283EE3258EC82F97B3FD8892 /* ScheduleBackfillTests.swift */,
 				A11F100C10C100C10C100006 /* SmartETATests.swift */,
 				8011F1F9596F27743C731E2F /* SmokeTests.swift */,
@@ -741,6 +747,7 @@
 				C870B531E4885665A67DA68F /* PlanePositionTests.swift in Sources */,
 				3190C8FCAC6039B71113589D /* ReferenceDataTests.swift in Sources */,
 				C8FFD2D8D6BF9BD7326C11AF /* RotationChainTests.swift in Sources */,
+				A11F100C10C100C10C100013 /* RouteRevealTests.swift in Sources */,
 				A83E77612126873053655DD1 /* ScheduleBackfillTests.swift in Sources */,
 				055E0F22DAEA1DCEC41CEE5F /* SmokeTests.swift in Sources */,
 				1003697FBC6E177FB06D4DC0 /* SupabaseErrorTests.swift in Sources */,
@@ -819,6 +826,7 @@
 				825FA5FD9518679A5102F8E5 /* ReferenceModels.swift in Sources */,
 				1BC8E88E19F9A7AD30EA6489 /* RemotePush.swift in Sources */,
 				8279A76C5C2594EBFC72E84C /* RotationChain.swift in Sources */,
+				A11F100C10C100C10C100011 /* RouteReveal.swift in Sources */,
 				C3B05E522F64F7A73BDB3F5F /* ScheduleBackfill.swift in Sources */,
 				5BFC4245B668EF91BE8CF988 /* SettingsView.swift in Sources */,
 				8D123A8F76E2E356082F43AF /* ShareFlightSheet.swift in Sources */,
