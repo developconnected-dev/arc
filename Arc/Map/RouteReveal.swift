@@ -71,6 +71,22 @@ extension RouteReveal {
                                        longitude: flight.arrivalLon))
     }
 
+    /// Whether a flight-list change that landed while a reveal owned the
+    /// camera still needs the refit it was denied, once the reveal ends.
+    ///
+    /// The change the reveal is FOR — the trip it is framing arriving in
+    /// the list — is spent: the reveal's frame is the camera that change
+    /// deserves. Anything else is not: a trip deleted mid-draw leaves the
+    /// camera on a route that isn't there, and a trip that arrived by some
+    /// other path in that second was never framed at all.
+    static func listChangeNeedsRefit(previous: [UUID], current: [UUID],
+                                     revealing: Set<UUID>) -> Bool {
+        let before = Set(previous), after = Set(current)
+        let removedSomething = !before.subtracting(after).isEmpty
+        let addedAStranger = !after.subtracting(before).isSubset(of: revealing)
+        return removedSomething || addedAStranger
+    }
+
     /// Smoothstep, so the stroke eases out of the departure dot and settles
     /// into the arrival one instead of stopping dead at full speed.
     static func eased(_ t: Double) -> Double {

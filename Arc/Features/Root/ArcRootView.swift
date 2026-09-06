@@ -38,6 +38,10 @@ struct ArcRootView: View {
     /// and swapping a presented sheet's item can drop the replacement on the
     /// floor — so both cases dismiss first and come back through here.
     @State private var queuedDetail: Flight?
+    /// A flight-list change that happened while a route was drawing itself
+    /// on and was not the change the reveal was for — a swipe-delete, a trip
+    /// that arrived by another path. Its refit is owed once the reveal ends.
+    @State private var refitOwedAfterReveal = false
 
 
     /// Test hooks for headless screenshots.
@@ -106,11 +110,8 @@ struct ArcRootView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { controller.startReveal() }
             }
         }
-        .onChange(of: allFlights.map(\.id)) { _, _ in
-            // Saving a trip is what changed this list, so the refit that
-            // normally hangs off it would frame every route the user owns and
-            // undo the fit the add moment is built around.
-            if !controller.isRevealingRoutes { refitMapForCurrentData() }
+        .onChange(of: allFlights.map(\.id)) { previous, current in
+            refitForListChange(from: previous, to: current)
             openDetailIfPending()
             bootstrapTrackingAndWidgets()
             // A tap that arrived before SwiftData had loaded gets its flight now.
@@ -123,6 +124,7 @@ struct ArcRootView: View {
         // time" — caught by CI, on a build the simulator would have shown
         // the same way.
         .modifier(NotificationPrimerAlert(isPresented: $showNotificationPrimer))
+        .modifier(RevealCameraHandback(controller: controller, settle: settleOwedRefit))
         .onChange(of: tab) { _, newTab in
             updateCameraForTab(newTab)
             if newTab == .friends {
@@ -262,6 +264,28 @@ struct ArcRootView: View {
         applyCameraForCurrentTab()
     }
 
+    /// The refit that hangs off a flight-list change. Saving a trip is what
+    /// changed the list, so while its route draws itself on the refit would
+    /// frame every route the user owns and undo the fit the moment is built
+    /// around. Any OTHER change in that second is deferred, not dropped.
+    /// (Out of `body` — the modifier chain sits at the type-checker's limit.)
+    private func refitForListChange(from previous: [UUID], to current: [UUID]) {
+        if !controller.isRevealingRoutes {
+            refitMapForCurrentData()
+        } else if RouteReveal.listChangeNeedsRefit(
+            previous: previous, current: current,
+            revealing: Set(controller.routeReveals.map(\.id))) {
+            refitOwedAfterReveal = true
+        }
+    }
+
+    /// The reveal has handed the camera back: pay any refit it deferred.
+    private func settleOwedRefit(_ revealing: Bool) {
+        guard !revealing, refitOwedAfterReveal else { return }
+        refitOwedAfterReveal = false
+        refitMapForCurrentData()
+    }
+
     /// Called when the underlying flight data changes, or on first appear —
     /// always refits (the route set may genuinely differ).
     private func refitMapForCurrentData() {
@@ -347,6 +371,17 @@ struct ArcRootView: View {
             }
             UserDefaults.standard.set(true, forKey: key)
             showNotificationPrimer = true
+        }
+    }
+
+    /// The reveal handing the camera back, as a modifier for the same reason
+    /// as the alert below: one more closure inline in `body`'s chain tips
+    /// the type-checker over its limit.
+    fileprivate struct RevealCameraHandback: ViewModifier {
+        let controller: MapController
+        let settle: (Bool) -> Void
+        func body(content: Content) -> some View {
+            content.onChange(of: controller.isRevealingRoutes) { _, revealing in settle(revealing) }
         }
     }
 

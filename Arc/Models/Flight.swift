@@ -496,11 +496,24 @@ final class Flight {
         let altitude: Double? // meters
     }
 
+    /// The stored blobs, decoded once each. The map's body reads these on
+    /// every rebuild — the minute tick, a status change, and sixty times a
+    /// second while an added route draws itself on — and a fresh
+    /// `JSONDecoder` per read of a long-haul's breadcrumbs was the bulk of
+    /// that work. A box rather than transient fields of this model so the
+    /// cache is never observed: it is filled from inside a view's body, and
+    /// an observed write there is a render loop. It answers only for the
+    /// exact bytes it decoded, so a blob rewritten by a sync is decoded anew.
+    @Transient private var decoded = DecodedBlobs()
+
     /// Decoded track points from stored JSON data
     var trackPoints: [TrackPoint] {
         get {
             guard let data = trackPointsData else { return [] }
-            return (try? JSONDecoder().decode([TrackPoint].self, from: data)) ?? []
+            if let cached = decoded.track, cached.data == data { return cached.value }
+            let points = (try? JSONDecoder().decode([TrackPoint].self, from: data)) ?? []
+            decoded.track = .init(data: data, value: points)
+            return points
         }
         set {
             trackPointsData = try? JSONEncoder().encode(newValue)
@@ -509,16 +522,22 @@ final class Flight {
 
     /// Decoded route path, empty when the leg has none.
     var routePath: [(lat: Double, lon: Double)] {
-        guard let data = routePathData,
-              let raw = try? JSONDecoder().decode([[Double]].self, from: data) else { return [] }
-        return raw.compactMap { $0.count >= 2 ? (lat: $0[0], lon: $0[1]) : nil }
+        guard let data = routePathData else { return [] }
+        if let cached = decoded.route, cached.data == data { return cached.value }
+        let raw = (try? JSONDecoder().decode([[Double]].self, from: data)) ?? []
+        let path = raw.compactMap { $0.count >= 2 ? (lat: $0[0], lon: $0[1]) : nil }
+        decoded.route = .init(data: data, value: path)
+        return path
     }
 
     /// The tail's day so far, chronological (immediate inbound last).
     var rotationLegs: [RotationLeg] {
         get {
             guard let data = rotationData else { return [] }
-            return (try? JSONDecoder().decode([RotationLeg].self, from: data)) ?? []
+            if let cached = decoded.rotation, cached.data == data { return cached.value }
+            let legs = (try? JSONDecoder().decode([RotationLeg].self, from: data)) ?? []
+            decoded.rotation = .init(data: data, value: legs)
+            return legs
         }
         set {
             rotationData = try? JSONEncoder().encode(newValue)
@@ -614,4 +633,18 @@ enum FlightStatus: String, Codable, CaseIterable {
         // never received can't be turned into an arrival by the clock alone.
         return scheduledArrival.addingTimeInterval(2 * 3600) < .now ? .landed : .scheduled
     }
+}
+
+/// One decoded value and the exact bytes it came from — see `Flight.decoded`.
+struct DecodedBlob<Value> {
+    let data: Data
+    let value: Value
+}
+
+/// The per-flight decode cache. A class so the model's field never changes
+/// (only the box's contents do), keeping the cache out of observation.
+final class DecodedBlobs {
+    var track: DecodedBlob<[Flight.TrackPoint]>?
+    var route: DecodedBlob<[(lat: Double, lon: Double)]>?
+    var rotation: DecodedBlob<[RotationLeg]>?
 }

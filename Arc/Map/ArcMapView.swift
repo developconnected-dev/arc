@@ -499,14 +499,7 @@ struct ArcMapView: View {
         for friend in friendOverlays where !friend.landed {
             routes.append((friend.dep, friend.arr))
         }
-        var seen = Set<String>()
-        var out: [FlightAPIClient.WeatherHazard] = []
-        for (dep, arr) in routes {
-            for hazard in GeoMath.hazards(all, near: dep, to: arr) where seen.insert(hazard.id).inserted {
-                out.append(hazard)
-            }
-        }
-        return out
+        return controller.hazardScan.hazards(all, routes: routes)
     }
 
     /// A published advisory, drawn as the polygon it actually is.

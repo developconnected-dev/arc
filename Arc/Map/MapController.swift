@@ -55,6 +55,11 @@ final class MapController {
     /// every route the user owns and undo the fit the moment was built around.
     var isRevealingRoutes: Bool { !routeReveals.isEmpty }
     private var revealTask: Task<Void, Never>?
+    /// Which advisories sit near the routes on the map, remembered between
+    /// rebuilds. Ignored by observation on purpose: the map's body writes it
+    /// while it renders, and an observed write from inside a body is a
+    /// render loop.
+    @ObservationIgnored var hazardScan = HazardScanCache()
     /// The clock a reveal's progress is measured on. System uptime rather
     /// than the wall clock: an NTP correction or a hand-set clock stepping
     /// back mid-draw would otherwise leave the loop at zero until wall time
