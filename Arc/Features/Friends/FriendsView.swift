@@ -678,7 +678,8 @@ struct FriendsListView: View {
                 store.focusedRoute = .init(
                     id: item.flight.id,
                     dep: .init(latitude: dlat, longitude: dlon),
-                    arr: .init(latitude: alat, longitude: alon))
+                    arr: .init(latitude: alat, longitude: alon),
+                    mode: item.flight.tripMode)
             }
         } label: {
             FriendFlightRow(item: item)

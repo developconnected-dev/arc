@@ -34,6 +34,34 @@ final class MapController {
     /// re-derivation of a position from the clock.
     var clockTick = 0
 
+    /// Routes drawing themselves onto the map right now — the add/import
+    /// moment. Empty the rest of the time.
+    ///
+    /// Read this in a VIEW'S OWN BODY, not only inside a `Map` content
+    /// builder: MapKit caches that builder's result, so an `@Observable` read
+    /// buried in it never registers as a dependency — the same trap the
+    /// weather-layer toggle fell into, where the layer appeared on the next
+    /// pan instead of on the tap.
+    var routeReveals: [RouteReveal] = []
+    /// How far every route in `routeReveals` has drawn itself on, 0…1. One
+    /// value for the batch: one beat, and one observation per frame.
+    var revealProgress: Double = 0
+    /// The stroke has reached the arrival end (or nothing is drawing).
+    var isRevealComplete: Bool { revealProgress >= 1 }
+
+    /// True while a just-added trip's route is drawing itself on. The camera
+    /// belongs to the reveal for that window: saving a trip also changes the
+    /// flight list, and the refit that hangs off THAT would otherwise frame
+    /// every route the user owns and undo the fit the moment was built around.
+    var isRevealingRoutes: Bool { !routeReveals.isEmpty }
+    private var revealTask: Task<Void, Never>?
+    /// The clock a reveal's progress is measured on. System uptime rather
+    /// than the wall clock: an NTP correction or a hand-set clock stepping
+    /// back mid-draw would otherwise leave the loop at zero until wall time
+    /// caught up — with the reveal owning the camera the whole while. Tests
+    /// feed it a clock of their own.
+    var revealUptime: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+
     /// Published SIGMET/AIRMET areas, refreshed at most every 10 minutes —
     /// they're issued hourly and valid for hours, so anything keener is waste.
     var hazards: [FlightAPIClient.WeatherHazard] = []
@@ -151,13 +179,12 @@ final class MapController {
         // the arc between its endpoints — an ICE from München to Hamburg reaches
         // Berlin, 2° east of either — so framing the arc would crop the very
         // line the user opened the sheet to look at.
-        let routed = flight.routePath.map {
-            CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
-        }
-        let path = routed.count >= 3 ? routed : GeoMath.greatCircle(
-            from: .init(latitude: flight.departureLat, longitude: flight.departureLon),
-            to: .init(latitude: flight.arrivalLat, longitude: flight.arrivalLon))
-        frameInUpperHalf(path, padding: 1.3)
+        //
+        // And the same geometry the map draws when there is no routed path:
+        // a flight's arc, but a train's or a sailing's straight ground line —
+        // the arc between two stations peaks degrees north of a long
+        // east–west leg, and framing it put the real line low in the frame.
+        frameInUpperHalf(RouteReveal.geometry(for: flight), padding: 1.3)
     }
 
     /// Frame `coords` in the UPPER half of the screen — for content shown
@@ -179,9 +206,111 @@ final class MapController {
         withAnimation(.easeInOut(duration: 0.8)) { position = .region(region) }
     }
 
-    /// Frame one route in the upper half (friend-flight detail).
-    func focusRoute(dep: CLLocationCoordinate2D, arr: CLLocationCoordinate2D) {
-        frameInUpperHalf(GeoMath.greatCircle(from: dep, to: arr))
+    /// Frame one route in the upper half (friend-flight detail) — in the
+    /// geometry the overlay draws it with, so a friend's sailing is framed
+    /// on its rhumb line rather than on the arc a flight would fly.
+    func focusRoute(dep: CLLocationCoordinate2D, arr: CLLocationCoordinate2D, mode: TripMode) {
+        frameInUpperHalf(ArcMapView.RouteStyle(mode: mode).path(from: dep, to: arr))
+    }
+
+    // MARK: - The add / import moment
+
+    /// Draw freshly added or imported trips onto the map: fit the camera to
+    /// what just arrived, then grow each route over ~1 second. `holdRoutes`
+    /// and `startReveal` in one step, for a trip that lands on a map that is
+    /// already in view (an accepted invite).
+    func revealRoutes(for flights: [Flight]) {
+        holdRoutes(for: flights)
+        startReveal()
+    }
+
+    /// Claim the moment for trips that just landed, without drawing yet.
+    ///
+    /// A trip is saved while the Add sheet is still up, and the map is
+    /// visible behind it as it slides away — so from the save on, the map
+    /// must HIDE the settled line, or the route shows whole for half a
+    /// second, blinks out, and draws itself on again. Holding registers the
+    /// reveal at progress zero (the map draws nothing for a held leg) and
+    /// moves the camera now, so the frame is settled by the time there is
+    /// something on it to watch. `startReveal` starts the clock.
+    ///
+    /// ONE beat for the whole batch. Trips held before the draw starts join
+    /// the same batch — one camera move that frames all of them and one
+    /// shared stroke — because reveals racing each other with a camera fit
+    /// apiece is exactly the loading theatre this exists instead of. A hold
+    /// that arrives mid-draw belongs to the newer trip and takes over.
+    func holdRoutes(for flights: [Flight]) {
+        // Geometry is fixed HERE, synchronously with the save that asked for
+        // the reveal: exactly what the settled map will draw for each leg, so
+        // nothing shifts at the handover — and no await ever separates these
+        // reads from the models they come from, so a later swipe-delete can't
+        // pull a trip out from underneath them.
+        var planned: [RouteReveal] = []
+        for flight in flights {
+            let path = RouteReveal.geometry(for: flight)
+            guard path.count >= 2 else { continue }
+            planned.append(RouteReveal(id: flight.id, path: path))
+        }
+        // Nothing drawable — a past trip, a hand-typed train with no
+        // coordinates — is not an add taking over the moment, it is no moment
+        // at all. Decided BEFORE the running reveal is touched, so asking on
+        // behalf of such a trip can't tear down a route still drawing itself.
+        guard !planned.isEmpty else { return }
+        if revealTask == nil {
+            // Held, not yet drawing: the newcomer joins the batch.
+            let held = routeReveals.filter { reveal in !planned.contains { $0.id == reveal.id } }
+            routeReveals = held + planned
+        } else {
+            // A second add mid-draw belongs to the newer trip: cancel first, and
+            // clear so the previous route is handed straight back to the settled
+            // map rather than freezing part-drawn.
+            revealTask?.cancel()
+            revealTask = nil
+            routeReveals = planned
+        }
+        revealProgress = 0
+        // Camera first, so the stroke draws into a frame that already holds
+        // the whole route instead of chasing it off the edge.
+        frameInUpperHalf(routeReveals.flatMap { $0.path }, padding: 1.3)
+    }
+
+    /// Start the clock on whatever is held. Nothing held, or already
+    /// drawing: nothing to do — so a belt-and-braces caller can't restart a
+    /// draw or conjure one.
+    func startReveal() {
+        guard !routeReveals.isEmpty, revealTask == nil else { return }
+        revealTask = Task { @MainActor in
+            let startedAt = revealUptime()
+            while !Task.isCancelled {
+                // Progress comes from a clock rather than a frame count:
+                // `Task.sleep` is a floor, not a metronome, and an
+                // accumulating counter would stretch the beat under load.
+                let elapsed = revealUptime() - startedAt
+                let progress = RouteReveal.eased(elapsed / RouteReveal.drawDuration)
+                revealProgress = progress
+                if elapsed >= RouteReveal.drawDuration { break }
+                try? await Task.sleep(for: .seconds(RouteReveal.frameInterval))
+            }
+            // Hand the routes and the camera back to the settled map. It
+            // draws the same geometry the reveal just finished, so nothing
+            // moves — the reveal only ever owned the line while it grew. A
+            // cancelled task leaves `routeReveals` alone on the way out: a
+            // newer add owns it already.
+            if !Task.isCancelled {
+                routeReveals = []
+                revealTask = nil
+            }
+        }
+    }
+
+    /// Give up the moment — held or drawing — and hand every line straight
+    /// back to the settled map. For a reveal that would play to nobody: a
+    /// detail sheet about to cover the map and take the camera for its own
+    /// flight.
+    func cancelReveal() {
+        revealTask?.cancel()
+        revealTask = nil
+        routeReveals = []
     }
 
     /// Follow a live plane position (used in-flight).

@@ -16,6 +16,11 @@ struct ArcMapView: View {
         // of on the tap. Hoisting the reads makes the toggle immediate.
         let showHazards = controller.showWeatherHazards
         let hazards = controller.hazards
+        // Same reason: a route drawing itself on after an add advances ~60
+        // times a second, and a read that only happened inside the content
+        // builder would render the first frame and then sit there.
+        let reveals = controller.routeReveals
+        let revealProgress = controller.revealProgress
         // Observation hook: the minute tick re-derives estimated plane positions.
         _ = controller.clockTick
 
@@ -132,16 +137,26 @@ struct ArcMapView: View {
                     let arr = CLLocationCoordinate2D(latitude: flight.arrivalLat, longitude: flight.arrivalLon)
                     let track = flight.trackPoints
                     // A train follows rails, not a great circle. When the leg
-                    // carries the real routed path, that IS the line — the arc
-                    // is only a stand-in for modes whose provider publishes no
-                    // geometry (every flight, and every ferry).
+                    // carries the real routed path, that IS the line — and
+                    // where it doesn't, `RouteStyle.path` still keeps the arc
+                    // for air only, so a train falls back to a straight ground
+                    // segment rather than to a flight's geometry.
                     let routed = flight.routePath.map {
                         CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
                     }
 
                     let style = RouteStyle(mode: flight.mode)
+                    // The add/import moment. While this leg's route is drawing
+                    // itself on, the reveal owns the line: the settled
+                    // branches below would otherwise render the finished route
+                    // underneath it and leave nothing to watch.
+                    let reveal = reveals.first { $0.id == flight.id }
+                    let revealDone = reveal == nil || revealProgress >= 1
 
-                    if flight.isCompleted, track.count >= 2 {
+                    if let reveal {
+                        revealStroke(reveal.drawnPath(at: revealProgress),
+                                     style: style, past: flight.isCompleted)
+                    } else if flight.isCompleted, track.count >= 2 {
                         // Landed: the real recorded path, airport to airport —
                         // what you actually flew, not a theoretical arc. Past
                         // routes render dark and muted, no glow.
@@ -180,7 +195,7 @@ struct ArcMapView: View {
                     } else {
                         // Upcoming (or active without track): bright + glow.
                         // The routed path wins where it exists — drawing a train
-                        // as a straight line across the countryside is the one
+                        // as a great-circle arc over the countryside is the one
                         // thing on this map that is simply untrue. A sailing has
                         // no published geometry, so it gets a rhumb line in the
                         // sea grammar (dotted teal) rather than a flight's arc.
@@ -192,7 +207,12 @@ struct ArcMapView: View {
                     }
 
                     Annotation("", coordinate: dep) { endpointDot(past: flight.isCompleted, style: style) }
-                    Annotation("", coordinate: arr) { endpointDot(past: flight.isCompleted, style: style) }
+                    // The arrival dot lands WITH the stroke: while a route is
+                    // still drawing on, the far end has nothing to mark yet,
+                    // and a dot already sitting there gives away the ending.
+                    if revealDone {
+                        Annotation("", coordinate: arr) { endpointDot(past: flight.isCompleted, style: style) }
+                    }
 
 
                     // A live ADS-B fix when there is one, otherwise the clock's
@@ -205,7 +225,12 @@ struct ArcMapView: View {
                     // plane shows twice: live fix + slightly-stale route
                     // position. Matched by flight row OR tail identity, since
                     // connection legs share one aircraft.
+                    // Like the arrival dot, the plane waits for the stroke:
+                    // an accepted invite for a flight already in the air
+                    // would otherwise show the aircraft parked mid-route
+                    // while the line is still crawling out to meet it.
                     if flight.isActive,
+                       revealDone,
                        !(controller.livePlane != nil && isFeedAircraft(flight)),
                        let plane = ownPlane(flight, dep: dep, arr: arr) {
                         Annotation("", coordinate: plane.coordinate) {
@@ -354,6 +379,32 @@ struct ArcMapView: View {
         return (gc, pos.coordinate, pos.heading)
     }
 
+    /// A route mid-draw, the moment after a trip was added or imported.
+    ///
+    /// Grown, not trimmed: `MapPolyline` draws exactly the coordinates it is
+    /// handed, so each frame hands it a longer prefix of the finished
+    /// geometry. Colour and stroke are the leg's OWN settled ones — bright
+    /// with the glow while it's upcoming, muted if its status settles to past
+    /// mid-draw — so when the reveal ends and the settled map takes the line
+    /// back, nothing changes but who is drawing it.
+    @MapContentBuilder
+    private func revealStroke(_ drawn: [CLLocationCoordinate2D],
+                              style: RouteStyle,
+                              past: Bool) -> some MapContent {
+        if drawn.count >= 2 {
+            if past {
+                MapPolyline(coordinates: drawn)
+                    .stroke(style.past, style: style.pastStroke)
+            } else {
+                MapPolyline(coordinates: drawn)
+                    .stroke(style.live.opacity(0.28),
+                            style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                MapPolyline(coordinates: drawn)
+                    .stroke(style.live, style: style.plannedStroke)
+            }
+        }
+    }
+
     private func endpointDot(past: Bool, style: RouteStyle = RouteStyle(mode: .air)) -> some View {
         Circle().fill(.white).frame(width: past ? 8 : 10, height: past ? 8 : 10)
             .overlay(Circle().stroke(past ? style.past : style.endpoint,
@@ -366,7 +417,8 @@ struct ArcMapView: View {
     ///
     /// Air: the great-circle arc, sky blue, solid with a glow — Arc's original
     /// language. Rail: the same stroke on the REAL routed path (drawn from
-    /// `routePath` by the caller). Sea: a rhumb line — straight on the map,
+    /// `routePath` by the caller), or a straight ground segment where the
+    /// provider published none. Sea: a rhumb line — straight on the map,
     /// which is what a ship steers and what a chart draws — in teal, dotted
     /// like a wake. A sailing drawn as a solid blue arc read as a flight; a
     /// straight line in the flight's own colour still did.
@@ -378,8 +430,14 @@ struct ArcMapView: View {
         var endpoint: Color { mode == .sea ? ArcTheme.seaLine : ArcTheme.action }
 
         /// Planned geometry between two points when no routed path exists.
+        ///
+        /// Air alone gets the great circle, because air alone flies one. A
+        /// train whose routed path is missing gets a straight ground segment:
+        /// on this map the arc is what says "flight", so an arc between two
+        /// stations reads as a flight between two airports — the one thing the
+        /// map must not say. A sailing gets the rhumb line a chart draws.
         func path(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> [CLLocationCoordinate2D] {
-            mode == .sea ? GeoMath.rhumbLine(from: a, to: b) : GeoMath.greatCircle(from: a, to: b)
+            mode == .air ? GeoMath.greatCircle(from: a, to: b) : GeoMath.rhumbLine(from: a, to: b)
         }
 
         // Same stroke language as every other route on the map — solid line,

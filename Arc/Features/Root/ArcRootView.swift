@@ -53,11 +53,23 @@ struct ArcRootView: View {
         // so the modifier chain below stays inside the type checker's budget.)
 
         .sheet(isPresented: $showAdd) {
+            // The moment is claimed at the save — the map is visible behind
+            // this sheet as it slides away, and must already be hiding the
+            // settled line and framing the route — and the draw starts once
+            // the sheet is out of the way.
             AddFlightView(initialQuery: clipboardQuery ?? addInitialQuery,
-                          onAdded: { added in queuedDetail = added })
+                          onAdded: { added in holdTrips([added]) })
             .presentationDetents([.large])
             .onDisappear {
                 clipboardQuery = nil
+                // The map is fully in view now, so this is where the route
+                // draws itself on. Unless a widget, notification or `arc://`
+                // tap arrived while the sheet was up and queued a specific
+                // flight: that detail is about to cover the map and claim the
+                // camera for its own flight, so the reveal would play under
+                // it, pointed at the wrong trip. The flight the user asked
+                // for wins, and the held line goes back to the settled map.
+                if queuedDetail != nil { controller.cancelReveal() } else { controller.startReveal() }
                 presentQueuedDetail()
             }
         }
@@ -81,11 +93,24 @@ struct ArcRootView: View {
         // present whenever nothing is in front of it any more — a cancelled
         // Add presentation (showAdd flipped back before the sheet appeared)
         // never fires onDisappear, and stranded the queued flight forever.
+        //
+        // The reveal's belt is deliberately LATE: this fires as the sheet
+        // STARTS sliding away, and starting the draw here would spend its
+        // first third behind the sheet. But a held route is a line the map
+        // is hiding, and a hold nobody starts would hide it for the session
+        // — so if the sheet's onDisappear hasn't started the draw by the time
+        // the dismissal is long over, this does. A no-op whenever it has.
         .onChange(of: showAdd) { _, presented in
-            if !presented { DispatchQueue.main.async { presentQueuedDetail() } }
+            if !presented {
+                DispatchQueue.main.async { presentQueuedDetail() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { controller.startReveal() }
+            }
         }
         .onChange(of: allFlights.map(\.id)) { _, _ in
-            refitMapForCurrentData()
+            // Saving a trip is what changed this list, so the refit that
+            // normally hangs off it would frame every route the user owns and
+            // undo the fit the add moment is built around.
+            if !controller.isRevealingRoutes { refitMapForCurrentData() }
             openDetailIfPending()
             bootstrapTrackingAndWidgets()
             // A tap that arrived before SwiftData had loaded gets its flight now.
@@ -123,7 +148,7 @@ struct ArcRootView: View {
                 // itself opens at the system medium ≈ half screen).
                 if detentBeforeFocus == nil { detentBeforeFocus = detent }
                 detent = .small
-                controller.focusRoute(dep: route.dep, arr: route.arr)
+                controller.focusRoute(dep: route.dep, arr: route.arr, mode: route.mode)
             } else {
                 // Give the sheet back its height — `detent` is shared across
                 // tabs, and the sliver otherwise followed you to My Trips.
@@ -242,6 +267,52 @@ struct ArcRootView: View {
     private func refitMapForCurrentData() {
         lastCameraTab = tab
         applyCameraForCurrentTab()
+    }
+
+    /// The add / import moment.
+    ///
+    /// Every path that saves a trip ends up here — the Add search, a scanned
+    /// boarding pass, a leg off a pasted booking, a train picked off a station
+    /// board, manual entry, an accepted trip invite — so what happens next is
+    /// identical whichever one it was: the row is in My Trips and the map
+    /// draws the route across it in about a second. Nothing is loading by this
+    /// point, which is precisely why there is nothing here that says so.
+    private func revealTrips(_ flights: [Flight]) {
+        holdTrips(flights)
+        controller.startReveal()
+        // Nothing drawable — a past trip, a hand-typed train with no
+        // coordinates — means the row appearing is the whole event. The
+        // camera was never claimed, so the list change still gets the refit
+        // it would normally trigger.
+        if !controller.isRevealingRoutes { refitMapForCurrentData() }
+    }
+
+    /// Claim the moment for trips that just landed, without drawing yet:
+    /// the tab, the sheet height and the camera are the moment's from the
+    /// save on, and the map hides the settled line until `startReveal`.
+    /// Every add path today saves one leg and dismisses, so a hold is one
+    /// trip; holds before the draw starts join one batch — one camera move,
+    /// one shared draw — so a path saving several legs would not race.
+    private func holdTrips(_ flights: [Flight]) {
+        guard !flights.isEmpty else { return }
+        // The row lands in My Trips, so that's the list the map draws behind.
+        tab = .myFlights
+        // The reveal owns the camera for the next second. Claiming the tab
+        // here is what stops the tab-change hook from refitting to every
+        // route the user has and fighting it.
+        lastCameraTab = .myFlights
+        // The route is framed in the map's upper half, which a sheet dragged
+        // to full height covers entirely — an invite accepted from a
+        // full-height list, or a trip added with the sheet left large, would
+        // draw itself on behind it and leave the map on a camera nobody saw
+        // move. Medium is the height the moment was built for: the row that
+        // just landed and the route both on screen.
+        if detent == .large { detent = .medium }
+        // Only what THIS tab's map will actually draw (`mapFlights` shows
+        // upcoming and active legs). A hand-logged past trip must not get a
+        // reveal: its line would draw itself on and then vanish at the
+        // handover, because the settled map was never going to hold it.
+        controller.holdRoutes(for: flights.filter { $0.isUpcoming || $0.isActive })
     }
 
     private func applyCameraForCurrentTab() {
@@ -525,7 +596,13 @@ struct ArcRootView: View {
 
     /// Presents a flight's detail. Never opens a second sheet on top of Add —
     /// that silently does nothing in SwiftUI — it queues behind its dismissal
-    /// instead, the same path a freshly added flight takes.
+    /// instead.
+    ///
+    /// Adding a trip does NOT come through here. A save used to open the new
+    /// trip's detail, which meant the confirmation was a sheet covering both
+    /// the list the row had just joined and the map the route had just been
+    /// drawn on. The add lands on the list now; this is for a widget, a
+    /// notification or an `arc://` link, where a specific flight was asked for.
     private func show(_ flight: Flight?) -> Bool {
         tab = .myFlights
         guard let flight else {
@@ -576,7 +653,11 @@ struct ArcRootView: View {
     private var tabs: some View {
         TabView(selection: $tab) {
                 Tab(ArcTab.myFlights.title, systemImage: ArcTab.myFlights.icon, value: ArcTab.myFlights) {
-                    tabSurface { MyFlightsView(onSelect: { detailFlight = $0 }, onAdd: { showAdd = true }) }
+                    tabSurface {
+                        MyFlightsView(onSelect: { detailFlight = $0 },
+                                      onAdd: { showAdd = true },
+                                      onImported: { imported in revealTrips([imported]) })
+                    }
                 }
                 // Trips friends added for the two of you, waiting on an answer.
                 .badge(friendsStore.tripInvites.count)

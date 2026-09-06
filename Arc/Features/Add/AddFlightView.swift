@@ -85,8 +85,12 @@ struct AddFlightView: View {
     enum AirportFieldKind { case from, to }
 
     var initialQuery: String? = nil
-    /// The flight that was just added, so the caller can open it once this
-    /// sheet is out of the way.
+    /// A trip that was just saved, so the map can draw its route on once this
+    /// sheet is out of the way. Fires for every add path this screen owns — a
+    /// search result, a scanned boarding pass, a leg off a pasted booking, a
+    /// station's departure board, manual entry — so the moment afterwards is
+    /// the same one whichever route the user took to get here. Called once per
+    /// saved trip, and every path here saves one and dismisses.
     var onAdded: ((Flight) -> Void)? = nil
 
     var body: some View {
