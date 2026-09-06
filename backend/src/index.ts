@@ -1,6 +1,6 @@
 import { apnsConfigured, sendLiveActivityPush, sendAlertPush, apnsJwt, tokenIsDead } from "./apns";
 import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, templatesFromNeighbour, completeLeg, confirmedRunwayTime, movementIsLive, localDay, departsOnLocalDate, answerForDay, normalizeStatus, isCancelUncertain, pickEstimatedArrival } from "./legs";
-import { classifyGround, taxiPriorMinutes, adbPositionToSample, DEFAULT_TAXI_PRIOR } from "./ground";
+import { classifyGround, taxiPriorMinutes, adbPositionToSample, landedSighting, DEFAULT_TAXI_PRIOR } from "./ground";
 import { predictGate, standFromBoard, type GateObservation } from "./gates";
 import { contentState, liveActivityClock, sanitizeLiveActivityLocal } from "./activity";
 import { flightNews, laAlert, type WatchState } from "./alerts";
@@ -2893,6 +2893,21 @@ async function refreshOneSharedRow(env: Env, row: Record<string, any>, now: numb
         await recordTaxiObservation(env, row, sample!.reportedAt);
       }
     }
+    // The other end, from the same sample: on the ground at the destination
+    // after it left is the landing. The provider's "Arrived" can lag
+    // touchdown by an hour, and until now nothing else confirmed one — the
+    // friend's screen and the lock screen kept counting down to an arrival
+    // that had already happened.
+    const departedForLanding = (ground.actual_departure as string | undefined) ?? row.actual_departure
+      ?? leg["dep_actual"] ?? row.scheduled_departure;
+    const landedNow = typeof row.arrival_lat === "number" && typeof row.arrival_lon === "number"
+      && row.status !== "landed" && leg["status"] !== "landed"
+      && landedSighting(sample, { lat: row.arrival_lat, lon: row.arrival_lon },
+                        Date.parse(String(departedForLanding)), now);
+    if (landedNow) {
+      ground.status = "landed";
+      if (!row.actual_arrival && !leg["arr_actual"]) ground.actual_arrival = sample!.reportedAt;
+    }
     // Screened, not trusted: a departure that precedes its own schedule by
     // hours is another operation's timestamp that reached this row, and the
     // carry-forward below would otherwise pin it here for ever. Dropping it
@@ -2903,7 +2918,8 @@ async function refreshOneSharedRow(env: Env, row: Record<string, any>, now: numb
       ?? carried ?? leg["dep_actual"] ?? null;
     await sbService(env, "PATCH", `/shared_flights?id=eq.${row.id}`, {
       ...ground,
-      status: confirmedDeparture && leg["status"] !== "landed" && leg["status"] !== "cancelled"
+      status: landedNow ? "landed"
+        : confirmedDeparture && leg["status"] !== "landed" && leg["status"] !== "cancelled"
         && leg["status"] !== "diverted" ? "active" : leg["status"],
       delay_minutes: effDelay,
       // A provider null must not erase device-reported values — for ANY of
@@ -3205,13 +3221,11 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
       flight = leg as Record<string, any>;
     }
     lastFetch = now;
-    // A source that reports movements and did NOT report a take-off has just
-    // told us the aircraft is still on the ground — which is what pushes back
-    // the moment any surface may presume otherwise. Recorded only on a real
-    // consultation, never on the cached ticks in between.
-    if (leg && !leg["dep_actual"] && leg["dep_live"] === true) {
-      evidence.last_seen_on_ground = new Date(now).toISOString();
-    }
+    // (The absence of a runway time used to count as a sighting on the
+    // ground and slide the wheels-up hedge — for the full ninety-minute cap
+    // on any flight whose airline feed never publishes wheels-up, which is
+    // most of them. Only a real sample on the ground slides it now; see the
+    // sighting below.)
     await sbService(env, "PATCH", `/live_activity_tokens?token=eq.${encodeURIComponent(row.token)}`, {
       last_state: { ...prior, flight, fetched_at: now, evidence },
       updated_at: new Date().toISOString(),
@@ -3233,13 +3247,15 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   });
   const { depMs, arrMs, arrDelay } = clock;
 
-  // Status: the provider's value, UNTOUCHED. The widget already flips its
-  // layout by clock on its own; the status string is its CONFIRMATION
-  // signal ("Departing…"/"Landing soon" vs. confirmed flying/landed).
-  // Clock-healing to "active"/"landed" here fabricated confirmations —
-  // a traveler still seated at the gate through an unreported extra delay
-  // was told they were flying.
-  const status: string = flight?.["status"] ?? "scheduled";
+  // Status: the provider's value, UNTOUCHED by the clock. The widget already
+  // flips its layout by clock on its own; the status string is its
+  // CONFIRMATION signal ("Departing…"/"Landing soon" vs. confirmed flying/
+  // landed). Clock-healing to "active"/"landed" here fabricated
+  // confirmations — a traveler still seated at the gate through an
+  // unreported extra delay was told they were flying. A sighting is not the
+  // clock: the aircraft seen on the ground at its destination after it left
+  // has landed, however long the provider takes to say so (see below).
+  let status: string = flight?.["status"] ?? "scheduled";
 
   // Done: final "end" push (keeps the landed card up an hour), then forget the token.
   if (now > arrMs + 45 * 60 * 1000 || status === "cancelled") {
@@ -3324,6 +3340,18 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
     if (groundState !== evidence.ground_state) dataChanged = true;
     evidence.ground_state = groundState;
     evidence.ground_observed_at = chosen!.reportedAt;
+  }
+  // The landing, from the same sighting. The provider's block carries the
+  // position; our own aggregator look (`live`) carries none, so only the
+  // provider's sample can place the aircraft at its destination.
+  if (status === "active" && flight
+      && typeof flight["arr_lat"] === "number" && typeof flight["arr_lon"] === "number"
+      && landedSighting(sample, { lat: flight["arr_lat"], lon: flight["arr_lon"] },
+                        Number.isFinite(Date.parse(String(flight["dep_actual"] ?? ""))) ? Date.parse(String(flight["dep_actual"])) : depMs,
+                        now)) {
+    status = "landed";
+    if (!flight["arr_actual"]) flight["arr_actual"] = sample!.reportedAt;
+    dataChanged = true;
   }
   const depActualMs = flight?.["dep_actual"] ? Date.parse(String(flight["dep_actual"])) : NaN;
   const estTakeoffMs = flight?.["dep_runway_estimated"]

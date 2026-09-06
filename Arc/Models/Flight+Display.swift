@@ -243,7 +243,15 @@ extension Flight {
             // watched the aircraft push back and roll. Saying so beats both
             // "Boarding" and "Not yet departed".
             if case .taxiing = departurePhase { return mode == .air ? "Taxiing" : "Departing" }
-            if isDepartureUnconfirmed { return "Not yet departed" }
+            // Past the gate time and nobody has said it left. Before the
+            // wheels are even expected up it is departing; after that it has
+            // presumably left, and saying so — hedged, never green — beats
+            // "not yet departed", which reads as still at the gate to someone
+            // watching the aircraft climb out.
+            if isDepartureUnconfirmed {
+                if case .presumedAirborne = departurePhase { return "Likely departed" }
+                return "Departing"
+            }
             // Nothing published a revised time, so say where the time came from
             // rather than claiming it is being kept to.
             guard reportsPunctuality else {
@@ -383,8 +391,11 @@ extension Flight {
             // where a sailing's clock starts either.
             let what = mode == .air ? "Gate Departure" : "Departure"
             if let t = compactUntil(effectiveDeparture) { return "\(what) in \(t)" }
-            // Past its (delayed) departure and nobody has said it left.
-            return "Departure not yet confirmed"
+            // Past its (delayed) departure and nobody has said it left:
+            // departing until the wheels are expected up, presumably gone
+            // after — said as the hedge it is, never as a confirmation.
+            if case .presumedAirborne = departurePhase { return "Departed · unconfirmed" }
+            return "Departing"
         }
     }
 
