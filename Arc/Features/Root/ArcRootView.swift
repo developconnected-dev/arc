@@ -38,10 +38,6 @@ struct ArcRootView: View {
     /// and swapping a presented sheet's item can drop the replacement on the
     /// floor — so both cases dismiss first and come back through here.
     @State private var queuedDetail: Flight?
-    /// Trips saved while the Add sheet was still up, waiting to draw
-    /// themselves onto the map. The map is behind that sheet, so the moment
-    /// belongs to its dismissal rather than to the save.
-    @State private var pendingReveal: [Flight] = []
 
 
     /// Test hooks for headless screenshots.
@@ -57,19 +53,23 @@ struct ArcRootView: View {
         // so the modifier chain below stays inside the type checker's budget.)
 
         .sheet(isPresented: $showAdd) {
+            // The moment is claimed at the save — the map is visible behind
+            // this sheet as it slides away, and must already be hiding the
+            // settled line and framing the route — and the draw starts once
+            // the sheet is out of the way.
             AddFlightView(initialQuery: clipboardQuery ?? addInitialQuery,
-                          onAdded: { added in pendingReveal.append(added) })
+                          onAdded: { added in holdTrips([added]) })
             .presentationDetents([.large])
             .onDisappear {
                 clipboardQuery = nil
-                // The map only becomes visible now, so this is where the
-                // route draws itself on — the whole point of waiting. Unless
-                // a widget, notification or `arc://` tap arrived while the
-                // sheet was up and queued a specific flight: that detail is
-                // about to cover the map and claim the camera for its own
-                // flight, so the reveal would play under it, pointed at the
-                // wrong trip. The flight the user asked for wins.
-                if queuedDetail != nil { pendingReveal = [] } else { drainPendingReveal() }
+                // The map is fully in view now, so this is where the route
+                // draws itself on. Unless a widget, notification or `arc://`
+                // tap arrived while the sheet was up and queued a specific
+                // flight: that detail is about to cover the map and claim the
+                // camera for its own flight, so the reveal would play under
+                // it, pointed at the wrong trip. The flight the user asked
+                // for wins, and the held line goes back to the settled map.
+                if queuedDetail != nil { controller.cancelReveal() } else { controller.startReveal() }
                 presentQueuedDetail()
             }
         }
@@ -94,19 +94,23 @@ struct ArcRootView: View {
         // Add presentation (showAdd flipped back before the sheet appeared)
         // never fires onDisappear, and stranded the queued flight forever.
         //
-        // Deliberately NOT a belt for the reveal, which has the opposite
-        // problem: this fires as the sheet STARTS sliding away, so draining
-        // here would spend the first third of the draw behind it. Nothing can
-        // be waiting to draw unless the sheet appeared and saved something,
-        // and in that case its onDisappear is guaranteed.
+        // The reveal's belt is deliberately LATE: this fires as the sheet
+        // STARTS sliding away, and starting the draw here would spend its
+        // first third behind the sheet. But a held route is a line the map
+        // is hiding, and a hold nobody starts would hide it for the session
+        // — so if the sheet's onDisappear hasn't started the draw by the time
+        // the dismissal is long over, this does. A no-op whenever it has.
         .onChange(of: showAdd) { _, presented in
-            if !presented { DispatchQueue.main.async { presentQueuedDetail() } }
+            if !presented {
+                DispatchQueue.main.async { presentQueuedDetail() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { controller.startReveal() }
+            }
         }
         .onChange(of: allFlights.map(\.id)) { _, _ in
             // Saving a trip is what changed this list, so the refit that
             // normally hangs off it would frame every route the user owns and
             // undo the fit the add moment is built around.
-            if !addMomentOwnsTheCamera { refitMapForCurrentData() }
+            if !controller.isRevealingRoutes { refitMapForCurrentData() }
             openDetailIfPending()
             bootstrapTrackingAndWidgets()
             // A tap that arrived before SwiftData had loaded gets its flight now.
@@ -274,6 +278,22 @@ struct ArcRootView: View {
     /// draws the route across it in about a second. Nothing is loading by this
     /// point, which is precisely why there is nothing here that says so.
     private func revealTrips(_ flights: [Flight]) {
+        holdTrips(flights)
+        controller.startReveal()
+        // Nothing drawable — a past trip, a hand-typed train with no
+        // coordinates — means the row appearing is the whole event. The
+        // camera was never claimed, so the list change still gets the refit
+        // it would normally trigger.
+        if !controller.isRevealingRoutes { refitMapForCurrentData() }
+    }
+
+    /// Claim the moment for trips that just landed, without drawing yet:
+    /// the tab, the sheet height and the camera are the moment's from the
+    /// save on, and the map hides the settled line until `startReveal`.
+    /// Every add path today saves one leg and dismisses, so a hold is one
+    /// trip; holds before the draw starts join one batch — one camera move,
+    /// one shared draw — so a path saving several legs would not race.
+    private func holdTrips(_ flights: [Flight]) {
         guard !flights.isEmpty else { return }
         // The row lands in My Trips, so that's the list the map draws behind.
         tab = .myFlights
@@ -292,29 +312,7 @@ struct ArcRootView: View {
         // upcoming and active legs). A hand-logged past trip must not get a
         // reveal: its line would draw itself on and then vanish at the
         // handover, because the settled map was never going to hold it.
-        controller.revealRoutes(for: flights.filter { $0.isUpcoming || $0.isActive })
-        // Nothing drawable — a past trip, a hand-typed train with no
-        // coordinates — means the row appearing is the whole event. The
-        // camera was never claimed, so the list change still gets the refit
-        // it would normally trigger.
-        if !controller.isRevealingRoutes { refitMapForCurrentData() }
-    }
-
-    /// A trip that just landed has the camera — either waiting for the Add
-    /// sheet to get out of the way, or already drawing.
-    private var addMomentOwnsTheCamera: Bool {
-        !pendingReveal.isEmpty || controller.isRevealingRoutes
-    }
-
-    /// Whatever the Add sheet saved, drawn now that it's out of the way.
-    /// Every add path today saves one leg and dismisses, so this is one
-    /// trip; the batch exists so that a path saving several legs before it
-    /// dismisses would get one camera move and one shared draw, not a race.
-    private func drainPendingReveal() {
-        guard !pendingReveal.isEmpty else { return }
-        let batch = pendingReveal
-        pendingReveal = []
-        revealTrips(batch)
+        controller.holdRoutes(for: flights.filter { $0.isUpcoming || $0.isActive })
     }
 
     private func applyCameraForCurrentTab() {

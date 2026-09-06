@@ -317,6 +317,73 @@ final class RouteRevealTests: XCTestCase {
         XCTAssertFalse(controller.isRevealingRoutes)
     }
 
+    // MARK: - Held, then started
+
+    /// A trip saved while the Add sheet is still up is HELD: the map hides
+    /// its settled line, the camera moves to frame it while the sheet is
+    /// still leaving, and nothing draws yet. Without the hold the settled
+    /// map showed the whole route for half a second, then the reveal wiped
+    /// it and drew it again.
+    func testAHeldRouteIsHiddenAndFramedButNotYetDrawing() async {
+        let controller = MapController()
+        let held = trip(.air, from: zrh, to: jfk)
+        controller.holdRoutes(for: [held])
+        XCTAssertTrue(controller.isRevealingRoutes)
+        XCTAssertEqual(controller.routeReveals.first?.id, held.id)
+        XCTAssertEqual(controller.revealProgress, 0, accuracy: 0.0001)
+        XCTAssertNotNil(controller.position.region, "the camera didn't move")
+
+        try? await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(controller.revealProgress, 0, accuracy: 0.0001,
+                       "a held route started drawing on its own")
+        XCTAssertTrue(controller.isRevealingRoutes)
+    }
+
+    func testStartingAHeldRevealDrawsItAndHandsItBack() async {
+        let controller = MapController()
+        controller.holdRoutes(for: [trip(.air, from: zrh, to: jfk)])
+        controller.startReveal()
+        try? await Task.sleep(for: .milliseconds(120))
+        XCTAssertGreaterThan(controller.revealProgress, 0, "the line never started growing")
+        try? await Task.sleep(for: .seconds(RouteReveal.drawDuration + 0.5))
+        XCTAssertFalse(controller.isRevealingRoutes)
+    }
+
+    func testStartingWithNothingHeldIsNothing() async {
+        let controller = MapController()
+        controller.startReveal()
+        XCTAssertFalse(controller.isRevealingRoutes)
+        try? await Task.sleep(for: .milliseconds(120))
+        XCTAssertFalse(controller.isRevealingRoutes)
+    }
+
+    /// A second trip saved before the first starts drawing joins its batch —
+    /// one frame around both, one shared draw — rather than replacing it.
+    func testASecondHoldJoinsTheBatchBeforeItStarts() {
+        let controller = MapController()
+        let first = trip(.air, from: zrh, to: jfk)
+        let second = trip(.sea, from: piraeus, to: santorini)
+        controller.holdRoutes(for: [first])
+        controller.holdRoutes(for: [second])
+        XCTAssertEqual(controller.routeReveals.map(\.id), [first.id, second.id])
+        XCTAssertEqual(controller.revealProgress, 0, accuracy: 0.0001)
+        guard let region = controller.position.region else { return XCTFail("camera didn't move") }
+        XCTAssertGreaterThanOrEqual(region.span.longitudeDelta,
+                                    abs(jfk.longitude - santorini.longitude))
+    }
+
+    /// A moment that will never be seen — a detail sheet about to cover the
+    /// map — hands the line straight back to the settled map.
+    func testCancellingAHeldRevealHandsTheLineBack() async {
+        let controller = MapController()
+        controller.holdRoutes(for: [trip(.air, from: zrh, to: jfk)])
+        controller.cancelReveal()
+        XCTAssertFalse(controller.isRevealingRoutes)
+        controller.startReveal()
+        try? await Task.sleep(for: .milliseconds(120))
+        XCTAssertFalse(controller.isRevealingRoutes, "a cancelled hold still started drawing")
+    }
+
     /// A second add mid-draw belongs to the newer trip — and the older one
     /// goes straight back to the settled map rather than freezing part-drawn.
     func testASecondAddTakesOverTheMoment() async {

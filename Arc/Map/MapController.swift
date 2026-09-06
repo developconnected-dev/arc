@@ -216,13 +216,30 @@ final class MapController {
     // MARK: - The add / import moment
 
     /// Draw freshly added or imported trips onto the map: fit the camera to
-    /// what just arrived, then grow each route over ~1 second.
-    ///
-    /// ONE beat for the whole batch. Several legs landing together — a pasted
-    /// booking, an import — get a single camera move that frames all of them
-    /// and one shared stroke, because reveals racing each other with a camera
-    /// fit apiece is exactly the loading theatre this exists instead of.
+    /// what just arrived, then grow each route over ~1 second. `holdRoutes`
+    /// and `startReveal` in one step, for a trip that lands on a map that is
+    /// already in view (an accepted invite).
     func revealRoutes(for flights: [Flight]) {
+        holdRoutes(for: flights)
+        startReveal()
+    }
+
+    /// Claim the moment for trips that just landed, without drawing yet.
+    ///
+    /// A trip is saved while the Add sheet is still up, and the map is
+    /// visible behind it as it slides away — so from the save on, the map
+    /// must HIDE the settled line, or the route shows whole for half a
+    /// second, blinks out, and draws itself on again. Holding registers the
+    /// reveal at progress zero (the map draws nothing for a held leg) and
+    /// moves the camera now, so the frame is settled by the time there is
+    /// something on it to watch. `startReveal` starts the clock.
+    ///
+    /// ONE beat for the whole batch. Trips held before the draw starts join
+    /// the same batch — one camera move that frames all of them and one
+    /// shared stroke — because reveals racing each other with a camera fit
+    /// apiece is exactly the loading theatre this exists instead of. A hold
+    /// that arrives mid-draw belongs to the newer trip and takes over.
+    func holdRoutes(for flights: [Flight]) {
         // Geometry is fixed HERE, synchronously with the save that asked for
         // the reveal: exactly what the settled map will draw for each leg, so
         // nothing shifts at the handover — and no await ever separates these
@@ -239,16 +256,29 @@ final class MapController {
         // at all. Decided BEFORE the running reveal is touched, so asking on
         // behalf of such a trip can't tear down a route still drawing itself.
         guard !planned.isEmpty else { return }
-        // A second add mid-draw belongs to the newer trip: cancel first, and
-        // clear so the previous route is handed straight back to the settled
-        // map rather than freezing part-drawn.
-        revealTask?.cancel()
+        if revealTask == nil {
+            // Held, not yet drawing: the newcomer joins the batch.
+            let held = routeReveals.filter { reveal in !planned.contains { $0.id == reveal.id } }
+            routeReveals = held + planned
+        } else {
+            // A second add mid-draw belongs to the newer trip: cancel first, and
+            // clear so the previous route is handed straight back to the settled
+            // map rather than freezing part-drawn.
+            revealTask?.cancel()
+            revealTask = nil
+            routeReveals = planned
+        }
         revealProgress = 0
-        routeReveals = planned
         // Camera first, so the stroke draws into a frame that already holds
         // the whole route instead of chasing it off the edge.
-        frameInUpperHalf(planned.flatMap { $0.path }, padding: 1.3)
+        frameInUpperHalf(routeReveals.flatMap { $0.path }, padding: 1.3)
+    }
 
+    /// Start the clock on whatever is held. Nothing held, or already
+    /// drawing: nothing to do — so a belt-and-braces caller can't restart a
+    /// draw or conjure one.
+    func startReveal() {
+        guard !routeReveals.isEmpty, revealTask == nil else { return }
         revealTask = Task { @MainActor in
             let startedAt = revealUptime()
             while !Task.isCancelled {
@@ -268,8 +298,19 @@ final class MapController {
             // newer add owns it already.
             if !Task.isCancelled {
                 routeReveals = []
+                revealTask = nil
             }
         }
+    }
+
+    /// Give up the moment — held or drawing — and hand every line straight
+    /// back to the settled map. For a reveal that would play to nobody: a
+    /// detail sheet about to cover the map and take the camera for its own
+    /// flight.
+    func cancelReveal() {
+        revealTask?.cancel()
+        revealTask = nil
+        routeReveals = []
     }
 
     /// Follow a live plane position (used in-flight).
