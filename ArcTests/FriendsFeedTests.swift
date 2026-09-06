@@ -163,9 +163,10 @@ final class FriendsFeedTests: XCTestCase {
 
     /// Fifteen minutes past the gate time with the row still saying
     /// "scheduled": the friend's screens must not call that flying. The chip
-    /// says DEPARTING, the sheet says it has not departed, and neither
-    /// invents a take-off — the clock heal that used to run here is exactly
-    /// what announced "IN FLIGHT" to someone watching a taxiing aircraft.
+    /// and the sheet both say DEPARTING — before the wheels are even
+    /// expected up, that is the honest word — and neither invents a
+    /// take-off: the clock heal that used to run here is exactly what
+    /// announced "IN FLIGHT" to someone watching a taxiing aircraft.
     func testTransientFlightDoesNotInventATakeoffFromTheClock() {
         let iso = ISO8601DateFormatter()
         let f = flight("LX1950", dep: iso.string(from: .now.addingTimeInterval(-15 * 60)),
@@ -175,7 +176,7 @@ final class FriendsFeedTests: XCTestCase {
         let transient = FriendsStore().transientFlight(for: item(f))
         XCTAssertFalse(transient.isActive)
         XCTAssertNil(transient.actualDeparture)
-        XCTAssertEqual(transient.statusText, "Not yet departed")
+        XCTAssertEqual(transient.statusText, "Departing")
         XCTAssertTrue(transient.departureRelText.hasSuffix("past schedule"))
     }
 

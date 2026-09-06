@@ -605,13 +605,21 @@ final class FlightTracker: ObservableObject {
                     flight.statusRaw = FlightStatus.active.rawValue
                     await handleStatusChange(flight: flight, from: oldStatus)
                 }
+                // …and the landing, from the same sample: on the ground at
+                // the destination after it left. The provider's "Arrived"
+                // can lag touchdown by an hour; the aircraft cannot.
+                let oldStatus = flight.statusRaw
+                if flight.recordLandingSample(onGround: pos.on_ground, velocity: pos.velocity,
+                                              altitude: pos.altitude, lat: pos.lat, lon: pos.lon,
+                                              at: reported) {
+                    await handleStatusChange(flight: flight, from: oldStatus)
+                }
             }
-            // A source that WOULD have reported a take-off and didn't is a
-            // sighting on the ground: it rolls the expected wheels-up forward
-            // rather than letting a timetable decide in its absence.
-            if flight.actualDeparture == nil, latest.dep_live == true {
-                flight.lastSeenOnGround = .now
-            }
+            // (The absence of a runway time used to count as a sighting on
+            // the ground and slide the wheels-up hedge — for the full
+            // ninety-minute cap on any flight whose airline feed never
+            // publishes wheels-up, which is most of them. Only a real
+            // sample on the ground slides it now; see recordGroundSample.)
             if let arrActual = latest.arr_actual, let parsed = DateHelpers.parseAPIDate(arrActual) {
                 flight.actualArrival = parsed
                 flight.estimatedArrival = parsed
@@ -814,6 +822,14 @@ final class FlightTracker: ObservableObject {
                 let oldStatus = flight.statusRaw
                 flight.statusRaw = FlightStatus.active.rawValue
                 await handleStatusChange(flight: flight, from: oldStatus)
+            }
+            // The same sample answers the other end: on the ground at the
+            // destination after it left is the landing.
+            let statusBefore = flight.statusRaw
+            if flight.recordLandingSample(onGround: pos.on_ground, velocity: pos.velocity,
+                                          altitude: pos.altitude, lat: pos.lat, lon: pos.lon,
+                                          at: .now) {
+                await handleStatusChange(flight: flight, from: statusBefore)
             }
 
             // Only trace the flown path once it is flying — a taxi drawn as

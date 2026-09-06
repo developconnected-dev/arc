@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 
 /// The app's view of `DepartureEvidence` — assembled from what the tracker
 /// has stored, so every screen asks the same question of the same facts.
@@ -82,5 +83,48 @@ extension Flight {
             break
         }
         return false
+    }
+
+    /// How far from the arrival airport's reference point an aircraft on the
+    /// ground still counts as "at" it — a hub's runways and stands span
+    /// several kilometres from the point the provider calls the airport.
+    static let landingRadiusKm: Double = 8
+
+    /// Record what one sample says about the OTHER end of the flight, from
+    /// the same evidence that confirms the first: an aircraft seen on the
+    /// ground at its destination, after it left, has landed. A status string
+    /// saying "Arrived" can lag touchdown by an hour, and until now nothing
+    /// else ever confirmed a landing — every surface kept counting down to an
+    /// arrival that had already happened. Returns true when this sighting is
+    /// the landing — the caller tells the other surfaces.
+    ///
+    /// Guards: the sighting must be fresh (a stale one says nothing about
+    /// now), on the ground, within `landingRadiusKm` of the arrival airport
+    /// (on the ground at Newark is a diversion, not this landing), and after
+    /// the departure — the tail parked at the destination before this flight
+    /// left is its previous rotation, not this arrival.
+    @discardableResult
+    func recordLandingSample(onGround: Bool, velocity: Double, altitude: Double,
+                             lat: Double?, lon: Double?,
+                             at seen: Date, now: Date = .now) -> Bool {
+        guard status == .active, let lat, let lon, arrivalLat != 0 || arrivalLon != 0 else { return false }
+        guard now.timeIntervalSince(seen) < DepartureEvidence.freshWindow, seen <= now.addingTimeInterval(60) else { return false }
+        let departed = actualDeparture ?? scheduledDeparture.addingTimeInterval(Double(max(0, delayMinutes)) * 60)
+        guard seen > departed.addingTimeInterval(10 * 60) else { return false }
+        switch GroundState.classify(onGround: onGround, velocity: velocity, altitude: altitude) {
+        case .atGate, .taxiing: break
+        case .airborne, .unknown: return false
+        }
+        let here = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        let airport = CLLocationCoordinate2D(latitude: arrivalLat, longitude: arrivalLon)
+        guard GeoMath.distanceKm(here, airport) <= Self.landingRadiusKm else { return false }
+        // The provider's own runway time is more precise than "the first
+        // sample in which it was already down".
+        if actualArrival == nil {
+            actualArrival = seen
+            estimatedArrival = seen
+        }
+        status = .landed
+        return true
     }
 }
