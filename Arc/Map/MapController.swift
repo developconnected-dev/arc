@@ -43,6 +43,11 @@ final class MapController {
     /// weather-layer toggle fell into, where the layer appeared on the next
     /// pan instead of on the tap.
     var routeReveals: [RouteReveal] = []
+    /// How far every route in `routeReveals` has drawn itself on, 0…1. One
+    /// value for the batch: one beat, and one observation per frame.
+    var revealProgress: Double = 0
+    /// The stroke has reached the arrival end (or nothing is drawing).
+    var isRevealComplete: Bool { revealProgress >= 1 }
 
     /// True while a just-added trip's route is drawing itself on. The camera
     /// belongs to the reveal for that window: saving a trip also changes the
@@ -50,6 +55,12 @@ final class MapController {
     /// every route the user owns and undo the fit the moment was built around.
     var isRevealingRoutes: Bool { !routeReveals.isEmpty }
     private var revealTask: Task<Void, Never>?
+    /// The clock a reveal's progress is measured on. System uptime rather
+    /// than the wall clock: an NTP correction or a hand-set clock stepping
+    /// back mid-draw would otherwise leave the loop at zero until wall time
+    /// caught up — with the reveal owning the camera the whole while. Tests
+    /// feed it a clock of their own.
+    var revealUptime: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
 
     /// Published SIGMET/AIRMET areas, refreshed at most every 10 minutes —
     /// they're issued hourly and valid for hours, so anything keener is waste.
@@ -168,13 +179,12 @@ final class MapController {
         // the arc between its endpoints — an ICE from München to Hamburg reaches
         // Berlin, 2° east of either — so framing the arc would crop the very
         // line the user opened the sheet to look at.
-        let routed = flight.routePath.map {
-            CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
-        }
-        let path = routed.count >= 3 ? routed : GeoMath.greatCircle(
-            from: .init(latitude: flight.departureLat, longitude: flight.departureLon),
-            to: .init(latitude: flight.arrivalLat, longitude: flight.arrivalLon))
-        frameInUpperHalf(path, padding: 1.3)
+        //
+        // And the same geometry the map draws when there is no routed path:
+        // a flight's arc, but a train's or a sailing's straight ground line —
+        // the arc between two stations peaks degrees north of a long
+        // east–west leg, and framing it put the real line low in the frame.
+        frameInUpperHalf(RouteReveal.geometry(for: flight), padding: 1.3)
     }
 
     /// Frame `coords` in the UPPER half of the screen — for content shown
@@ -196,9 +206,11 @@ final class MapController {
         withAnimation(.easeInOut(duration: 0.8)) { position = .region(region) }
     }
 
-    /// Frame one route in the upper half (friend-flight detail).
-    func focusRoute(dep: CLLocationCoordinate2D, arr: CLLocationCoordinate2D) {
-        frameInUpperHalf(GeoMath.greatCircle(from: dep, to: arr))
+    /// Frame one route in the upper half (friend-flight detail) — in the
+    /// geometry the overlay draws it with, so a friend's sailing is framed
+    /// on its rhumb line rather than on the arc a flight would fly.
+    func focusRoute(dep: CLLocationCoordinate2D, arr: CLLocationCoordinate2D, mode: TripMode) {
+        frameInUpperHalf(ArcMapView.RouteStyle(mode: mode).path(from: dep, to: arr))
     }
 
     // MARK: - The add / import moment
@@ -217,15 +229,10 @@ final class MapController {
         // reads from the models they come from, so a later swipe-delete can't
         // pull a trip out from underneath them.
         var planned: [RouteReveal] = []
-        // One beat for the batch, so a train that takes the hold doesn't
-        // split the moment in two by starting to draw after everything else.
-        var hold: TimeInterval = 0
         for flight in flights {
             let path = RouteReveal.geometry(for: flight)
             guard path.count >= 2 else { continue }
-            planned.append(RouteReveal(id: flight.id, mode: flight.mode,
-                                       path: path, progress: 0))
-            hold = max(hold, RouteReveal.hold(for: flight))
+            planned.append(RouteReveal(id: flight.id, path: path))
         }
         // Nothing drawable — a past trip, a hand-typed train with no
         // coordinates — is not an add taking over the moment, it is no moment
@@ -236,27 +243,21 @@ final class MapController {
         // clear so the previous route is handed straight back to the settled
         // map rather than freezing part-drawn.
         revealTask?.cancel()
+        revealProgress = 0
         routeReveals = planned
         // Camera first, so the stroke draws into a frame that already holds
-        // the whole route instead of chasing it off the edge. Claimed before
-        // the hold rather than after it, so the frame settles while there is
-        // nothing on it to watch yet.
+        // the whole route instead of chasing it off the edge.
         frameInUpperHalf(planned.flatMap { $0.path }, padding: 1.3)
 
         revealTask = Task { @MainActor in
-            // The beat a ground segment waits out before it starts reaching
-            // across the map. Nothing is being waited FOR — see `railHold`;
-            // the reveal is already planned and framed, and progress 0 draws
-            // no line, so the hold costs only itself.
-            if hold > 0 { try? await Task.sleep(for: .seconds(hold)) }
-            let startedAt = Date.now
+            let startedAt = revealUptime()
             while !Task.isCancelled {
-                // Progress comes from the wall clock rather than a frame
-                // count: `Task.sleep` is a floor, not a metronome, and an
+                // Progress comes from a clock rather than a frame count:
+                // `Task.sleep` is a floor, not a metronome, and an
                 // accumulating counter would stretch the beat under load.
-                let elapsed = Date.now.timeIntervalSince(startedAt)
+                let elapsed = revealUptime() - startedAt
                 let progress = RouteReveal.eased(elapsed / RouteReveal.drawDuration)
-                for index in routeReveals.indices { routeReveals[index].progress = progress }
+                revealProgress = progress
                 if elapsed >= RouteReveal.drawDuration { break }
                 try? await Task.sleep(for: .seconds(RouteReveal.frameInterval))
             }

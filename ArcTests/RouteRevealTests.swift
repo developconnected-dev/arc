@@ -16,6 +16,11 @@ final class RouteRevealTests: XCTestCase {
     // tell which one was drawn.
     private let lisbon = CLLocationCoordinate2D(latitude: 38.7742, longitude: -9.1342)
     private let moscow = CLLocationCoordinate2D(latitude: 55.9726, longitude: 37.4146)
+    // Same latitude, a third of the world apart: the great circle between
+    // them peaks twenty degrees north of BOTH endpoints, so a camera that
+    // frames the arc and one that frames the ground land on different boxes.
+    private let madrid = CLLocationCoordinate2D(latitude: 40.4, longitude: -3.7)
+    private let beijing = CLLocationCoordinate2D(latitude: 40.4, longitude: 116.4)
 
     private func trip(_ mode: TripMode,
                       from dep: CLLocationCoordinate2D,
@@ -100,16 +105,48 @@ final class RouteRevealTests: XCTestCase {
         XCTAssertTrue(RouteReveal.geometry(for: typed).isEmpty)
     }
 
-    // MARK: - The hold
+    // MARK: - The camera frames what is drawn
 
-    func testOnlyARailLegMissingItsRailsTakesTheBeat() {
-        XCTAssertEqual(RouteReveal.hold(for: trip(.rail, from: lisbon, to: moscow)),
-                       RouteReveal.railHold, accuracy: 0.0001)
-        XCTAssertEqual(RouteReveal.hold(for: trip(.air, from: zrh, to: jfk)), 0)
-        XCTAssertEqual(RouteReveal.hold(for: trip(.sea, from: piraeus, to: santorini)), 0)
-        let routed = trip(.rail, from: lisbon, to: moscow,
-                          routePath: [[48.14, 11.56], [50.11, 8.68], [53.55, 10.00]])
-        XCTAssertEqual(RouteReveal.hold(for: routed), 0)
+    /// The detail camera frames the line the map draws — for a train without
+    /// rails that is the ground segment, not the arc a flight would fly. The
+    /// two disagree by degrees on a long east–west leg, and framing the arc
+    /// put the real line low in the frame.
+    func testFocusOnARailLegFramesTheGroundItDraws() {
+        let controller = MapController()
+        controller.focus(on: trip(.rail, from: madrid, to: beijing))
+        let expected = MapController()
+        expected.frameInUpperHalf(GeoMath.rhumbLine(from: madrid, to: beijing), padding: 1.3)
+        guard let got = controller.position.region,
+              let want = expected.position.region else { return XCTFail("camera didn't move") }
+        XCTAssertEqual(got.center.latitude, want.center.latitude, accuracy: 0.01)
+        XCTAssertEqual(got.center.longitude, want.center.longitude, accuracy: 0.01)
+    }
+
+    /// A friend's sailing is drawn on a rhumb line; the camera that zooms
+    /// onto it frames that line, not the arc a flight between the same ports
+    /// would fly.
+    func testFocusRouteFramesAFriendsLegInItsOwnGeometry() {
+        let controller = MapController()
+        controller.focusRoute(dep: madrid, arr: beijing, mode: .sea)
+        let expected = MapController()
+        expected.frameInUpperHalf(GeoMath.rhumbLine(from: madrid, to: beijing))
+        guard let got = controller.position.region,
+              let want = expected.position.region else { return XCTFail("camera didn't move") }
+        XCTAssertEqual(got.center.latitude, want.center.latitude, accuracy: 0.01)
+    }
+
+    /// Progress is measured on a clock that only runs forward, never the
+    /// wall clock: a step backwards mid-draw would otherwise leave the loop
+    /// spinning at zero and the reveal owning the camera for the session.
+    /// Fed a clock that leaps ahead, the draw finishes at once — nothing in
+    /// it waits on wall time.
+    func testTheDrawIsMeasuredOnAClockThatOnlyRunsForward() async {
+        let controller = MapController()
+        var reads = 0
+        controller.revealUptime = { reads += 1; return reads == 1 ? 100 : 200 }
+        controller.revealRoutes(for: [trip(.air, from: zrh, to: jfk)])
+        try? await Task.sleep(for: .milliseconds(150))
+        XCTAssertTrue(controller.routeReveals.isEmpty, "the draw waited on wall time")
     }
 
     // MARK: - Growing the line
@@ -169,6 +206,17 @@ final class RouteRevealTests: XCTestCase {
         XCTAssertEqual(abs(tip.longitude), 180, accuracy: 0.0001)
     }
 
+    /// Between two samples that straddle the date line the tip is still a
+    /// legal coordinate: 179 + 0.9 of the short way to −178.7 is −178.93,
+    /// not 181.07. The midpoint lands on exactly 180 and hides this.
+    func testTheTipStaysWithinTheWorldAcrossTheDateLine() {
+        let path = [CLLocationCoordinate2D(latitude: 35, longitude: 179.0),
+                    CLLocationCoordinate2D(latitude: 35, longitude: -178.7)]
+        guard let tip = RouteReveal.drawn(path, to: 0.9).last else { return XCTFail("no tip") }
+        XCTAssertTrue(CLLocationCoordinate2DIsValid(tip), "tip longitude \(tip.longitude)")
+        XCTAssertEqual(tip.longitude, -178.93, accuracy: 0.001)
+    }
+
     func testEasingIsClampedAndCoversTheWholeRoute() {
         XCTAssertEqual(RouteReveal.eased(0), 0, accuracy: 0.0001)
         XCTAssertEqual(RouteReveal.eased(1), 1, accuracy: 0.0001)
@@ -195,8 +243,9 @@ final class RouteRevealTests: XCTestCase {
         guard let reveal = controller.routeReveals.first else {
             return XCTFail("nothing started drawing")
         }
-        XCTAssertFalse(reveal.isComplete, "the whole route was already drawn")
+        XCTAssertFalse(controller.isRevealComplete, "the whole route was already drawn")
         XCTAssertTrue(controller.isRevealingRoutes)
+        let progressAtStart = controller.revealProgress
 
         guard let region = controller.position.region else { return XCTFail("camera didn't move") }
         // The whole route is framed, and above the sheet that owns the bottom
@@ -206,7 +255,8 @@ final class RouteRevealTests: XCTestCase {
         XCTAssertLessThan(region.center.latitude, min(zrh.latitude, jfk.latitude))
 
         try? await Task.sleep(for: .milliseconds(120))
-        XCTAssertGreaterThan(controller.routeReveals.first?.progress ?? 1, reveal.progress,
+        XCTAssertEqual(controller.routeReveals.first?.id, reveal.id)
+        XCTAssertGreaterThan(controller.revealProgress, progressAtStart,
                              "the line stopped growing")
 
         // Handed back to the settled map when it's done, which is what keeps
@@ -225,57 +275,36 @@ final class RouteRevealTests: XCTestCase {
         try? await Task.sleep(for: .milliseconds(120))
         let reveals = controller.routeReveals
         XCTAssertEqual(reveals.count, 2)
-        // Both legs draw at the same progress: one beat, not two races.
-        XCTAssertGreaterThan(reveals.first?.progress ?? 0, 0)
-        XCTAssertEqual(reveals[0].progress, reveals[1].progress, accuracy: 0.0001)
+        // Both legs draw at the controller's ONE progress: one beat, not two
+        // races — by construction, since a reveal stores no progress of its own.
+        XCTAssertGreaterThan(controller.revealProgress, 0)
         // …and one camera move that frames both of them.
         guard let region = controller.position.region else { return XCTFail("camera didn't move") }
         XCTAssertGreaterThanOrEqual(region.span.longitudeDelta,
                                     abs(jfk.longitude - santorini.longitude))
     }
 
-    /// One beat for the batch: a flight sharing the moment with a rail leg
-    /// that takes the hold waits with it instead of drawing on ahead and
-    /// splitting one event into two.
-    func testTheBatchTakesItsSlowestBeat() async {
-        let controller = MapController()
-        controller.revealRoutes(for: [trip(.air, from: zrh, to: jfk),
-                                      trip(.rail, from: lisbon, to: moscow)])
-        XCTAssertEqual(controller.routeReveals.count, 2)
-
-        try? await Task.sleep(for: .milliseconds(120))
-        for reveal in controller.routeReveals {
-            XCTAssertEqual(reveal.progress, 0, accuracy: 0.0001,
-                           "a leg drew ahead of the batch's beat")
-        }
-
-        try? await Task.sleep(for: .seconds(RouteReveal.railHold))
-        XCTAssertGreaterThan(controller.routeReveals.first?.progress ?? 1, 0)
-    }
-
-    /// The beat a ground segment gets: the moment is claimed and framed at
-    /// once — no list refit can slip in — but the line itself waits before it
-    /// starts reaching out, and what it then draws is the ground, never an arc.
-    func testARailLegWithoutRailsHoldsTheBeatThenDrawsTheGround() async {
+    /// A train without its rails draws the ground segment it will be shown
+    /// on — never an arc — and starts the moment it is asked, like any other
+    /// leg: nothing arrives later that would be worth waiting for.
+    func testARailLegWithoutRailsDrawsTheGroundStraightAway() async {
         let controller = MapController()
         controller.revealRoutes(for: [trip(.rail, from: lisbon, to: moscow)])
 
-        guard let held = controller.routeReveals.first else {
+        guard let reveal = controller.routeReveals.first else {
             return XCTFail("the train never claimed the moment")
         }
         XCTAssertTrue(controller.isRevealingRoutes)
-        XCTAssertNotNil(controller.position.region, "the camera waited for the hold")
-        // Claimed and framed, but nothing on the map yet. That is the hold.
-        XCTAssertLessThan(held.drawnPath.count, 2)
+        XCTAssertNotNil(controller.position.region, "the camera didn't move")
 
         let ground = GeoMath.rhumbLine(from: lisbon, to: moscow)
-        XCTAssertEqual(held.path.count, ground.count)
-        XCTAssertEqual(held.path[held.path.count / 2].longitude,
+        XCTAssertEqual(reveal.path.count, ground.count)
+        XCTAssertEqual(reveal.path[reveal.path.count / 2].longitude,
                        ground[ground.count / 2].longitude, accuracy: 0.001)
 
-        try? await Task.sleep(for: .seconds(RouteReveal.railHold + 0.15))
-        XCTAssertGreaterThan(controller.routeReveals.first?.progress ?? 1, 0,
-                             "the train never started drawing")
+        try? await Task.sleep(for: .milliseconds(120))
+        XCTAssertGreaterThan(controller.revealProgress, 0,
+                             "the train waited before drawing")
     }
 
     func testATripTheMapWontDrawGetsNoReveal() {
@@ -302,13 +331,13 @@ final class RouteRevealTests: XCTestCase {
         // The newer trip owns the moment from a standing start.
         XCTAssertEqual(controller.routeReveals.count, 1)
         XCTAssertEqual(controller.routeReveals.first?.id, second.id)
-        XCTAssertEqual(controller.routeReveals.first?.progress ?? 1, 0, accuracy: 0.0001)
+        XCTAssertEqual(controller.revealProgress, 0, accuracy: 0.0001)
 
         // …and the first's cancelled task neither drives nor clears the
         // second's draw on its way out.
         try? await Task.sleep(for: .milliseconds(150))
         XCTAssertEqual(controller.routeReveals.first?.id, second.id)
-        XCTAssertGreaterThan(controller.routeReveals.first?.progress ?? 0, 0)
+        XCTAssertGreaterThan(controller.revealProgress, 0)
     }
 
     /// A request with nothing to draw is not an add taking over the moment —
@@ -319,7 +348,7 @@ final class RouteRevealTests: XCTestCase {
         controller.revealRoutes(for: [first])
         try? await Task.sleep(for: .milliseconds(120))
         XCTAssertEqual(controller.routeReveals.first?.id, first.id)
-        let before = controller.routeReveals.first?.progress ?? 0
+        let before = controller.revealProgress
         XCTAssertGreaterThan(before, 0)
 
         // An accepted past trip, or a hand-typed train with no coordinates:
@@ -333,6 +362,6 @@ final class RouteRevealTests: XCTestCase {
         // …and it is still drawing, not frozen where the request found it.
         try? await Task.sleep(for: .milliseconds(150))
         XCTAssertEqual(controller.routeReveals.first?.id, first.id)
-        XCTAssertGreaterThan(controller.routeReveals.first?.progress ?? 0, before)
+        XCTAssertGreaterThan(controller.revealProgress, before)
     }
 }

@@ -20,6 +20,7 @@ struct ArcMapView: View {
         // times a second, and a read that only happened inside the content
         // builder would render the first frame and then sit there.
         let reveals = controller.routeReveals
+        let revealProgress = controller.revealProgress
         // Observation hook: the minute tick re-derives estimated plane positions.
         _ = controller.clockTick
 
@@ -150,9 +151,11 @@ struct ArcMapView: View {
                     // branches below would otherwise render the finished route
                     // underneath it and leave nothing to watch.
                     let reveal = reveals.first { $0.id == flight.id }
+                    let revealDone = reveal == nil || revealProgress >= 1
 
                     if let reveal {
-                        revealStroke(reveal, style: style, past: flight.isCompleted)
+                        revealStroke(reveal.drawnPath(at: revealProgress),
+                                     style: style, past: flight.isCompleted)
                     } else if flight.isCompleted, track.count >= 2 {
                         // Landed: the real recorded path, airport to airport —
                         // what you actually flew, not a theoretical arc. Past
@@ -207,7 +210,7 @@ struct ArcMapView: View {
                     // The arrival dot lands WITH the stroke: while a route is
                     // still drawing on, the far end has nothing to mark yet,
                     // and a dot already sitting there gives away the ending.
-                    if reveal?.isComplete ?? true {
+                    if revealDone {
                         Annotation("", coordinate: arr) { endpointDot(past: flight.isCompleted, style: style) }
                     }
 
@@ -227,7 +230,7 @@ struct ArcMapView: View {
                     // would otherwise show the aircraft parked mid-route
                     // while the line is still crawling out to meet it.
                     if flight.isActive,
-                       reveal?.isComplete ?? true,
+                       revealDone,
                        !(controller.livePlane != nil && isFeedAircraft(flight)),
                        let plane = ownPlane(flight, dep: dep, arr: arr) {
                         Annotation("", coordinate: plane.coordinate) {
@@ -385,10 +388,9 @@ struct ArcMapView: View {
     /// mid-draw — so when the reveal ends and the settled map takes the line
     /// back, nothing changes but who is drawing it.
     @MapContentBuilder
-    private func revealStroke(_ reveal: RouteReveal,
+    private func revealStroke(_ drawn: [CLLocationCoordinate2D],
                               style: RouteStyle,
                               past: Bool) -> some MapContent {
-        let drawn = reveal.drawnPath
         if drawn.count >= 2 {
             if past {
                 MapPolyline(coordinates: drawn)

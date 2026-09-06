@@ -90,7 +90,7 @@ struct AddFlightView: View {
     /// search result, a scanned boarding pass, a leg off a pasted booking, a
     /// station's departure board, manual entry — so the moment afterwards is
     /// the same one whichever route the user took to get here. Called once per
-    /// saved trip; the caller batches whatever one session produced.
+    /// saved trip, and every path here saves one and dismisses.
     var onAdded: ((Flight) -> Void)? = nil
 
     var body: some View {

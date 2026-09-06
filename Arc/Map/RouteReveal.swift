@@ -17,17 +17,17 @@ struct RouteReveal: Identifiable {
     /// for that leg instead of its settled line, so the finished route can
     /// never sit underneath the one still being drawn.
     let id: UUID
-    let mode: TripMode
     /// The finished geometry, fixed when the reveal begins: exactly the points
     /// the settled map draws once it's over, so nothing shifts at the handover.
     let path: [CLLocationCoordinate2D]
-    /// How much of `path` has been laid down, 0…1.
-    var progress: Double
 
-    var drawnPath: [CLLocationCoordinate2D] { Self.drawn(path, to: progress) }
-
-    /// The stroke has reached the arrival end.
-    var isComplete: Bool { progress >= 1 }
+    /// How much of `path` is laid down at `progress` (0…1). Progress is not
+    /// stored here: one batch draws at ONE progress — `MapController`'s —
+    /// so a batch can't drift apart and the map is invalidated once per
+    /// frame rather than once per leg.
+    func drawnPath(at progress: Double) -> [CLLocationCoordinate2D] {
+        Self.drawn(path, to: progress)
+    }
 }
 
 extension RouteReveal {
@@ -36,19 +36,6 @@ extension RouteReveal {
     /// draw, because the duration belongs to the moment rather than to the
     /// distance.
     static let drawDuration: TimeInterval = 1.0
-
-    /// The beat a ground segment waits out before it starts reaching across
-    /// the map, so the one line here that isn't a real route doesn't snap out
-    /// at the same instant a flight's arc does.
-    ///
-    /// Emphatically NOT a wait for geometry. Nothing in this app delivers a
-    /// rail routed path after the save: it arrives with the search result
-    /// (`AddFlightView.add` encodes `route_path` before the insert) or with a
-    /// trip invite's `materialize`, and no refresh writes one afterwards —
-    /// `FlightTracker`'s only routed-path backfill is for sea legs, and the
-    /// shared `apply(_:to:)` never touches the field. A hold justified as
-    /// "the rails may still turn up" would be waiting for nothing.
-    static let railHold: TimeInterval = 0.4
 
     /// ~60fps. The line grows by re-rendering, so this is how often the map's
     /// content is rebuilt — for one second, and only while a trip is landing.
@@ -84,12 +71,6 @@ extension RouteReveal {
                                        longitude: flight.arrivalLon))
     }
 
-    /// The pause before the stroke starts reaching out. Only a rail leg drawn
-    /// on something other than its own rails takes one.
-    static func hold(for flight: Flight) -> TimeInterval {
-        flight.mode == .rail && flight.routePath.count < 3 ? railHold : 0
-    }
-
     /// Smoothstep, so the stroke eases out of the departure dot and settles
     /// into the arrival one instead of stopping dead at full speed.
     static func eased(_ t: Double) -> Double {
@@ -117,9 +98,14 @@ extension RouteReveal {
             // globe for one frame.
             var deltaLon = b.longitude - a.longitude
             if deltaLon > 180 { deltaLon -= 360 } else if deltaLon < -180 { deltaLon += 360 }
+            // …and the result is folded back into the world, so the tip is
+            // a legal coordinate on the frames between the two samples that
+            // straddle the line, not 181° for a frame.
+            var lon = a.longitude + deltaLon * fraction
+            if lon > 180 { lon -= 360 } else if lon < -180 { lon += 360 }
             drawn.append(CLLocationCoordinate2D(
                 latitude: a.latitude + (b.latitude - a.latitude) * fraction,
-                longitude: a.longitude + deltaLon * fraction))
+                longitude: lon))
         }
         return drawn
     }

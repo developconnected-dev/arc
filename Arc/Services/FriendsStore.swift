@@ -382,6 +382,9 @@ final class FriendsStore {
         let id: String
         let dep: CLLocationCoordinate2D
         let arr: CLLocationCoordinate2D
+        /// So the camera frames the geometry the overlay draws: a sailing's
+        /// rhumb line is not where a flight's arc is.
+        let mode: TripMode
         static func == (a: Self, b: Self) -> Bool { a.id == b.id }
     }
     var focusedRoute: FocusedRoute?

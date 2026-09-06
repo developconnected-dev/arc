@@ -144,7 +144,7 @@ struct ArcRootView: View {
                 // itself opens at the system medium ≈ half screen).
                 if detentBeforeFocus == nil { detentBeforeFocus = detent }
                 detent = .small
-                controller.focusRoute(dep: route.dep, arr: route.arr)
+                controller.focusRoute(dep: route.dep, arr: route.arr, mode: route.mode)
             } else {
                 // Give the sheet back its height — `detent` is shared across
                 // tabs, and the sliver otherwise followed you to My Trips.
@@ -307,8 +307,9 @@ struct ArcRootView: View {
     }
 
     /// Whatever the Add sheet saved, drawn now that it's out of the way.
-    /// One session's worth goes in a single batch: one camera move framing
-    /// all of it, one shared draw, however many legs it turned out to be.
+    /// Every add path today saves one leg and dismisses, so this is one
+    /// trip; the batch exists so that a path saving several legs before it
+    /// dismisses would get one camera move and one shared draw, not a race.
     private func drainPendingReveal() {
         guard !pendingReveal.isEmpty else { return }
         let batch = pendingReveal
