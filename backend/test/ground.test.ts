@@ -81,3 +81,46 @@ test("no location, or one without a timestamp, is not a sample", () => {
   assert.equal(adbPositionToSample(undefined), null);
   assert.equal(adbPositionToSample({ pressureAltitude: { meter: 100 } }), null);
 });
+
+
+import { landedSighting, LANDING_RADIUS_KM } from "../src/ground.ts";
+
+/// The other end of the flight. A status string that says "Arrived" can lag
+/// touchdown by an hour, and nothing else ever confirmed a landing — so the
+/// lock screen kept counting down to an arrival that had already happened.
+/// An aircraft seen ON THE GROUND at its destination, after it left, has
+/// landed: that is evidence, not a clock.
+test("landedSighting: on the ground at the destination after departure is a landing", () => {
+  const jfk = { lat: 40.6413, lon: -73.7781 };
+  const departed = Date.parse("2026-09-06T11:30:00Z");
+  const now = Date.parse("2026-09-06T19:40:00Z");
+  const onStand = { on_ground: true, velocity: 0.4, altitude: 0, lat: 40.6455, lon: -73.7830,
+                    reportedAt: "2026-09-06T19:35:00Z" };
+  assert.equal(landedSighting(onStand, jfk, departed, now), true);
+  // Rolling out on the runway counts too — the wheels are down.
+  const rollingOut = { ...onStand, velocity: 30, lat: 40.6300, lon: -73.7700 };
+  assert.equal(landedSighting(rollingOut, jfk, departed, now), true);
+});
+
+test("landedSighting: still flying, far away, stale, or before it left is not a landing", () => {
+  const jfk = { lat: 40.6413, lon: -73.7781 };
+  const departed = Date.parse("2026-09-06T11:30:00Z");
+  const now = Date.parse("2026-09-06T19:40:00Z");
+  const base = { on_ground: true, velocity: 0.4, altitude: 0, lat: 40.6455, lon: -73.7830,
+                 reportedAt: "2026-09-06T19:35:00Z" };
+  // On approach: off the ground, so not landed yet.
+  assert.equal(landedSighting({ ...base, on_ground: false, altitude: 600, velocity: 80 }, jfk, departed, now), false);
+  // On the ground at some OTHER airport (Newark, 33 km away): a diversion or
+  // another aircraft's sample, not this landing.
+  assert.equal(landedSighting({ ...base, lat: 40.6895, lon: -74.1745 }, jfk, departed, now), false);
+  // A sighting older than the fresh window says nothing about now.
+  assert.equal(landedSighting({ ...base, reportedAt: "2026-09-06T19:10:00Z" }, jfk, departed, now), false);
+  // Parked at the destination BEFORE this flight departed: the tail's
+  // previous rotation, not this arrival.
+  assert.equal(landedSighting({ ...base, reportedAt: "2026-09-06T11:20:00Z" }, jfk, departed,
+                              Date.parse("2026-09-06T11:25:00Z")), false);
+  // No coordinates in the sample: nothing to place.
+  assert.equal(landedSighting({ ...base, lat: null, lon: null }, jfk, departed, now), false);
+  assert.equal(landedSighting(null, jfk, departed, now), false);
+  assert.ok(LANDING_RADIUS_KM >= 5 && LANDING_RADIUS_KM <= 15, "a big hub's stands and runways span several km");
+});
