@@ -165,27 +165,29 @@ struct ArcMapView: View {
                         } + [arr]
                         MapPolyline(coordinates: flown)
                             .stroke(style.past, style: style.pastStroke)
-                    } else if flight.isActive, track.count >= 2 {
-                        // We have real recorded positions: draw the path actually
-                        // flown (solid, airport → breadcrumbs → current position)
-                        // and the projected remainder (dashed great-circle from
-                        // current position to the arrival airport) — instead of a
-                        // theoretical arc the plane may not be on at all.
-                        let current = CLLocationCoordinate2D(
-                            latitude: flight.liveLat ?? track[track.count - 1].lat,
-                            longitude: flight.liveLon ?? track[track.count - 1].lon)
-                        let flown = [dep] + track.map {
+                    } else if flight.isActive, let sighting = flight.lastSighting {
+                        // Seen at least once. What was RECORDED is solid:
+                        // airport, breadcrumbs, the last sighting. Everything
+                        // from that sighting on is inferred, so it is dotted:
+                        // the route still ahead, with the plane reckoned along
+                        // it (`DeadReckoning`). The solid line, the dotted line
+                        // and the glyph all read the same sighting, so they
+                        // meet by construction — the line used to end at a
+                        // fix however old, while the glyph gave a stale fix up
+                        // for the clock, and over the ocean the plane visibly
+                        // detached from its own track.
+                        let recorded = [dep] + track.map {
                             CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
-                        } + [current]
+                        } + [sighting.coordinate]
 
                         // Active: brightest treatment — glow halo under the
                         // crisp line. (MapPolyline can't take a shadow, so the
                         // glow is a wide low-opacity stroke of the same path.)
-                        MapPolyline(coordinates: flown)
+                        MapPolyline(coordinates: recorded)
                             .stroke(style.live.opacity(0.30), style: StrokeStyle(lineWidth: 7, lineCap: .round))
-                        MapPolyline(coordinates: flown)
+                        MapPolyline(coordinates: recorded)
                             .stroke(style.live, style: style.flownStroke)
-                        MapPolyline(coordinates: style.path(from: current, to: arr))
+                        MapPolyline(coordinates: flight.remainingPath(from: sighting.coordinate))
                             .stroke(style.live.opacity(0.75), style: style.remainderStroke)
                     } else if flight.isCompleted {
                         // Past, no recorded track: the routed path if the leg
@@ -215,11 +217,10 @@ struct ArcMapView: View {
                     }
 
 
-                    // A live ADS-B fix when there is one, otherwise the clock's
-                    // position on the arc. It used to require a live fix, so an
-                    // airborne flight simply had no plane whenever OpenSky had
-                    // nothing for that aircraft — which is often, and always
-                    // when offline. Friend flights already worked this way.
+                    // Where the plane is, on the one rule every surface reads
+                    // (`Flight.planePosition`): reckoned on from the last
+                    // sighting, paced to land when the countdown ends — never
+                    // frozen on a stale fix, never jumping to the clock.
                     // Skip the aircraft the ADS-B ground-view feed is already
                     // drawing (the orange plane) — otherwise the same physical
                     // plane shows twice: live fix + slightly-stale route
@@ -232,7 +233,7 @@ struct ArcMapView: View {
                     if flight.isActive,
                        revealDone,
                        !(controller.livePlane != nil && isFeedAircraft(flight)),
-                       let plane = ownPlane(flight, dep: dep, arr: arr) {
+                       let plane = flight.planePosition() {
                         Annotation("", coordinate: plane.coordinate) {
                             ActivePlaneGlyph(symbol: flight.mode.symbol,
                                              heading: plane.heading,
@@ -460,30 +461,6 @@ struct ArcMapView: View {
         return [flight.aircraftICAO24, flight.aircraftRegistration]
             .compactMap { $0?.lowercased() }
             .contains(where: keys.contains)
-    }
-
-    /// Where to draw this flight's plane: the live fix if we have one, else the
-    /// clock's position along the great circle.
-    private func ownPlane(_ flight: Flight,
-                          dep: CLLocationCoordinate2D,
-                          arr: CLLocationCoordinate2D)
-    -> (coordinate: CLLocationCoordinate2D, heading: Double, isLive: Bool)? {
-        // Same 15-minute rule friends' bubbles get: an ADS-B fix from right
-        // after take-off would otherwise pin the plane near departure for the
-        // whole flight, drawn at full "this is real" opacity.
-        if let lat = flight.liveLat, let lon = flight.liveLon,
-           let at = flight.liveUpdatedAt, Date.now.timeIntervalSince(at) < 15 * 60 {
-            return (CLLocationCoordinate2D(latitude: lat, longitude: lon),
-                    flight.liveHeading ?? GeoMath.bearing(from: dep, to: arr),
-                    true)
-        }
-        // Walk the same geometry the map draws for this mode — a ferry
-        // estimated along a great circle would sit beside its own dotted line.
-        let planned = flight.routePath.count >= 3
-            ? flight.routePath.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
-            : RouteStyle(mode: flight.mode).path(from: dep, to: arr)
-        guard let estimated = GeoMath.position(along: planned, progress: flight.progress) else { return nil }
-        return (estimated.coordinate, estimated.heading, false)
     }
 
     /// Hazards touching any route currently drawn, de-duplicated — one advisory
