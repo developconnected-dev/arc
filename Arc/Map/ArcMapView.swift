@@ -222,7 +222,12 @@ struct ArcMapView: View {
                     // plane shows twice: live fix + slightly-stale route
                     // position. Matched by flight row OR tail identity, since
                     // connection legs share one aircraft.
+                    // Like the arrival dot, the plane waits for the stroke:
+                    // an accepted invite for a flight already in the air
+                    // would otherwise show the aircraft parked mid-route
+                    // while the line is still crawling out to meet it.
                     if flight.isActive,
+                       reveal?.isComplete ?? true,
                        !(controller.livePlane != nil && isFeedAircraft(flight)),
                        let plane = ownPlane(flight, dep: dep, arr: arr) {
                         Annotation("", coordinate: plane.coordinate) {

@@ -211,11 +211,6 @@ final class MapController {
     /// and one shared stroke, because reveals racing each other with a camera
     /// fit apiece is exactly the loading theatre this exists instead of.
     func revealRoutes(for flights: [Flight]) {
-        // A second add mid-draw belongs to the newer trip: cancel first, and
-        // clear so the previous route is handed straight back to the settled
-        // map rather than freezing part-drawn.
-        revealTask?.cancel()
-        routeReveals = []
         // Geometry is fixed HERE, synchronously with the save that asked for
         // the reveal: exactly what the settled map will draw for each leg, so
         // nothing shifts at the handover — and no await ever separates these
@@ -232,7 +227,15 @@ final class MapController {
                                        path: path, progress: 0))
             hold = max(hold, RouteReveal.hold(for: flight))
         }
+        // Nothing drawable — a past trip, a hand-typed train with no
+        // coordinates — is not an add taking over the moment, it is no moment
+        // at all. Decided BEFORE the running reveal is touched, so asking on
+        // behalf of such a trip can't tear down a route still drawing itself.
         guard !planned.isEmpty else { return }
+        // A second add mid-draw belongs to the newer trip: cancel first, and
+        // clear so the previous route is handed straight back to the settled
+        // map rather than freezing part-drawn.
+        revealTask?.cancel()
         routeReveals = planned
         // Camera first, so the stroke draws into a frame that already holds
         // the whole route instead of chasing it off the edge. Claimed before

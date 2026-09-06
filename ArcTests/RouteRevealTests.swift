@@ -310,4 +310,29 @@ final class RouteRevealTests: XCTestCase {
         XCTAssertEqual(controller.routeReveals.first?.id, second.id)
         XCTAssertGreaterThan(controller.routeReveals.first?.progress ?? 0, 0)
     }
+
+    /// A request with nothing to draw is not an add taking over the moment —
+    /// it is no moment at all, and must not tear down the one in progress.
+    func testARequestWithNothingToDrawLeavesTheRunningRevealAlone() async {
+        let controller = MapController()
+        let first = trip(.air, from: zrh, to: jfk)
+        controller.revealRoutes(for: [first])
+        try? await Task.sleep(for: .milliseconds(120))
+        XCTAssertEqual(controller.routeReveals.first?.id, first.id)
+        let before = controller.routeReveals.first?.progress ?? 0
+        XCTAssertGreaterThan(before, 0)
+
+        // An accepted past trip, or a hand-typed train with no coordinates:
+        // ArcRootView filters those to nothing before asking.
+        controller.revealRoutes(for: [])
+        controller.revealRoutes(for: [trip(.rail, from: .init(latitude: 0, longitude: 0),
+                                           to: .init(latitude: 0, longitude: 0))])
+
+        XCTAssertTrue(controller.isRevealingRoutes)
+        XCTAssertEqual(controller.routeReveals.first?.id, first.id)
+        // …and it is still drawing, not frozen where the request found it.
+        try? await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(controller.routeReveals.first?.id, first.id)
+        XCTAssertGreaterThan(controller.routeReveals.first?.progress ?? 0, before)
+    }
 }

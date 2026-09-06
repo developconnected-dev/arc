@@ -63,8 +63,13 @@ struct ArcRootView: View {
             .onDisappear {
                 clipboardQuery = nil
                 // The map only becomes visible now, so this is where the
-                // route draws itself on — the whole point of waiting.
-                drainPendingReveal()
+                // route draws itself on — the whole point of waiting. Unless
+                // a widget, notification or `arc://` tap arrived while the
+                // sheet was up and queued a specific flight: that detail is
+                // about to cover the map and claim the camera for its own
+                // flight, so the reveal would play under it, pointed at the
+                // wrong trip. The flight the user asked for wins.
+                if queuedDetail != nil { pendingReveal = [] } else { drainPendingReveal() }
                 presentQueuedDetail()
             }
         }
@@ -276,6 +281,13 @@ struct ArcRootView: View {
         // here is what stops the tab-change hook from refitting to every
         // route the user has and fighting it.
         lastCameraTab = .myFlights
+        // The route is framed in the map's upper half, which a sheet dragged
+        // to full height covers entirely — an invite accepted from a
+        // full-height list, or a trip added with the sheet left large, would
+        // draw itself on behind it and leave the map on a camera nobody saw
+        // move. Medium is the height the moment was built for: the row that
+        // just landed and the route both on screen.
+        if detent == .large { detent = .medium }
         // Only what THIS tab's map will actually draw (`mapFlights` shows
         // upcoming and active legs). A hand-logged past trip must not get a
         // reveal: its line would draw itself on and then vanish at the
