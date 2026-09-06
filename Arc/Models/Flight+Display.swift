@@ -276,13 +276,19 @@ extension Flight {
         return f.string(from: scheduledDeparture)
     }
 
+    /// True when the corner carries no news — a date, or a state nobody has
+    /// confirmed — and should read as plain grey text rather than a status.
+    var cardTopRightIsQuiet: Bool {
+        if status == .gateClosed || showsPrediction { return false }
+        if isDepartureUnconfirmed || isDepartingUnconfirmed || isPresumedAirborne { return true }
+        return !(isSoon || isActive || isRecentlyLanded || isBoarding)
+    }
+
     var cardTopRightColor: Color {
+        if cardTopRightIsQuiet { return Color(.secondaryLabel) }
         if status == .gateClosed { return ArcTheme.late }   // urgency — gate is closing/closed
         if showsPrediction { return .orange }               // predicted, not airline-confirmed
-        if isDepartureUnconfirmed || isDepartingUnconfirmed || isPresumedAirborne {
-            return Color(.secondaryLabel)
-        }
-        return (isSoon || isActive || isRecentlyLanded || isBoarding) ? accentColor : Color(.secondaryLabel)
+        return accentColor
     }
 
     // MARK: - Detail screen helpers

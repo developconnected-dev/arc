@@ -2,11 +2,14 @@ import SwiftUI
 
 /// A My Flights list card, matching Flighty: countdown block on the left,
 /// airline + number + status, city pair, then the route row with arrow chips.
+///
+/// Nothing on the row is heavier than semibold, and only the words that
+/// carry news are coloured. The freshness pill is gone: how old the data is
+/// belongs to the detail screen, not to a line the eye scans five times a day.
 struct FlightRowCard: View {
     let flight: Flight
     /// A trip that isn't the user's (yet) — a friend's invitation preview.
-    /// Hides the live-data badge (nothing has been polled) and the companion
-    /// avatars (the inviter is named in the card around it).
+    /// Hides the companion avatars (the inviter is named in the card around it).
     var isPreview: Bool = false
 
     var body: some View {
@@ -68,10 +71,7 @@ struct FlightRowCard: View {
                         SmartLabel(text: "Arc predicts +\(flight.predictedDelayMinutes)m", size: 13)
                             .lineLimit(1)
                     } else {
-                        Text(flight.cardTopRight)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(flight.cardTopRightColor)
-                            .lineLimit(1)
+                        topRight.lineLimit(1)
                     }
                 }
 
@@ -104,9 +104,6 @@ struct FlightRowCard: View {
         // happened to be widest) and broke the column alignment.
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 14)
-        // 14, not 20: combined with the list's own insets the rows had 40pt
-        // of side chrome — trimmed so the full freshness badge fits even on
-        // Display Zoom widths instead of degrading to the bare dot.
         .padding(.horizontal, 14)
         .contentShape(Rectangle())
     }
@@ -120,12 +117,12 @@ struct FlightRowCard: View {
                 Text(cd.value)
                     // Monospaced digits: "24", "34" and "46" render the same
                     // width, so the centered numbers form a true column.
-                    .font(.system(size: cd.value.count > 2 ? 24 : 30, weight: .heavy).monospacedDigit())
+                    .font(.system(size: cd.value.count > 2 ? 24 : 30, weight: .semibold).monospacedDigit())
                     .foregroundStyle(.primary)
                     .contentTransition(.numericText(countsDown: true))
                     .animation(.default, value: cd.value)
                 Text(cd.unit)
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .tracking(0.5)
             } else if flight.isActive {
@@ -134,54 +131,55 @@ struct FlightRowCard: View {
                     .foregroundStyle(ArcTheme.action)
                     .symbolEffect(.pulse, options: .repeating, isActive: true)
                 Text("NOW")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(ArcTheme.action)
             } else if flight.isRecentlyLanded {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(ArcTheme.onTime)
                 Text("LANDED")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(ArcTheme.onTime)
             } else {
-                Text("—").font(.system(size: 24, weight: .heavy)).foregroundStyle(.tertiary)
+                Text("—").font(.system(size: 24, weight: .semibold)).foregroundStyle(.tertiary)
             }
         }
         }
     }
 
     private var cityPair: some View {
-        TextHelpers.cityPair(flight.departureCity, flight.arrivalCity, size: 18)
+        TextHelpers.cityPair(flight.departureCity, flight.arrivalCity, size: 18, weight: .semibold)
             .lineLimit(1)
     }
 
     private var routeRow: some View {
-        // Never overflow, on ANY width (Display Zoom shrinks the logical
-        // screen by ~26pt): try the full badge first, and when the row is
-        // tight fall back to a deliberate dot-only chip. An overflowing
-        // stack gets centered by SwiftUI, which shifted every row by a
-        // different amount — degrading the badge is the honest trade.
-        ViewThatFits(in: .horizontal) {
-            routeContent(fullBadge: true)
-            routeContent(fullBadge: false)
-        }
-    }
-
-    private func numberText(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-    }
-
-    private func routeContent(fullBadge: Bool) -> some View {
         HStack(spacing: 8) {
             endpoint(arrow: "arrow.up.right", iata: flight.departureIATA, time: flight.effectiveDepTimeLocal)
             endpoint(arrow: "arrow.down.right", iata: flight.arrivalIATA, time: flight.effectiveArrTimeLocal)
             Spacer(minLength: 2)
-            if !isPreview { dataFreshnessBadge(showText: fullBadge) }
         }
+    }
+
+    /// "Departs On Time": the verb in quiet grey, the punctuality in its
+    /// colour. Only the word that carries news is emphasised — a date, or a
+    /// state nobody has confirmed, reads as plain text.
+    private var topRight: Text {
+        let text = flight.cardTopRight
+        let verb = "Departs "
+        let weight: Font.Weight = flight.cardTopRightIsQuiet ? .regular : .semibold
+        let status = Text(text.hasPrefix(verb) ? String(text.dropFirst(verb.count)) : text)
+            .font(.system(size: 14, weight: weight))
+            .foregroundColor(flight.cardTopRightColor)
+        guard text.hasPrefix(verb) else { return status }
+        return Text(verb).font(.system(size: 14)).foregroundColor(.secondary) + status
+    }
+
+    private func numberText(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 14))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
     }
 
     private func endpoint(arrow: String, iata: String, time: String) -> some View {
@@ -202,7 +200,7 @@ struct FlightRowCard: View {
                 .frame(width: 18, height: 18)
                 .background(tint, in: Circle())
             Text(iata)
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.primary)
             Text(time)
                 .font(.system(size: 13, weight: .semibold).monospacedDigit())
@@ -225,37 +223,4 @@ struct FlightRowCard: View {
         .padding(.leading, 2)
     }
 
-    /// Full: dot + age text in a capsule. Compact (tight rows): just the dot
-    /// in an even, round chip — an intentional glyph, not a squeezed capsule.
-    private func dataFreshnessBadge(showText: Bool) -> some View {
-        HStack(spacing: 5) {
-            // Green means "live and fresh". A timetable-only leg polled a
-            // second ago is fresh but not live, so its dot stays neutral —
-            // otherwise the badge contradicts the "Timetable" label above it.
-            let liveFresh = flight.isDataFresh && flight.reportsPunctuality
-            Circle()
-                .fill(liveFresh ? Color.green : (flight.isDataFresh ? Color(.secondaryLabel) : Color.orange))
-                .frame(width: 6, height: 6)
-                .overlay(
-                    Circle()
-                        .stroke(liveFresh ? Color.green : Color.clear, lineWidth: 1.5)
-                        .scaleEffect(flight.isActive ? 2.0 : 1.0)
-                        .opacity(flight.isActive ? 0 : 1)
-                        .animation(flight.isActive ? .easeInOut(duration: 1.4).repeatForever(autoreverses: false) : .default, value: flight.isActive)
-                )
-            if showText {
-                TimelineView(.periodic(from: .now, by: 60)) { _ in
-                    Text(flight.dataFreshnessShort)
-                        .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-        }
-        // fixedSize so the text renders whole or not at all — never squeezed.
-        .fixedSize()
-        .padding(.horizontal, showText ? 7 : 5)
-        .padding(.vertical, showText ? 3.5 : 5)
-        .background(Color(.secondarySystemFill).opacity(0.8), in: Capsule())
-    }
 }

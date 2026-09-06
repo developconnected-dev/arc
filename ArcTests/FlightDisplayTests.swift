@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import Arc
 
 @MainActor
@@ -255,6 +256,26 @@ final class FlightUpcomingTests: XCTestCase {
 
     func testUpcomingTrueForScheduledFlightInTheFuture() {
         XCTAssertTrue(flight(status: .scheduled, departureOffset: 3600).isUpcoming)
+    }
+
+    /// The card's corner is plain grey text when it carries no news — a date
+    /// weeks out — and emphasised only when it states a punctuality or a
+    /// live state. The row reads the flag to choose regular over semibold.
+    func testTheCornerIsQuietUntilItHasNewsToTell() {
+        let farOut = flight(status: .scheduled, departureOffset: 30 * 86_400)
+        XCTAssertTrue(farOut.cardTopRightIsQuiet)
+        XCTAssertEqual(farOut.cardTopRightColor, Color(.secondaryLabel))
+
+        let soon = flight(status: .scheduled, departureOffset: 3600)
+        XCTAssertFalse(soon.cardTopRightIsQuiet)
+        XCTAssertEqual(soon.cardTopRightColor, soon.accentColor)
+
+        // Up but never witnessed leaving: the hedge stays plain grey.
+        let presumed = flight(status: .active, departureOffset: -3600)
+        XCTAssertTrue(presumed.cardTopRightIsQuiet)
+        let airborne = flight(status: .active, departureOffset: -3600)
+        airborne.actualDeparture = airborne.scheduledDeparture
+        XCTAssertFalse(airborne.cardTopRightIsQuiet)
     }
 
     /// Regression: a flight still marked .scheduled after its own scheduled
