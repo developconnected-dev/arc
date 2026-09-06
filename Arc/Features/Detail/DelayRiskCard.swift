@@ -22,9 +22,9 @@ struct DelayRiskCard: View {
                     // explains it.
                     if flight.showsPrediction {
                         VStack(alignment: .leading, spacing: 3) {
-                            SmartLabel(text: "Arc predicts +\(flight.predictedDelayMinutes)m", size: 15)
+                            SmartLabel(text: "Arc predicts +\(FlightClock.delayText(flight.predictedDelayMinutes))", size: 15)
                             Text((flight.predictionReason ?? "Knock-on from the aircraft's earlier legs today")
-                                 + " — the airline still shows \(flight.delayMinutes > 0 ? "+\(flight.delayMinutes)m" : "on time").")
+                                 + " — the airline still shows \(flight.delayMinutes > 0 ? "+\(FlightClock.delayText(flight.delayMinutes))" : "on time").")
                                 .font(.system(size: 13))
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)

@@ -915,7 +915,7 @@ struct FriendFlightRow: View {
             if flight.disruption_note != nil { return "Operator notice" }
             return flight.tier.qualifier ?? "Scheduled"
         }
-        if flight.delay_minutes > 0 { return "Departs \(flight.delay_minutes)m late" }
+        if flight.delay_minutes > 0 { return "Departs \(FlightClock.delayText(flight.delay_minutes)) late" }
         return "On Time"
     }
 

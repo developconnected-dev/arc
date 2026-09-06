@@ -340,7 +340,7 @@ struct FlightDetailView: View {
            leg.status == "landed" || (leg.effectiveArrival.map { $0 <= .now } ?? false) {
             return "Inbound aircraft has arrived"
         }
-        if flight.inboundDelayMinutes > 0 { return "Inbound aircraft is \(flight.inboundDelayMinutes)m late" }
+        if flight.inboundDelayMinutes > 0 { return "Inbound aircraft is \(FlightClock.delayText(flight.inboundDelayMinutes)) late" }
         if flight.inboundFlightNumber != nil { return "Inbound aircraft on schedule" }
         return nil
     }

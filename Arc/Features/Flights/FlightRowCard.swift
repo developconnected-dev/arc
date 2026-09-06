@@ -68,7 +68,7 @@ struct FlightRowCard: View {
                     } else if flight.showsPrediction {
                         // Arc's own inference wears the smart mark — sparkles,
                         // gradient, and SmartLabel's shimmer sweep on appear.
-                        SmartLabel(text: "Arc predicts +\(flight.predictedDelayMinutes)m", size: 13)
+                        SmartLabel(text: "Arc predicts +\(FlightClock.delayText(flight.predictedDelayMinutes))", size: 13)
                             .lineLimit(1)
                     } else {
                         topRight.lineLimit(1)
@@ -125,14 +125,36 @@ struct FlightRowCard: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .tracking(0.5)
+            } else if let cd = flight.landingCountdown {
+                // In the air: the number counts to landing, in the same
+                // grammar as the departure countdown above. Confirmed off
+                // the ground it wears the live colour; presumed, it stays
+                // muted like every other hedge in Arc.
+                let tint: Color = flight.departurePhase.isHedged ? Color(.secondaryLabel) : ArcTheme.action
+                Text(cd.value)
+                    .font(.system(size: cd.value.count > 2 ? 24 : 30, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(tint)
+                    .contentTransition(.numericText(countsDown: true))
+                    .animation(.default, value: cd.value)
+                Text(cd.unit)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(tint)
+                    .tracking(0.5)
             } else if flight.isActive {
-                Image(systemName: flight.mode.symbol)
+                // Off the gate but not up, or past the ETA and not yet
+                // reported down: a state with no number, so a glyph and a
+                // word — the landed card's grammar, without the pulse.
+                let landing = !flight.departurePhase.isHedged && flight.departurePhase == .airborne
+                    && flight.effectiveArrival <= .now
+                let tint: Color = flight.departurePhase.isHedged ? Color(.secondaryLabel) : ArcTheme.action
+                Image(systemName: landing ? arrivalGlyph : departureGlyph)
                     .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(ArcTheme.action)
-                    .symbolEffect(.pulse, options: .repeating, isActive: true)
-                Text("NOW")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(ArcTheme.action)
+                    .foregroundStyle(tint)
+                Text(landing ? "LANDING" : (flight.departurePhase == .departing ? "DEPARTING" : "TAXIING"))
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             } else if flight.isRecentlyLanded {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 22, weight: .bold))
@@ -147,8 +169,13 @@ struct FlightRowCard: View {
         }
     }
 
+    /// "airplane.departure" / "airplane.arrival" have no tram or ferry
+    /// variants, so non-air legs wear their plain vehicle symbol.
+    private var departureGlyph: String { flight.mode == .air ? "airplane.departure" : flight.mode.symbol }
+    private var arrivalGlyph: String { flight.mode == .air ? "airplane.arrival" : flight.mode.symbol }
+
     private var cityPair: some View {
-        TextHelpers.cityPair(flight.departureCity, flight.arrivalCity, size: 18, weight: .semibold)
+        TextHelpers.cityPair(flight.departureCity, flight.arrivalCity, size: 18, weight: .medium)
             .lineLimit(1)
     }
 
@@ -200,7 +227,7 @@ struct FlightRowCard: View {
                 .frame(width: 18, height: 18)
                 .background(tint, in: Circle())
             Text(iata)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 13))
                 .foregroundStyle(.primary)
             Text(time)
                 .font(.system(size: 13, weight: .semibold).monospacedDigit())

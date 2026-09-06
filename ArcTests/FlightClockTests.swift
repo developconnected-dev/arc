@@ -17,6 +17,17 @@ final class FlightClockTests: XCTestCase {
     private let revisedArr = Date(timeIntervalSince1970: 1_788_375_600)   // 20:00 LIS = 19:00Z
     private let jumpNow = Date(timeIntervalSince1970: 1_788_373_800)      // 20:30 CEST = 18:30Z
 
+    /// A delay is a duration and reads like one: "Delayed 200m" is a number
+    /// nobody thinks in. Under an hour it is minutes; from an hour it is
+    /// hours, with the minutes only when there are any.
+    func testADelayReadsInHoursOnceItIsOne() {
+        XCTAssertEqual(FlightClock.delayText(16), "16m")
+        XCTAssertEqual(FlightClock.delayText(59), "59m")
+        XCTAssertEqual(FlightClock.delayText(60), "1h")
+        XCTAssertEqual(FlightClock.delayText(145), "2h 25m")
+        XCTAssertEqual(FlightClock.delayText(200), "3h 20m")
+    }
+
     func testUntilLandingIsTheEpochGap() {
         XCTAssertEqual(FlightClock.secondsUntil(eta, now: now), 16 * 60, accuracy: 0.5)
         XCTAssertEqual(FlightClock.compactUntil(eta, now: now), "16m")

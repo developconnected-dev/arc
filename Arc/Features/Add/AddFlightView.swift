@@ -1511,7 +1511,7 @@ struct AddFlightView: View {
             guard resultReportsPunctuality(r) else {
                 return (DataTier(rawValue: r.data_tier ?? "live") ?? .live).qualifier ?? "Scheduled"
             }
-            return (r.delay ?? 0) > 0 ? "Delayed \(r.delay ?? 0)m" : "On time"
+            return (r.delay ?? 0) > 0 ? "Delayed \(FlightClock.delayText(r.delay ?? 0))" : "On time"
         }
     }
 
