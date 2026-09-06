@@ -730,14 +730,29 @@ final class FlightTenseTests: XCTestCase {
 
     /// Past its (delayed) departure and still "scheduled": nobody confirmed
     /// it left, so Arc doesn't either — no countdown, no date, no green.
+    /// Past the expected wheels-up too, so it has PRESUMABLY left: say
+    /// that, hedged, rather than "not yet departed", which reads as still
+    /// at the gate to someone watching the aircraft climb out.
     func testUnconfirmedDepartureSaysSo() {
         let f = flight(depIn: -25 * 60)
         XCTAssertTrue(f.isDepartureUnconfirmed)
         XCTAssertNil(f.countdown)
-        XCTAssertEqual(f.cardTopRight, "Not yet departed")
-        XCTAssertEqual(f.bannerHeadline, "Departure not yet confirmed")
+        XCTAssertEqual(f.cardTopRight, "Likely departed")
+        XCTAssertEqual(f.bannerHeadline, "Departed · unconfirmed")
         XCTAssertNotEqual(f.bannerColor, ArcTheme.onTime)
         XCTAssertFalse(f.departureRelText.hasSuffix(" ago"))
+    }
+
+    /// Past the gate time but before the wheels are even expected up: the
+    /// aircraft is believed to be on the ground, and every surface says
+    /// "Departing" — not "not yet departed", which is a claim, and not
+    /// "In Air", which is the claim the taxi exists to prevent.
+    func testDepartingBeforeExpectedWheelsUpSaysDeparting() {
+        let f = flight(depIn: -5 * 60)
+        XCTAssertTrue(f.isDepartureUnconfirmed)
+        XCTAssertEqual(f.cardTopRight, "Departing")
+        XCTAssertEqual(f.bannerHeadline, "Departing")
+        XCTAssertNotEqual(f.bannerColor, ArcTheme.onTime)
     }
 
     /// Flipped to active by the clock a few minutes ago: "Departing", not

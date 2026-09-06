@@ -271,3 +271,79 @@ final class FlightDepartureDisplayTests: XCTestCase {
         XCTAssertTrue(confirmed.departureRelText.contains("Departed"))
     }
 }
+
+/// The other end of the flight, from the same evidence that confirms the
+/// first: an aircraft seen ON THE GROUND at its destination, after it left,
+/// has landed. A status string saying "Arrived" can lag touchdown by an
+/// hour, and nothing else ever confirmed a landing — the card kept counting
+/// down to an arrival that had already happened.
+@MainActor
+final class LandingEvidenceTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func flight() -> Flight {
+        let f = Flight(flightNumber: "LX14", date: now.addingTimeInterval(-8 * 3600))
+        f.status = .active
+        f.scheduledDeparture = now.addingTimeInterval(-8 * 3600)
+        f.actualDeparture = now.addingTimeInterval(-8 * 3600 + 900)
+        f.scheduledArrival = now.addingTimeInterval(-300)
+        f.departureLat = 47.4647; f.departureLon = 8.5492
+        f.arrivalLat = 40.6413; f.arrivalLon = -73.7781
+        return f
+    }
+
+    func testOnTheGroundAtTheDestinationAfterDepartureIsALanding() {
+        let f = flight()
+        let landed = f.recordLandingSample(onGround: true, velocity: 0.4, altitude: 0,
+                                           lat: 40.6455, lon: -73.7830,
+                                           at: now.addingTimeInterval(-120), now: now)
+        XCTAssertTrue(landed)
+        XCTAssertEqual(f.status, .landed)
+        XCTAssertEqual(f.actualArrival, now.addingTimeInterval(-120))
+    }
+
+    func testAProviderArrivalTimeIsNotOverwrittenByTheSighting() {
+        let f = flight()
+        f.actualArrival = now.addingTimeInterval(-600)
+        XCTAssertTrue(f.recordLandingSample(onGround: true, velocity: 3, altitude: 0,
+                                            lat: 40.6455, lon: -73.7830,
+                                            at: now.addingTimeInterval(-60), now: now))
+        XCTAssertEqual(f.actualArrival, now.addingTimeInterval(-600))
+    }
+
+    func testFlyingFarAwayStaleOrBeforeDepartureIsNotALanding() {
+        // Still on approach.
+        let approaching = flight()
+        XCTAssertFalse(approaching.recordLandingSample(onGround: false, velocity: 80, altitude: 600,
+                                                       lat: 40.6455, lon: -73.7830,
+                                                       at: now.addingTimeInterval(-60), now: now))
+        XCTAssertEqual(approaching.status, .active)
+        // On the ground at Newark: a diversion, not this landing.
+        let elsewhere = flight()
+        XCTAssertFalse(elsewhere.recordLandingSample(onGround: true, velocity: 0.4, altitude: 0,
+                                                     lat: 40.6895, lon: -74.1745,
+                                                     at: now.addingTimeInterval(-60), now: now))
+        // A sighting older than the fresh window says nothing about now.
+        let stale = flight()
+        XCTAssertFalse(stale.recordLandingSample(onGround: true, velocity: 0.4, altitude: 0,
+                                                 lat: 40.6455, lon: -73.7830,
+                                                 at: now.addingTimeInterval(-20 * 60), now: now))
+        // Parked at the destination before this flight left: the previous rotation.
+        let earlier = flight()
+        XCTAssertFalse(earlier.recordLandingSample(onGround: true, velocity: 0.4, altitude: 0,
+                                                   lat: 40.6455, lon: -73.7830,
+                                                   at: now.addingTimeInterval(-8 * 3600 + 1000),
+                                                   now: now.addingTimeInterval(-8 * 3600 + 1100)))
+        XCTAssertEqual(earlier.status, .active)
+    }
+
+    /// Already landed per the source: a sighting changes nothing.
+    func testALandedFlightStaysLanded() {
+        let f = flight()
+        f.status = .landed
+        XCTAssertFalse(f.recordLandingSample(onGround: true, velocity: 0.4, altitude: 0,
+                                             lat: 40.6455, lon: -73.7830,
+                                             at: now.addingTimeInterval(-60), now: now))
+        XCTAssertEqual(f.status, .landed)
+    }
+}

@@ -77,3 +77,45 @@ export function adbPositionToSample(loc: Record<string, any> | null | undefined)
     reportedAt: reportedAt.toISOString(),
   };
 }
+
+/// How far from the arrival airport's reference point an aircraft on the
+/// ground still counts as "at" it. A big hub's runways and stands span
+/// several kilometres from the point the provider calls the airport.
+export const LANDING_RADIUS_KM = 8;
+
+function haversineKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat), dLon = toRad(b.lon - a.lon);
+  const h = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/// The other end of the flight, from the same evidence that confirms the
+/// first: an aircraft seen ON THE GROUND at its destination, after it left,
+/// has landed. A status string saying "Arrived" can lag touchdown by an
+/// hour, and until now nothing else ever confirmed a landing — every
+/// surface kept counting down to an arrival that had already happened.
+///
+/// Guards: the sighting must be fresh (a stale one says nothing about now),
+/// placed (no coordinates, nothing to place), within `LANDING_RADIUS_KM` of
+/// the arrival airport (on the ground at Newark is a diversion, not this
+/// landing), and after the departure — the tail parked at the destination
+/// before this flight left is its previous rotation, not this arrival.
+export function landedSighting(
+  sample: { on_ground: boolean; velocity: number; altitude: number;
+            lat: number | null; lon: number | null; reportedAt: string } | null | undefined,
+  arrival: { lat: number; lon: number },
+  departedMs: number,
+  nowMs: number,
+  freshMs = 15 * 60_000,
+): boolean {
+  if (!sample || sample.lat == null || sample.lon == null) return false;
+  const seen = Date.parse(sample.reportedAt);
+  if (!Number.isFinite(seen) || nowMs - seen >= freshMs || seen > nowMs + 60_000) return false;
+  if (seen <= departedMs + 10 * 60_000) return false;
+  const state = classifyGround(sample);
+  if (state !== "at_gate" && state !== "taxiing") return false;
+  return haversineKm({ lat: sample.lat, lon: sample.lon }, arrival) <= LANDING_RADIUS_KM;
+}
