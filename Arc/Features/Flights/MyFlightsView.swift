@@ -14,14 +14,23 @@ struct MyFlightsView: View {
     /// and gets the same beat an add does: the row appears and the map draws
     /// the route on.
     var onImported: (Flight) -> Void = { _ in }
+    /// Trips that just became the user's, by id. The row appearing is the
+    /// confirmation of an add — but a list scrolled even one row down keeps
+    /// its place when a row is inserted above it, and the confirmation plays
+    /// out of view. Each new batch brings its topmost row to the top.
+    var landed: [UUID] = []
 
     @State private var showSettings = false
     @State private var shareFlight: Flight?
     @State private var previewFlight: Flight?
     @State private var friendsStore = FriendsStore.shared
 
-    private var flights: [Flight] {
-        allFlights
+    private var flights: [Flight] { Self.listed(Array(allFlights)) }
+
+    /// The rows this list draws, in the order it draws them: active and
+    /// recently-landed pinned above the upcoming-by-soonest timeline.
+    static func listed(_ all: [Flight]) -> [Flight] {
+        all
             .filter { $0.isActive || $0.isUpcoming || $0.isRecentlyLanded }
             .sorted { a, b in
                 // Active and recently-landed are the most time-sensitive —
@@ -36,6 +45,17 @@ struct MyFlightsView: View {
             }
     }
 
+    /// The row to bring into view for trips that just landed: the first of
+    /// them in list order, or nothing when the list shows none of them (a
+    /// hand-logged past trip has no row here, so nothing should jump).
+    static func rowToReveal(_ landed: [Flight], among all: [Flight]) -> UUID? {
+        rowToReveal(ids: Set(landed.map(\.id)), among: all)
+    }
+
+    static func rowToReveal(ids: Set<UUID>, among all: [Flight]) -> UUID? {
+        listed(all).first { ids.contains($0.id) }?.id
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -43,6 +63,7 @@ struct MyFlightsView: View {
                 .padding(.top, 4)
                 .padding(.bottom, 10)
 
+            ScrollViewReader { proxy in
             List {
                 // Trips a friend added for the two of you, waiting on an
                 // answer. Pinned above everything rather than slotted into
@@ -117,6 +138,16 @@ struct MyFlightsView: View {
                 await FlightTracker.shared.burstUpdate(flights: Array(allFlights), modelContext: modelContext)
                 // Pull-to-refresh is also "did anyone add a trip for me?"
                 await friendsStore.refresh(force: true)
+            }
+            .onChange(of: landed) { _, ids in
+                guard let row = Self.rowToReveal(ids: Set(ids), among: Array(allFlights)) else { return }
+                // The save that produced the batch is already in the query;
+                // one turn of the loop lets the List lay the row out before
+                // it is asked to show it.
+                Task { @MainActor in
+                    withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(row, anchor: .top) }
+                }
+            }
             }
         }
         .sheet(isPresented: $showSettings) {

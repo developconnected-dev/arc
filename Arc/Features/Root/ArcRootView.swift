@@ -38,6 +38,9 @@ struct ArcRootView: View {
     /// and swapping a presented sheet's item can drop the replacement on the
     /// floor — so both cases dismiss first and come back through here.
     @State private var queuedDetail: Flight?
+    /// The batch that last claimed the add moment, for the list to bring
+    /// its topmost row into view (see `MyFlightsView.landed`).
+    @State private var landedTrips: [UUID] = []
 
 
     /// Test hooks for headless screenshots.
@@ -297,6 +300,9 @@ struct ArcRootView: View {
         guard !flights.isEmpty else { return }
         // The row lands in My Trips, so that's the list the map draws behind.
         tab = .myFlights
+        // And the list brings that row to the top: the reveal is the route
+        // drawing on AND the row appearing, whatever the list was scrolled to.
+        landedTrips = flights.map(\.id)
         // The reveal owns the camera for the next second. Claiming the tab
         // here is what stops the tab-change hook from refitting to every
         // route the user has and fighting it.
@@ -656,7 +662,8 @@ struct ArcRootView: View {
                     tabSurface {
                         MyFlightsView(onSelect: { detailFlight = $0 },
                                       onAdd: { showAdd = true },
-                                      onImported: { imported in revealTrips([imported]) })
+                                      onImported: { imported in revealTrips([imported]) },
+                                      landed: landedTrips)
                     }
                 }
                 // Trips friends added for the two of you, waiting on an answer.
