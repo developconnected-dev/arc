@@ -20,6 +20,7 @@
 		1003697FBC6E177FB06D4DC0 /* SupabaseErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AD3936B9A068A6D1B734331 /* SupabaseErrorTests.swift */; };
 		12441CF9EEA5848E9DFE70A8 /* ArcTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2091849463E3B42B39109819 /* ArcTheme.swift */; };
 		132186CB080D804A397303E6 /* InboundSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3982B16A2E83D23E09279400 /* InboundSelectionTests.swift */; };
+		144D833025BF320731CD2872 /* MyFlightsListTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A72DEFC7F9784FE95B570D5E /* MyFlightsListTests.swift */; };
 		147ED96EDE432F34CFA07B0F /* GeoMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A38232A6E768DF2669A448 /* GeoMathTests.swift */; };
 		174541C286F7C1FAFD253F1A /* FriendsFeedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5460A62472771819DEC2B78A /* FriendsFeedTests.swift */; };
 		1BC8E88E19F9A7AD30EA6489 /* RemotePush.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9D60FB79B4585323258D954 /* RemotePush.swift */; };
@@ -262,6 +263,7 @@
 		A60AED5E6E1620F00029D627 /* FriendGroupsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendGroupsTests.swift; sourceTree = "<group>"; };
 		A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ArcWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A718CE1F4F154B3E8451F8E4 /* BoardingPassScanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardingPassScanView.swift; sourceTree = "<group>"; };
+		A72DEFC7F9784FE95B570D5E /* MyFlightsListTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyFlightsListTests.swift; sourceTree = "<group>"; };
 		A904E8731146A7FB8744B074 /* FlightExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightExporter.swift; sourceTree = "<group>"; };
 		A99FE65B13FFE0D0203987D5 /* MyFlightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyFlightsView.swift; sourceTree = "<group>"; };
 		AEC9695158002B9A459B301E /* SunSide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SunSide.swift; sourceTree = "<group>"; };
@@ -578,6 +580,7 @@
 				3982B16A2E83D23E09279400 /* InboundSelectionTests.swift */,
 				5071EA7C352056408F298DEA /* LiveActivityClockTests.swift */,
 				B30B1695E898672BA030B089 /* LiveActivityPushSyncTests.swift */,
+				A72DEFC7F9784FE95B570D5E /* MyFlightsListTests.swift */,
 				B48F84455243D0E4149FB369 /* PlanePositionTests.swift */,
 				A136200E180C33472B503DE3 /* ReferenceDataTests.swift */,
 				38329F5149CBA92432A823C7 /* RotationChainTests.swift */,
@@ -754,6 +757,7 @@
 				132186CB080D804A397303E6 /* InboundSelectionTests.swift in Sources */,
 				57E9B84380BBA34EF0FA2060 /* LiveActivityClockTests.swift in Sources */,
 				BEE4C5661C61DDB3D277469B /* LiveActivityPushSyncTests.swift in Sources */,
+				144D833025BF320731CD2872 /* MyFlightsListTests.swift in Sources */,
 				C870B531E4885665A67DA68F /* PlanePositionTests.swift in Sources */,
 				3190C8FCAC6039B71113589D /* ReferenceDataTests.swift in Sources */,
 				C8FFD2D8D6BF9BD7326C11AF /* RotationChainTests.swift in Sources */,
