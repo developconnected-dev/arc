@@ -11,6 +11,11 @@ struct FlightDetailView: View {
     var onShowAtGate: ((Flight) -> Void)? = nil
     var onShowAirport: ((Flight) -> Void)? = nil
     var onOpenFlight: ((Flight) -> Void)? = nil
+    /// Inside the tab sheet the detail is not a presentation, so there is
+    /// nothing for `dismiss` to dismiss: the root clears `detailFlight` and
+    /// the morph plays in reverse. A friend's read-only preview is still a
+    /// real sheet and falls back to `dismiss`.
+    var onClose: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
@@ -23,6 +28,8 @@ struct FlightDetailView: View {
     @State private var showShare = false
     @State private var confirmDelete = false
     @State private var pendingScroll: String?
+    @State private var sectionsIn = false
+    @State private var pulledClosed = false
     /// Friends picked as companions on THIS screen, not yet invited — sent
     /// when the sheet closes (see `sendPendingCompanionInvites`).
     @State private var newCompanionIds: [String] = []
@@ -51,55 +58,64 @@ struct FlightDetailView: View {
                     // context (people, good-to-know, aircraft) → records.
                     header
                     statusBanner
-                    // METAR / airport-history reasoning — meaningless for a
-                    // train or ferry, so air only.
-                    // …and only before departure: a departure-weather outlook
-                    // for a plane already in the air is a forecast of the past.
-                    if !flight.isCompleted, !flight.isActive, flight.mode == .air {
-                        DelayRiskCard(flight: flight)
+                    Group {
+                        // METAR / airport-history reasoning — meaningless for a
+                        // train or ferry, so air only.
+                        // …and only before departure: a departure-weather outlook
+                        // for a plane already in the air is a forecast of the past.
+                        if !flight.isCompleted, !flight.isActive, flight.mode == .air {
+                            DelayRiskCard(flight: flight)
+                        }
+                        if let plan = connection {
+                            ConnectionCard(plan: plan, currentFlightID: flight.id,
+                                           onSelectOther: onOpenFlight)
+                        }
+                        // Only when the airline has actually assigned a belt. The
+                        // old fallback invented "7 (Belt Confirmed)" for any landed
+                        // flight — a made-up number presented as confirmed.
+                        // And only once a belt can matter: FIDS often publish one
+                        // before departure, and "BAGGAGE RECLAIM · Belt 7" above
+                        // tomorrow's departure reads as if the trip were over.
+                        if flight.showsBaggageBelt, let belt = flight.baggageClaim {
+                            BaggageCarouselSection(flight: flight, belt: belt)
+                        }
                     }
-                    if let plan = connection {
-                        ConnectionCard(plan: plan, currentFlightID: flight.id,
-                                       onSelectOther: onOpenFlight)
-                    }
-                    // Only when the airline has actually assigned a belt. The
-                    // old fallback invented "7 (Belt Confirmed)" for any landed
-                    // flight — a made-up number presented as confirmed.
-                    // And only once a belt can matter: FIDS often publish one
-                    // before departure, and "BAGGAGE RECLAIM · Belt 7" above
-                    // tomorrow's departure reads as if the trip were over.
-                    if flight.showsBaggageBelt, let belt = flight.baggageClaim {
-                        BaggageCarouselSection(flight: flight, belt: belt)
-                    }
+                    .opacity(sectionsIn ? 1 : 0)
+                    .offset(y: sectionsIn ? 0 : 16)
                     endpointsCard
-                    mapActionsRow
-                    // Overlaps match on airport IATA — a rail leg's "BER" is
-                    // Berlin Hbf, and matching it against friends at Berlin
-                    // Brandenburg would invent a meetup. Air only.
-                    if !flight.isCompleted, flight.mode == .air {
-                        AirportOverlapRow(flight: flight)
+                        .morph(.route, for: flight)
+                    Group {
+                        mapActionsRow
+                        // Overlaps match on airport IATA — a rail leg's "BER" is
+                        // Berlin Hbf, and matching it against friends at Berlin
+                        // Brandenburg would invent a meetup. Air only.
+                        if !flight.isCompleted, flight.mode == .air {
+                            AirportOverlapRow(flight: flight)
+                        }
+                        if !companions.isEmpty || !invitedCompanions.isEmpty {
+                            companionsCard
+                        }
+                        if isOwnFlight { bookingSeatRow; audienceCard }
+                        GoodToKnowSection(flight: flight)
+                        // Aircraft rotation, tail registration and the silhouette
+                        // are all about a plane. A ferry has a vessel and a train
+                        // has neither, so this whole section is air-only until each
+                        // has something of its own to say.
+                        // Once the flight is over there is no plane to find, and the
+                        // rotation list would be a stale snapshot of that morning.
+                        if isOwnFlight, flight.mode == .air, !flight.isCompleted {
+                            WheresMyPlaneSection(flight: flight).id("plane")
+                        }
+                        DetailedTimetableSection(flight: flight)
+                        AirlineInfoSection(flight: flight)
+                        if isOwnFlight {
+                            RouteHistorySection(flight: flight)
+                            NotesSection(flight: flight) { editField(.notes) }
+                            actionBar
+                        }
                     }
-                    if !companions.isEmpty || !invitedCompanions.isEmpty {
-                        companionsCard
-                    }
-                    if isOwnFlight { bookingSeatRow; audienceCard }
-                    GoodToKnowSection(flight: flight)
-                    // Aircraft rotation, tail registration and the silhouette
-                    // are all about a plane. A ferry has a vessel and a train
-                    // has neither, so this whole section is air-only until each
-                    // has something of its own to say.
-                    // Once the flight is over there is no plane to find, and the
-                    // rotation list would be a stale snapshot of that morning.
-                    if isOwnFlight, flight.mode == .air, !flight.isCompleted {
-                        WheresMyPlaneSection(flight: flight).id("plane")
-                    }
-                    DetailedTimetableSection(flight: flight)
-                    AirlineInfoSection(flight: flight)
-                    if isOwnFlight {
-                        RouteHistorySection(flight: flight)
-                        NotesSection(flight: flight) { editField(.notes) }
-                        actionBar
-                    }
+                    .opacity(sectionsIn ? 1 : 0)
+                    .offset(y: sectionsIn ? 0 : 16)
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(.horizontal, 16)
@@ -107,6 +123,9 @@ struct FlightDetailView: View {
                 .padding(.bottom, 40)
             }
             .onAppear {
+                // The elements land first; the sections arrive just behind
+                // them, so the eye follows the travel and then reads down.
+                withAnimation(ArcTheme.morph.delay(0.08)) { sectionsIn = true }
                 let args = ProcessInfo.processInfo.arguments
                 let target = args.contains("-detailBottom") ? "bottom" : args.contains("-detailPlane") ? "plane" : nil
                 if let target {
@@ -127,7 +146,17 @@ struct FlightDetailView: View {
                 }
             }
         }
-        .presentationDragIndicator(.visible)
+        .onScrollGeometryChange(for: CGFloat.self) { geo in
+            geo.contentOffset.y + geo.contentInsets.top
+        } action: { _, overscroll in
+            // Pulling the detail down past its top is the sheet-dismiss
+            // habit; honour it with the same reverse the X plays. Only when
+            // this detail is hosted in the tab sheet (onClose set): a
+            // presented sheet already dismisses on its own drag.
+            guard onClose != nil, overscroll < -60, !pulledClosed else { return }
+            pulledClosed = true
+            close()
+        }
         // Opening the detail is the strongest possible "I want fresh data
         // NOW" signal — poll immediately instead of waiting out the global
         // tracking interval.
@@ -176,10 +205,12 @@ struct FlightDetailView: View {
         HStack(alignment: .top, spacing: 12) {
             TripLogoView(mode: flight.mode, iata: flight.airlineCode,
                          logoURL: flight.operatorLogoURL, size: 34)
+                .morph(.logo, for: flight)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(flight.flightNumberSpaced) • \(flight.headerDateText)")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    .morph(.number, for: flight)
                 // There's room here for the whole story, so say it in words:
                 // the number above is what flies, this is what's on the
                 // ticket. Same fact the list row compresses into "· A3 1653".
@@ -189,9 +220,10 @@ struct FlightDetailView: View {
                         .foregroundStyle(.tertiary)
                 }
                 cityPair
+                    .morph(.cities, for: flight)
             }
             Spacer()
-            Button { dismiss() } label: {
+            Button { close() } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.secondary)
@@ -216,6 +248,7 @@ struct FlightDetailView: View {
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(flight.bannerColor)
                     .contentTransition(.opacity)
+                    .morph(.status, for: flight)
                 Spacer()
                 HStack(spacing: 5) {
                     Circle()
@@ -671,10 +704,14 @@ struct FlightDetailView: View {
             Button("Delete \(flight.flightNumberSpaced)", role: .destructive) {
                 Task {
                     await Flight.delete(flight, from: modelContext)
-                    dismiss()
+                    close()
                 }
             }
         }
+    }
+
+    private func close() {
+        if let onClose { onClose() } else { dismiss() }
     }
 
     private func actionIcon(_ name: String) -> some View {
