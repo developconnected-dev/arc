@@ -34,7 +34,6 @@ struct FlightDetailView: View {
     @State private var confirmDelete = false
     @State private var pendingScroll: String?
     @State private var sectionsIn = false
-    @State private var pulledClosed = false
     /// Friends picked as companions on THIS screen, not yet invited — sent
     /// when the sheet closes (see `sendPendingCompanionInvites`).
     @State private var newCompanionIds: [String] = []
@@ -163,17 +162,6 @@ struct FlightDetailView: View {
                     pendingScroll = nil
                 }
             }
-        }
-        .onScrollGeometryChange(for: CGFloat.self) { geo in
-            geo.contentOffset.y + geo.contentInsets.top
-        } action: { _, overscroll in
-            // Pulling the detail down past its top is the sheet-dismiss
-            // habit; honour it with the same reverse the X plays. Only when
-            // this detail is hosted in the tab sheet (onClose set): a
-            // presented sheet already dismisses on its own drag.
-            guard onClose != nil, overscroll < -60, !pulledClosed else { return }
-            pulledClosed = true
-            close()
         }
         // Opening the detail is the strongest possible "I want fresh data
         // NOW" signal — poll immediately instead of waiting out the global

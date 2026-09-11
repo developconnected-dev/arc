@@ -43,7 +43,6 @@
 		47733FC27C873C75889EB557 /* InboundMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3BA60104125C5743ECF86F8 /* InboundMonitor.swift */; };
 		4867449BF8D2AB43BBD4A600 /* SmartETATests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51628B58BB357CCDD1FD5F3A /* SmartETATests.swift */; };
 		4BE4CB84B06880211275E457 /* FlightLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB40E7D146DE8662884B50D /* FlightLiveActivity.swift */; };
-		4CDC7144BF994C3904454158 /* DetailPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F3DD348491B93A4538AB760 /* DetailPresentation.swift */; };
 		4DC5DD74216D89BCF661E139 /* ArcDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BFECC1DABBC5FC07371E956 /* ArcDesign.swift */; };
 		4E1EF5883022DA56C4F009FB /* TakeoffSensor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3B41C8E240118941DEB4492 /* TakeoffSensor.swift */; };
 		4F21E974DF4EB8A40B455235 /* Morph.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A6E858F2D653D54302F578 /* Morph.swift */; };
@@ -70,7 +69,6 @@
 		77A18B0B76DAA98567EFF92C /* FlightQueryParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE57FDA3B828171629338130 /* FlightQueryParser.swift */; };
 		78067EB8469F38A3B174A4DE /* SunSide.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEC9695158002B9A459B301E /* SunSide.swift */; };
 		782E9CE6FC733FBD77E43A5E /* AirlineLogoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11CAB1497F442E72CF11A73F /* AirlineLogoView.swift */; };
-		7B0F25DA41690E04235DFE2B /* DetailPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C634EC3F6D6C4B2D6619B45 /* DetailPresentationTests.swift */; };
 		7B0F471853BB32A87C2C3C75 /* FlightDetailSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8483E3B4C6E1B44F201F2AAD /* FlightDetailSections.swift */; };
 		7E14E00521A22BF09D8F195B /* Flight+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F99ECA03255BFC524189A60 /* Flight+Display.swift */; };
 		825FA5FD9518679A5102F8E5 /* ReferenceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3656C3156166F8E024EE5B7D /* ReferenceModels.swift */; };
@@ -220,7 +218,6 @@
 		4BF091F8AD4F106B45E03DCE /* TakeoffDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeoffDetectorTests.swift; sourceTree = "<group>"; };
 		4C1301041A06C6716593057B /* ConnectionPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionPlanner.swift; sourceTree = "<group>"; };
 		4C489E29357F66E23EFC0D7B /* ClipboardFlightCodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardFlightCodeTests.swift; sourceTree = "<group>"; };
-		4C634EC3F6D6C4B2D6619B45 /* DetailPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailPresentationTests.swift; sourceTree = "<group>"; };
 		4CDBA155BE116022B7E2F90F /* MapControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapControls.swift; sourceTree = "<group>"; };
 		4D6A8161E48E0795CCD97AA8 /* TakeoffWakePlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeoffWakePlannerTests.swift; sourceTree = "<group>"; };
 		4F45EC7B8D2BEC6A79A78C9B /* DelayRisk.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelayRisk.swift; sourceTree = "<group>"; };
@@ -236,7 +233,6 @@
 		5CD183275F16AE2660B43277 /* AircraftSilhouette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AircraftSilhouette.swift; sourceTree = "<group>"; };
 		5DFE5890F673E6E56FF7EAEF /* Arc.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Arc.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5EB4B844E836C4A35AC54D33 /* ShareFlightSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareFlightSheet.swift; sourceTree = "<group>"; };
-		5F3DD348491B93A4538AB760 /* DetailPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailPresentation.swift; sourceTree = "<group>"; };
 		6203F2E6D1096F29FA5083FC /* ArcApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcApp.swift; sourceTree = "<group>"; };
 		64047F33627992F4D8030E71 /* FlightDisplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightDisplayTests.swift; sourceTree = "<group>"; };
 		6674C644473A8513D0618BB7 /* IntelligenceVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntelligenceVoice.swift; sourceTree = "<group>"; };
@@ -501,7 +497,6 @@
 			children = (
 				0A54EAE7163E5314C68F828C /* ArcRootView.swift */,
 				78C36DE016E979779A485A54 /* DemoSeed.swift */,
-				5F3DD348491B93A4538AB760 /* DetailPresentation.swift */,
 			);
 			path = Root;
 			sourceTree = "<group>";
@@ -577,7 +572,6 @@
 				0D81203FA2864B636065691E /* DeadReckoningTests.swift */,
 				F70B4249290027FDAFA9D021 /* DelayRiskTests.swift */,
 				76A7ACD292B7C11B780E694F /* DepartureEvidenceTests.swift */,
-				4C634EC3F6D6C4B2D6619B45 /* DetailPresentationTests.swift */,
 				14FAE84C003F055E6FD5E1EC /* FlightAudienceTests.swift */,
 				8C765B4C7F004CEE0999A88B /* FlightClockTests.swift */,
 				64047F33627992F4D8030E71 /* FlightDisplayTests.swift */,
@@ -756,7 +750,6 @@
 				4FD88C15CD2DFD4314F019FA /* DeadReckoningTests.swift in Sources */,
 				C1A749BDDC82ED06F27F8715 /* DelayRiskTests.swift in Sources */,
 				A9BD4EA4BA0EB46F87F971B3 /* DepartureEvidenceTests.swift in Sources */,
-				7B0F25DA41690E04235DFE2B /* DetailPresentationTests.swift in Sources */,
 				1EB9E39748B4D282482786CE /* FlightAudienceTests.swift in Sources */,
 				F08E95C26CD44564F9355085 /* FlightClockTests.swift in Sources */,
 				FF28A915F2E461B6A44D4F3A /* FlightDisplayTests.swift in Sources */,
@@ -821,7 +814,6 @@
 				9B2EABE20799CFF960C725EA /* DelayRiskCard.swift in Sources */,
 				8625562A2DEDFF9FE944C920 /* DemoSeed.swift in Sources */,
 				0458DAD31D437F3A54F4BD27 /* DepartureEvidence.swift in Sources */,
-				4CDC7144BF994C3904454158 /* DetailPresentation.swift in Sources */,
 				7E14E00521A22BF09D8F195B /* Flight+Display.swift in Sources */,
 				A32EE9AAFF04496627E9FB54 /* Flight+Evidence.swift in Sources */,
 				AE8A969D54CC001AF4336515 /* Flight.swift in Sources */,

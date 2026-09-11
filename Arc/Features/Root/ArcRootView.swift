@@ -16,7 +16,6 @@ struct ArcRootView: View {
     @State private var detent: SheetDetent = ProcessInfo.processInfo.arguments.contains("-sheetLarge") ? .large : .medium
     @State private var showAdd = false
     @State private var detailFlight: Flight?
-    @State private var presentation = DetailPresentation()
     /// The detail is in the tree a beat before it is `detailPresented` and
     /// a beat after it stops being, so its elements have somewhere to rise
     /// from and drop to (see `RiseIn`).
@@ -616,9 +615,10 @@ struct ArcRootView: View {
         return true
     }
 
-    /// The row becomes the detail: the list fades, the sheet rises, and the
-    /// detail's elements rise into place from below, each in its turn. The
-    /// view is inserted first, hidden, so there is a below to rise from.
+    /// The row becomes the detail: the list fades and the detail's elements
+    /// rise into place from below, each in its turn, at whatever height the
+    /// sheet already has. The view is inserted first, hidden, so there is a
+    /// below to rise from.
     private func openDetail(_ flight: Flight) {
         if detailFlight != nil {
             // A second flight over an open one: no choreography, just swap.
@@ -634,20 +634,18 @@ struct ArcRootView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + Morph.listOut) {
             guard detailFlight?.id == flight.id else { return }
             detailPresented = true
-            detent = presentation.open(from: detent)
         }
     }
 
-    /// The exact reverse: the elements drop away in the opposite order, the
-    /// list returns, the sheet goes back to the height it had before the
-    /// tap; only once the last element has gone is the view removed. The
-    /// ground view and gate marker belong to the detail and leave with it.
+    /// The exact reverse: the elements drop away in the opposite order and
+    /// the list returns; only once the last element has gone is the view
+    /// removed. The sheet stays where it is. The ground view and gate marker
+    /// belong to the detail and leave with it.
     private func closeDetail() {
         groundViewTask?.cancel()
         groundViewTask = nil
         controller.clearGateMarker()
         detailPresented = false
-        if let restored = presentation.close() { detent = restored }
         let closing = detailFlight?.id
         DispatchQueue.main.asyncAfter(deadline: .now() + Morph.elementsOut) {
             guard !detailPresented, detailFlight?.id == closing else { return }
