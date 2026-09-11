@@ -129,6 +129,12 @@ new hooks go into `tabSurface` and `fileprivate` ViewModifiers, following
   main thread (Debug build) and froze the start of the morph. The two groups
   below the endpoints card are now inserted 0.32 s after the detail appears,
   with an opacity-and-rise transition.
+- **The two fades are shaped, not re-timed.** Attaching a faster animation
+  to a transition overrides the spring for that subtree (on close the
+  elements stopped travelling). Instead a custom `Animatable` modifier rides
+  the spring and shapes opacity: the list leaves as p³ and returns as p²,
+  the detail arrives as 1−(1−p)³ and leaves as p². Open reads as one object
+  moving; on close the travelling copies hand off to the row as they land.
 - **Status travels by position only.** Animating the banner headline's frame
   re-wrapped it mid-flight ("Landi / ng in…"); only the logo animates its
   frame.

@@ -759,9 +759,9 @@ struct ArcRootView: View {
                                          onOpenFlight: { other in _ = show(other) },
                                          onClose: { closeDetail() })
                             .id(flight.id)
-                            .transition(.opacity)
+                            .transition(MorphElement.arriving)
                     } else {
-                        built.transition(.opacity)
+                        built.transition(MorphElement.leaving)
                     }
                 }
                 .padding(.bottom, 56)
