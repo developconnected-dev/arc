@@ -65,6 +65,12 @@ private struct SheetChrome<Content: View>: View {
             grabber
                 .contentShape(Rectangle())
                 .gesture(dragGesture(height: h, currentVisible: visible))
+                // The zone stays 50pt to the finger but takes 38pt of
+                // layout: the content starts inside its lower edge, which
+                // wins the overlap (drawn later), so the grabber keeps a
+                // 44pt effective target — the HIG minimum — and the sheet's
+                // first line sits that much closer to the top.
+                .padding(.vertical, -6)
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
