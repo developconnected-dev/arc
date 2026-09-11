@@ -37,8 +37,9 @@ struct BottomSheet<Content: View>: View {
 /// (handed down as an already-built value, not a closure) to reconstruct.
 ///
 /// Deliberately the simplest version of this gesture that's still correct —
-/// no spring, no implicit animation anywhere, snapping on release is an
-/// instant reassignment. This is a diagnostic as much as a design choice:
+/// no spring, no implicit animation in the drag, snapping on release is an
+/// instant reassignment. (A detent set programmatically — see `onChange` —
+/// is the one move that animates, on the morph spring.) This is a diagnostic as much as a design choice:
 /// after three rounds of fixes (double-animation-trigger, material cost,
 /// .local-coordinate-space feedback) still left dragging feeling like it
 /// jumps, animation logic itself is the next thing to rule out by removing
@@ -84,7 +85,12 @@ private struct SheetChrome<Content: View>: View {
         .onAppear { liveHeight = h * detent.fraction }
         .onChange(of: detent) { _, newValue in
             guard dragBaseline == nil else { return }   // don't fight an active drag
-            liveHeight = h * newValue.fraction
+            // A drag's snap already set liveHeight before assigning detent,
+            // so this is a no-op for it. A PROGRAMMATIC detent — a detail
+            // opening, a gate view lowering the sheet — is the one that
+            // moves here, and it rides the morph spring so the sheet rises
+            // with the elements rather than jumping ahead of them.
+            withAnimation(ArcTheme.morph) { liveHeight = h * newValue.fraction }
         }
     }
 
