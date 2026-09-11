@@ -21,6 +21,49 @@ enum MorphElement: String {
     }
 }
 
+/// A fade that rides the morph's own spring but is shaped so the two
+/// layers never sit half-transparent on top of each other. Attaching a
+/// faster animation to the transition instead would override the spring
+/// for the whole subtree — on close the elements stopped travelling and the
+/// sheet dropped in two frames — so the curve is in the opacity, not in the
+/// timing. `eager` front-loads the fade (1 − (1 − p)^k), otherwise it is
+/// back-loaded (p^k); `k` sets how hard.
+private struct MorphFade: ViewModifier, Animatable {
+    var progress: Double
+    let eager: Bool
+    let k: Double
+    nonisolated var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+    func body(content: Content) -> some View {
+        let p = min(max(progress, 0), 1)
+        content.opacity(eager ? 1 - pow(1 - p, k) : pow(p, k))
+    }
+}
+
+extension MorphElement {
+    private static func fade(eager: Bool, k: Double) -> AnyTransition {
+        .modifier(active: MorphFade(progress: 0, eager: eager, k: k),
+                  identity: MorphFade(progress: 1, eager: eager, k: k))
+    }
+
+    /// The list. Out hard and early on open, so the old rows never show
+    /// through the travelling elements; in moderately late on close, so the
+    /// row is there to receive its elements as they land.
+    static var leaving: AnyTransition {
+        .asymmetric(insertion: fade(eager: false, k: 2), removal: fade(eager: false, k: 3))
+    }
+
+    /// The detail. In early on open — its elements are the ones travelling,
+    /// so they must be visible from the first frame; out moderately early
+    /// on close, so the travelling copies hand off to the row rather than
+    /// linger on top of it.
+    static var arriving: AnyTransition {
+        .asymmetric(insertion: fade(eager: true, k: 3), removal: fade(eager: false, k: 2))
+    }
+}
+
 private struct MorphNamespaceKey: EnvironmentKey {
     static let defaultValue: Namespace.ID? = nil
 }
