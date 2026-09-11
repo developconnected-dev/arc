@@ -142,3 +142,22 @@ new hooks go into `tabSurface` and `fileprivate` ViewModifiers, following
   detail is up (that is what makes its row the morph source), so it comes
   back at the top. With a handful of trips this has not been noticeable.
 - Pull-down close works: the BottomSheet's drag lives on its grabber only.
+
+## Revised after review (2026-09-11, evening)
+
+Carl's verdict on the matched-geometry version: the elements read as coming
+in from the right with a bounce, and the close layered and looked laggy.
+Both were inherent to `matchedGeometryEffect` here — the row's elements sit
+right of the countdown block, so the travel is diagonal and the spring
+overshoots sideways, and every pair keeps two copies on screen.
+
+The geometry match is gone. The moment is now a rise: the list fades out
+(0.16 s), then the header, banner, endpoints card and the two section groups
+rise 44 pt into place from below, each 45 ms after the last, on the morph
+spring. Close is the same animation played backwards — the same spring drops
+each element with the turns reversed, so the header, first in, is last out —
+and the list returns only after the last element has gone. The detail view
+is inserted hidden a beat before the rise and removed a beat after the drop
+(`Morph.listOut`, `elementsOut`, `closeTotal`), and the sheet's detent moves
+with the elements. `RiseIn` in Arc/Components/Morph.swift is the whole
+mechanism; `FlightDetailView.presented` drives it.

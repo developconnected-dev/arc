@@ -17,7 +17,13 @@ struct ArcRootView: View {
     @State private var showAdd = false
     @State private var detailFlight: Flight?
     @State private var presentation = DetailPresentation()
-    @Namespace private var morphNamespace
+    /// The detail is in the tree a beat before it is `detailPresented` and
+    /// a beat after it stops being, so its elements have somewhere to rise
+    /// from and drop to (see `RiseIn`).
+    @State private var detailPresented = false
+    /// The list leaves before the elements rise and returns after they
+    /// have dropped: its own short fade, never layered on the rise.
+    @State private var listHidden = false
     @State private var pendingOpenDetail = ProcessInfo.processInfo.arguments.contains("-openDetail")
     @State private var lastCameraTab: ArcTab?
     @State private var planeWatchTask: Task<Void, Never>?
@@ -610,27 +616,49 @@ struct ArcRootView: View {
         return true
     }
 
-    /// The row becomes the detail: the same spring moves the elements,
-    /// raises the sheet and, in `FlightDetailView`, brings the sections in.
+    /// The row becomes the detail: the list fades, the sheet rises, and the
+    /// detail's elements rise into place from below, each in its turn. The
+    /// view is inserted first, hidden, so there is a below to rise from.
     private func openDetail(_ flight: Flight) {
-        withAnimation(ArcTheme.morph) {
+        if detailFlight != nil {
+            // A second flight over an open one: no choreography, just swap.
             detailFlight = flight
+            return
+        }
+        var still = Transaction(); still.disablesAnimations = true
+        withTransaction(still) { detailFlight = flight }
+        listHidden = true
+        // The elements rise once the view has had a frame at its hidden
+        // state — flipping in the same pass as the insertion animates
+        // nothing — and once the list is gone from under them.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Morph.listOut) {
+            guard detailFlight?.id == flight.id else { return }
+            detailPresented = true
             detent = presentation.open(from: detent)
         }
     }
 
-    /// The exact reverse: elements travel back to the row, the sheet returns
-    /// to the height it had before the tap. The ground view and gate marker
-    /// belong to the detail and leave with it.
+    /// The exact reverse: the elements drop away in the opposite order, the
+    /// list returns, the sheet goes back to the height it had before the
+    /// tap; only once the last element has gone is the view removed. The
+    /// ground view and gate marker belong to the detail and leave with it.
     private func closeDetail() {
         groundViewTask?.cancel()
         groundViewTask = nil
         controller.clearGateMarker()
-        withAnimation(ArcTheme.morph) {
-            detailFlight = nil
-            if let restored = presentation.close() { detent = restored }
+        detailPresented = false
+        if let restored = presentation.close() { detent = restored }
+        let closing = detailFlight?.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + Morph.elementsOut) {
+            guard !detailPresented, detailFlight?.id == closing else { return }
+            listHidden = false
         }
-        presentQueuedDetail()
+        DispatchQueue.main.asyncAfter(deadline: .now() + Morph.closeTotal) {
+            guard !detailPresented, detailFlight?.id == closing else { return }
+            var still = Transaction(); still.disablesAnimations = true
+            withTransaction(still) { detailFlight = nil }
+            presentQueuedDetail()
+        }
     }
 
     private func presentQueuedDetail() {
@@ -746,31 +774,29 @@ struct ArcRootView: View {
             // sheet knows nothing about, so its content needs the clearance —
             // otherwise the last control on a screen hides behind it.
             BottomSheet(detent: $detent) {
-                // The detail lives IN the sheet: the tab content leaves and
-                // the detail arrives under one spring, and the five shared
-                // elements travel between the two — the row becomes the
-                // detail. Removing the tab content (rather than hiding it)
-                // is what lets the row's elements be the morph's source.
+                // The detail lives IN the sheet: the tab content fades out
+                // under the spring while the detail's elements rise into
+                // place from below, and on close the same plays backwards.
                 ZStack {
                     if let flight = detailFlight {
                         FlightDetailView(flight: flight,
                                          onShowAtGate: { f in showPlaneAtGate(f) },
                                          onShowAirport: { f in showAirportView(f) },
                                          onOpenFlight: { other in _ = show(other) },
-                                         onClose: { closeDetail() })
+                                         onClose: { closeDetail() },
+                                         presented: detailPresented)
                             .id(flight.id)
-                            .transition(MorphElement.arriving)
-                    } else {
-                        built.transition(MorphElement.leaving)
+                            .transition(.identity)
+                    }
+                    if !listHidden {
+                        built.transition(.opacity)
                     }
                 }
                 .padding(.bottom, 56)
-                // Declared HERE, not in the root's withAnimation: the tab
-                // content is hosted by UIKit's tab controller, and a
-                // transaction opened outside it never reaches this tree.
-                // Without this the elements snapped and the sheet jumped.
-                .animation(ArcTheme.morph, value: detailFlight?.id)
-                .environment(\.morphNamespace, morphNamespace)
+                // Declared HERE, not in the root: the tab content is hosted
+                // by UIKit's tab controller, and a transaction opened outside
+                // it never reaches this tree.
+                .animation(Morph.listFade, value: listHidden)
             }
             .offset(y: showAdd ? 1500 : 0)
             .animation(.spring(duration: 0.45), value: showAdd)

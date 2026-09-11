@@ -16,6 +16,11 @@ struct FlightDetailView: View {
     /// the morph plays in reverse. A friend's read-only preview is still a
     /// real sheet and falls back to `dismiss`.
     var onClose: (() -> Void)? = nil
+    /// Whether the detail is in place. The root flips this a beat after
+    /// inserting the view and a beat before removing it, so the elements
+    /// rise in from below on open and drop back on close — the same
+    /// spring, the turns reversed. A presented sheet is simply shown.
+    var presented: Bool = true
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
@@ -57,12 +62,14 @@ struct FlightDetailView: View {
                     // verdict) → the flight itself (times, baggage, maps) →
                     // context (people, good-to-know, aircraft) → records.
                     header
+                        .riseIn(presented, index: 0, of: 5)
                     statusBanner
-                    // Everything below the shared elements is inserted only
-                    // once they have landed: laying the whole tree out on the
-                    // first frame cost ~200 ms on the main thread and froze
-                    // the start of the morph. Arriving just behind the
-                    // elements is also the choreography the moment wants.
+                        .riseIn(presented, index: 1, of: 5)
+                    // Everything below the header is laid out only once it
+                    // is on screen: laying the whole tree out on the first
+                    // frame cost ~200 ms on the main thread and froze the
+                    // start of the rise. It takes its turn in the same
+                    // choreography once it exists.
                     if sectionsIn {
                     Group {
                         // METAR / airport-history reasoning — meaningless for a
@@ -86,15 +93,11 @@ struct FlightDetailView: View {
                             BaggageCarouselSection(flight: flight, belt: belt)
                         }
                     }
-                    .transition(.opacity.combined(with: .offset(y: 16)))
+                    .riseIn(presented, index: 3, of: 5)
+                    .transition(Morph.sectionInsertion(index: 3))
                     }
                     endpointsCard
-                        .morph(.route, for: flight)
-                    // Everything below the shared elements is inserted only
-                    // once they have landed: laying the whole tree out on the
-                    // first frame cost ~200 ms on the main thread and froze
-                    // the start of the morph. Arriving just behind the
-                    // elements is also the choreography the moment wants.
+                        .riseIn(presented, index: 2, of: 5)
                     if sectionsIn {
                     Group {
                         mapActionsRow
@@ -126,7 +129,8 @@ struct FlightDetailView: View {
                             actionBar
                         }
                     }
-                    .transition(.opacity.combined(with: .offset(y: 16)))
+                    .riseIn(presented, index: 4, of: 5)
+                    .transition(Morph.sectionInsertion(index: 4))
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
@@ -135,10 +139,10 @@ struct FlightDetailView: View {
                 .padding(.bottom, 40)
             }
             .onAppear {
-                // The elements land first; the sections arrive just behind
-                // them, so the eye follows the travel and then reads down.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
-                    withAnimation(.easeOut(duration: 0.28)) { sectionsIn = true }
+                // The header lands first; the sections are laid out just
+                // behind it and take the last two turns of the same rise.
+                DispatchQueue.main.asyncAfter(deadline: .now() + Morph.listOut + 0.08) {
+                    sectionsIn = true
                 }
                 let args = ProcessInfo.processInfo.arguments
                 let target = args.contains("-detailBottom") ? "bottom" : args.contains("-detailPlane") ? "plane" : nil
@@ -219,12 +223,10 @@ struct FlightDetailView: View {
         HStack(alignment: .top, spacing: 12) {
             TripLogoView(mode: flight.mode, iata: flight.airlineCode,
                          logoURL: flight.operatorLogoURL, size: 34)
-                .morph(.logo, for: flight)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(flight.flightNumberSpaced) • \(flight.headerDateText)")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .morph(.number, for: flight)
                 // There's room here for the whole story, so say it in words:
                 // the number above is what flies, this is what's on the
                 // ticket. Same fact the list row compresses into "· A3 1653".
@@ -234,7 +236,6 @@ struct FlightDetailView: View {
                         .foregroundStyle(.tertiary)
                 }
                 cityPair
-                    .morph(.cities, for: flight)
             }
             Spacer()
             Button { close() } label: {
@@ -262,7 +263,6 @@ struct FlightDetailView: View {
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(flight.bannerColor)
                     .contentTransition(.opacity)
-                    .morph(.status, for: flight)
                 Spacer()
                 HStack(spacing: 5) {
                     Circle()
