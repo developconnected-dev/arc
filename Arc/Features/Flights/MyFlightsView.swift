@@ -103,7 +103,12 @@ struct MyFlightsView: View {
                     // the two countdown blocks — transit-map grammar instead
                     // of a container that breaks the surface.
                     ForEach(Array(flights.enumerated()), id: \.element.id) { idx, flight in
-                        Button { onSelect(flight) } label: { FlightRowCard(flight: flight) }
+                        Button { onSelect(flight) } label: {
+                            FlightRowCard(flight: flight)
+                                // The card the detail opens from and closes
+                                // back into (see `Morph`).
+                                .heroCopy(for: flight, side: .list)
+                        }
                             .buttonStyle(.plain)
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)

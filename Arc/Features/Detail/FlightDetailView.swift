@@ -16,11 +16,6 @@ struct FlightDetailView: View {
     /// the morph plays in reverse. A friend's read-only preview is still a
     /// real sheet and falls back to `dismiss`.
     var onClose: (() -> Void)? = nil
-    /// Whether the detail is in place. The root flips this a beat after
-    /// inserting the view and a beat before removing it, so the elements
-    /// rise in from below on open and drop back on close — the same
-    /// spring, the turns reversed. A presented sheet is simply shown.
-    var presented: Bool = true
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
@@ -56,21 +51,21 @@ struct FlightDetailView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 18) {
-                    // Ordered by urgency of the traveler's questions:
-                    // what's happening (banner, Arc's read, the connection
-                    // verdict) → the flight itself (times, baggage, maps) →
-                    // context (people, good-to-know, aircraft) → records.
-                    header
-                        .riseIn(presented, index: 0, of: 5)
-                    statusBanner
-                        .riseIn(presented, index: 1, of: 5)
-                    // Everything below the header is laid out only once it
-                    // is on screen: laying the whole tree out on the first
-                    // frame cost ~200 ms on the main thread and froze the
-                    // start of the rise. It takes its turn in the same
-                    // choreography once it exists.
+                    // The row the user tapped, now the top of its detail —
+                    // the same card, glided up, with the lines the row had
+                    // no room for beneath it.
+                    hero
+                    // Everything else is laid out a beat later and fades in
+                    // beneath it, together: laying the whole tree out on the
+                    // first frame cost ~200 ms on the main thread and froze
+                    // the start of the glide. Ordered by urgency of the
+                    // traveler's questions: what's happening (banner, Arc's
+                    // read, the connection verdict) → the flight itself
+                    // (times, baggage, maps) → context → records.
                     if sectionsIn {
                     Group {
+                    heroLines
+                    statusBanner
                         // METAR / airport-history reasoning — meaningless for a
                         // train or ferry, so air only.
                         // …and only before departure: a departure-weather outlook
@@ -91,14 +86,7 @@ struct FlightDetailView: View {
                         if flight.showsBaggageBelt, let belt = flight.baggageClaim {
                             BaggageCarouselSection(flight: flight, belt: belt)
                         }
-                    }
-                    .riseIn(presented, index: 3, of: 5)
-                    .transition(Morph.sectionInsertion(index: 3))
-                    }
                     endpointsCard
-                        .riseIn(presented, index: 2, of: 5)
-                    if sectionsIn {
-                    Group {
                         mapActionsRow
                         // Overlaps match on airport IATA — a rail leg's "BER" is
                         // Berlin Hbf, and matching it against friends at Berlin
@@ -128,8 +116,6 @@ struct FlightDetailView: View {
                             actionBar
                         }
                     }
-                    .riseIn(presented, index: 4, of: 5)
-                    .transition(Morph.sectionInsertion(index: 4))
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
@@ -138,10 +124,9 @@ struct FlightDetailView: View {
                 .padding(.bottom, 40)
             }
             .onAppear {
-                // The header lands first; the sections are laid out just
-                // behind it and take the last two turns of the same rise.
-                DispatchQueue.main.asyncAfter(deadline: .now() + Morph.listOut + 0.08) {
-                    sectionsIn = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + Morph.sectionsDelay) {
+                    var still = Transaction(); still.disablesAnimations = true
+                    withTransaction(still) { sectionsIn = true }
                 }
                 let args = ProcessInfo.processInfo.arguments
                 let target = args.contains("-detailBottom") ? "bottom" : args.contains("-detailPlane") ? "plane" : nil
@@ -178,6 +163,13 @@ struct FlightDetailView: View {
                 try? modelContext.save()
             }
         }
+        .overlay(alignment: .topTrailing) {
+            if onClose != nil {
+                closeButton
+                    .padding(.trailing, 16)
+                    .offset(y: -33)
+            }
+        }
         .sheet(item: $airportSheet) { target in
             AirportStatusView(iata: target.id)
                 .presentationDetents([.medium, .large])
@@ -207,39 +199,45 @@ struct FlightDetailView: View {
 
     // MARK: Header
 
-    private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
-            TripLogoView(mode: flight.mode, iata: flight.airlineCode,
-                         logoURL: flight.operatorLogoURL, size: 34)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(flight.flightNumberSpaced) • \(flight.headerDateText)")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                // There's room here for the whole story, so say it in words:
-                // the number above is what flies, this is what's on the
-                // ticket. Same fact the list row compresses into "· A3 1653".
-                if let marketing = flight.marketingLabel {
-                    Text("Booked as \(marketing)")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
-                }
-                cityPair
-            }
-            Spacer()
-            Button { close() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 34, height: 34)
-                    .background(Color(.secondarySystemFill), in: Circle())
-            }
-            .buttonStyle(.plain)
-        }
+    /// The tapped row itself, first thing under the grabber.
+    private var hero: some View {
+        FlightRowCard(flight: flight)
+            .heroCopy(for: flight, side: .detail)
+            // Undo the row's own horizontal inset: in the list it sits
+            // inside the row's 16pt edge, here inside the detail's.
+            .padding(.horizontal, -14)
     }
 
-    private var cityPair: some View {
-        TextHelpers.cityPair(flight.departureCity, flight.arrivalCity, size: 24)
-            .lineLimit(2)
+    /// The X lives in the grabber row, beside the handle, so the card can
+    /// be the first line of the sheet. It is drawn after the grabber and
+    /// wins the tap.
+    private var closeButton: some View {
+        Button { close() } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+                .background(Color(.secondarySystemFill), in: Circle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// What the row had no room for: the date, the airports by name, and
+    /// the marketing number when the ticket says something else.
+    private var heroLines: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("\(flight.headerDateText) • \(ReferenceData.shared.airport(flight.departureIATA)?.name ?? flight.departureIATA) → \(ReferenceData.shared.airport(flight.arrivalIATA)?.name ?? flight.arrivalIATA)")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            if let marketing = flight.marketingLabel {
+                Text("Booked as \(marketing)")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, -10)
     }
 
     // MARK: Status banner
