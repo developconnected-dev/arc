@@ -134,7 +134,7 @@ struct FlightDetailView: View {
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 24)
+                .padding(.top, 4)
                 .padding(.bottom, 40)
             }
             .onAppear {
