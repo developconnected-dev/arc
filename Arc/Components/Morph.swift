@@ -10,12 +10,13 @@ enum MorphElement: String {
     func id(for flight: Flight) -> String { "\(rawValue)-\(flight.id.uuidString)" }
 
     /// Text steps up in size between row and detail; animating its frame
-    /// would re-wrap it every frame, so text only travels, and the two sizes
-    /// crossfade. The logo and the status block resize cleanly.
+    /// would re-wrap it every frame ("Landi / ng in…" was seen mid-flight),
+    /// so text only travels and the two sizes crossfade. Only the logo, a
+    /// square that goes from 20 to 34 points, resizes cleanly.
     var properties: MatchedGeometryProperties {
         switch self {
-        case .logo, .status: .frame
-        case .number, .cities, .route: .position
+        case .logo: .frame
+        case .number, .cities, .route, .status: .position
         }
     }
 }

@@ -90,8 +90,14 @@ private struct SheetChrome<Content: View>: View {
             // opening, a gate view lowering the sheet — is the one that
             // moves here, and it rides the morph spring so the sheet rises
             // with the elements rather than jumping ahead of them.
-            withAnimation(ArcTheme.morph) { liveHeight = h * newValue.fraction }
+            liveHeight = h * newValue.fraction
         }
+        // The spring for a programmatic detent lives on the view, where the
+        // change happens: an animation opened by the caller never reaches
+        // this tree through the tab controller's hosting boundary. A drag
+        // bypasses it — `dragBaseline` is set for the finger's whole travel,
+        // and the snap on release disables animation on its transaction.
+        .animation(dragBaseline == nil ? ArcTheme.morph : nil, value: liveHeight)
     }
 
     private func dragGesture(height h: CGFloat, currentVisible: CGFloat) -> some Gesture {
@@ -125,8 +131,12 @@ private struct SheetChrome<Content: View>: View {
                 let nearest = SheetDetent.allCases.min {
                     abs($0.fraction * h - projected) < abs($1.fraction * h - projected)
                 } ?? detent
-                liveHeight = h * nearest.fraction   // instant, no animation
-                detent = nearest
+                var snap = Transaction()
+                snap.disablesAnimations = true
+                withTransaction(snap) {
+                    liveHeight = h * nearest.fraction   // instant, no animation
+                    detent = nearest
+                }
             }
     }
 

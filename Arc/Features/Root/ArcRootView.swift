@@ -16,7 +16,8 @@ struct ArcRootView: View {
     @State private var detent: SheetDetent = ProcessInfo.processInfo.arguments.contains("-sheetLarge") ? .large : .medium
     @State private var showAdd = false
     @State private var detailFlight: Flight?
-    @State private var detailDetent: PresentationDetent = .large
+    @State private var presentation = DetailPresentation()
+    @Namespace private var morphNamespace
     @State private var pendingOpenDetail = ProcessInfo.processInfo.arguments.contains("-openDetail")
     @State private var lastCameraTab: ArcTab?
     @State private var planeWatchTask: Task<Void, Never>?
@@ -75,22 +76,6 @@ struct ArcRootView: View {
                 if queuedDetail != nil { controller.cancelReveal() } else { controller.startReveal() }
                 presentQueuedDetail()
             }
-        }
-        // Dismissing the flight leaves its ground view too — otherwise the map
-        // stayed stuck in terminal mode with a Back button and no flight.
-        .sheet(item: $detailFlight,
-               onDismiss: {
-                   groundViewTask?.cancel()
-                   groundViewTask = nil
-                   controller.clearGateMarker()
-                   presentQueuedDetail()
-               }) { flight in
-            FlightDetailView(flight: flight,
-                             onShowAtGate: { f in showPlaneAtGate(f) },
-                             onShowAirport: { f in showAirportView(f) },
-                             onOpenFlight: { other in _ = show(other) })
-                .presentationDetents([.medium, .large], selection: $detailDetent)
-                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
         // Belt to the sheets' own onDismiss braces: a queued detail must
         // present whenever nothing is in front of it any more — a cancelled
@@ -414,7 +399,7 @@ struct ArcRootView: View {
             }
             guard !Task.isCancelled, detailFlight?.id == flight.id else { return }
             controller.showGate(lat: target.lat, lon: target.lon, label: target.label)
-            detailDetent = .medium
+            withAnimation(ArcTheme.morph) { detent = .medium }
             if watching { startPlaneWatch(flight) }
         }
     }
@@ -441,7 +426,7 @@ struct ArcRootView: View {
                     highlighted: $0.ref == matched?.ref)
             }
             controller.showAirport(iata: iata, name: name, lat: lat, lon: lon, gates: gates)
-            detailDetent = .medium
+            withAnimation(ArcTheme.morph) { detent = .medium }
             // The terminal map used to draw the gates and then sit there. The
             // aircraft is the reason you opened it.
             startPlaneWatch(flight)
@@ -619,15 +604,33 @@ struct ArcRootView: View {
         if showAdd {
             queuedDetail = flight
             showAdd = false
-        } else if let current = detailFlight, current.id != flight.id {
-            // Already showing a different flight (a connection's other leg, or
-            // a widget tap while detail was left open): let this one close.
-            queuedDetail = flight
-            detailFlight = nil
         } else {
-            detailFlight = flight
+            openDetail(flight)
         }
         return true
+    }
+
+    /// The row becomes the detail: the same spring moves the elements,
+    /// raises the sheet and, in `FlightDetailView`, brings the sections in.
+    private func openDetail(_ flight: Flight) {
+        withAnimation(ArcTheme.morph) {
+            detailFlight = flight
+            detent = presentation.open(from: detent)
+        }
+    }
+
+    /// The exact reverse: elements travel back to the row, the sheet returns
+    /// to the height it had before the tap. The ground view and gate marker
+    /// belong to the detail and leave with it.
+    private func closeDetail() {
+        groundViewTask?.cancel()
+        groundViewTask = nil
+        controller.clearGateMarker()
+        withAnimation(ArcTheme.morph) {
+            detailFlight = nil
+            if let restored = presentation.close() { detent = restored }
+        }
+        presentQueuedDetail()
     }
 
     private func presentQueuedDetail() {
@@ -635,7 +638,7 @@ struct ArcRootView: View {
         // Something is still presented — wait for ITS dismissal to drain.
         guard detailFlight == nil, !showAdd else { return }
         queuedDetail = nil
-        detailFlight = queued
+        openDetail(queued)
     }
 
     private func openDetailIfPending() {
@@ -643,9 +646,9 @@ struct ArcRootView: View {
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-openDetailNumber"), i + 1 < args.count,
            let match = allFlights.first(where: { $0.flightNumber == args[i + 1] }) {
-            detailFlight = match
+            openDetail(match)
         } else {
-            detailFlight = allFlights.first(where: { $0.isActive }) ?? allFlights.first
+            openDetail(allFlights.first(where: { $0.isActive }) ?? allFlights.first!)
         }
         pendingOpenDetail = false
     }
@@ -660,7 +663,7 @@ struct ArcRootView: View {
         TabView(selection: $tab) {
                 Tab(ArcTab.myFlights.title, systemImage: ArcTab.myFlights.icon, value: ArcTab.myFlights) {
                     tabSurface {
-                        MyFlightsView(onSelect: { detailFlight = $0 },
+                        MyFlightsView(onSelect: { openDetail($0) },
                                       onAdd: { showAdd = true },
                                       onImported: { imported in revealTrips([imported]) },
                                       landed: landedTrips)
@@ -672,7 +675,7 @@ struct ArcRootView: View {
                     tabSurface { FriendsScreen() }
                 }
                 Tab(ArcTab.passport.title, systemImage: ArcTab.passport.icon, value: ArcTab.passport) {
-                    tabSurface { PassportView { detailFlight = $0 } }
+                    tabSurface { PassportView { openDetail($0) } }
                 }
             }
 
@@ -742,9 +745,35 @@ struct ArcRootView: View {
             // The accessory sits above the tab bar and adds height the custom
             // sheet knows nothing about, so its content needs the clearance —
             // otherwise the last control on a screen hides behind it.
-            BottomSheet(detent: $detent) { built.padding(.bottom, 56) }
-                .offset(y: (detailFlight != nil || showAdd) ? 1500 : 0)
-                .animation(.spring(duration: 0.45), value: detailFlight != nil || showAdd)
+            BottomSheet(detent: $detent) {
+                // The detail lives IN the sheet: the tab content leaves and
+                // the detail arrives under one spring, and the five shared
+                // elements travel between the two — the row becomes the
+                // detail. Removing the tab content (rather than hiding it)
+                // is what lets the row's elements be the morph's source.
+                ZStack {
+                    if let flight = detailFlight {
+                        FlightDetailView(flight: flight,
+                                         onShowAtGate: { f in showPlaneAtGate(f) },
+                                         onShowAirport: { f in showAirportView(f) },
+                                         onOpenFlight: { other in _ = show(other) },
+                                         onClose: { closeDetail() })
+                            .id(flight.id)
+                            .transition(.opacity)
+                    } else {
+                        built.transition(.opacity)
+                    }
+                }
+                .padding(.bottom, 56)
+                // Declared HERE, not in the root's withAnimation: the tab
+                // content is hosted by UIKit's tab controller, and a
+                // transaction opened outside it never reaches this tree.
+                // Without this the elements snapped and the sheet jumped.
+                .animation(ArcTheme.morph, value: detailFlight?.id)
+                .environment(\.morphNamespace, morphNamespace)
+            }
+            .offset(y: showAdd ? 1500 : 0)
+            .animation(.spring(duration: 0.45), value: showAdd)
         }
     }
 

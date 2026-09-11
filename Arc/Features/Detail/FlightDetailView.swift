@@ -58,6 +58,12 @@ struct FlightDetailView: View {
                     // context (people, good-to-know, aircraft) → records.
                     header
                     statusBanner
+                    // Everything below the shared elements is inserted only
+                    // once they have landed: laying the whole tree out on the
+                    // first frame cost ~200 ms on the main thread and froze
+                    // the start of the morph. Arriving just behind the
+                    // elements is also the choreography the moment wants.
+                    if sectionsIn {
                     Group {
                         // METAR / airport-history reasoning — meaningless for a
                         // train or ferry, so air only.
@@ -80,10 +86,16 @@ struct FlightDetailView: View {
                             BaggageCarouselSection(flight: flight, belt: belt)
                         }
                     }
-                    .opacity(sectionsIn ? 1 : 0)
-                    .offset(y: sectionsIn ? 0 : 16)
+                    .transition(.opacity.combined(with: .offset(y: 16)))
+                    }
                     endpointsCard
                         .morph(.route, for: flight)
+                    // Everything below the shared elements is inserted only
+                    // once they have landed: laying the whole tree out on the
+                    // first frame cost ~200 ms on the main thread and froze
+                    // the start of the morph. Arriving just behind the
+                    // elements is also the choreography the moment wants.
+                    if sectionsIn {
                     Group {
                         mapActionsRow
                         // Overlaps match on airport IATA — a rail leg's "BER" is
@@ -114,8 +126,8 @@ struct FlightDetailView: View {
                             actionBar
                         }
                     }
-                    .opacity(sectionsIn ? 1 : 0)
-                    .offset(y: sectionsIn ? 0 : 16)
+                    .transition(.opacity.combined(with: .offset(y: 16)))
+                    }
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(.horizontal, 16)
@@ -125,7 +137,9 @@ struct FlightDetailView: View {
             .onAppear {
                 // The elements land first; the sections arrive just behind
                 // them, so the eye follows the travel and then reads down.
-                withAnimation(ArcTheme.morph.delay(0.08)) { sectionsIn = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
+                    withAnimation(.easeOut(duration: 0.28)) { sectionsIn = true }
+                }
                 let args = ProcessInfo.processInfo.arguments
                 let target = args.contains("-detailBottom") ? "bottom" : args.contains("-detailPlane") ? "plane" : nil
                 if let target {
