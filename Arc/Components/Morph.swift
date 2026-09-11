@@ -1,105 +1,60 @@
 import SwiftUI
 
-/// The elements a My Trips row and the flight detail have in common. Each
-/// pair shares a geometry id, so switching from list to detail under a
-/// spring animation moves the element from its row frame to its detail
-/// frame — the row becomes the detail.
-enum MorphElement: String {
-    case logo, number, cities, route, status
+enum Morph {
+    /// How far below its place an element starts, and the gap between one
+    /// element's start and the next.
+    static let rise: CGFloat = 44
+    static let stagger: Double = 0.045
+    /// The list's own fade. Short, and never overlapping the elements: on
+    /// open it is gone before they rise, on close it returns after the last
+    /// has dropped — the two phases run in sequence, not on top of each other.
+    static let listFade: Animation = .easeInOut(duration: 0.16)
+    /// How long the list takes to leave before the elements start rising,
+    /// and how long the last element takes to drop before the list returns.
+    static let listOut: Double = 0.20
+    static let elementsOut: Double = 0.46
+    /// Everything done — the hidden view can be removed.
+    static let closeTotal: Double = 0.72
 
-    func id(for flight: Flight) -> String { "\(rawValue)-\(flight.id.uuidString)" }
-
-    /// Text steps up in size between row and detail; animating its frame
-    /// would re-wrap it every frame ("Landi / ng in…" was seen mid-flight),
-    /// so text only travels and the two sizes crossfade. Only the logo, a
-    /// square that goes from 20 to 34 points, resizes cleanly.
-    var properties: MatchedGeometryProperties {
-        switch self {
-        case .logo: .frame
-        case .number, .cities, .route, .status: .position
-        }
+    /// Sections laid out after the header (see `FlightDetailView.sectionsIn`)
+    /// join the rise at their own turn when they are inserted; on close they
+    /// are already there and drop with `RiseIn` like everything else.
+    static func sectionInsertion(index: Int) -> AnyTransition {
+        .asymmetric(
+            insertion: .offset(y: rise).combined(with: .opacity)
+                .animation(ArcTheme.morph.delay(Double(index) * stagger)),
+            removal: .identity)
     }
 }
 
-/// A fade that rides the morph's own spring but is shaped so the two
-/// layers never sit half-transparent on top of each other. Attaching a
-/// faster animation to the transition instead would override the spring
-/// for the whole subtree — on close the elements stopped travelling and the
-/// sheet dropped in two frames — so the curve is in the opacity, not in the
-/// timing. `eager` front-loads the fade (1 − (1 − p)^k), otherwise it is
-/// back-loaded (p^k); `k` sets how hard.
-private struct MorphFade: ViewModifier, Animatable {
-    var progress: Double
-    let eager: Bool
-    let k: Double
-    nonisolated var animatableData: Double {
-        get { progress }
-        set { progress = newValue }
-    }
-    func body(content: Content) -> some View {
-        let p = min(max(progress, 0), 1)
-        content.opacity(eager ? 1 - pow(1 - p, k) : pow(p, k))
-    }
-}
+/// One element of the detail rising into place from below, with the
+/// morph's bounce, in its turn. `shown` false is the exact reverse: the
+/// same spring drops it back where it came from, and the turns run
+/// backwards so the last to arrive is the first to leave.
+struct RiseIn: ViewModifier {
+    let shown: Bool
+    let index: Int
+    let count: Int
 
-extension MorphElement {
-    private static func fade(eager: Bool, k: Double) -> AnyTransition {
-        .modifier(active: MorphFade(progress: 0, eager: eager, k: k),
-                  identity: MorphFade(progress: 1, eager: eager, k: k))
-    }
-
-    /// The list. Out hard and early on open, so the old rows never show
-    /// through the travelling elements; in moderately late on close, so the
-    /// row is there to receive its elements as they land.
-    static var leaving: AnyTransition {
-        .asymmetric(insertion: fade(eager: false, k: 2), removal: fade(eager: false, k: 3))
-    }
-
-    /// The detail. In early on open — its elements are the ones travelling,
-    /// so they must be visible from the first frame; out moderately early
-    /// on close, so the travelling copies hand off to the row rather than
-    /// linger on top of it.
-    static var arriving: AnyTransition {
-        .asymmetric(insertion: fade(eager: true, k: 3), removal: fade(eager: false, k: 2))
-    }
-}
-
-private struct MorphNamespaceKey: EnvironmentKey {
-    static let defaultValue: Namespace.ID? = nil
-}
-
-extension EnvironmentValues {
-    /// Set once at the sheet; nil (previews, tests, friend sheets) means no morph.
-    var morphNamespace: Namespace.ID? {
-        get { self[MorphNamespaceKey.self] }
-        set { self[MorphNamespaceKey.self] = newValue }
-    }
-}
-
-private struct MorphModifier: ViewModifier {
-    @Environment(\.morphNamespace) private var namespace
-    let element: MorphElement
-    let flight: Flight
+    var turn: Int { shown ? index : (count - 1 - index) }
 
     func body(content: Content) -> some View {
-        if let namespace {
-            content.matchedGeometryEffect(id: element.id(for: flight), in: namespace,
-                                          properties: element.properties, anchor: .leading)
-        } else {
-            content
-        }
+        content
+            .offset(y: shown ? 0 : Morph.rise)
+            .opacity(shown ? 1 : 0)
+            .animation(ArcTheme.morph.delay(Double(turn) * Morph.stagger), value: shown)
     }
 }
 
 extension View {
-    func morph(_ element: MorphElement, for flight: Flight) -> some View {
-        modifier(MorphModifier(element: element, flight: flight))
+    func riseIn(_ shown: Bool, index: Int, of count: Int) -> some View {
+        modifier(RiseIn(shown: shown, index: index, count: count))
     }
 }
 
 extension ArcTheme {
     /// The one spring every part of the row-to-detail moment rides: the
-    /// elements' travel, the sheet's rise, the sections' arrival. Damping
-    /// under 1 is the small bounce on landing.
+    /// elements' rise, the sheet's rise, the list's fade. Damping under 1
+    /// is the small bounce on landing.
     static let morph: Animation = .spring(response: 0.42, dampingFraction: 0.72)
 }

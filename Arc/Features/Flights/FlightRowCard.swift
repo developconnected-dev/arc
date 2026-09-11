@@ -18,7 +18,6 @@ struct FlightRowCard: View {
         HStack(alignment: .center, spacing: 14) {
             countdownBlock
                 .frame(width: 52)
-                .morph(.status, for: flight)
 
             VStack(alignment: .leading, spacing: 6) {
                 // airline logo + number ........ status/date
@@ -26,7 +25,6 @@ struct FlightRowCard: View {
                 HStack(spacing: 8) {
                     TripLogoView(mode: flight.mode, iata: flight.airlineCode,
                                  logoURL: flight.operatorLogoURL, size: 20)
-                        .morph(.logo, for: flight)
                     // A codeshare shows the booked number alongside the one
                     // that flies. This line is the tightest in the app, so it
                     // degrades rather than pushing the status chip off the
@@ -36,7 +34,6 @@ struct FlightRowCard: View {
                         numberText(flight.flightNumberWithMarketingShort)
                         numberText(flight.flightNumberSpaced)
                     }
-                    .morph(.number, for: flight)
                     if !isPreview, !companions.isEmpty {
                         companionAvatars
                     }
@@ -80,7 +77,6 @@ struct FlightRowCard: View {
 
                 // city pair
                 cityPair
-                    .morph(.cities, for: flight)
 
                 if flight.showsBaggageBelt, let belt = flight.baggageClaim {
                     HStack(spacing: 5) {
@@ -100,7 +96,6 @@ struct FlightRowCard: View {
                 // route row
                 routeRow
                     .padding(.top, 2)
-                    .morph(.route, for: flight)
             }
         }
         // Pin the row to the leading edge even when content wants more width

@@ -1,15 +1,13 @@
 import XCTest
 @testable import Arc
 
-/// Every row tags the same five elements, so the ids must carry the flight:
-/// two rows must never share a geometry group.
-@MainActor
+/// The detail's elements rise in turn and leave in the reverse turn, so
+/// close is open played backwards: the header, first in, is last out.
 final class MorphTests: XCTestCase {
-    func testIdsAreDistinctPerFlightAndPerElement() {
-        let a = Flight(flightNumber: "LX14", date: .now)
-        let b = Flight(flightNumber: "LX14", date: .now)
-        XCTAssertNotEqual(MorphElement.logo.id(for: a), MorphElement.logo.id(for: b))
-        XCTAssertNotEqual(MorphElement.logo.id(for: a), MorphElement.cities.id(for: a))
-        XCTAssertEqual(MorphElement.route.id(for: a), MorphElement.route.id(for: a))
+    func testTurnsRunForwardOnShowAndBackwardOnHide() {
+        XCTAssertEqual(RiseIn(shown: true, index: 0, count: 5).turn, 0)
+        XCTAssertEqual(RiseIn(shown: true, index: 4, count: 5).turn, 4)
+        XCTAssertEqual(RiseIn(shown: false, index: 0, count: 5).turn, 4)
+        XCTAssertEqual(RiseIn(shown: false, index: 4, count: 5).turn, 0)
     }
 }
