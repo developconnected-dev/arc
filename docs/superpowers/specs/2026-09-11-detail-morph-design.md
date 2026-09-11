@@ -1,6 +1,6 @@
 # The row becomes the detail — design
 
-Date: 2026-09-11. Status: approved in conversation, awaiting spec review.
+Date: 2026-09-11. Status: implemented on `claude/detail-morph`; see "What the build taught" at the end.
 
 ## What changes for the user
 
@@ -114,3 +114,25 @@ Before the full build, a half-day spike on one row and one element pair:
 Also: `ArcRootView.body`'s modifier chain sits at the type-checker limit. The
 new hooks go into `tabSurface` and `fileprivate` ViewModifiers, following
 `NotificationPrimerAlert` and `RevealCameraHandback`.
+
+## What the build taught (2026-09-11)
+
+- **Animations must be declared inside the sheet.** The tab content is hosted
+  by UIKit's tab controller, and a `withAnimation` opened in the root never
+  reaches that tree: the elements snapped and the sheet jumped. The spring
+  now lives on the sheet's content as `.animation(ArcTheme.morph, value:
+  detailFlight?.id)` and on `SheetChrome`'s height as `.animation(_, value:
+  liveHeight)`, with drag snapping kept instant through a transaction that
+  disables animation.
+- **Sections are inserted after the elements land, not faded from zero.**
+  Laying out the whole detail tree on the first frame cost ~200 ms on the
+  main thread (Debug build) and froze the start of the morph. The two groups
+  below the endpoints card are now inserted 0.32 s after the detail appears,
+  with an opacity-and-rise transition.
+- **Status travels by position only.** Animating the banner headline's frame
+  re-wrapped it mid-flight ("Landi / ng in…"); only the logo animates its
+  frame.
+- **List scroll position resets on close.** The list is removed while the
+  detail is up (that is what makes its row the morph source), so it comes
+  back at the top. With a handful of trips this has not been noticeable.
+- Pull-down close works: the BottomSheet's drag lives on its grabber only.
