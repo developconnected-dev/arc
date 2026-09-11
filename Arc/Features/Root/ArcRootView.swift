@@ -16,13 +16,18 @@ struct ArcRootView: View {
     @State private var detent: SheetDetent = ProcessInfo.processInfo.arguments.contains("-sheetLarge") ? .large : .medium
     @State private var showAdd = false
     @State private var detailFlight: Flight?
-    /// The detail is in the tree a beat before it is `detailPresented` and
-    /// a beat after it stops being, so its elements have somewhere to rise
-    /// from and drop to (see `RiseIn`).
-    @State private var detailPresented = false
-    /// The list leaves before the elements rise and returns after they
-    /// have dropped: its own short fade, never layered on the rise.
-    @State private var listHidden = false
+    /// One namespace links a tapped row to the card at the top of its
+    /// detail, so the row glides up into the detail and back (see `Morph`).
+    /// The row-to-detail moment (see `Morph`): where the hero copies are,
+    /// which flight's card is travelling, and how far along it is (0 at the
+    /// row, 1 at the detail).
+    @State private var heroFrames = HeroFrames()
+    @State private var heroTravelling: Flight?
+    @State private var heroProgress: Double = 0
+    /// Where the travelling copy is headed: 1 the detail, 0 the row. Set
+    /// with `heroTravelling`; the copy starts moving once it has had a
+    /// frame at its origin (`heroOverlay`'s onAppear).
+    @State private var heroTarget: Double = 0
     @State private var pendingOpenDetail = ProcessInfo.processInfo.arguments.contains("-openDetail")
     @State private var lastCameraTab: ArcTab?
     @State private var planeWatchTask: Task<Void, Never>?
@@ -615,47 +620,75 @@ struct ArcRootView: View {
         return true
     }
 
-    /// The row becomes the detail: the list fades and the detail's elements
-    /// rise into place from below, each in its turn, at whatever height the
-    /// sheet already has. The view is inserted first, hidden, so there is a
-    /// below to rise from.
+    /// The row becomes the detail. The detail is inserted hidden; on the
+    /// next frame, once its card has reported where it is, the overlay's
+    /// copy of the row glides up to it while the list fades and the detail
+    /// comes in. When it lands, the detail's own card takes over.
     private func openDetail(_ flight: Flight) {
         if detailFlight != nil {
-            // A second flight over an open one: no choreography, just swap.
+            // A second flight over an open one: no travel, just the swap.
             detailFlight = flight
             return
         }
-        var still = Transaction(); still.disablesAnimations = true
-        withTransaction(still) { detailFlight = flight }
-        listHidden = true
-        // The elements rise once the view has had a frame at its hidden
-        // state — flipping in the same pass as the insertion animates
-        // nothing — and once the list is gone from under them.
-        DispatchQueue.main.asyncAfter(deadline: .now() + Morph.listOut) {
-            guard detailFlight?.id == flight.id else { return }
-            detailPresented = true
+        heroProgress = 0
+        heroTarget = 1
+        heroFrames.detail = nil
+        heroTravelling = heroFrames.rows[flight.id] != nil ? flight : nil
+        detailFlight = flight
+    }
+
+    /// Called by the travelling copy once it has been drawn at its origin:
+    /// a move requested in the same update as its insertion has nothing to
+    /// animate from. It glides to `heroTarget`; when it lands the trees'
+    /// copies take over, and on a close the detail is removed.
+    private func heroDidAppear() {
+        let flight = detailFlight
+        let target = heroTarget
+        let start = {
+            // One cheap frame after the detail's first layout, so the glide
+            // has a drawn origin to leave from.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+                guard heroTarget == target, detailFlight?.id == flight?.id else { return }
+                withAnimation(ArcTheme.morph) { heroProgress = target }
+                DispatchQueue.main.asyncAfter(deadline: .now() + Morph.travelDuration) {
+                    guard heroTarget == target, detailFlight?.id == flight?.id else { return }
+                    heroTravelling = nil
+                    if target == 0 {
+                        detailFlight = nil
+                        presentQueuedDetail()
+                    }
+                }
+            }
+        }
+        if target == 1, heroFrames.detail == nil {
+            heroFrames.onDetail = start
+        } else {
+            start()
         }
     }
 
-    /// The exact reverse: the elements drop away in the opposite order and
-    /// the list returns; only once the last element has gone is the view
-    /// removed. The sheet stays where it is. The ground view and gate marker
-    /// belong to the detail and leave with it.
+    /// The exact reverse: the card glides back down into its slot in the
+    /// list while the detail fades and the list returns; only once it has
+    /// landed is the detail removed. The ground view and gate marker belong
+    /// to the detail and leave with it.
     private func closeDetail() {
+        guard let flight = detailFlight else { return }
         groundViewTask?.cancel()
         groundViewTask = nil
         controller.clearGateMarker()
-        detailPresented = false
-        let closing = detailFlight?.id
-        DispatchQueue.main.asyncAfter(deadline: .now() + Morph.elementsOut) {
-            guard !detailPresented, detailFlight?.id == closing else { return }
-            listHidden = false
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Morph.closeTotal) {
-            guard !detailPresented, detailFlight?.id == closing else { return }
-            var still = Transaction(); still.disablesAnimations = true
-            withTransaction(still) { detailFlight = nil }
-            presentQueuedDetail()
+        heroProgress = 1
+        heroTarget = 0
+        if heroFrames.rows[flight.id] != nil {
+            heroTravelling = flight
+        } else {
+            // No row to glide back to (opened from a widget, Passport…):
+            // the detail simply fades.
+            withAnimation(ArcTheme.morph) { heroProgress = 0 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Morph.travelDuration) {
+                guard heroTarget == 0, detailFlight?.id == flight.id else { return }
+                detailFlight = nil
+                presentQueuedDetail()
+            }
         }
     }
 
@@ -758,6 +791,22 @@ struct ArcRootView: View {
     /// is shared state, so the height carries across tabs exactly as before.
     /// The sheet still slides away while a detail or add sheet is up, so two
     /// sheets are never stacked.
+    /// The travelling copy of the tapped row, placed between where the list
+    /// row is and where the detail's card is. Nothing while nothing travels.
+    @ViewBuilder private var heroOverlay: some View {
+        if let flight = heroTravelling, let from = heroFrames.rows[flight.id] {
+            GeometryReader { geo in
+                let origin = geo.frame(in: .global).origin
+                FlightRowCard(flight: flight)
+                    .modifier(HeroPlacement(progress: heroProgress,
+                                            from: from.offsetBy(dx: -origin.x, dy: -origin.y),
+                                            to: Morph.target(in: geo.size, rowHeight: from.height)))
+                    .onAppear { DispatchQueue.main.async { heroDidAppear() } }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
     private func tabSurface<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         // Built here rather than passed along, so the closure needn't escape.
         let built = content()
@@ -772,29 +821,36 @@ struct ArcRootView: View {
             // sheet knows nothing about, so its content needs the clearance —
             // otherwise the last control on a screen hides behind it.
             BottomSheet(detent: $detent) {
-                // The detail lives IN the sheet: the tab content fades out
-                // under the spring while the detail's elements rise into
-                // place from below, and on close the same plays backwards.
+                // The detail lives IN the sheet, over the tab content, which
+                // stays in the tree (so its rows keep reporting where they
+                // are, and the list keeps its scroll position) and merely
+                // fades. The tapped row's card travels between the two in
+                // the overlay below (see `Morph`).
                 ZStack {
+                    built
+                        .modifier(SidePresence(side: .list, progress: heroProgress))
+                        .allowsHitTesting(detailFlight == nil)
                     if let flight = detailFlight {
                         FlightDetailView(flight: flight,
                                          onShowAtGate: { f in showPlaneAtGate(f) },
                                          onShowAirport: { f in showAirportView(f) },
                                          onOpenFlight: { other in _ = show(other) },
-                                         onClose: { closeDetail() },
-                                         presented: detailPresented)
+                                         onClose: { closeDetail() })
                             .id(flight.id)
-                            .transition(.identity)
-                    }
-                    if !listHidden {
-                        built.transition(.opacity)
+                            .modifier(SidePresence(side: .detail, progress: heroProgress))
                     }
                 }
+                .overlay { heroOverlay }
                 .padding(.bottom, 56)
                 // Declared HERE, not in the root: the tab content is hosted
                 // by UIKit's tab controller, and a transaction opened outside
                 // it never reaches this tree.
-                .animation(Morph.listFade, value: listHidden)
+                // Declared HERE, not only in a withAnimation from the root:
+                // the tab content is hosted by UIKit's tab controller, and a
+                // transaction opened outside it never reaches this tree.
+                .animation(ArcTheme.morph, value: heroProgress)
+                .environment(\.heroFrames, heroFrames)
+                .environment(\.heroTravelling, heroTravelling?.id)
             }
             .offset(y: showAdd ? 1500 : 0)
             .animation(.spring(duration: 0.45), value: showAdd)
@@ -916,5 +972,3 @@ struct ArcRootView: View {
     }
 
 }
-
-

@@ -167,3 +167,23 @@ tapped — it stays at whatever height it has — and pulling the detail down
 past its top must not close it (it felt like an accidental close while
 scrolling back up). Only the X closes. `DetailPresentation` and the
 `onScrollGeometryChange` close are removed accordingly.
+
+## Revised again after the Soar comparison (2026-09-12)
+
+Read frame by frame, Soar's open never lets the tapped card leave the eye:
+the card stays opaque and glides ~40 pt up, everything around it fades, the
+sections fade in where they belong. Ours faded the row and rose a different
+header — the eye had to find the thing again.
+
+Now the tapped row IS the top of the detail: `FlightDetailView.hero` is the
+same `FlightRowCard`, first line under the grabber, with the X beside the
+handle and the date / airport names (`heroLines`) beneath. The glide is an
+overlay copy of the row (`ArcRootView.heroOverlay`) placed between the
+row's measured frame and the detail's known target (`Morph.target`), on
+`ArcTheme.morph`; list and detail crossfade beneath it (`SidePresence`), and
+both trees hide their own copy while it travels (`heroCopy`). Close is the
+same copy gliding back. Two mechanics that had to be learned on the
+simulator: `matchedGeometryEffect` cannot be used here (a List cell's copy
+never moved, and two sources fought), and the open glide must start only
+after the detail's first heavy layout has reported (`HeroFrames.onDetail`)
+plus one cheap frame, or it snaps.
