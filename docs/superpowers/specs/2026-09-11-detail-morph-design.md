@@ -161,3 +161,9 @@ is inserted hidden a beat before the rise and removed a beat after the drop
 (`Morph.listOut`, `elementsOut`, `closeTotal`), and the sheet's detent moves
 with the elements. `RiseIn` in Arc/Components/Morph.swift is the whole
 mechanism; `FlightDetailView.presented` drives it.
+
+On the phone (2026-09-12): the sheet must NOT rise to large when a row is
+tapped — it stays at whatever height it has — and pulling the detail down
+past its top must not close it (it felt like an accidental close while
+scrolling back up). Only the X closes. `DetailPresentation` and the
+`onScrollGeometryChange` close are removed accordingly.
