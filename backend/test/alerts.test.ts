@@ -121,7 +121,7 @@ test("a confirmed cancellation still latches everything behind it", () => {
 
 // ── the Live Activity update banner ──
 
-import { laAlert } from "../src/alerts.ts";
+import { laAlert, delayText } from "../src/alerts.ts";
 
 test("a gate change banners, with the delay alongside", () => {
   const a = laAlert({ flightNumber: "LX2146", priorGate: "A22", gate: "A64", priorDelay: 25, delay: 25 });
@@ -132,6 +132,14 @@ test("an unrelated change does not re-banner the same gate", () => {
   // Status flipped, belt appeared, aircraft seen taxiing — the gate and
   // delay are what the banner SAYS, and neither moved.
   assert.equal(laAlert({ flightNumber: "LX2146", priorGate: "A64", gate: "A64", priorDelay: 25, delay: 25 }), null);
+});
+
+test("a delay of an hour or more is stated in hours", () => {
+  const a = laAlert({ flightNumber: "LX2146", priorGate: "A64", gate: "A64", priorDelay: 10, delay: 145 });
+  assert.equal(a!.body, "2h 25m late");
+  assert.equal(delayText(60), "1h");
+  assert.equal(delayText(200), "3h 20m");
+  assert.equal(delayText(25), "25m");
 });
 
 test("a delay that moves materially banners without a gate change", () => {

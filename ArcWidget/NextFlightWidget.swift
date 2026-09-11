@@ -510,7 +510,7 @@ struct NextFlightMediumView: View {
                 } else if f.isDisrupted {
                     Text(f.terminalLabel).font(.system(size: 10, weight: .bold)).foregroundStyle(.red)
                 } else if f.reportsPunctuality, f.delayMinutes > 0 {
-                    Text("+\(f.delayMinutes)m").font(.system(size: 10, weight: .bold)).foregroundStyle(.orange)
+                    Text("+\(FlightClock.delayText(f.delayMinutes))").font(.system(size: 10, weight: .bold)).foregroundStyle(.orange)
                 } else if let g = f.departureGate, !g.isEmpty, phase == .upcoming {
                     Text("\(f.mode.boardingPointLabel) \(g)")
                         .font(.system(size: 10, weight: .bold))

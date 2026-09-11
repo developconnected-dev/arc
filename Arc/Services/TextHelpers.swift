@@ -26,8 +26,8 @@ enum TextHelpers {
     }
 
     /// "Zurich to Munich" — bold endpoints, quiet joiner, one Text.
-    static func cityPair(_ dep: String, _ arr: String, size: CGFloat) -> Text {
-        Text("\(Text(dep).font(.system(size: size, weight: .bold)).foregroundColor(.primary))\(Text(" to ").font(.system(size: size)).foregroundColor(.secondary))\(Text(arr).font(.system(size: size, weight: .bold)).foregroundColor(.primary))")
+    static func cityPair(_ dep: String, _ arr: String, size: CGFloat, weight: Font.Weight = .bold) -> Text {
+        Text("\(Text(dep).font(.system(size: size, weight: weight)).foregroundColor(.primary))\(Text(" to ").font(.system(size: size)).foregroundColor(.secondary))\(Text(arr).font(.system(size: size, weight: weight)).foregroundColor(.primary))")
     }
 
     /// True if the string looks like a flight number, e.g. "LX1413", "U2 123".

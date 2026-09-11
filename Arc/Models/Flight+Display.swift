@@ -92,7 +92,21 @@ extension Flight {
         guard !isActive else { return nil }
         // To the DELAYED departure, not the printed one: a flight 2h late
         // otherwise hit zero and went blank exactly when the countdown mattered.
-        let target = effectiveDeparture
+        return Self.countdown(to: effectiveDeparture)
+    }
+
+    /// In the air, the row's big number counts to LANDING — the number the
+    /// people waiting are actually watching. nil before the aircraft is up,
+    /// and once the ETA has passed with nothing to count.
+    var landingCountdown: (value: String, unit: String)? {
+        guard isActive else { return nil }
+        switch departurePhase {
+        case .airborne, .presumedAirborne: return Self.countdown(to: effectiveArrival)
+        case .beforeDeparture, .departing, .taxiing: return nil
+        }
+    }
+
+    private static func countdown(to target: Date) -> (value: String, unit: String)? {
         let interval = target.timeIntervalSince(.now)
         guard interval > 0 else { return nil }
         // Calendar days, not seconds/86400 — two flights on the same date
@@ -180,7 +194,7 @@ extension Flight {
     /// in-app prediction, clipped to the Live Activity's ~70 character budget.
     var liveActivityInsight: String? {
         guard showsPrediction else { return nil }
-        let head = "Arc predicts +\(predictedDelayMinutes)m"
+        let head = "Arc predicts +\(FlightClock.delayText(predictedDelayMinutes))"
         guard let reason = predictionReason, !reason.isEmpty else { return head }
         let room = 70 - head.count - 3
         guard room > 8 else { return head }
@@ -234,7 +248,7 @@ extension Flight {
             }
             let moving = mode.inTransitTitle
             guard reportsPunctuality, delayMinutes > 0 else { return moving }
-            return "\(moving) • \(delayMinutes)m late"
+            return "\(moving) • \(FlightClock.delayText(delayMinutes)) late"
         case .diverted: return "Diverted"
         case .boarding: return "Boarding"
         case .gateClosed: return mode == .air ? "Gate Closed" : "Departing"
@@ -258,7 +272,7 @@ extension Flight {
                 if disruptionNote != nil { return "Check Operator Notice" }
                 return dataTier.qualifier ?? "Scheduled"
             }
-            return delayMinutes > 0 ? "Delayed \(delayMinutes)m" : "On Time"
+            return delayMinutes > 0 ? "Delayed \(FlightClock.delayText(delayMinutes))" : "On Time"
         }
     }
 
@@ -270,7 +284,7 @@ extension Flight {
         if isBoarding { return statusText }
         // Arc's own knock-on prediction — only shown while it says meaningfully
         // more than the airline's official number (showsPrediction gates that).
-        if showsPrediction { return "Predicted +\(predictedDelayMinutes)m" }
+        if showsPrediction { return "Predicted +\(FlightClock.delayText(predictedDelayMinutes))" }
         if isDepartureUnconfirmed { return statusText }
         // "Departs On Time" reads; "Departs Timetable" does not. Where the
         // status names the SOURCE rather than a punctuality, it stands alone.
@@ -284,13 +298,19 @@ extension Flight {
         return f.string(from: scheduledDeparture)
     }
 
+    /// True when the corner carries no news — a date, or a state nobody has
+    /// confirmed — and should read as plain grey text rather than a status.
+    var cardTopRightIsQuiet: Bool {
+        if status == .gateClosed || showsPrediction { return false }
+        if isDepartureUnconfirmed || isDepartingUnconfirmed || isPresumedAirborne { return true }
+        return !(isSoon || isActive || isRecentlyLanded || isBoarding)
+    }
+
     var cardTopRightColor: Color {
+        if cardTopRightIsQuiet { return Color(.secondaryLabel) }
         if status == .gateClosed { return ArcTheme.late }   // urgency — gate is closing/closed
         if showsPrediction { return .orange }               // predicted, not airline-confirmed
-        if isDepartureUnconfirmed || isDepartingUnconfirmed || isPresumedAirborne {
-            return Color(.secondaryLabel)
-        }
-        return (isSoon || isActive || isRecentlyLanded || isBoarding) ? accentColor : Color(.secondaryLabel)
+        return accentColor
     }
 
     // MARK: - Detail screen helpers
