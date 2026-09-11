@@ -280,7 +280,7 @@ struct WidgetFlight: Identifiable {
             // there is nobody to quote, so name the source instead — a green
             // On Time on a ferry was Arc inventing a fact.
             guard reportsPunctuality else { return dataTier.qualifier ?? "Scheduled" }
-            if delayMinutes > 0 { return "Delayed \(delayMinutes)m" }
+            if delayMinutes > 0 { return "Delayed \(FlightClock.delayText(delayMinutes))" }
             return "On Time"
         }
     }

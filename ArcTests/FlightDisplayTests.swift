@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import Arc
 
 @MainActor
@@ -11,6 +12,37 @@ final class FlightDisplayTests: XCTestCase {
         f.delayMinutes = delay
         f.status = status
         return f
+    }
+
+    /// In the air, the row's big number counts down to LANDING — the only
+    /// number a passenger's family is waiting on — not to a gate time long
+    /// gone. Nothing to count once the ETA has passed; nothing before it left.
+    func testAnAirborneFlightCountsDownToLandingNotToTheGate() {
+        let f = Flight(flightNumber: "LX14", date: .now)
+        f.status = .active
+        f.scheduledDeparture = .now.addingTimeInterval(-2 * 3600)
+        f.actualDeparture = f.scheduledDeparture
+        f.scheduledArrival = .now.addingTimeInterval(75 * 60)
+        XCTAssertNil(f.countdown, "the departure countdown is over")
+        XCTAssertEqual(f.landingCountdown?.value, "1")
+        XCTAssertEqual(f.landingCountdown?.unit, "HOUR")
+
+        f.estimatedArrival = .now.addingTimeInterval(20 * 60 + 30)
+        XCTAssertEqual(f.landingCountdown?.value, "20")
+        XCTAssertEqual(f.landingCountdown?.unit, "MIN")
+
+        f.estimatedArrival = .now.addingTimeInterval(-60)
+        XCTAssertNil(f.landingCountdown, "past the ETA there is nothing left to count")
+
+        let upcoming = Flight(flightNumber: "LX14", date: .now)
+        upcoming.scheduledDeparture = .now.addingTimeInterval(3600)
+        upcoming.scheduledArrival = .now.addingTimeInterval(3 * 3600)
+        XCTAssertNil(upcoming.landingCountdown, "only a flight in the air counts to landing")
+    }
+
+    func testALongDelayIsStatedInHoursEverywhereTheListSpeaks() {
+        let f = makeFlight(delay: 145)
+        XCTAssertEqual(f.statusText, "Delayed 2h 25m")
     }
 
     func testEffectiveDepartureFallsBackToScheduledWhenNoDelay() {
@@ -255,6 +287,26 @@ final class FlightUpcomingTests: XCTestCase {
 
     func testUpcomingTrueForScheduledFlightInTheFuture() {
         XCTAssertTrue(flight(status: .scheduled, departureOffset: 3600).isUpcoming)
+    }
+
+    /// The card's corner is plain grey text when it carries no news — a date
+    /// weeks out — and emphasised only when it states a punctuality or a
+    /// live state. The row reads the flag to choose regular over semibold.
+    func testTheCornerIsQuietUntilItHasNewsToTell() {
+        let farOut = flight(status: .scheduled, departureOffset: 30 * 86_400)
+        XCTAssertTrue(farOut.cardTopRightIsQuiet)
+        XCTAssertEqual(farOut.cardTopRightColor, Color(.secondaryLabel))
+
+        let soon = flight(status: .scheduled, departureOffset: 3600)
+        XCTAssertFalse(soon.cardTopRightIsQuiet)
+        XCTAssertEqual(soon.cardTopRightColor, soon.accentColor)
+
+        // Up but never witnessed leaving: the hedge stays plain grey.
+        let presumed = flight(status: .active, departureOffset: -3600)
+        XCTAssertTrue(presumed.cardTopRightIsQuiet)
+        let airborne = flight(status: .active, departureOffset: -3600)
+        airborne.actualDeparture = airborne.scheduledDeparture
+        XCTAssertFalse(airborne.cardTopRightIsQuiet)
     }
 
     /// Regression: a flight still marked .scheduled after its own scheduled
@@ -725,7 +777,7 @@ final class FlightTenseTests: XCTestCase {
         XCTAssertNotNil(f.countdown)
         XCTAssertEqual(f.countdown?.unit, "MIN")
         XCTAssertTrue(f.isSoon)
-        XCTAssertEqual(f.cardTopRight, "Departs Delayed 90m")
+        XCTAssertEqual(f.cardTopRight, "Departs Delayed 1h 30m")
     }
 
     /// Past its (delayed) departure and still "scheduled": nobody confirmed

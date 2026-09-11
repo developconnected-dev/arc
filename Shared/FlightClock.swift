@@ -23,6 +23,15 @@ enum FlightClock {
         return f.string(from: date)
     }
 
+    /// A delay as a duration: "16m", "1h", "2h 25m". Under an hour it is
+    /// minutes; from an hour it is hours, with the minutes only when there
+    /// are any. "Delayed 200m" is a number nobody thinks in.
+    static func delayText(_ minutes: Int) -> String {
+        let h = minutes / 60, m = minutes % 60
+        if h >= 1 { return m > 0 ? "\(h)h \(m)m" : "\(h)h" }
+        return "\(minutes)m"
+    }
+
     /// "1h 38m" / "16m" style remaining; nil if the target is already past.
     static func compactUntil(_ date: Date, now: Date = .now) -> String? {
         let s = Int(secondsUntil(date, now: now))

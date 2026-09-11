@@ -230,8 +230,8 @@ struct WheresMyPlaneSection: View {
     private func predictionRow(minutes: Int, reason: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
-                SmartLabel(text: "Arc predicts ~\(minutes)m late")
-                Text(reason + " — the airline still shows \(flight.delayMinutes > 0 ? "+\(flight.delayMinutes)m" : "on time").")
+                SmartLabel(text: "Arc predicts ~\(FlightClock.delayText(minutes)) late")
+                Text(reason + " — the airline still shows \(flight.delayMinutes > 0 ? "+\(FlightClock.delayText(flight.delayMinutes))" : "on time").")
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(0.75))
                     .fixedSize(horizontal: false, vertical: true)
@@ -317,7 +317,7 @@ struct WheresMyPlaneSection: View {
                         }
                     }
                     Text((past ? "Landing not yet confirmed" : "Inbound to \(flight.departureIATA)")
-                         + (delay > 0 ? " · \(delay)m late" : ""))
+                         + (delay > 0 ? " · \(FlightClock.delayText(delay)) late" : ""))
                         .font(.system(size: 12))
                         .foregroundStyle(delay > 0 ? delayColor(delay) : .white.opacity(0.65))
                 }
@@ -369,7 +369,7 @@ struct WheresMyPlaneSection: View {
 
         if !flight.inboundChecked { return "Checking previous rotation…" }
         if flight.inboundFlightNumber == nil { return "No prior rotation found for this tail" }
-        if flight.inboundDelayMinutes > 0 { return "Inbound aircraft running \(flight.inboundDelayMinutes)m late" }
+        if flight.inboundDelayMinutes > 0 { return "Inbound aircraft running \(FlightClock.delayText(flight.inboundDelayMinutes)) late" }
         return "Inbound aircraft on schedule"
     }
 
@@ -407,7 +407,7 @@ struct DetailedTimetableSection: View {
                         HStack {
                             SmartLabel(text: "Arc predicted", size: 15)
                             Spacer()
-                            Text("+\(flight.predictedDelayAtDeparture)m · actual \(flight.delayMinutes > 0 ? "+\(flight.delayMinutes)m" : "on time")")
+                            Text("+\(FlightClock.delayText(flight.predictedDelayAtDeparture)) · actual \(flight.delayMinutes > 0 ? "+\(FlightClock.delayText(flight.delayMinutes))" : "on time")")
                                 .font(.system(size: 15)).foregroundStyle(.secondary)
                         }
                     }

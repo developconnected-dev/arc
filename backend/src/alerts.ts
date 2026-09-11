@@ -100,7 +100,7 @@ export function flightNews(args: {
     const improving = delayMinutes < announced;
     return {
       collapseId: `${flightNumber}-delay`,
-      title: `${flightNumber} is ${delayMinutes}m late`,
+      title: `${flightNumber} is ${delayText(delayMinutes)} late`,
       body: improving
         ? `Down from ${announced}m. Now departing about ${delayMinutes} minutes behind schedule.`
         : `Departure to ${arrivalCity} is running about ${delayMinutes} minutes behind schedule.`,
@@ -159,8 +159,16 @@ export function laAlert(args: {
   if (!gateChanged && !delayMoved) return null;
   const parts: string[] = [];
   if (gateChanged && gate) parts.push(`Gate ${gate}`);
-  if (delay > 0) parts.push(`${delay}m late`);
+  if (delay > 0) parts.push(`${delayText(delay)} late`);
   else if (delayMoved) parts.push("back on schedule");
   if (parts.length === 0) return null;
   return { title: `${flightNumber} update`, body: parts.join(" · ") };
+}
+
+/// A delay as a duration: "16m", "1h", "2h 25m". Mirrors FlightClock.delayText
+/// on the device, so a banner and the row beneath it say the same thing.
+export function delayText(minutes: number): string {
+  const h = Math.floor(minutes / 60), m = minutes % 60;
+  if (h >= 1) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  return `${minutes}m`;
 }
