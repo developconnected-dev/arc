@@ -281,7 +281,9 @@ struct WidgetFlight: Identifiable {
             // On Time on a ferry was Arc inventing a fact.
             guard reportsPunctuality else { return dataTier.qualifier ?? "Scheduled" }
             if delayMinutes > 0 { return "Delayed \(FlightClock.delayText(delayMinutes))" }
-            return "On Time"
+            // Same line the app draws (`Flight.isSoon`): "On Time" is only a
+            // quote inside the day before, when the operator is being asked.
+            return effectiveDeparture.timeIntervalSince(date) < 24 * 3600 ? "On Time" : "Scheduled"
         }
     }
 

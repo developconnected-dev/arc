@@ -122,10 +122,14 @@ extension Flight {
         return ("\(max(1, minutes))", "MIN")
     }
 
-    /// Near-term flight (within ~36h) → show live status instead of the date.
+    /// Inside the day before departure: the window in which Arc polls the
+    /// operator every half hour and may quote a punctuality. Further out a
+    /// flight is a plan, not a report — the row shows its date and the
+    /// detail's pill says "Scheduled" — because "On Time" five days ahead
+    /// is a claim nobody has made yet (Flighty draws the same line).
     var isSoon: Bool {
         let dt = effectiveDeparture.timeIntervalSince(.now)
-        return dt > 0 && dt < 36 * 3600
+        return dt > 0 && dt < 24 * 3600
     }
 
     /// When the belt is worth showing: after landing, or on approach — an
@@ -272,7 +276,12 @@ extension Flight {
                 if disruptionNote != nil { return "Check Operator Notice" }
                 return dataTier.qualifier ?? "Scheduled"
             }
-            return delayMinutes > 0 ? "Delayed \(FlightClock.delayText(delayMinutes))" : "On Time"
+            if delayMinutes > 0 { return "Delayed \(FlightClock.delayText(delayMinutes))" }
+            // A published delay is news at any distance; "On Time" is only a
+            // quote once the operator is being asked (`isSoon`). Before that
+            // the leg is simply scheduled, in the same grey the pill already
+            // wears that far out.
+            return isSoon ? "On Time" : "Scheduled"
         }
     }
 

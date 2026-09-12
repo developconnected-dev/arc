@@ -37,9 +37,9 @@ struct DetailHeader: View {
             Text("· \(m.date)").font(.system(size: 15)).foregroundStyle(.secondary)
             Spacer(minLength: 8)
             Text(m.pill.text)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(m.pill.color)
-                .padding(.horizontal, 10).padding(.vertical, 5)
+                .padding(.horizontal, 13).padding(.vertical, 7)
                 .background(m.pill.color.opacity(0.14), in: Capsule())
                 .lineLimit(1)
         }
