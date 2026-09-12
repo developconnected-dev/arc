@@ -17,6 +17,10 @@ struct FlightDetailView: View {
     /// the card glides back. A friend's read-only preview is still a real
     /// sheet and falls back to `dismiss`.
     var onClose: (() -> Void)? = nil
+    /// A friend's flight: the row it glides from is keyed by their feed item
+    /// (`heroKey`), and the detail names them first.
+    var friend: ArcSupabase.ArcUser? = nil
+    var heroKey: String? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
@@ -52,11 +56,12 @@ struct FlightDetailView: View {
                                  onShowAtGate: onShowAtGate, onShowAirport: onShowAirport,
                                  onAirport: flight.mode == .air ? { airportSheet = AirportSheetTarget(id: $0) } : nil)
                         // The card the row glides into and back out of (see `Morph`).
-                        .heroCopy(for: flight, side: .detail)
+                        .heroCopy(key: heroKey ?? flight.id.uuidString, side: .detail)
                     // Everything else is laid out a beat later: laying the whole
                     // tree out on the first frame cost ~200 ms and froze the glide.
                     if sectionsIn {
                         Group {
+                            if let friend { friendSection(friend) }
                             statusSection
                             if isOwnFlight { tripSection }
                             if isOwnFlight, flight.mode == .air, !flight.isCompleted { aircraftSection }
@@ -65,6 +70,9 @@ struct FlightDetailView: View {
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(.horizontal, 16)
+                // Presented as a system sheet (a friend's invite preview) the
+                // content needs room under the sheet's own drag indicator.
+                .padding(.top, onClose == nil ? 26 : 0)
                 .padding(.bottom, 40)
             }
             .onAppear {
@@ -160,6 +168,20 @@ struct FlightDetailView: View {
             .foregroundStyle(.secondary)
             .frame(width: 28, height: 28)
             .background(Color(.secondarySystemFill), in: Circle())
+    }
+
+    // MARK: Whose flight
+
+    private func friendSection(_ user: ArcSupabase.ArcUser) -> some View {
+        DetailGroup {
+            HStack(spacing: 12) {
+                FriendAvatar(name: user.display_name, size: 24, avatarURL: user.avatar_url)
+                Text("\(user.display_name)'s flight").font(.system(size: 15))
+                Spacer(minLength: 8)
+                Text("Shared with you").font(.system(size: 15)).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+        }
     }
 
     // MARK: Status — only what needs attention

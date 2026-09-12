@@ -6,6 +6,9 @@ import SwiftUI
 /// NavigationStack at the top level — that's reserved for the signed-in
 /// content, which presents flight detail sheets).
 struct FriendsScreen: View {
+    /// A friend's flight was tapped: the root opens it in the tab sheet,
+    /// gliding from the row like one of the user's own.
+    var onSelect: (FriendsStore.FeedItem) -> Void = { _ in }
     @ObservedObject private var supabase = ArcSupabase.shared
     @AppStorage("hasSeenFriendsIntro") private var hasSeenIntro = false
     @State private var showSettings = false
@@ -25,7 +28,7 @@ struct FriendsScreen: View {
             } else {
                 // Signed in → the Friends' Flights feed, which owns its own
                 // header (title ⇄ expanding search, add-friends, settings).
-                FriendsListView()
+                FriendsListView(onSelect: onSelect)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -328,6 +331,7 @@ enum FeedFilter: Equatable {
 }
 
 struct FriendsListView: View {
+    var onSelect: (FriendsStore.FeedItem) -> Void = { _ in }
     @ObservedObject private var supabase = ArcSupabase.shared
     @State private var store = FriendsStore.shared
     @State private var showingAddFriend = false
@@ -335,7 +339,6 @@ struct FriendsListView: View {
     @State private var showSettings = false
     @State private var filter: FeedFilter = .all
     @State private var groups: [FriendGroup] = []
-    @State private var presentedFlight: Flight?
     @State private var showPastFlights = false
 
     /// The people the current filter admits — nil means everyone.
@@ -392,11 +395,6 @@ struct FriendsListView: View {
                 ManageFriendsSheet()
             }
             .sheet(isPresented: $showSettings) { SettingsView() }
-            .sheet(item: $presentedFlight, onDismiss: { store.focusedRoute = nil }) { flight in
-                FlightDetailView(flight: flight, isOwnFlight: false)
-                    .presentationDetents([.medium, .large])
-                    .presentationBackgroundInteraction(.enabled(upThrough: .medium))
-            }
             // The globe mirrors the list's filter, friend or group.
             .onChange(of: filter) { _, _ in store.mapFilterIds = filterIds }
             .onDisappear { store.mapFilterIds = nil }
@@ -656,39 +654,20 @@ struct FriendsListView: View {
             return
         }
         store.pendingFlightId = nil
-        presentedFlight = store.transientFlight(for: item)
+        onSelect(item)
     }
 
     private func feedRow(_ item: FriendsStore.FeedItem) -> some View {
-        Button {
-            // Opening a friend's flight is the clearest possible signal that
-            // someone wants it current, from a device that demonstrably has a
-            // connection. The sheet shows the mirrored row immediately and
-            // updates underneath when the answer comes back — handed the very
-            // object it is presenting, because `.sheet(item:)` keys on
-            // `Flight.id` and a replacement would re-present rather than
-            // refresh.
-            let onscreen = store.transientFlight(for: item)
-            presentedFlight = onscreen
-            Task { await store.refreshLive(item, updating: onscreen) }
-            // Zoom the globe onto this flight's arc behind the
-            // half-height detail.
-            if let dlat = item.flight.departure_lat, let dlon = item.flight.departure_lon,
-               let alat = item.flight.arrival_lat, let alon = item.flight.arrival_lon {
-                store.focusedRoute = .init(
-                    id: item.flight.id,
-                    dep: .init(latitude: dlat, longitude: dlon),
-                    arr: .init(latitude: alat, longitude: alon),
-                    mode: item.flight.tripMode)
-            }
-        } label: {
+        // The root opens it in the tab sheet, gliding from this row, and
+        // refreshes it live once open (see `ArcRootView.openFriendFlight`).
+        Button { onSelect(item) } label: {
             FriendFlightRow(item: item)
+                // The card the detail opens from and closes back into.
+                .heroCopy(key: item.id, side: .list)
         }
         .buttonStyle(.plain)
     }
 
-    /// Landed-over-30-minutes flights, collapsed by default — recent history
-    /// without cluttering the live feed.
     private var pastSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -825,7 +804,7 @@ struct FriendFlightRow: View {
                                  iata: flight.tripMode == .air ? String(flight.flight_number.prefix(2)) : "",
                                  logoURL: flight.operator_logo_url, size: 18)
                     Text(flight.flight_number)
-                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                        .font(.system(size: 14)).foregroundStyle(.secondary)
                     Spacer(minLength: 8)
                     Text(contextLine(at: context.date))
                         .font(.system(size: 13, weight: .semibold))
@@ -834,7 +813,7 @@ struct FriendFlightRow: View {
                         .contentTransition(.numericText())
                         .animation(.default, value: contextLine(at: context.date))
                 }
-                TextHelpers.cityPair(flight.departure_city, flight.arrival_city, size: 17)
+                TextHelpers.cityPair(flight.departure_city, flight.arrival_city, size: 18, weight: .medium)
                     .lineLimit(1)
                 HStack(spacing: 16) {
                     endpointChip(arrow: "arrow.up.right", iata: flight.departure_iata,
@@ -935,9 +914,9 @@ struct FriendFlightRow: View {
                 .foregroundStyle(.white)
                 .frame(width: 18, height: 18)
                 .background(tint, in: Circle())
-            Text(iata).font(.system(size: 14, weight: .bold)).foregroundStyle(.primary)
+            Text(iata).font(.system(size: 13)).foregroundStyle(.primary)
             Text(time)
-                .font(.system(size: 14, weight: .semibold).monospacedDigit())
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
                 .foregroundStyle(tint)
         }
     }
