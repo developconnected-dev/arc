@@ -118,9 +118,10 @@ struct FlightDetailView: View {
                     closeButton
                 }
                 .padding(.trailing, 16)
-                // Centred on the grabber's capsule, which sits 19pt above
-                // the content's top edge (see `BottomSheet`).
-                .offset(y: -19 - controlSize / 2)
+                // Centred on the grabber's capsule, so the circles have the
+                // same 8pt to the sheet's edge as the header's top line has
+                // to them (see `BottomSheet`).
+                .offset(y: -Morph.grabberCentreAboveContent - controlSize / 2)
             }
         }
         .confirmationDialog("Delete this flight?", isPresented: $confirmDelete, titleVisibility: .visible) {
