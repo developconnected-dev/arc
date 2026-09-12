@@ -25,6 +25,8 @@ struct ArcRootView: View {
     @State private var heroTravelling: HeroSource?
     /// Set while the open detail is a friend's flight: the row's feed item.
     @State private var detailFriend: FriendsStore.FeedItem?
+    /// Set while the open detail is a trip invite's preview.
+    @State private var detailInvite: FriendsStore.TripInviteItem?
     @State private var heroProgress: Double = 0
     /// Where the travelling copy is headed: 1 the detail, 0 the row. Set
     /// with `heroTravelling`; the copy starts moving once it has had a
@@ -641,9 +643,20 @@ struct ArcRootView: View {
         open(.friend(item, flight))
     }
 
+    /// An invited trip's preview, from its card in My Trips: read-only, the
+    /// inviter named beneath the header.
+    private func openInvitePreview(_ item: FriendsStore.TripInviteItem, _ flight: Flight) {
+        detailInvite = item
+        open(.invite(item, flight))
+    }
+
     private func open(_ source: HeroSource) {
         let flight = source.flight
-        if case .own = source { detailFriend = nil }
+        switch source {
+        case .own: detailFriend = nil; detailInvite = nil
+        case .friend: detailInvite = nil
+        case .invite: detailFriend = nil
+        }
         if detailFlight != nil {
             // A second flight over an open one: no travel, just the swap.
             detailFlight = flight
@@ -701,7 +714,9 @@ struct ArcRootView: View {
         groundViewTask?.cancel()
         groundViewTask = nil
         controller.clearGateMarker()
-        let source: HeroSource = detailFriend.map { .friend($0, flight) } ?? .own(flight)
+        let source: HeroSource = detailFriend.map { .friend($0, flight) }
+            ?? detailInvite.map { .invite($0, flight) }
+            ?? .own(flight)
         if detailFriend != nil { FriendsStore.shared.focusedRoute = nil }
         heroProgress = 1
         heroTarget = 0
@@ -752,6 +767,7 @@ struct ArcRootView: View {
                         MyFlightsView(onSelect: { openDetail($0) },
                                       onAdd: { showAdd = true },
                                       onImported: { imported in revealTrips([imported]) },
+                                      onPreview: { item, flight in openInvitePreview(item, flight) },
                                       landed: landedTrips)
                     }
                 }
@@ -860,15 +876,16 @@ struct ArcRootView: View {
                         .modifier(SidePresence(side: .list, progress: heroProgress))
                         .allowsHitTesting(detailFlight == nil)
                     if let flight = detailFlight {
-                        let friend = detailFriend
+                        let own = detailFriend == nil && detailInvite == nil
                         FlightDetailView(flight: flight,
-                                         isOwnFlight: friend == nil,
-                                         onShowAtGate: friend == nil ? { f in showPlaneAtGate(f) } : nil,
-                                         onShowAirport: friend == nil ? { f in showAirportView(f) } : nil,
-                                         onOpenFlight: friend == nil ? { other in _ = show(other) } : nil,
+                                         isOwnFlight: own,
+                                         onShowAtGate: own ? { f in showPlaneAtGate(f) } : nil,
+                                         onShowAirport: own ? { f in showAirportView(f) } : nil,
+                                         onOpenFlight: own ? { other in _ = show(other) } : nil,
                                          onClose: { closeDetail() },
-                                         friend: friend?.user,
-                                         heroKey: friend?.id)
+                                         friend: detailFriend?.user ?? detailInvite?.sender,
+                                         friendNote: detailInvite != nil ? "Invited you" : "Shared with you",
+                                         heroKey: detailFriend?.id ?? detailInvite?.id)
                             .id(flight.id)
                             .modifier(SidePresence(side: .detail, progress: heroProgress))
                     }
