@@ -633,8 +633,14 @@ struct ArcRootView: View {
         heroProgress = 0
         heroTarget = 1
         heroFrames.detail = nil
-        heroTravelling = heroFrames.rows[flight.id] != nil ? flight : nil
         detailFlight = flight
+        if heroFrames.rows[flight.id] != nil {
+            heroTravelling = flight
+        } else {
+            // No row on screen to glide from (a widget, a notification, the
+            // Passport list): the detail simply fades in over the tab.
+            withAnimation(ArcTheme.morph) { heroProgress = 1 }
+        }
     }
 
     /// Called by the travelling copy once it has been drawn at its origin:
