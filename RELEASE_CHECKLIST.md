@@ -26,7 +26,7 @@ The parts CI cannot do. Work top to bottom; each is safe to redo.
       BookingExtractor.swift and four Info.plist permission entries, none of
       which exist in a stale project.
 - [x] **Bump `CURRENT_PROJECT_VERSION`** in `project.yml` (App Store Connect
-      rejects a build number it has already seen; last shipped: 36).
+      rejects a build number it has already seen; last shipped: 37).
 - [x] Archive in Xcode (signing needs your Mac; CI already compiled and
       tested this exact code).
 
