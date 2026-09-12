@@ -200,18 +200,23 @@ struct DetailHeader: View {
 enum HeroSource {
     case own(Flight)
     case friend(FriendsStore.FeedItem, Flight)
+    /// A trip a friend invited the user on, previewed from its card in My
+    /// Trips before it is accepted.
+    case invite(FriendsStore.TripInviteItem, Flight)
 
     var flight: Flight {
         switch self {
-        case .own(let f), .friend(_, let f): f
+        case .own(let f), .friend(_, let f), .invite(_, let f): f
         }
     }
     var key: String {
         switch self {
         case .own(let f): f.id.uuidString
         case .friend(let item, _): item.id
+        case .invite(let item, _): item.id
         }
     }
+    var isOwn: Bool { if case .own = self { true } else { false } }
 }
 
 /// The copy of the card that travels between the list and the detail: the
@@ -226,10 +231,12 @@ struct HeroCard: View {
                 switch source {
                 case .own(let flight): FlightRowCard(flight: flight)
                 case .friend(let item, _): FriendFlightRow(item: item)
+                case .invite(let item, _):
+                    TripInviteCard(item: item, onOpen: { _ in }, onAccept: {}, onDecline: {})
                 }
             }
             .opacity(1 - progress)
-            DetailHeader(flight: source.flight, isOwnFlight: { if case .own = source { true } else { false } }())
+            DetailHeader(flight: source.flight, isOwnFlight: source.isOwn)
                 .opacity(progress)
         }
     }

@@ -14,6 +14,9 @@ struct MyFlightsView: View {
     /// and gets the same beat an add does: the row appears and the map draws
     /// the route on.
     var onImported: (Flight) -> Void = { _ in }
+    /// A tap on an invited trip's card: the root opens its read-only preview
+    /// in the tab sheet, gliding from the card.
+    var onPreview: (FriendsStore.TripInviteItem, Flight) -> Void = { _, _ in }
     /// Trips that just became the user's, by id. The row appearing is the
     /// confirmation of an add — but a list scrolled even one row down keeps
     /// its place when a row is inserted above it, and the confirmation plays
@@ -22,7 +25,6 @@ struct MyFlightsView: View {
 
     @State private var showSettings = false
     @State private var shareFlight: Flight?
-    @State private var previewFlight: Flight?
     @State private var friendsStore = FriendsStore.shared
 
     private var flights: [Flight] { Self.listed(Array(allFlights)) }
@@ -81,9 +83,10 @@ struct MyFlightsView: View {
                 }
                 ForEach(friendsStore.tripInvites) { item in
                     TripInviteCard(item: item,
-                                   onOpen: { previewFlight = $0 },
+                                   onOpen: { onPreview(item, $0) },
                                    onAccept: { accept(item) },
                                    onDecline: { friendsStore.decline(item) })
+                        .heroCopy(key: item.id, side: .list)
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
@@ -160,12 +163,6 @@ struct MyFlightsView: View {
         }
         .sheet(item: $shareFlight) { flight in
             ShareFlightSheet(flight: flight)
-        }
-        // A tap on the invited trip itself: the same detail screen, read-only —
-        // it isn't the user's until they accept.
-        .sheet(item: $previewFlight) { flight in
-            FlightDetailView(flight: flight, isOwnFlight: false)
-                .presentationDetents([.medium, .large])
         }
         .onAppear {
             friendsStore.updateAirportOverlaps(with: Array(allFlights))

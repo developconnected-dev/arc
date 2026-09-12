@@ -20,6 +20,8 @@ struct FlightDetailView: View {
     /// A friend's flight: the row it glides from is keyed by their feed item
     /// (`heroKey`), and the detail names them first.
     var friend: ArcSupabase.ArcUser? = nil
+    /// What the friend row says on the right: how this flight reached you.
+    var friendNote: String = "Shared with you"
     var heroKey: String? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -178,7 +180,7 @@ struct FlightDetailView: View {
                 FriendAvatar(name: user.display_name, size: 24, avatarURL: user.avatar_url)
                 Text("\(user.display_name)'s flight").font(.system(size: 15))
                 Spacer(minLength: 8)
-                Text("Shared with you").font(.system(size: 15)).foregroundStyle(.secondary)
+                Text(friendNote).font(.system(size: 15)).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 14).padding(.vertical, 12)
         }
