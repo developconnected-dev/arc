@@ -29,6 +29,9 @@ row repeated.
 - The grabber-row controls (menu, X) are 34 pt circles with 15 pt glyphs,
   the status pill is 15 pt text, and the top line sits `Morph.detailTopInset`
   (12 pt) below them. (Build 36's 28 pt controls were wedged against the pill.)
+  The controls are centred on the grabber's capsule, which keeps 25 pt from
+  the sheet's edge, so the circles have 8 pt above and 8 pt to the pill: one
+  balanced band, not controls pinned to the edge over a title floating below.
 
 ## The header (`DetailHeader`)
 

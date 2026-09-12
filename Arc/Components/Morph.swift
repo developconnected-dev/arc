@@ -32,6 +32,11 @@ enum Morph {
     /// fallback target below starts there.
     static let detailTopInset: CGFloat = 12
 
+    /// How far above the sheet content's top edge `BottomSheet`'s capsule
+    /// centre sits (its 50pt zone keeps 25pt above the capsule and trims
+    /// 12pt below it), for the detail's controls to line up with.
+    static let grabberCentreAboveContent: CGFloat = 13
+
     /// Where the detail's card is, in the sheet content's coordinates: the
     /// first thing under the grabber, spanning the content width less the
     /// row's inset that the detail undoes (`FlightDetailView.hero`).

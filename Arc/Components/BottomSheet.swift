@@ -69,8 +69,12 @@ private struct SheetChrome<Content: View>: View {
                 // layout: the content starts inside its lower edge, which
                 // wins the overlap (drawn later), so the grabber keeps a
                 // 44pt effective target — the HIG minimum — and the sheet's
-                // first line sits that much closer to the top.
-                .padding(.vertical, -6)
+                // first line sits that much closer to the top. Only the
+                // bottom is trimmed, so the capsule keeps its 25pt from the
+                // sheet's edge: anything centred on it (the detail's menu
+                // and X) then has as much room above as the header has
+                // beneath, and the band under the edge reads as one row.
+                .padding(.bottom, -12)
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
