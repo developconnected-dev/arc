@@ -87,7 +87,8 @@ struct HeroPlacement: ViewModifier, Animatable {
                        width: from.width + (to.width - from.width) * p,
                        height: from.height + (to.height - from.height) * p)
         content
-            .frame(width: r.width, height: r.height)
+            .frame(width: r.width, height: r.height, alignment: .topLeading)
+            .clipped()
             .position(x: r.midX, y: r.midY)
     }
 }

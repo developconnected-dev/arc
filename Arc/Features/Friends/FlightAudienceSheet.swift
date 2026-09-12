@@ -144,9 +144,10 @@ struct FlightAudienceRow: View {
 
     var body: some View {
         Button { showPicker = true } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 Image(systemName: "person.crop.circle.badge.checkmark")
-                    .font(.system(size: 15, weight: .semibold)).foregroundStyle(.secondary)
+                    .font(.system(size: 17, weight: .medium)).foregroundStyle(.secondary)
+                    .frame(width: 24)
                 Text("Shared with").font(.system(size: 15)).foregroundStyle(.primary)
                 Spacer()
                 Text(FlightAudience.summary(ids: sharedWithIds,

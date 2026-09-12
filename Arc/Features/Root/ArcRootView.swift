@@ -803,10 +803,12 @@ struct ArcRootView: View {
         if let flight = heroTravelling, let from = heroFrames.rows[flight.id] {
             GeometryReader { geo in
                 let origin = geo.frame(in: .global).origin
-                FlightRowCard(flight: flight)
+                let local = { (r: CGRect) in r.offsetBy(dx: -origin.x, dy: -origin.y) }
+                HeroCard(flight: flight, progress: heroProgress)
                     .modifier(HeroPlacement(progress: heroProgress,
-                                            from: from.offsetBy(dx: -origin.x, dy: -origin.y),
-                                            to: Morph.target(in: geo.size, rowHeight: from.height)))
+                                            from: local(from),
+                                            to: heroFrames.detail.map(local)
+                                                ?? Morph.target(in: geo.size, rowHeight: from.height)))
                     .onAppear { DispatchQueue.main.async { heroDidAppear() } }
             }
             .allowsHitTesting(false)

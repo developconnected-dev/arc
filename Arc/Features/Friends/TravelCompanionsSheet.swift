@@ -91,9 +91,10 @@ struct TravelCompanionsRow: View {
 
     var body: some View {
         Button { showPicker = true } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 Image(systemName: "person.2.fill")
-                    .font(.system(size: 15, weight: .semibold)).foregroundStyle(.secondary)
+                    .font(.system(size: 17, weight: .medium)).foregroundStyle(.secondary)
+                    .frame(width: 24)
                 Text("Travelling with").font(.system(size: 15)).foregroundStyle(.primary)
                 Spacer()
                 Text(summary)
