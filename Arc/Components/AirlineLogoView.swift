@@ -14,6 +14,8 @@ struct AirlineLogoView: View {
     let iata: String
     var size: CGFloat = 28
 
+    private var cache: LogoCache { .shared }
+
     private var code: String? {
         let code = iata.uppercased()
         return code.count == 2 ? code : nil
@@ -38,19 +40,20 @@ struct AirlineLogoView: View {
         if let asset = AirlineBranding.logoAssetName(iata: iata) {
             Image(asset).resizable().scaledToFit().frame(width: size, height: size)
         } else if let iconURL {
-            AsyncImage(url: iconURL, transaction: Transaction(animation: .easeIn(duration: 0.15))) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().scaledToFill()
-                        .frame(width: size, height: size)
-                        .clipShape(RoundedRectangle(cornerRadius: size * 0.22))
-                case .failure:
-                    wordmark
-                default:
-                    fallbackChip
-                }
+            // The cache answers synchronously, so a mark that has been drawn
+            // once anywhere — the list row — is painted by its next copy
+            // (the gliding card, the detail header) on its first frame,
+            // instead of flashing the chip while a second fetch runs.
+            switch cache[iconURL] {
+            case .image(let image):
+                Image(uiImage: image).resizable().scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: size * 0.22))
+            case .missing:
+                wordmark
+            case nil:
+                fallbackChip.task(id: iconURL) { await cache.load(iconURL) }
             }
-            .frame(width: size, height: size)
         } else {
             fallbackChip
         }
@@ -58,19 +61,17 @@ struct AirlineLogoView: View {
 
     /// The CDN's wordmark sits on a white tile so it reads in both light
     /// and dark mode; a carrier the CDN does not know at all gets the chip.
-    private var wordmark: some View {
-        AsyncImage(url: wordmarkURL, transaction: Transaction(animation: .easeIn(duration: 0.15))) { phase in
-            switch phase {
-            case .success(let image):
-                image.resizable().scaledToFit()
-                    .padding(size * 0.14)
-                    .frame(width: size, height: size)
-                    .background(.white, in: RoundedRectangle(cornerRadius: size * 0.22))
-            default:
-                fallbackChip
-            }
+    @ViewBuilder private var wordmark: some View {
+        if let wordmarkURL, case .image(let image) = cache[wordmarkURL] {
+            Image(uiImage: image).resizable().scaledToFit()
+                .padding(size * 0.14)
+                .frame(width: size, height: size)
+                .background(.white, in: RoundedRectangle(cornerRadius: size * 0.22))
+        } else if let wordmarkURL, cache[wordmarkURL] == nil {
+            fallbackChip.task(id: wordmarkURL) { await cache.load(wordmarkURL) }
+        } else {
+            fallbackChip
         }
-        .frame(width: size, height: size)
     }
 
     private var fallbackChip: some View {
@@ -82,5 +83,51 @@ struct AirlineLogoView: View {
                     .font(.system(size: size * 0.4, weight: .heavy))
                     .foregroundStyle(.white)
             )
+    }
+}
+
+/// Logos fetched this launch, answered synchronously by URL.
+///
+/// `AsyncImage` starts every instance from its placeholder and fetches on
+/// its own, so the three copies of one row that a tap creates (cell, glide,
+/// header) each flashed the initials chip before the same PNG arrived
+/// again. One shared table, observed by every logo view, means the fetch
+/// happens once per URL per launch; the request itself prefers the disk
+/// cache, so a second launch paints without the network at all.
+@Observable @MainActor
+final class LogoCache {
+    static let shared = LogoCache()
+
+    enum Entry: Equatable {
+        case image(UIImage)
+        /// The CDN answered without a usable image (404 for a carrier it has
+        /// no icon for); remembered so the fallback is chosen once, not
+        /// re-tried on every appearance.
+        case missing
+    }
+
+    private var entries: [URL: Entry] = [:]
+    @ObservationIgnored private var inflight: [URL: Task<Void, Never>] = [:]
+
+    subscript(url: URL) -> Entry? { entries[url] }
+
+    func load(_ url: URL) async {
+        if entries[url] != nil { return }
+        if let task = inflight[url] { await task.value; return }
+        let task = Task { [weak self] in
+            let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 15)
+            let fetched: Entry
+            if let (data, response) = try? await URLSession.shared.data(for: request),
+               (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true,
+               let image = UIImage(data: data) {
+                fetched = .image(image)
+            } else {
+                fetched = .missing
+            }
+            self?.entries[url] = fetched
+            self?.inflight[url] = nil
+        }
+        inflight[url] = task
+        await task.value
     }
 }
