@@ -41,7 +41,9 @@ enum MorphSide { case list, detail }
 /// views themselves — every list row and the detail's card.
 @Observable @MainActor
 final class HeroFrames {
-    var rows: [UUID: CGRect] = [:]
+    /// Keyed by the hero key: a flight's id for the user's own rows, the
+    /// feed item's id for a friend's — see `heroCopy(key:side:)`.
+    var rows: [String: CGRect] = [:]
     /// The detail's card. Its position is known in advance (`Morph.target`);
     /// what matters is WHEN it reports — after the detail's first, heavy
     /// layout — because a glide started before that has no frame to start
@@ -97,7 +99,7 @@ private struct HeroFramesKey: EnvironmentKey {
     static let defaultValue: HeroFrames? = nil
 }
 private struct HeroTravellingKey: EnvironmentKey {
-    static let defaultValue: UUID? = nil
+    static let defaultValue: String? = nil
 }
 
 extension EnvironmentValues {
@@ -109,7 +111,7 @@ extension EnvironmentValues {
     }
     /// The flight whose card is travelling in the overlay right now; both
     /// trees hide their own copy of it.
-    var heroTravelling: UUID? {
+    var heroTravelling: String? {
         get { self[HeroTravellingKey.self] }
         set { self[HeroTravellingKey.self] = newValue }
     }
@@ -118,17 +120,17 @@ extension EnvironmentValues {
 private struct HeroReporter: ViewModifier {
     @Environment(\.heroFrames) private var frames
     @Environment(\.heroTravelling) private var travelling
-    let flight: Flight
+    let key: String
     let side: MorphSide
     func body(content: Content) -> some View {
         content
             // `hidden()` rather than `opacity(0)`: inside a List cell the
             // faded parent rasterises the row, and a zero opacity on the
             // child was still drawn for the length of the fade.
-            .hidden(travelling == flight.id)
+            .hidden(travelling == key)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
                 switch side {
-                case .list: frames?.rows[flight.id] = rect
+                case .list: frames?.rows[key] = rect
                 case .detail: frames?.detail = rect
                 }
             }
@@ -145,7 +147,11 @@ extension View {
     /// Marks this card as a hero copy: it reports where it is, and hides
     /// while the overlay's copy is travelling in its place.
     func heroCopy(for flight: Flight, side: MorphSide) -> some View {
-        modifier(HeroReporter(flight: flight, side: side))
+        modifier(HeroReporter(key: flight.id.uuidString, side: side))
+    }
+    /// The same, keyed explicitly — a friend's row is keyed by its feed item.
+    func heroCopy(key: String, side: MorphSide) -> some View {
+        modifier(HeroReporter(key: key, side: side))
     }
 }
 

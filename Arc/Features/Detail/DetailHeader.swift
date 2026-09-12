@@ -194,17 +194,42 @@ struct DetailHeader: View {
     }
 }
 
+/// What a detail opened from: the user's own row, or a friend's row in
+/// the feed. Decides the key the row reported under and the row layout the
+/// travelling copy fades out of.
+enum HeroSource {
+    case own(Flight)
+    case friend(FriendsStore.FeedItem, Flight)
+
+    var flight: Flight {
+        switch self {
+        case .own(let f), .friend(_, let f): f
+        }
+    }
+    var key: String {
+        switch self {
+        case .own(let f): f.id.uuidString
+        case .friend(let item, _): item.id
+        }
+    }
+}
+
 /// The copy of the card that travels between the list and the detail: the
 /// row's layout fading into the header's as the frame grows.
 struct HeroCard: View {
-    let flight: Flight
+    let source: HeroSource
     let progress: Double
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            FlightRowCard(flight: flight)
-                .opacity(1 - progress)
-            DetailHeader(flight: flight)
+            Group {
+                switch source {
+                case .own(let flight): FlightRowCard(flight: flight)
+                case .friend(let item, _): FriendFlightRow(item: item)
+                }
+            }
+            .opacity(1 - progress)
+            DetailHeader(flight: source.flight, isOwnFlight: { if case .own = source { true } else { false } }())
                 .opacity(progress)
         }
     }

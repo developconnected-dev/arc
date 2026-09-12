@@ -22,7 +22,9 @@ struct ArcRootView: View {
     /// which flight's card is travelling, and how far along it is (0 at the
     /// row, 1 at the detail).
     @State private var heroFrames = HeroFrames()
-    @State private var heroTravelling: Flight?
+    @State private var heroTravelling: HeroSource?
+    /// Set while the open detail is a friend's flight: the row's feed item.
+    @State private var detailFriend: FriendsStore.FeedItem?
     @State private var heroProgress: Double = 0
     /// Where the travelling copy is headed: 1 the detail, 0 the row. Set
     /// with `heroTravelling`; the copy starts moving once it has had a
@@ -37,7 +39,6 @@ struct ArcRootView: View {
     /// for a flight that was no longer open.
     @State private var groundViewTask: Task<Void, Never>?
     /// The sheet height before a friend-route zoom shrank it to .small.
-    @State private var detentBeforeFocus: SheetDetent?
     @State private var clipboardQuery: String? = nil
     /// Pasteboard `changeCount` currently being offered, and the last one the
     /// user waved away — tracking the count rather than the content is what
@@ -141,17 +142,10 @@ struct ArcRootView: View {
         .onChange(of: friendsStore.focusedRoute) { _, route in
             guard tab == .friends else { return }
             if let route {
-                // Make sure the zoom is actually visible: the tab sheet may
-                // be at full height under the newly presented detail (which
-                // itself opens at the system medium ≈ half screen).
-                if detentBeforeFocus == nil { detentBeforeFocus = detent }
-                detent = .small
+                // The friend's detail lives in the tab sheet now, at whatever
+                // height the sheet has — the camera moves, the sheet does not.
                 controller.focusRoute(dep: route.dep, arr: route.arr, mode: route.mode)
             } else {
-                // Give the sheet back its height — `detent` is shared across
-                // tabs, and the sliver otherwise followed you to My Trips.
-                if let restored = detentBeforeFocus { detent = restored }
-                detentBeforeFocus = nil
                 applyCameraForCurrentTab()
             }
         }
@@ -625,6 +619,31 @@ struct ArcRootView: View {
     /// copy of the row glides up to it while the list fades and the detail
     /// comes in. When it lands, the detail's own card takes over.
     private func openDetail(_ flight: Flight) {
+        open(.own(flight))
+    }
+
+    /// A friend's flight from the feed: a transient Flight built from the
+    /// shared row, refreshed live once open, with their route focused on
+    /// the map for as long as the detail is up.
+    private func openFriendFlight(_ item: FriendsStore.FeedItem) {
+        let store = FriendsStore.shared
+        let flight = store.transientFlight(for: item)
+        detailFriend = item
+        Task { await store.refreshLive(item, updating: flight) }
+        if let dlat = item.flight.departure_lat, let dlon = item.flight.departure_lon,
+           let alat = item.flight.arrival_lat, let alon = item.flight.arrival_lon {
+            store.focusedRoute = .init(
+                id: item.flight.id,
+                dep: .init(latitude: dlat, longitude: dlon),
+                arr: .init(latitude: alat, longitude: alon),
+                mode: item.flight.tripMode)
+        }
+        open(.friend(item, flight))
+    }
+
+    private func open(_ source: HeroSource) {
+        let flight = source.flight
+        if case .own = source { detailFriend = nil }
         if detailFlight != nil {
             // A second flight over an open one: no travel, just the swap.
             detailFlight = flight
@@ -634,8 +653,8 @@ struct ArcRootView: View {
         heroTarget = 1
         heroFrames.detail = nil
         detailFlight = flight
-        if heroFrames.rows[flight.id] != nil {
-            heroTravelling = flight
+        if heroFrames.rows[source.key] != nil {
+            heroTravelling = source
         } else {
             // No row on screen to glide from (a widget, a notification, the
             // Passport list): the detail simply fades in over the tab.
@@ -682,10 +701,12 @@ struct ArcRootView: View {
         groundViewTask?.cancel()
         groundViewTask = nil
         controller.clearGateMarker()
+        let source: HeroSource = detailFriend.map { .friend($0, flight) } ?? .own(flight)
+        if detailFriend != nil { FriendsStore.shared.focusedRoute = nil }
         heroProgress = 1
         heroTarget = 0
-        if heroFrames.rows[flight.id] != nil {
-            heroTravelling = flight
+        if heroFrames.rows[source.key] != nil {
+            heroTravelling = source
         } else {
             // No row to glide back to (opened from a widget, Passport…):
             // the detail simply fades.
@@ -737,7 +758,7 @@ struct ArcRootView: View {
                 // Trips friends added for the two of you, waiting on an answer.
                 .badge(friendsStore.tripInvites.count)
                 Tab(ArcTab.friends.title, systemImage: ArcTab.friends.icon, value: ArcTab.friends) {
-                    tabSurface { FriendsScreen() }
+                    tabSurface { FriendsScreen(onSelect: { item in openFriendFlight(item) }) }
                 }
                 Tab(ArcTab.passport.title, systemImage: ArcTab.passport.icon, value: ArcTab.passport) {
                     tabSurface { PassportView { openDetail($0) } }
@@ -800,11 +821,11 @@ struct ArcRootView: View {
     /// The travelling copy of the tapped row, placed between where the list
     /// row is and where the detail's card is. Nothing while nothing travels.
     @ViewBuilder private var heroOverlay: some View {
-        if let flight = heroTravelling, let from = heroFrames.rows[flight.id] {
+        if let source = heroTravelling, let from = heroFrames.rows[source.key] {
             GeometryReader { geo in
                 let origin = geo.frame(in: .global).origin
                 let local = { (r: CGRect) in r.offsetBy(dx: -origin.x, dy: -origin.y) }
-                HeroCard(flight: flight, progress: heroProgress)
+                HeroCard(source: source, progress: heroProgress)
                     .modifier(HeroPlacement(progress: heroProgress,
                                             from: local(from),
                                             to: heroFrames.detail.map(local)
@@ -839,11 +860,15 @@ struct ArcRootView: View {
                         .modifier(SidePresence(side: .list, progress: heroProgress))
                         .allowsHitTesting(detailFlight == nil)
                     if let flight = detailFlight {
+                        let friend = detailFriend
                         FlightDetailView(flight: flight,
-                                         onShowAtGate: { f in showPlaneAtGate(f) },
-                                         onShowAirport: { f in showAirportView(f) },
-                                         onOpenFlight: { other in _ = show(other) },
-                                         onClose: { closeDetail() })
+                                         isOwnFlight: friend == nil,
+                                         onShowAtGate: friend == nil ? { f in showPlaneAtGate(f) } : nil,
+                                         onShowAirport: friend == nil ? { f in showAirportView(f) } : nil,
+                                         onOpenFlight: friend == nil ? { other in _ = show(other) } : nil,
+                                         onClose: { closeDetail() },
+                                         friend: friend?.user,
+                                         heroKey: friend?.id)
                             .id(flight.id)
                             .modifier(SidePresence(side: .detail, progress: heroProgress))
                     }
@@ -858,7 +883,7 @@ struct ArcRootView: View {
                 // transaction opened outside it never reaches this tree.
                 .animation(ArcTheme.morph, value: heroProgress)
                 .environment(\.heroFrames, heroFrames)
-                .environment(\.heroTravelling, heroTravelling?.id)
+                .environment(\.heroTravelling, heroTravelling?.key)
             }
             .offset(y: showAdd ? 1500 : 0)
             .animation(.spring(duration: 0.45), value: showAdd)
