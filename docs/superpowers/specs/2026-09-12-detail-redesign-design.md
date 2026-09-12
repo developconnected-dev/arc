@@ -21,6 +21,14 @@ row repeated.
   value or chevron, hairline between rows, grouped in one card style.
 - Nothing said twice. The header owns times, airports, terminals, gates,
   duration, date, status; nothing below repeats them.
+- "On Time" is a quote, and Arc only starts asking the operator the day
+  before (`Flight.isSoon`, 24 h). Further out the pill says "Scheduled" in
+  grey; a published delay is news at any distance and stays red. Flighty
+  draws the same line. (Revised after build 36: the pill read "On Time" in
+  grey five days out, which looked like a colour had gone missing.)
+- The grabber-row controls (menu, X) are 34 pt circles with 15 pt glyphs,
+  the status pill is 15 pt text, and the top line sits `Morph.detailTopInset`
+  (12 pt) below them. (Build 36's 28 pt controls were wedged against the pill.)
 
 ## The header (`DetailHeader`)
 

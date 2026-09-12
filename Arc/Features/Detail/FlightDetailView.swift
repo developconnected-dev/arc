@@ -73,8 +73,11 @@ struct FlightDetailView: View {
                 }
                 .padding(.horizontal, 16)
                 // Presented as a system sheet (a friend's invite preview) the
-                // content needs room under the sheet's own drag indicator.
-                .padding(.top, onClose == nil ? 26 : 0)
+                // content needs room under the sheet's own drag indicator. In
+                // the tab sheet the menu and X sit in the grabber row, and
+                // the top line needs a breath beneath them so the status pill
+                // is not wedged against the X.
+                .padding(.top, onClose == nil ? 26 : Morph.detailTopInset)
                 .padding(.bottom, 40)
             }
             .onAppear {
@@ -110,12 +113,14 @@ struct FlightDetailView: View {
             // The menu and the X live in the grabber row, beside the handle,
             // so the card can be the first line of the sheet.
             if onClose != nil {
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     if isOwnFlight { menuButton }
                     closeButton
                 }
                 .padding(.trailing, 16)
-                .offset(y: -33)
+                // Centred on the grabber's capsule, which sits 19pt above
+                // the content's top edge (see `BottomSheet`).
+                .offset(y: -19 - controlSize / 2)
             }
         }
         .confirmationDialog("Delete this flight?", isPresented: $confirmDelete, titleVisibility: .visible) {
@@ -164,12 +169,17 @@ struct FlightDetailView: View {
         .buttonStyle(.plain)
     }
 
+    /// The menu and the X: comfortable to hit, and sized to the 15pt text
+    /// they sit beside rather than to the grabber's capsule.
+    private let controlSize: CGFloat = 34
+
     private func circleIcon(_ name: String) -> some View {
         Image(systemName: name)
-            .font(.system(size: 13, weight: .bold))
+            .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(.secondary)
-            .frame(width: 28, height: 28)
+            .frame(width: controlSize, height: controlSize)
             .background(Color(.secondarySystemFill), in: Circle())
+            .contentShape(Circle())
     }
 
     // MARK: Whose flight

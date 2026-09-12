@@ -6,9 +6,9 @@ import XCTest
 /// line says, and when a time is allowed to turn red.
 @MainActor
 final class DetailHeaderModelTests: XCTestCase {
-    private func flight(status: FlightStatus = .scheduled, delay: Int = 0,
+    private func flight(status: FlightStatus = .scheduled, delay: Int = 0, hoursOut: Double = 5,
                         depTZ: String = "Europe/Zurich", arrTZ: String = "America/Chicago") -> Flight {
-        let dep = Date.now.addingTimeInterval(5 * 3600)
+        let dep = Date.now.addingTimeInterval(hoursOut * 3600)
         let f = Flight(flightNumber: "LX8", date: dep)
         f.scheduledDeparture = dep
         f.scheduledArrival = dep.addingTimeInterval(9.5 * 3600)
@@ -25,6 +25,19 @@ final class DetailHeaderModelTests: XCTestCase {
         XCTAssertFalse(m.departure.moved)
         XCTAssertFalse(m.arrival.moved)
         XCTAssertNil(m.departure.scheduledIfMoved)
+    }
+
+    /// "On Time" is a quote from the operator, and Arc only starts asking
+    /// the day before. Further out the pill says what the leg is — scheduled
+    /// — in the grey the header already gave it; a published delay is still
+    /// news at any distance.
+    func testAFlightDaysAwayIsScheduledNotOnTime() {
+        let far = DetailHeaderModel(flight: flight(hoursOut: 5 * 24))
+        XCTAssertEqual(far.pill.text, "Scheduled")
+        let tomorrow = DetailHeaderModel(flight: flight(hoursOut: 20))
+        XCTAssertEqual(tomorrow.pill.text, "On Time")
+        let moved = DetailHeaderModel(flight: flight(delay: 40, hoursOut: 5 * 24))
+        XCTAssertEqual(moved.pill.text, "Delayed 40m")
     }
 
     func testADelayedDepartureIsMovedAndShowsTheScheduledTime() {

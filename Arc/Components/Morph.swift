@@ -27,11 +27,16 @@ enum Morph {
     /// When the travelling copy has landed and the trees' copies take over.
     static let travelDuration: Double = 0.5
 
+    /// The breath between the grabber row (menu and X) and the header's top
+    /// line in the tab sheet — `FlightDetailView` pads by it, and the
+    /// fallback target below starts there.
+    static let detailTopInset: CGFloat = 12
+
     /// Where the detail's card is, in the sheet content's coordinates: the
     /// first thing under the grabber, spanning the content width less the
     /// row's inset that the detail undoes (`FlightDetailView.hero`).
     static func target(in size: CGSize, rowHeight: CGFloat) -> CGRect {
-        CGRect(x: 2, y: 0, width: size.width - 4, height: rowHeight)
+        CGRect(x: 2, y: detailTopInset, width: size.width - 4, height: rowHeight)
     }
 }
 
