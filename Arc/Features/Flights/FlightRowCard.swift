@@ -198,7 +198,9 @@ struct FlightRowCard: View {
             .font(.system(size: 14, weight: weight))
             .foregroundColor(flight.cardTopRightColor)
         guard text.hasPrefix(verb) else { return status }
-        return Text(verb).font(.system(size: 14)).foregroundColor(.secondary) + status
+        // Interpolated, not concatenated: `Text + Text` is deprecated in
+        // iOS 26; styled Texts inside the string keep their own styling.
+        return Text("\(Text(verb).font(.system(size: 14)).foregroundColor(.secondary))\(status)")
     }
 
     private func numberText(_ text: String) -> some View {
