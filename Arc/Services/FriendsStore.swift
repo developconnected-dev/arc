@@ -278,18 +278,33 @@ final class FriendsStore {
         return matches
     }
 
-    /// Match user's active/upcoming flights against friends' flights at the same airport within 3 hours.
-    func updateAirportOverlaps(with userFlights: [Flight]) {
-        let now = Date.now
+    /// The coincidences: a friend at one of my airports within three hours
+    /// of me, on a flight that is NOT mine. A friend on the same journey —
+    /// invited onto it, or the one who invited me — is a companion, shown
+    /// on the flight itself; matching their copy of my flight against mine
+    /// rang "Carl is at JSY too" and "at ATH too" for every accepted invite
+    /// the moment it landed in the list.
+    nonisolated static func airportOverlaps(myFlights userFlights: [Flight],
+                                            friends: [FriendEntry],
+                                            now: Date) -> [AirportOverlap] {
         var found: [AirportOverlap] = []
         let myUpcoming = userFlights.filter { $0.isUpcoming || $0.isActive || $0.isRecentlyLanded }
-        
+
         for myFlight in myUpcoming {
             let myDepTime = myFlight.effectiveDeparture
             let myArrTime = myFlight.effectiveArrival
-            
+            let myNumber = myFlight.flightNumber.replacingOccurrences(of: " ", with: "").uppercased()
+
             for entry in friends {
                 for friendFlight in entry.flights where friendFlight.status != "cancelled" {
+                    // Same flight number within a rotation of mine: the same
+                    // journey, by the rule `companions(for:)` uses.
+                    let friendNumber = friendFlight.flight_number.replacingOccurrences(of: " ", with: "").uppercased()
+                    if !myNumber.isEmpty, friendNumber == myNumber,
+                       let dep = FriendFlightMath.departure(friendFlight),
+                       abs(dep.timeIntervalSince(myFlight.scheduledDeparture)) < 18 * 3600 {
+                        continue
+                    }
                     // check departure or arrival IATA match
                     let friendDep = FriendFlightMath.departure(friendFlight) ?? now
                     let friendArr = FriendFlightMath.arrival(friendFlight) ?? friendDep.addingTimeInterval(2 * 3600)
@@ -332,6 +347,12 @@ final class FriendsStore {
                 }
             }
         }
+        return found
+    }
+
+    /// Match user's active/upcoming flights against friends' flights at the same airport within 3 hours.
+    func updateAirportOverlaps(with userFlights: [Flight]) {
+        let found = Self.airportOverlaps(myFlights: userFlights, friends: friends, now: .now)
         // Announce only what's newly discovered — against a PERSISTED set,
         // not in-memory state: every cold launch started with empty memory,
         // so the same "Anna is at ZRH too" fired again on every app open.
