@@ -347,3 +347,38 @@ final class LandingEvidenceTests: XCTestCase {
         XCTAssertEqual(f.status, .landed)
     }
 }
+
+/// A train or a ferry leaves when it leaves. There is no gate-to-runway
+/// gap to hedge across and no live feed that could ever confirm the
+/// departure, so the taxi machinery has no business holding it on the
+/// platform: a sailing that showed "Departing" for twenty minutes after
+/// it cast off, and would have slid further on any "still nothing"
+/// refresh, was Arc applying an airport's rules to a harbour.
+final class NonAirDepartureEvidenceTests: XCTestCase {
+    private let offBlock = Date(timeIntervalSince1970: 1_800_000_000)
+    private func at(_ minutes: Double) -> Date { offBlock.addingTimeInterval(minutes * 60) }
+
+    func testASailingIsUnderwayAtItsDepartureTime() {
+        let e = DepartureEvidence(mode: .sea, offBlock: offBlock, lastSeenOnGround: at(30), taxiPriorMinutes: 20)
+        XCTAssertEqual(e.expectedWheelsUp, offBlock)
+        XCTAssertEqual(e.phase(at: at(-1)), .beforeDeparture)
+        XCTAssertEqual(e.phase(at: at(1)), .presumedAirborne)
+    }
+
+    func testATrainCannotBeHeldOnThePlatformByAGroundSighting() {
+        let e = DepartureEvidence(mode: .rail, offBlock: offBlock,
+                                  groundState: "at_gate", groundObservedAt: at(3), taxiStartedAt: at(2))
+        XCTAssertEqual(e.phase(at: at(4)), .presumedAirborne)
+    }
+
+    func testAReportedDepartureStillConfirmsANonAirLeg() {
+        let e = DepartureEvidence(mode: .sea, offBlock: offBlock, actualDeparture: at(2))
+        XCTAssertEqual(e.phase(at: at(3)), .airborne)
+    }
+
+    func testAFlightKeepsItsTaxiThroughTheSameDoor() {
+        let e = DepartureEvidence(mode: .air, offBlock: offBlock, taxiPriorMinutes: 20)
+        XCTAssertEqual(e.phase(at: at(5)), .departing)
+        XCTAssertEqual(e.phase(at: at(21)), .presumedAirborne)
+    }
+}

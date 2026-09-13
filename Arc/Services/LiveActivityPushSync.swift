@@ -359,6 +359,8 @@ enum LiveActivityPushSync {
             "local": localExtras(for: activity),
             "flight": [
                 "flight_number": attrs.flightNumber,
+                // So the Worker never asks the airline feed about a ferry.
+                "mode": attrs.mode.rawValue,
                 "departure_iata": attrs.departureIATA,
                 "arrival_iata": attrs.arrivalIATA,
                 "departure_city": attrs.departureCity,

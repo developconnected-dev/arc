@@ -29,7 +29,7 @@ struct FlightLiveActivity: Widget {
                 .activityBackgroundTint(Color.black.opacity(0.6))
                 .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
-            let phase = effectivePhase(context.state)
+            let phase = effectivePhase(context.state, mode: context.attributes.mode)
             return DynamicIsland {
                 // Flighty's expanded in-flight layout: flight number top-left,
                 // seat top-right, then the full-width route/path/countdown
@@ -130,7 +130,7 @@ struct FlightLiveActivity: Widget {
                                         .foregroundStyle(arrivalStatusColor(context.state, context.attributes))
                                         .contentTransition(.numericText())
                                 }
-                                FlightPathProgress(state: context.state)
+                                FlightPathProgress(state: context.state, mode: context.attributes.mode)
                                     .frame(height: 18)
                                 arrivalCountdown(attrs: context.attributes, context.state)
                             }
@@ -348,14 +348,14 @@ struct FlightLiveActivity: Widget {
         attrs.mode == .air ? "airplane.arrival" : attrs.mode.symbol
     }
 
-    private func effectivePhase(_ state: FlightActivityAttributes.ContentState) -> Phase {
+    private func effectivePhase(_ state: FlightActivityAttributes.ContentState, mode: TripMode) -> Phase {
         if state.status == "landed" { return .landed }
         // The departure question is answered from evidence, never from the
         // clock alone — and NOT from the status either: providers flip to
         // "Departed" at off-block, which is the gate, not the runway. The
         // lock screen of someone in a 35-minute taxi read "In Air" because
         // an off-block status walked straight past this check.
-        switch state.departurePhase(at: .now) {
+        switch state.departurePhase(at: .now, mode: mode) {
         case .beforeDeparture:
             return .preDeparture
         case .departing, .taxiing:
@@ -379,15 +379,15 @@ struct FlightLiveActivity: Widget {
     /// marks a fact it cannot back. No standing "not confirmed" label: for a
     /// traveller who went offline at the door that would sit there for five
     /// hours, which is noise rather than honesty. The colour carries it.
-    private func departureConfirmed(_ state: FlightActivityAttributes.ContentState) -> Bool {
-        state.departurePhase(at: .now).isConfirmed
+    private func departureConfirmed(_ state: FlightActivityAttributes.ContentState, mode: TripMode) -> Bool {
+        state.departurePhase(at: .now, mode: mode).isConfirmed
     }
 
     /// Whether the aircraft has been seen rolling — the lock screen says so
     /// outright, with how long it has gone on, because that is the number a
     /// person in seat 14B is actually counting.
-    private func taxiSince(_ state: FlightActivityAttributes.ContentState) -> Date? {
-        if case .taxiing(let since) = state.departurePhase(at: .now) { return since }
+    private func taxiSince(_ state: FlightActivityAttributes.ContentState, mode: TripMode) -> Date? {
+        if case .taxiing(let since) = state.departurePhase(at: .now, mode: mode) { return since }
         return nil
     }
 
@@ -397,7 +397,7 @@ struct FlightLiveActivity: Widget {
     private func lockScreenView(context: ActivityViewContext<FlightActivityAttributes>) -> some View {
         let state = context.state
         let attrs = context.attributes
-        switch effectivePhase(state) {
+        switch effectivePhase(state, mode: attrs.mode) {
         case .preDeparture: preDepartureView(attrs: attrs, state: state)
         case .departing:    departingView(attrs: attrs, state: state)
         case .inFlight:     inFlightView(attrs: attrs, state: state)
@@ -442,16 +442,16 @@ struct FlightLiveActivity: Widget {
                         // WAITING on confirmation, and the gradient sweeps
                         // across the text over the hedge window.
                         IntelligenceShimmerText(
-                            text: taxiSince(state) != nil ? "Taxiing…" : "Departing…",
+                            text: taxiSince(state, mode: attrs.mode) != nil ? "Taxiing…" : "Departing…",
                             font: .system(size: 14, weight: .bold),
                             sweep: (state.offBlock ?? state.departureTime)...max(
-                                state.expectedWheelsUp,
+                                state.expectedWheelsUp(mode: attrs.mode),
                                 (state.offBlock ?? state.departureTime).addingTimeInterval(60)))
                         // Seen rolling: say for how long, and when the wheels
                         // are expected up. Otherwise say plainly that nobody
                         // has confirmed anything yet.
-                        if let since = taxiSince(state) {
-                            Text("\(Text(since, style: .timer)) · takeoff expected \(attrs.depTime(state.expectedWheelsUp))")
+                        if let since = taxiSince(state, mode: attrs.mode) {
+                            Text("\(Text(since, style: .timer)) · takeoff expected \(attrs.depTime(state.expectedWheelsUp(mode: attrs.mode)))")
                                 .font(.system(size: 10, weight: .medium).monospacedDigit())
                                 .foregroundStyle(.tertiary)
                         } else {
@@ -612,7 +612,7 @@ struct FlightLiveActivity: Widget {
 
             // Flighty's glowing flight-path line, filling left→right with
             // progress — self-animating even offline (see FlightPathProgress).
-            FlightPathProgress(state: state)
+            FlightPathProgress(state: state, mode: attrs.mode)
                 .frame(height: 24)
 
             arrivalCountdown(attrs: attrs, state)
@@ -661,7 +661,7 @@ struct FlightLiveActivity: Widget {
                     // it could start counting up.
                     Text(state.heroArrival, style: .relative)
                         .font(.system(size: 16, weight: .bold).monospacedDigit())
-                        .foregroundStyle(departureConfirmed(state) ? Color.green : Color.secondary)
+                        .foregroundStyle(departureConfirmed(state, mode: attrs.mode) ? Color.green : Color.secondary)
                         .multilineTextAlignment(.center)
                     // Deliberately NO estimated/confirmed hedge at the departure
                     // side (unlike landing): departure confirmation almost always
@@ -1106,12 +1106,13 @@ struct FlightLiveActivity: Widget {
 /// app terminated (see the -laDemo hook).
 struct FlightPathProgress: View {
     let state: FlightActivityAttributes.ContentState
+    let mode: TripMode
 
     /// Green means a source said this flight left the ground. Where Arc has
     /// only presumed it, the arc still draws — it is still the best estimate
     /// of where they are — but without the claim.
     private var tint: Color {
-        state.departurePhase(at: .now).isConfirmed ? .green : .secondary
+        state.departurePhase(at: .now, mode: mode).isConfirmed ? .green : .secondary
     }
 
     var body: some View {

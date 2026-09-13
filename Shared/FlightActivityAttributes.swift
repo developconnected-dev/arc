@@ -128,9 +128,12 @@ struct FlightActivityAttributes: ActivityAttributes {
         var taxiPriorMinutes: Int? = nil
 
         /// The lock screen's own copy of the question every Arc surface
-        /// answers the same way.
-        var departureEvidence: DepartureEvidence {
+        /// answers the same way. The state carries no mode — the attributes
+        /// do — so the widget hands it in: a ferry's card used to hedge
+        /// "Departing…" through an airport taxi it never takes.
+        func departureEvidence(mode: TripMode) -> DepartureEvidence {
             DepartureEvidence(
+                mode: mode,
                 offBlock: offBlock ?? departureTime,
                 estimatedTakeoff: estimatedTakeoff,
                 actualDeparture: actualDeparture,
@@ -138,13 +141,13 @@ struct FlightActivityAttributes: ActivityAttributes {
                 groundObservedAt: groundObservedAt,
                 taxiStartedAt: taxiStartedAt,
                 lastSeenOnGround: lastSeenOnGround,
-                taxiPriorMinutes: taxiPriorMinutes ?? DepartureEvidence.defaultTaxiPrior)
+                taxiPriorMinutes: taxiPriorMinutes)
         }
 
-        func departurePhase(at date: Date) -> DeparturePhase {
+        func departurePhase(at date: Date, mode: TripMode) -> DeparturePhase {
             if status == "landed" || status == "diverted" { return .airborne }
             if status == "cancelled" { return .beforeDeparture }
-            let phase = departureEvidence.phase(at: date)
+            let phase = departureEvidence(mode: mode).phase(at: date)
             if status == "active", phase == .beforeDeparture { return .airborne }
             return phase
         }
@@ -152,7 +155,7 @@ struct FlightActivityAttributes: ActivityAttributes {
         /// When the wheels are expected to leave the ground — what staleDate
         /// is pointed at, so the lock screen changes its mind at the right
         /// moment with no app running and no network.
-        var expectedWheelsUp: Date { departureEvidence.expectedWheelsUp }
+        func expectedWheelsUp(mode: TripMode) -> Date { departureEvidence(mode: mode).expectedWheelsUp }
 
         /// The clock lock, compact Island, and expanded Island all read.
         /// Built once so a Worker push and a local `update()` cannot disagree

@@ -913,15 +913,14 @@ enum FriendFlightMath {
     /// so this is where "Taxiing for 14m" comes from.
     static func evidence(_ f: ArcSupabase.SharedFlight) -> DepartureEvidence {
         DepartureEvidence(
+            mode: f.tripMode,
             offBlock: departure(f) ?? .distantPast,
             estimatedTakeoff: DateHelpers.parseAPIDate(f.est_takeoff),
             actualDeparture: DateHelpers.parseAPIDate(f.actual_departure),
             groundState: f.ground_state,
             groundObservedAt: DateHelpers.parseAPIDate(f.ground_observed_at),
             taxiStartedAt: DateHelpers.parseAPIDate(f.taxi_started_at),
-            lastSeenOnGround: nil,
-            taxiPriorMinutes: DepartureEvidence.defaultTaxiPrior,
-            isLiveCovered: f.tripMode == .air)
+            lastSeenOnGround: nil)
     }
 
     static func departurePhase(_ f: ArcSupabase.SharedFlight, at now: Date = .now) -> DeparturePhase {

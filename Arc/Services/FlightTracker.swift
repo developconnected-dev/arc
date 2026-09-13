@@ -757,8 +757,9 @@ final class FlightTracker: ObservableObject {
             flight.actualArrival = parsed
             flight.estimatedArrival = parsed
         }
-        flight.statusRaw = FlightStatus.heal(
-            rawValue: r.status, scheduledArrival: flight.scheduledArrival).rawValue
+        flight.statusRaw = Self.transitStatus(
+            local: flight.status,
+            provider: FlightStatus.heal(rawValue: r.status, scheduledArrival: flight.scheduledArrival)).rawValue
         flight.delayMinutes = r.delay ?? 0
         // A live train can lose its realtime feed, and then the leg genuinely
         // knows less than it did — the tier travels with the answer, not with
@@ -787,6 +788,17 @@ final class FlightTracker: ObservableObject {
             flight.disruptionSeenAt = .now
         }
         flight.lastStatusUpdate = .now
+    }
+
+    /// What a timetable answer may do to a leg's status. Ferryhopper and the
+    /// rail board say "scheduled" about a crossing that cast off an hour ago
+    /// — a timetable has no notion of underway — and stamping that onto the
+    /// leg every poll undid the clock's own "active" thirty minutes at a
+    /// time: row, card and map flapped between departing and at sea for the
+    /// whole voyage. Anything the provider actually KNOWS still wins.
+    nonisolated static func transitStatus(local: FlightStatus, provider: FlightStatus) -> FlightStatus {
+        if provider == .scheduled, local == .active || local == .landed { return local }
+        return provider
     }
 
     // MARK: - Live Position
