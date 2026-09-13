@@ -131,7 +131,17 @@ enum ConnectionPlanner {
 
     /// Two flights form a connection when the first lands where the second
     /// departs, with a same-journey-plausible gap (30 min – 24 h).
+    /// The soonest connection — what the tracker's risk alert and the detail
+    /// screen key on.
     static func detectConnection(from flights: [Flight]) -> (inbound: Flight, outbound: Flight)? {
+        detectConnections(from: flights).first
+    }
+
+    /// Every connection among the flights, soonest first. A trip is usually
+    /// two of them — the outbound legs and, days later, the return legs —
+    /// and the list draws a layover spine for each. Finding only the first
+    /// left the return pair looking like two unrelated flights.
+    static func detectConnections(from flights: [Flight]) -> [(inbound: Flight, outbound: Flight)] {
         // The inbound may already have LANDED — that is exactly when the
         // steps and the layover clock matter most, so it stays a connection
         // as long as the outbound hasn't left. Cancelled/diverted inbounds
@@ -140,7 +150,8 @@ enum ConnectionPlanner {
             .filter { $0.isUpcoming || $0.isActive || $0.isRecentlyLanded
                       || ($0.status == .landed && $0.effectiveArrival > Date.now.addingTimeInterval(-24 * 3600)) }
             .sorted { $0.scheduledDeparture < $1.scheduledDeparture }
-        guard relevant.count >= 2 else { return nil }
+        guard relevant.count >= 2 else { return [] }
+        var pairs: [(inbound: Flight, outbound: Flight)] = []
         for i in 0..<(relevant.count - 1) {
             let a = relevant[i], b = relevant[i + 1]
             // The OUTBOUND must still be ahead of the traveller.
@@ -150,9 +161,9 @@ enum ConnectionPlanner {
             guard a.mode == b.mode else { continue }
             guard a.arrivalIATA.uppercased() == b.departureIATA.uppercased() else { continue }
             let gap = b.scheduledDeparture.timeIntervalSince(a.scheduledArrival) / 60
-            if gap >= 30 && gap <= 24 * 60 { return (a, b) }
+            if gap >= 30 && gap <= 24 * 60 { pairs.append((a, b)) }
         }
-        return nil
+        return pairs
     }
 
     /// How this transfer reads to an MCT table: one country, one control area,

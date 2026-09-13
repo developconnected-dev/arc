@@ -27,6 +27,36 @@ final class ConnectionPlannerTests: XCTestCase {
         XCTAssertEqual(pair?.outbound.flightNumber, "LX8")
     }
 
+    /// The reported bug, as seen on a companion's phone: an outbound
+    /// MUC→ATH→JSY and, days later, the return JSY→ATH→MUC. Both are
+    /// connections. The list drew a spine for whichever the planner found
+    /// first and left the other pair looking like two unrelated flights.
+    func testEveryConnectionIsFound_NotJustTheFirst() {
+        let day = 24.0 * 60
+        let out1 = flight("LH1750", from: "MUC", to: "ATH", depOffsetMin: 60, durationMin: 165)
+        let out2 = flight("GQ20", from: "ATH", to: "JSY", depOffsetMin: 60 + 165 + 75, durationMin: 45)
+        let back1 = flight("GQ21", from: "JSY", to: "ATH", depOffsetMin: 5 * day, durationMin: 45)
+        let back2 = flight("LH1751", from: "ATH", to: "MUC", depOffsetMin: 5 * day + 105, durationMin: 165)
+        let pairs = ConnectionPlanner.detectConnections(from: [back2, out1, back1, out2])
+        XCTAssertEqual(pairs.map { $0.inbound.flightNumber }, ["LH1750", "GQ21"])
+        XCTAssertEqual(pairs.map { $0.outbound.flightNumber }, ["GQ20", "LH1751"])
+        // The single-pair form is the first of them, as before.
+        XCTAssertEqual(ConnectionPlanner.detectConnection(from: [out1, out2, back1, back2])?.inbound.flightNumber, "LH1750")
+    }
+
+    /// A leg cannot be the inbound of one connection and the outbound of
+    /// another at once — three legs through two hubs are two connections,
+    /// with the middle leg shared.
+    func testThreeLegsThroughTwoHubsAreTwoConnections() {
+        let a = flight("GQ21", from: "JSY", to: "ATH", depOffsetMin: 60, durationMin: 45)
+        let b = flight("LH1751", from: "ATH", to: "MUC", depOffsetMin: 60 + 45 + 60, durationMin: 165)
+        let c = flight("LH2470", from: "MUC", to: "CDG", depOffsetMin: 60 + 45 + 60 + 165 + 70, durationMin: 95)
+        let pairs = ConnectionPlanner.detectConnections(from: [a, b, c])
+        XCTAssertEqual(pairs.count, 2)
+        XCTAssertEqual(pairs[0].outbound.flightNumber, "LH1751")
+        XCTAssertEqual(pairs[1].inbound.flightNumber, "LH1751")
+    }
+
     func testNoConnectionAcrossDifferentAirports() {
         let a = flight("LX1413", from: "BEG", to: "ZRH", depOffsetMin: 60, durationMin: 120)
         let b = flight("BA713", from: "LHR", to: "JFK", depOffsetMin: 300, durationMin: 480)

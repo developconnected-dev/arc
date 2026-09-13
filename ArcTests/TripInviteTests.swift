@@ -32,6 +32,31 @@ final class TripInviteTests: XCTestCase {
         return f
     }
 
+    /// Two legs of one journey, invited separately and accepted separately,
+    /// must still read as the connection they are on the recipient's list —
+    /// the sender's list draws the layover spine between them, and the
+    /// recipient's must draw the same one.
+    func testConnectingLegsStayAConnectionAfterTheRoundTrip() throws {
+        let dep = Date.now.addingTimeInterval(3 * 24 * 3600)
+        func leg(_ number: String, from: String, to: String, dep: Date, minutes: Double) -> Flight {
+            let f = Flight(flightNumber: number, date: dep)
+            f.departureIATA = from; f.arrivalIATA = to
+            f.scheduledDeparture = dep
+            f.scheduledArrival = dep.addingTimeInterval(minutes * 60)
+            f.statusRaw = "scheduled"
+            return f
+        }
+        let first = leg("GQ21", from: "JSY", to: "ATH", dep: dep, minutes: 45)
+        let second = leg("LH1751", from: "ATH", to: "MUC", dep: dep.addingTimeInterval(105 * 60), minutes: 165)
+        XCTAssertNotNil(ConnectionPlanner.detectConnection(from: [first, second]), "the sender's own list sees the connection")
+
+        let copies = try [first, second].map { try TripInvitePayload.decode(TripInvitePayload.body(for: $0)).materialize() }
+        let pair = ConnectionPlanner.detectConnection(from: copies)
+        XCTAssertNotNil(pair, "the recipient's copies must connect too")
+        XCTAssertEqual(pair?.inbound.flightNumber, "GQ21")
+        XCTAssertEqual(pair?.outbound.flightNumber, "LH1751")
+    }
+
     func testRoundTripPreservesTheJourney() throws {
         let original = sampleFerry()
         let body = TripInvitePayload.body(for: original)
