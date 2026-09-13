@@ -367,7 +367,9 @@ enum LiveActivityPushSync {
                 "arrival_city": attrs.arrivalCity,
                 "airline": attrs.airline,
                 "aircraft_type": attrs.aircraftType as Any,
-                "seat": (state.seat ?? attrs.seat) as Any,
+                // Typed before the `as Any`, or `??` resolves to its Any
+                // overload and warns about the implicit coercion.
+                "seat": ((state.seat ?? attrs.seat) as String?) as Any,
                 // state.departureTime/arrivalTime are EFFECTIVE times —
                 // makeState already added the known delay. The Worker adds
                 // the provider's current delay on top of what we send here,

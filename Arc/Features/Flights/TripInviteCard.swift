@@ -30,8 +30,10 @@ struct TripInviteCard: View {
             HStack(spacing: 10) {
                 FriendAvatar(name: item.sender.display_name, size: 28,
                              avatarURL: item.sender.avatar_url)
-                (Text(item.sender.display_name).fontWeight(.bold)
-                 + Text(" added this trip for you together"))
+                // Interpolated, not concatenated: `Text + Text` is deprecated
+                // in iOS 26, and a styled Text inside the string keeps the
+                // bold name.
+                Text("\(Text(item.sender.display_name).fontWeight(.bold)) added this trip for you together")
                     .font(.system(size: 14))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
