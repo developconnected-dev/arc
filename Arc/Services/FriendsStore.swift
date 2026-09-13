@@ -203,14 +203,37 @@ final class FriendsStore {
         }
     }
 
+    /// Mirror the per-friend "Off" levels to the profile, so the Worker
+    /// knows whose flights this person does not want pushed. Only when the
+    /// list actually changed: a refresh runs often, a PATCH should not.
+    func syncMutedFriends() async {
+        guard ArcSupabase.shared.isSignedIn, !friends.isEmpty else { return }
+        let levels = Dictionary(friends.map { ($0.id, FriendAlerts.level(for: $0.id)) },
+                                uniquingKeysWith: { a, _ in a })
+        let muted = FriendAlerts.mutedFriendIds(levels: levels)
+        let key = "friendAlerts.mutedSynced"
+        guard (UserDefaults.standard.stringArray(forKey: key) ?? []) != muted else { return }
+        do {
+            try await ArcSupabase.shared.setMutedFriends(muted)
+            UserDefaults.standard.set(muted, forKey: key)
+        } catch {
+            // Next refresh tries again; until then the server may push one
+            // flight from a friend set to Off. Loud is better than lost.
+        }
+    }
+
     /// Announce invites the user hasn't been told about yet — against a
     /// PERSISTED set, so a background refresh and the next cold launch don't
     /// both ring for the same one.
     private func announceNewTripInvites(_ items: [TripInviteItem]) {
         let key = "tripInvites.announced"
         var announced = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
-        for item in items where !announced.contains(item.id) {
-            announced.insert(item.id)
+        // With a push token registered the Worker said it on the tick after
+        // the sender tapped; the set still fills so a later sign-out cannot
+        // replay every invite the server already announced.
+        let fresh = items.filter { !announced.contains($0.id) }
+        for item in fresh { announced.insert(item.id) }
+        for item in FriendAlerts.locallyDelivered(fresh, serverAnnounces: RemotePush.isRegistered) {
             ArcNotifications.notifyTripInvite(item)
         }
         // Prune answered/withdrawn ids so the set can't grow forever.
@@ -771,6 +794,7 @@ final class FriendsStore {
             for flight in allFlights { byUser[flight.user_id, default: []].append(flight) }
             for i in entries.indices { entries[i].flights = byUser[entries[i].id] ?? [] }
             friends = entries
+            await syncMutedFriends()
 
             let requests = try await supabase.getPendingRequests()
             var loadedPending: [(ArcSupabase.Friendship, ArcSupabase.ArcUser)] = []

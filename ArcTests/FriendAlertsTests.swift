@@ -269,3 +269,30 @@ final class APNsEnvironmentTests: XCTestCase {
         XCTAssertNil(APNsEnvironment.host(inProfile: profile("something-new")))
     }
 }
+
+/// Who says it: once the device has a registered push token, the Worker
+/// announces friend and invite news from the cron the minute it happens,
+/// and the local diff must stay quiet — or the same takeoff arrives twice,
+/// the second time hours late in a burst the next time the app opens.
+final class FriendAlertsOwnershipTests: XCTestCase {
+    private let event = FriendAlerts.Event(
+        friendName: "Anna", flightId: "f1", flightNumber: "LX2084",
+        route: "ZRH → LIS", arrivalCity: "Lisbon", kind: .tookOff)
+
+    func testServerOwnedNewsIsNotPostedLocally() {
+        XCTAssertTrue(FriendAlerts.locallyDelivered([event], serverAnnounces: true).isEmpty)
+    }
+
+    func testWithoutAPushTokenTheDeviceStillSaysIt() {
+        XCTAssertEqual(FriendAlerts.locallyDelivered([event], serverAnnounces: false), [event])
+    }
+
+    /// The per-friend "Off" level lives on the device; the server needs the
+    /// list to know whose flights this person does not want pushed.
+    func testMutedFriendsAreTheOnesSetToOff() {
+        let muted = FriendAlerts.mutedFriendIds(levels: [
+            "anna": .off, "bea": .notify, "carl": .live, "dan": .off,
+        ])
+        XCTAssertEqual(muted, ["anna", "dan"])
+    }
+}

@@ -49,6 +49,24 @@ enum FriendAlerts {
 
     static func setLevel(_ level: FriendNotificationLevel, for friendId: String) {
         UserDefaults.standard.set(level.rawValue, forKey: "friendNotify.\(friendId)")
+        // The Worker announces friends' flights now; "Off" has to reach it.
+        Task { await FriendsStore.shared.syncMutedFriends() }
+    }
+
+    /// The friends whose flights this person asked never to hear about —
+    /// what the profile's `muted_friends` mirrors for the Worker.
+    nonisolated static func mutedFriendIds(levels: [String: FriendNotificationLevel]) -> [String] {
+        levels.filter { $0.value == .off }.map(\.key).sorted()
+    }
+
+    /// Whether the device says it, or leaves it to the Worker. With a push
+    /// token registered the cron announces the same transitions the minute
+    /// they happen; the local diff still runs (it drives friend Live
+    /// Activities and keeps the baseline honest), but posting too would
+    /// say every takeoff twice — the second time hours late, in a burst,
+    /// the next time the app opened.
+    nonisolated static func locallyDelivered<T>(_ items: [T], serverAnnounces: Bool) -> [T] {
+        serverAnnounces ? [] : items
     }
 
     // MARK: - Events (pure, baseline-diffed)
@@ -131,7 +149,8 @@ enum FriendAlerts {
         let levels = Dictionary(entries.map { ($0.id, level(for: $0.id)) },
                                 uniquingKeysWith: { a, _ in a })
 
-        for event in events(baseline: baseline, flights: flights, levels: levels, at: now) {
+        let found = events(baseline: baseline, flights: flights, levels: levels, at: now)
+        for event in locallyDelivered(found, serverAnnounces: RemotePush.isRegistered) {
             post(event)
         }
 
