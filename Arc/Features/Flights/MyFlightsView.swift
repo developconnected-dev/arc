@@ -126,7 +126,7 @@ struct MyFlightsView: View {
                                     Divider().padding(.leading, 20)
                                 }
                             }
-                        if isConnectionGap(after: idx), let plan = connectionPlan {
+                        if let plan = connectionPlan(after: idx) {
                             layoverConnector(plan)
                                 .listRowSeparator(.hidden)
                                 .listRowBackground(Color.clear)
@@ -146,6 +146,18 @@ struct MyFlightsView: View {
                 await FlightTracker.shared.burstUpdate(flights: Array(allFlights), modelContext: modelContext)
                 // Pull-to-refresh is also "did anyone add a trip for me?"
                 await friendsStore.refresh(force: true)
+            }
+            // `-autoAcceptInvites`: press Accept on each seeded invite, a few
+            // seconds apart, through the very handler the button uses — so
+            // the accept moment can be recorded on a simulator nothing can
+            // tap. Demo-only, like the seeds it acts on.
+            .task {
+                guard DemoSeed.isAutoAcceptRequested else { return }
+                try? await Task.sleep(for: .seconds(4))
+                for item in friendsStore.tripInvites {
+                    accept(item)
+                    try? await Task.sleep(for: .seconds(5))
+                }
             }
             .onChange(of: landed) { _, ids in
                 guard let row = Self.rowToReveal(ids: Set(ids), among: Array(allFlights)) else { return }
@@ -195,21 +207,29 @@ struct MyFlightsView: View {
 
     // MARK: Connection grouping
 
-    /// The one connection among the listed flights, if any — computed from the
-    /// same planner the detail screen uses, so both agree on what a journey is.
-    private var connectionPair: (inbound: Flight, outbound: Flight)? {
-        ConnectionPlanner.detectConnection(from: allFlights)
-    }
-
-    private var connectionPlan: ConnectionPlanner.Plan? {
-        connectionPair.map { ConnectionPlanner.plan(inbound: $0.inbound, outbound: $0.outbound) }
+    /// Every connection among the listed flights — computed from the same
+    /// planner the detail screen uses, so both agree on what a journey is.
+    /// All of them, not the first: a trip's outbound and return legs are
+    /// two connections, and each gets its spine.
+    private var connectionPairs: [(inbound: Flight, outbound: Flight)] {
+        ConnectionPlanner.detectConnections(from: allFlights)
     }
 
     /// True when the row at `idx` is the inbound leg and the next row is its
     /// outbound — the gap between them is a layover, not a separator.
     private func isConnectionGap(after idx: Int) -> Bool {
-        guard let pair = connectionPair, idx + 1 < flights.count else { return false }
-        return flights[idx].id == pair.inbound.id && flights[idx + 1].id == pair.outbound.id
+        connectionPair(after: idx) != nil
+    }
+
+    private func connectionPair(after idx: Int) -> (inbound: Flight, outbound: Flight)? {
+        guard idx + 1 < flights.count else { return nil }
+        return connectionPairs.first {
+            flights[idx].id == $0.inbound.id && flights[idx + 1].id == $0.outbound.id
+        }
+    }
+
+    private func connectionPlan(after idx: Int) -> ConnectionPlanner.Plan? {
+        connectionPair(after: idx).map { ConnectionPlanner.plan(inbound: $0.inbound, outbound: $0.outbound) }
     }
 
     /// The live layover line between two connected legs: a continuous spine

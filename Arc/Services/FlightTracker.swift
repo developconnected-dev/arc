@@ -285,7 +285,7 @@ final class FlightTracker: ObservableObject {
                 // delays and alert when the tier WORSENS (never on improvement
                 // or repetition — the notification id also dedupes per tier).
                 let live = flights.filter { !$0.isDeleted && $0.modelContext != nil }
-                if let pair = ConnectionPlanner.detectConnection(from: live) {
+                for pair in ConnectionPlanner.detectConnections(from: live) {
                     let plan = ConnectionPlanner.plan(inbound: pair.inbound, outbound: pair.outbound)
                     if let last = self.lastConnectionRisk[pair.outbound.id], rank(plan.risk) > rank(last) {
                         ArcNotifications.notifyConnectionRisk(plan)

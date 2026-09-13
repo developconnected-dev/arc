@@ -345,11 +345,22 @@ enum DemoSeed {
     /// together" into the store — no network, no second account — so the
     /// invite card can be seen and exercised in the simulator. Accept goes
     /// through the real path (materialise + save); the cloud answer no-ops.
-    static var isTripInviteRequested: Bool { ProcessInfo.processInfo.arguments.contains("-seedTripInvite") }
+    static var isTripInviteRequested: Bool {
+        ProcessInfo.processInfo.arguments.contains("-seedTripInvite")
+            || ProcessInfo.processInfo.arguments.contains("-seedConnectingInvites")
+    }
+    /// `-seedConnectingInvites`: a whole trip (MUC→ATH→JSY out, JSY→ATH→MUC
+    /// back) as four separate invites, the way a companion receives them —
+    /// to see what the recipient's list makes of them once all are accepted.
+    /// `-autoAcceptInvites`: accept every seeded invite a few seconds after
+    /// launch, through the list's own handler (see MyFlightsView).
+    static var isAutoAcceptRequested: Bool { ProcessInfo.processInfo.arguments.contains("-autoAcceptInvites") }
+    static var isConnectingInvitesRequested: Bool { ProcessInfo.processInfo.arguments.contains("-seedConnectingInvites") }
 
     @MainActor
     static func seedTripInviteIfRequested() {
         guard isTripInviteRequested, FriendsStore.shared.tripInvites.isEmpty else { return }
+        if isConnectingInvitesRequested { seedConnectingInvites(); return }
         let ref = ReferenceData.shared
         let dep = Date.now.addingTimeInterval(3 * 24 * 3600 + 5 * 3600)
         let iso = ISO8601DateFormatter()
@@ -372,6 +383,46 @@ enum DemoSeed {
         let peter = ArcSupabase.ArcUser(id: "demo-peter", display_name: "Peter Müller",
                                         handle: "peter", avatar_url: nil, home_airport: "ZRH", nationality: "CH")
         FriendsStore.shared.tripInvites = [FriendsStore.TripInviteItem(invite: invite, sender: peter)]
+    }
+
+    @MainActor
+    private static func seedConnectingInvites() {
+        let ref = ReferenceData.shared
+        let iso = ISO8601DateFormatter()
+        let base = Date.now.addingTimeInterval(3 * 24 * 3600 + 5 * 3600)
+        func payload(_ number: String, _ airline: String, _ icao: String,
+                     from dep: String, to arr: String, dep at: Date, minutes: Double) -> TripInvitePayload {
+            var p = TripInvitePayload()
+            p.mode = "air"; p.data_tier = "live"
+            p.flight_number = number; p.airline = airline; p.airline_icao = icao
+            p.departure_iata = dep; p.arrival_iata = arr
+            p.departure_city = ref.airport(dep)?.city ?? dep
+            p.arrival_city = ref.airport(arr)?.city ?? arr
+            p.departure_lat = ref.airport(dep)?.lat; p.departure_lon = ref.airport(dep)?.lon
+            p.arrival_lat = ref.airport(arr)?.lat; p.arrival_lon = ref.airport(arr)?.lon
+            p.scheduled_departure = iso.string(from: at)
+            p.scheduled_arrival = iso.string(from: at.addingTimeInterval(minutes * 60))
+            p.status = "scheduled"; p.delay_minutes = 0
+            return p
+        }
+        // The whole trip: out MUC→ATH→JSY tomorrow, back JSY→ATH→MUC three
+        // days on. Two connections — the list must draw a spine for each.
+        let out = Date.now.addingTimeInterval(24 * 3600 + 5 * 3600)
+        let legs = [
+            payload("LH1750", "Lufthansa", "DLH", from: "MUC", to: "ATH", dep: out, minutes: 165),
+            payload("GQ20", "Sky Express", "SEH", from: "ATH", to: "JSY", dep: out.addingTimeInterval(240 * 60), minutes: 45),
+            payload("GQ21", "Sky Express", "SEH", from: "JSY", to: "ATH", dep: base, minutes: 45),
+            payload("LH1751", "Lufthansa", "DLH", from: "ATH", to: "MUC", dep: base.addingTimeInterval(105 * 60), minutes: 165),
+        ]
+        let peter = ArcSupabase.ArcUser(id: "demo-peter", display_name: "Peter Müller",
+                                        handle: "peter", avatar_url: nil, home_airport: "ZRH", nationality: "CH")
+        FriendsStore.shared.tripInvites = legs.enumerated().map { i, p in
+            let invite = ArcSupabase.TripInvite(
+                id: "demo-invite-\(i)", from_user: "demo-peter", to_user: "me",
+                flight_number: p.flight_number ?? "", scheduled_departure: p.scheduled_departure ?? "",
+                status: "pending", created_at: iso.string(from: .now), flight: p)
+            return FriendsStore.TripInviteItem(invite: invite, sender: peter)
+        }
     }
 
     /// One-off verification hook, `-seedStuckFlight`: seeds a real flight
