@@ -3216,7 +3216,10 @@ async function announceFriendFlights(env: Env): Promise<void> {
     }
     await sbService(env, "PATCH", `/shared_flights?id=eq.${row.id}`, { alert_state: state });
   }
-  if (rows.length > 0 && (recorded > 0 || announced > 0)) {
+  // Every tick, like the watcher's census: an announcer quietly seeing no
+  // rows and one whose select 400'd on a missing column look identical
+  // from outside — sbSelect answers [] for both.
+  if (rows.length > 0) {
     console.log("friend news:", rows.length, "rows,", recorded, "recorded,", announced, "announced");
   }
 }
