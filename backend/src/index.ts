@@ -4,6 +4,7 @@ import { classifyGround, taxiPriorMinutes, adbPositionToSample, landedSighting, 
 import { predictGate, standFromBoard, type GateObservation } from "./gates";
 import { contentState, liveActivityClock, sanitizeLiveActivityLocal } from "./activity";
 import { flightNews, laAlert, type WatchState } from "./alerts";
+import { friendFlightNews, tripInviteNews, recipientsFor, type FriendAlertState } from "./social";
 import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS, adbGate, resetAtFromHeader, ADB_MONTHLY_UNITS, ADB_UNITS_PER_CALL, cronRefreshIntervalMs, takeoffWatchDue } from "./freshness";
 import { pickLeg, plausibleActualDeparture, plausibleEstimatedArrival, effectiveDelayMinutes } from "./legmatch";
 import { verifiedRoute } from "./place";
@@ -2643,6 +2644,20 @@ async function runLiveActivityCron(env: Env): Promise<void> {
     await refreshSharedFlights(env);
   } catch (e) { console.error("shared refresh failed:", String(e)); }
 
+  // Friend and invite news, straight after the rows it reads were refreshed.
+  // These used to be local notifications, diffed on the READER's phone — so
+  // "Anna is in the air" fired whenever Anna's friend next opened Arc, in a
+  // burst with everything else that phone had missed. Every row the diff
+  // needs is right here, every minute.
+  if (apnsConfigured(env)) {
+    try {
+      await announceFriendFlights(env);
+    } catch (e) { console.error("friend announce failed:", String(e)); }
+    try {
+      await announceTripInvites(env);
+    } catch (e) { console.error("invite announce failed:", String(e)); }
+  }
+
   // LAST, deliberately. Flights that are still too far out for a Live Activity
   // to exist are the only path by which a cancellation the night before
   // reaches anyone — but they are also the least time-critical thing this tick
@@ -3117,13 +3132,14 @@ async function watchUpcoming(env: Env): Promise<void> {
 /// Deliver one alert to every device a user has registered, and forget the
 /// ones APNs says are gone.
 async function sendToUser(env: Env, userId: string, title: string, body: string,
-                          collapseId: string, threadId: string): Promise<void> {
+                          collapseId: string, threadId: string,
+                          userInfo?: Record<string, string>): Promise<void> {
   const tokens = await sbSelect(env,
     `/device_tokens?select=token,apns_env&user_id=eq.${encodeURIComponent(userId)}`
   ) as unknown as { token: string; apns_env: "sandbox" | "production" }[];
   for (const t of tokens.slice(0, 5)) {
     const { status, reason } = await sendAlertPush(env, t.token, t.apns_env, APP_BUNDLE_ID,
-                                                   { title, body }, collapseId, threadId);
+                                                   { title, body }, collapseId, threadId, userInfo);
     if (status !== 200) {
       console.error("alert push non-200:", status, reason ?? "(no reason)", threadId, t.token.slice(0, 8),
                     tokenIsDead(status, reason) ? "(dropping token)" : "(keeping token)");
@@ -3133,6 +3149,156 @@ async function sendToUser(env: Env, userId: string, title: string, body: string,
     // alert take every device token — the whole alert channel — with it.
     if (tokenIsDead(status, reason)) {
       await sbService(env, "DELETE", `/device_tokens?token=eq.${encodeURIComponent(t.token)}`);
+    }
+  }
+}
+
+/// Say what friends' flights just did — took off, landed, went materially
+/// late — to the people who share them, from the rows the refresher above
+/// just brought up to date.
+///
+/// The diff is against `alert_state` on the row itself, not against anything
+/// on a phone: the first tick that sees a flight records it silently, and
+/// each later tick announces only a transition. One statement per fact for
+/// all of a traveller's friends, so a takeoff is one push per friend and
+/// never one per tick.
+///
+/// Bounded per tick: Cloudflare caps subrequests per invocation, and a
+/// first deploy finds every row unrecorded. Rows left over wait a minute.
+const FRIEND_RECORDS_PER_TICK = 40;
+const FRIEND_NEWS_PER_TICK = 10;
+
+async function announceFriendFlights(env: Env): Promise<void> {
+  const now = Date.now();
+  const from = new Date(now - 24 * 3600_000).toISOString();
+  const to = new Date(now + 30 * 3600_000).toISOString();
+  const rows = await sbSelect(env,
+    "/shared_flights?select=id,user_id,flight_number,departure_iata,arrival_iata,arrival_city," +
+    "scheduled_departure,status,delay_minutes,actual_departure,ground_state,ground_observed_at," +
+    "audience,alert_state" +
+    `&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}`
+  ) as unknown as Record<string, any>[];
+
+  let recorded = 0, announced = 0;
+  for (const row of rows) {
+    const prior = (row.alert_state ?? {}) as FriendAlertState;
+    const { news, state } = friendFlightNews({
+      flightId: String(row.id),
+      travellerName: "",   // filled in below, only when there is news
+      flightNumber: String(row.flight_number ?? ""),
+      departureIata: String(row.departure_iata ?? ""),
+      arrivalIata: String(row.arrival_iata ?? ""),
+      arrivalCity: String(row.arrival_city || row.arrival_iata || ""),
+      status: String(row.status ?? "scheduled"),
+      delayMinutes: Number(row.delay_minutes ?? 0),
+      actualDeparture: (row.actual_departure as string | null) ?? null,
+      groundState: (row.ground_state as string | null) ?? null,
+      groundObservedAt: (row.ground_observed_at as string | null) ?? null,
+      now,
+      prior,
+    });
+    const changed = state.phase !== prior.phase || state.delay !== prior.delay;
+    if (!changed) continue;
+    if (news) {
+      if (announced >= FRIEND_NEWS_PER_TICK) continue;
+      announced++;
+      try {
+        await pushFriendNews(env, row, news.kind, news.collapseId);
+      } catch (e) {
+        // Say nothing this tick, record nothing — the transition is still
+        // pending in the row and the next tick tries again.
+        console.error("friend news failed:", row.id, String(e));
+        continue;
+      }
+    } else {
+      if (recorded >= FRIEND_RECORDS_PER_TICK) continue;
+      recorded++;
+    }
+    await sbService(env, "PATCH", `/shared_flights?id=eq.${row.id}`, { alert_state: state });
+  }
+  if (rows.length > 0 && (recorded > 0 || announced > 0)) {
+    console.log("friend news:", rows.length, "rows,", recorded, "recorded,", announced, "announced");
+  }
+}
+
+/// One fact about one traveller's flight, to every friend who should hear it.
+/// The wording is recomputed here with the traveller's name, which the row
+/// does not carry.
+async function pushFriendNews(env: Env, row: Record<string, any>, kind: string, collapseId: string): Promise<void> {
+  const travellerId = String(row.user_id);
+  const uid = encodeURIComponent(travellerId);
+  const [friendships, travellers] = await Promise.all([
+    sbSelect(env, `/friendships?select=requester_id,addressee_id,status&status=eq.accepted` +
+                  `&or=(requester_id.eq.${uid},addressee_id.eq.${uid})`),
+    sbSelect(env, `/profiles?select=display_name&id=eq.${uid}`),
+  ]);
+  const candidates = recipientsFor({
+    travellerId, audience: (row.audience as string[] | null) ?? null,
+    friendships: friendships as any, profiles: [],
+  });
+  if (candidates.length === 0) return;
+  const profiles = await sbSelect(env,
+    `/profiles?select=id,muted_friends&id=in.(${candidates.map(encodeURIComponent).join(",")})`);
+  const recipients = recipientsFor({
+    travellerId, audience: (row.audience as string[] | null) ?? null,
+    friendships: friendships as any, profiles: profiles as any,
+  });
+  const name = String(travellers[0]?.display_name || "A friend");
+  const { news } = friendFlightNews({
+    flightId: String(row.id), travellerName: name,
+    flightNumber: String(row.flight_number ?? ""),
+    departureIata: String(row.departure_iata ?? ""), arrivalIata: String(row.arrival_iata ?? ""),
+    arrivalCity: String(row.arrival_city || row.arrival_iata || ""),
+    status: String(row.status ?? "scheduled"), delayMinutes: Number(row.delay_minutes ?? 0),
+    actualDeparture: (row.actual_departure as string | null) ?? null,
+    groundState: (row.ground_state as string | null) ?? null,
+    groundObservedAt: (row.ground_observed_at as string | null) ?? null,
+    now: Date.now(), prior: (row.alert_state ?? {}) as FriendAlertState,
+  });
+  if (!news) return;
+  console.log("friend news:", kind, row.flight_number, "from", travellerId.slice(0, 8),
+              "to", recipients.length, "friend(s)");
+  for (const userId of recipients) {
+    // `friendFlightId` is what ArcDeepLink reads to open THIS row, not a
+    // same-numbered flight of the reader's own.
+    await sendToUser(env, userId, news.title, news.body, collapseId, String(row.id),
+                     { friendFlightId: String(row.id) });
+  }
+}
+
+/// "Carl added a trip for you together", on the tick after Carl tapped it.
+/// The invite row is written by the sender's device straight into Supabase;
+/// the recipient's phone used to be the only thing that ever looked.
+async function announceTripInvites(env: Env): Promise<void> {
+  const rows = await sbSelect(env,
+    "/trip_invites?select=id,from_user,to_user,flight_number,scheduled_departure,flight,created_at" +
+    "&status=eq.pending&announced_at=is.null&order=created_at.asc&limit=20"
+  ) as unknown as Record<string, any>[];
+  const now = Date.now();
+  for (const inv of rows) {
+    try {
+      const created = Date.parse(String(inv.created_at ?? ""));
+      // Older than a day: from before this existed, or from a stretch the
+      // cron was down. The card is still pinned in My Trips; a push a day
+      // late would only read as a repeat.
+      const stale = !Number.isFinite(created) || now - created > 24 * 3600_000;
+      if (!stale) {
+        const sender = await sbSelect(env,
+          `/profiles?select=display_name&id=eq.${encodeURIComponent(String(inv.from_user))}`);
+        const f = (inv.flight ?? {}) as Record<string, any>;
+        const n = tripInviteNews({
+          senderName: String(sender[0]?.display_name || "A friend"),
+          departureCity: String(f.departure_city ?? ""),
+          arrivalCity: String(f.arrival_city ?? ""),
+          scheduledDeparture: String(inv.scheduled_departure ?? f.scheduled_departure ?? ""),
+        });
+        await sendToUser(env, String(inv.to_user), n.title, n.body, `trip-invite-${inv.id}`, "trip-invites");
+        console.log("trip invite announced:", inv.flight_number, "to", String(inv.to_user).slice(0, 8));
+      }
+      await sbService(env, "PATCH", `/trip_invites?id=eq.${inv.id}`,
+                      { announced_at: new Date(now).toISOString() });
+    } catch (e) {
+      console.error("trip invite announce failed:", inv?.id, String(e));
     }
   }
 }

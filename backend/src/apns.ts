@@ -71,6 +71,24 @@ function b64urlBytes(bytes: Uint8Array): string {
 /// before dropping anything — deleting on the status alone would let one
 /// malformed alert delete every device token it was sent to, taking the
 /// whole alert channel dark with no error anywhere a phone could show.
+/// The body of an alert push. Custom keys sit beside `aps` — that is where
+/// iOS puts them into the notification's userInfo, which is what a tap reads
+/// to find the flight it was about — and can never replace `aps` itself.
+export function alertPayload(
+  alert: { title: string; body: string },
+  threadId?: string,
+  userInfo?: Record<string, string>
+): Record<string, unknown> {
+  return {
+    ...(userInfo ?? {}),
+    aps: {
+      alert: { title: alert.title, body: alert.body },
+      sound: "default",
+      ...(threadId ? { "thread-id": threadId } : {}),
+    },
+  };
+}
+
 export async function sendAlertPush(
   env: ApnsEnv,
   deviceToken: string,
@@ -78,7 +96,8 @@ export async function sendAlertPush(
   bundleId: string,
   alert: { title: string; body: string },
   collapseId?: string,
-  threadId?: string
+  threadId?: string,
+  userInfo?: Record<string, string>
 ): Promise<ApnsResult> {
   const host = apnsHostEnv === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com";
   const jwt = await apnsJwt(env);
@@ -95,13 +114,7 @@ export async function sendAlertPush(
       ...(collapseId ? { "apns-collapse-id": collapseId.slice(0, 64) } : {}),
       "content-type": "application/json",
     },
-    body: JSON.stringify({
-      aps: {
-        alert: { title: alert.title, body: alert.body },
-        sound: "default",
-        ...(threadId ? { "thread-id": threadId } : {}),
-      },
-    }),
+    body: JSON.stringify(alertPayload(alert, threadId, userInfo)),
   });
   let reason: string | null = null;
   if (res.status !== 200) {

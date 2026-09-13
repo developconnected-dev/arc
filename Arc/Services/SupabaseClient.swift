@@ -215,6 +215,13 @@ final class ArcSupabase: ObservableObject {
         await loadProfile()
     }
 
+    /// The friends whose flights the Worker must not push to this person.
+    /// Own row only, through the profile update policy.
+    func setMutedFriends(_ friendIds: [String]) async throws {
+        guard let uid = currentUser?.id else { return }
+        _ = try await patch(path: "/rest/v1/profiles?id=eq.\(uid)", body: ["muted_friends": friendIds])
+    }
+
     /// Sets or clears the avatar (a compact data: URL — Memoji sticker or
     /// photo). Separate from updateProfile so "clear" is expressible.
     func updateAvatar(dataURL: String?) async throws {

@@ -46,3 +46,23 @@ test("our own end of the problem is never the device's fault", () => {
 test("a delivered push is not a dead token", () => {
   assert.equal(tokenIsDead(200, null), false);
 });
+
+// ── The alert payload: what a tap has to work with ──
+//
+// A friend alert carries the shared_flights row id so the tap opens THAT
+// flight (ArcDeepLink reads `friendFlightId` off userInfo). Custom keys ride
+// at the top level of the payload, beside `aps`, which is where iOS puts
+// them into userInfo — and `aps` itself must never be overwritable by them.
+import { alertPayload } from "../src/apns.ts";
+
+test("custom keys ride beside aps and reach userInfo", () => {
+  const p = alertPayload({ title: "t", body: "b" }, "thread", { friendFlightId: "f1" });
+  assert.equal(p.friendFlightId, "f1");
+  assert.equal((p.aps as any).alert.title, "t");
+  assert.equal((p.aps as any)["thread-id"], "thread");
+});
+
+test("a custom key can never replace aps", () => {
+  const p = alertPayload({ title: "t", body: "b" }, undefined, { aps: "nope" } as any);
+  assert.equal((p.aps as any).alert.body, "b");
+});
