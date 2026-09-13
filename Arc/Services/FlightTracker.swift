@@ -496,12 +496,13 @@ final class FlightTracker: ObservableObject {
     private func updateFlightStatus(_ flight: Flight) async {
         switch flight.mode {
         case .air:
-            await refreshAirLeg(flight)
+            let hasProviderGate = await refreshAirLeg(flight)
+            guard !flight.isDeleted, flight.modelContext != nil else { return }
             // Runs inside pollWithChangeHandling on purpose: a gate found on
             // the board rides the same change detection as one found by
             // number — the notification, the flywheel observation, the
             // friends mirror.
-            await backfillDepartureGate(flight)
+            if !hasProviderGate { await backfillDepartureGate(flight) }
         case .rail: await refreshRailLeg(flight)
         case .sea: await refreshSeaLeg(flight)
         }
@@ -515,12 +516,10 @@ final class FlightTracker: ObservableObject {
     /// airline's app for over an hour while Arc showed none, because the
     /// airport's departure board had it and nothing ever asked. The same
     /// asymmetry /arrival-gate exists for, on the other side of the flight.
-    /// Only inside the window where boards actually publish gates, only while
-    /// there is no real gate, and never overwriting one: a by-number gate
-    /// arrives with the rest of the leg and stays authoritative.
+    /// Keep refreshing board-sourced gates within the departure window.
+    /// A gate in the current by-number response takes precedence at the caller.
     private func backfillDepartureGate(_ flight: Flight) async {
-        guard flight.departureGate == nil,
-              flight.isUpcoming, flight.actualDeparture == nil else { return }
+        guard flight.isUpcoming, flight.actualDeparture == nil else { return }
         // Boards publish gates in the final hours, and a board row is gone
         // shortly after the flight leaves — outside this window there is
         // nothing to learn for the price of a whole-airport FIDS call. The
@@ -537,19 +536,32 @@ final class FlightTracker: ObservableObject {
         let last = lastDepGateCheck[flight.id] ?? .distantPast
         guard Date.now.timeIntervalSince(last) >= 10 * 60 else { return }
         lastDepGateCheck[flight.id] = .now
+        let gateBeforeRequest = flight.departureGate
         guard let stand = await FlightAPIClient.shared.departureStand(
             icao: icao, flight: flight.flightNumber,
             departure: flight.scheduledDeparture, timeZone: flight.depTimeZone)
         else { return }
         // The network round-trip is exactly where a deletion can land.
         guard !flight.isDeleted, flight.modelContext != nil,
-              flight.departureGate == nil else { return }
-        if let gate = stand.gate, !gate.isEmpty { flight.departureGate = gate }
+              flight.departureGate == gateBeforeRequest else { return }
+        Self.applyBoardGate(stand.gate, to: flight)
         if let terminal = stand.terminal, !terminal.isEmpty,
            flight.departureTerminal == nil { flight.departureTerminal = terminal }
     }
 
-    private func refreshAirLeg(_ flight: Flight) async {
+    static func applyBoardGate(_ gate: String?, to flight: Flight) {
+        guard let gate, !gate.isEmpty else { return }
+        if let old = flight.departureGate, old != gate { flight.previousDepartureGate = old }
+        flight.departureGate = gate
+    }
+
+    /// Missing addresses on a replacement aircraft must never retain the old tail's ID.
+    static func applyAircraftAddress(_ address: String?, swapped: Bool, to flight: Flight) {
+        if let address, !address.isEmpty { flight.aircraftICAO24 = address }
+        else if swapped { flight.aircraftICAO24 = nil }
+    }
+
+    private func refreshAirLeg(_ flight: Flight) async -> Bool {
         // ADB's date is the LOCAL departure date at the airport — UTC
         // formatting fetched yesterday's leg for early-morning departures.
         let dateStr = DateHelpers.apiDate(flight.scheduledDeparture, at: flight.departureIATA)
@@ -561,7 +573,8 @@ final class FlightTracker: ObservableObject {
             // One number often flies several legs a day (A→B→C); blindly
             // taking the first stamped the WRONG leg's status, gates and
             // actual times onto the tracked flight every poll.
-            guard let latest = ScheduleBackfill.bestLeg(results, matching: flight, allowRouteChange: false) else { return }
+            guard !flight.isDeleted, flight.modelContext != nil else { return false }
+            guard let latest = ScheduleBackfill.bestLeg(results, matching: flight, allowRouteChange: false) else { return false }
 
             // Update status
             flight.statusRaw = FlightStatus.heal(rawValue: latest.status, scheduledArrival: flight.scheduledArrival).rawValue
@@ -654,18 +667,20 @@ final class FlightTracker: ObservableObject {
                     flight.inboundChecked = false
                     flight.inboundFlightNumber = nil
                     flight.aircraftRegistration = reg
-                    if let icao24 = latest.aircraft_icao24, !icao24.isEmpty { flight.aircraftICAO24 = icao24 }
+                    Self.applyAircraftAddress(latest.aircraft_icao24, swapped: true, to: flight)
                     let swapped = flight
                     Task { @MainActor in await InboundMonitor.checkInbound(for: swapped) }
                 } else {
                     flight.aircraftRegistration = reg
                 }
             }
-            if let icao24 = latest.aircraft_icao24, !icao24.isEmpty { flight.aircraftICAO24 = icao24 }
+            Self.applyAircraftAddress(latest.aircraft_icao24, swapped: false, to: flight)
             flight.lastStatusUpdate = .now
+            return latest.dep_gate?.isEmpty == false
 
         } catch {
             // Silently skip — will retry next cycle
+            return false
         }
     }
 

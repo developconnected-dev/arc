@@ -142,6 +142,7 @@
 		F4EF39911CBB7F824BE309E4 /* FriendAvatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B473AA396AFB87F8FA33DBD /* FriendAvatar.swift */; };
 		F7FB1ADA70699CF04534CC8E /* LiveActivityAvatarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DED11A1E25ADE83A8C977857 /* LiveActivityAvatarStore.swift */; };
 		FD48EDF02229BF53B07CF93B /* NextFlightWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888B0D037817C14E4AF0BAB7 /* NextFlightWidget.swift */; };
+		FD537E7E31AD3CED3486E4D2 /* FlightTrackerRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC56B047A7FA3AF25847CCF /* FlightTrackerRefreshTests.swift */; };
 		FF28A915F2E461B6A44D4F3A /* FlightDisplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64047F33627992F4D8030E71 /* FlightDisplayTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -294,6 +295,7 @@
 		CFCE4AEB3F85D01514383989 /* TravelCompanionsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TravelCompanionsSheet.swift; sourceTree = "<group>"; };
 		D055CC753814BAE54C3C7094 /* BackgroundFlightUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundFlightUpdater.swift; sourceTree = "<group>"; };
 		D318093F38973AB568D94123 /* ArcMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcMapView.swift; sourceTree = "<group>"; };
+		DAC56B047A7FA3AF25847CCF /* FlightTrackerRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightTrackerRefreshTests.swift; sourceTree = "<group>"; };
 		DAFCDA1E27F312CF2BBD90DA /* InboundSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboundSelection.swift; sourceTree = "<group>"; };
 		DD91C1A4FD9CF312542C0F91 /* FriendAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendAlerts.swift; sourceTree = "<group>"; };
 		DED11A1E25ADE83A8C977857 /* LiveActivityAvatarStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityAvatarStore.swift; sourceTree = "<group>"; };
@@ -586,6 +588,7 @@
 				64047F33627992F4D8030E71 /* FlightDisplayTests.swift */,
 				345D5BC68228BFA3CD7DD4DB /* FlightExporterTests.swift */,
 				C8B050595CEBC559BB3F8B48 /* FlightQueryParserTests.swift */,
+				DAC56B047A7FA3AF25847CCF /* FlightTrackerRefreshTests.swift */,
 				FF41791DE630A7BDBA2550E7 /* FriendAlertsTests.swift */,
 				BB93B4F2DC11B6653725A2C8 /* FriendFlightMathTests.swift */,
 				A60AED5E6E1620F00029D627 /* FriendGroupsTests.swift */,
@@ -765,6 +768,7 @@
 				FF28A915F2E461B6A44D4F3A /* FlightDisplayTests.swift in Sources */,
 				76A42DE217B99FCC67076406 /* FlightExporterTests.swift in Sources */,
 				0966F06D128CF6A589B4C579 /* FlightQueryParserTests.swift in Sources */,
+				FD537E7E31AD3CED3486E4D2 /* FlightTrackerRefreshTests.swift in Sources */,
 				76727308C5C701DE0720CCF0 /* FriendAlertsTests.swift in Sources */,
 				AA02B411577D86CF6E20DF8E /* FriendFlightMathTests.swift in Sources */,
 				68F8FBD1C2C9BBFD9A4A81EF /* FriendGroupsTests.swift in Sources */,
