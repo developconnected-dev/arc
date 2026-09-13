@@ -128,6 +128,126 @@ enum TakeoffWakePlanner {
     }
 }
 
+/// The harbour and the station as witnesses — pure, unit-tested.
+///
+/// A flight's take-off is sensed by GPS speed and the barometer. A ferry
+/// and a train have neither a runway roll nor a cabin climb, but they do
+/// leave a place and arrive at one, and iOS will say so for free: a
+/// geofence EXIT at the departure port after the scheduled time is the
+/// departure, an ENTRY at the arrival port is the arrival. Region
+/// monitoring is cell-and-Wi-Fi work the system does anyway — no location
+/// session, no altimeter, nothing that warms a phone in a pocket.
+///
+/// Radii are the size of the place: a harbour is left once the ship has
+/// cleared the breakwater (about the manoeuvre window), a station once
+/// the train is properly rolling. iOS delivers exits a minute or two late
+/// and allows twenty regions per app; the airport wake takes two, so two
+/// legs are ringed at a time.
+enum TransitFencePlanner {
+    struct Leg {
+        let id: UUID
+        let mode: TripMode
+        let offBlock: Date
+        let effectiveArrival: Date
+        let departed: Bool
+        let arrived: Bool
+        let completed: Bool
+        let departure: CLLocationCoordinate2D
+        let arrival: CLLocationCoordinate2D
+    }
+    enum Kind: String { case departure, arrival }
+    enum Event { case entry, exit }
+    enum Verdict: Equatable { case none, departed, arrived }
+    struct Fence: Equatable {
+        let identifier: String
+        let flightId: UUID
+        let kind: Kind
+        let center: CLLocationCoordinate2D
+        let radius: CLLocationDistance
+
+        static func == (a: Fence, b: Fence) -> Bool {
+            a.identifier == b.identifier && a.radius == b.radius
+                && a.center.latitude == b.center.latitude && a.center.longitude == b.center.longitude
+        }
+    }
+
+    static let identifierPrefix = "arc.transitfence."
+    static let harbourRadius: CLLocationDistance = 1500
+    static let stationRadius: CLLocationDistance = 800
+    /// Fences are armed this far ahead of departure.
+    static let armHorizon: TimeInterval = 36 * 3600
+    /// A ship or train may leave a little early; earlier than this, the
+    /// traveller leaving the port is just the traveller leaving the port.
+    static let earlyLeave: TimeInterval = 15 * 60
+    /// How long past the expected arrival the leg is still listened for.
+    static let tail: TimeInterval = 3600
+    /// An arrival fence entered this long before the expected arrival is a
+    /// port passed on the way, not the destination.
+    static let arrivalLead: TimeInterval = 45 * 60
+
+    static func radius(for mode: TripMode) -> CLLocationDistance {
+        mode == .sea ? harbourRadius : stationRadius
+    }
+
+    static func identifier(_ kind: Kind, _ id: UUID) -> String {
+        identifierPrefix + kind.rawValue + "." + id.uuidString
+    }
+
+    static func parse(_ identifier: String) -> (flightId: UUID, kind: Kind)? {
+        guard identifier.hasPrefix(identifierPrefix) else { return nil }
+        let rest = identifier.dropFirst(identifierPrefix.count)
+        guard let dot = rest.firstIndex(of: "."),
+              let kind = Kind(rawValue: String(rest[rest.startIndex..<dot])),
+              let id = UUID(uuidString: String(rest[rest.index(after: dot)...])) else { return nil }
+        return (id, kind)
+    }
+
+    private static func placed(_ c: CLLocationCoordinate2D) -> Bool {
+        c.latitude != 0 || c.longitude != 0
+    }
+
+    static func fences(for legs: [Leg], now: Date) -> [Fence] {
+        let wanted = legs
+            .filter {
+                $0.mode != .air && !$0.completed
+                    && $0.offBlock < now.addingTimeInterval(armHorizon)
+                    && now <= $0.effectiveArrival.addingTimeInterval(tail)
+                    && placed($0.departure) && placed($0.arrival)
+            }
+            .sorted { $0.offBlock < $1.offBlock }
+            .prefix(2)
+        var out: [Fence] = []
+        for leg in wanted {
+            let r = radius(for: leg.mode)
+            if !leg.departed {
+                out.append(Fence(identifier: identifier(.departure, leg.id), flightId: leg.id,
+                                 kind: .departure, center: leg.departure, radius: r))
+            }
+            if !leg.arrived {
+                out.append(Fence(identifier: identifier(.arrival, leg.id), flightId: leg.id,
+                                 kind: .arrival, center: leg.arrival, radius: r))
+            }
+        }
+        return out
+    }
+
+    static func verdict(for event: Event, of kind: Kind, leg: Leg, at now: Date) -> Verdict {
+        switch (kind, event) {
+        case (.departure, .exit):
+            guard !leg.departed,
+                  now >= leg.offBlock.addingTimeInterval(-earlyLeave),
+                  now <= leg.effectiveArrival.addingTimeInterval(tail) else { return .none }
+            return .departed
+        case (.arrival, .entry):
+            guard leg.departed, !leg.arrived,
+                  now >= leg.effectiveArrival.addingTimeInterval(-arrivalLead) else { return .none }
+            return .arrived
+        default:
+            return .none
+        }
+    }
+}
+
 /// The device's own eyes on the takeoff — the one witness that works in
 /// FULL airplane mode, where even the push channel is dark.
 ///
@@ -358,6 +478,76 @@ final class TakeoffSensor: NSObject {
             // (flight added at the airport) — entry then never fires, so ask.
             location.requestState(for: region)
         }
+        armTransitFences(flights: flights)
+    }
+
+    // MARK: - Port and station fences (Always authorization only)
+
+    private func transitLeg(_ f: Flight) -> TransitFencePlanner.Leg {
+        .init(id: f.id, mode: f.mode, offBlock: f.offBlock, effectiveArrival: f.effectiveArrival,
+              departed: f.actualDeparture != nil,
+              arrived: f.actualArrival != nil || f.status == .landed,
+              completed: f.isCompleted || f.isDeleted,
+              departure: .init(latitude: f.departureLat, longitude: f.departureLon),
+              arrival: .init(latitude: f.arrivalLat, longitude: f.arrivalLon))
+    }
+
+    /// Ring the departure and arrival port (or station) of the next ferry
+    /// or train. The fence IS the witness here — see TransitFencePlanner —
+    /// so nothing else starts: no GPS session, no altimeter.
+    private func armTransitFences(flights: [Flight]) {
+        guard location.authorizationStatus == .authorizedAlways,
+              CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self) else { return }
+        let fences = TransitFencePlanner.fences(for: flights.map(transitLeg), now: .now)
+        let byId = Dictionary(fences.map { ($0.identifier, $0) }, uniquingKeysWith: { a, _ in a })
+        for monitored in location.monitoredRegions
+        where monitored.identifier.hasPrefix(TransitFencePlanner.identifierPrefix) && byId[monitored.identifier] == nil {
+            location.stopMonitoring(for: monitored)
+        }
+        for fence in fences
+        where !location.monitoredRegions.contains(where: { $0.identifier == fence.identifier }) {
+            let region = CLCircularRegion(center: fence.center, radius: fence.radius, identifier: fence.identifier)
+            region.notifyOnEntry = fence.kind == .arrival
+            region.notifyOnExit = fence.kind == .departure
+            location.startMonitoring(for: region)
+        }
+    }
+
+    /// A port or station fence fired. What it means is decided by the
+    /// planner against the clock; what it changes goes through the same
+    /// gates every other witness uses, so the card, the widget and the
+    /// friends' rows all learn it the same way.
+    private func transitEvent(_ event: TransitFencePlanner.Event, identifier: String, at now: Date) {
+        guard let (flightId, kind) = TransitFencePlanner.parse(identifier),
+              let flights = fetchFlights(), let context = modelContext,
+              let flight = flights.first(where: { $0.id == flightId }), !flight.isDeleted else { return }
+        switch TransitFencePlanner.verdict(for: event, of: kind, leg: transitLeg(flight), at: now) {
+        case .departed:
+            flight.actualDeparture = now
+            if flight.isUpcoming { flight.statusRaw = FlightStatus.active.rawValue }
+            try? context.save()
+            let f = flight
+            Task {
+                await LiveActivityManager.shared.updateActivity(for: f)
+                _ = try? await ArcSupabase.shared.shareFlight(f)
+            }
+        case .arrived:
+            flight.actualArrival = now
+            flight.estimatedArrival = now
+            flight.statusRaw = FlightStatus.landed.rawValue
+            try? context.save()
+            ArcNotifications.notifyLanded(flight: flight)
+            let f = flight
+            Task {
+                await LiveActivityManager.shared.endActivity(for: f)
+                _ = try? await ArcSupabase.shared.shareFlight(f)
+            }
+        case .none:
+            return
+        }
+        WidgetSync.sync(flights: flights)
+        // The fence that just spoke is spent; the other end's stays.
+        armTransitFences(flights: flights)
     }
 
     /// A wake with no UI: the geofence fired, the hold timer ticked, or
@@ -550,8 +740,19 @@ extension TakeoffSensor: CLLocationManagerDelegate {
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
-        guard region.identifier.hasPrefix(TakeoffSensor.wakeRegionPrefix) else { return }
+        let id = region.identifier
+        if id.hasPrefix(TransitFencePlanner.identifierPrefix) {
+            Task { @MainActor in self.transitEvent(.entry, identifier: id, at: .now) }
+            return
+        }
+        guard id.hasPrefix(TakeoffSensor.wakeRegionPrefix) else { return }
         Task { @MainActor in self.wake() }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
+        let id = region.identifier
+        guard id.hasPrefix(TransitFencePlanner.identifierPrefix) else { return }
+        Task { @MainActor in self.transitEvent(.exit, identifier: id, at: .now) }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager,
