@@ -77,11 +77,16 @@ public struct DepartureEvidence: Equatable, Sendable {
         self.isLiveCovered = isLiveCovered
     }
 
+    /// A ship's "taxi": leaving the berth and clearing the harbour. About
+    /// ten minutes on a fast ferry — never an airport's twenty, and never
+    /// slid by a refresh.
+    public static let harbourManoeuvreMinutes = 10
+
     /// The same evidence, read for the kind of leg it describes.
     ///
-    /// A train or a ferry leaves when it leaves: there is no gate-to-runway
-    /// gap to hedge across, and no live feed that could ever confirm the
-    /// departure — so the taxi prior is nothing, a "still on the ground"
+    /// A train leaves at its minute and a ferry ten minutes after casting
+    /// off: there is no airport taxi to hedge across, and no live feed that
+    /// could ever confirm the departure — so a "still on the ground"
     /// refresh is not evidence, and ground sightings (which only ADS-B
     /// produces) cannot apply. A reported departure still confirms. Air
     /// legs pass straight through to the full model.
@@ -108,7 +113,8 @@ public struct DepartureEvidence: Equatable, Sendable {
             self.init(offBlock: offBlock, estimatedTakeoff: nil,
                       actualDeparture: actualDeparture, groundState: nil,
                       groundObservedAt: nil, taxiStartedAt: nil, lastSeenOnGround: nil,
-                      taxiPriorMinutes: 0, isLiveCovered: false)
+                      taxiPriorMinutes: mode == .sea ? Self.harbourManoeuvreMinutes : 0,
+                      isLiveCovered: false)
         }
     }
 

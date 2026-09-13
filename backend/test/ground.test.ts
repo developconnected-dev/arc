@@ -124,3 +124,20 @@ test("landedSighting: still flying, far away, stale, or before it left is not a 
   assert.equal(landedSighting(null, jfk, departed, now), false);
   assert.ok(LANDING_RADIUS_KM >= 5 && LANDING_RADIUS_KM <= 15, "a big hub's stands and runways span several km");
 });
+
+// ── The hedge window by kind of leg ──
+//
+// Mirrors DepartureEvidence.init(mode:) on the device: a train leaves at its
+// minute, a ferry takes about ten to clear the harbour, and only an air leg
+// gets the airport's learned taxi.
+import { taxiPriorForMode } from "../src/ground.ts";
+
+test("a ferry clears the harbour in ten minutes; a train leaves at its minute", () => {
+  assert.equal(taxiPriorForMode("sea", 35), 10);
+  assert.equal(taxiPriorForMode("rail", 35), 0);
+});
+
+test("an air leg keeps the airport's learned taxi", () => {
+  assert.equal(taxiPriorForMode("air", 35), 35);
+  assert.equal(taxiPriorForMode(null, 35), 35);
+});

@@ -147,10 +147,12 @@ final class LiveActivityNonAirPhaseTests: XCTestCase {
             baggageClaim: nil, progress: 0)
     }
 
-    func testAFerryCardIsUnderwayFromItsDepartureTime() {
+    func testAFerryCardIsUnderwayOnceItHasClearedTheHarbour() {
         let s = state()
-        XCTAssertEqual(s.departurePhase(at: dep.addingTimeInterval(5 * 60), mode: .sea), .presumedAirborne)
-        XCTAssertEqual(s.expectedWheelsUp(mode: .sea), dep)
+        XCTAssertEqual(s.departurePhase(at: dep.addingTimeInterval(5 * 60), mode: .sea), .departing)
+        XCTAssertEqual(s.departurePhase(at: dep.addingTimeInterval(12 * 60), mode: .sea), .presumedAirborne)
+        XCTAssertEqual(s.expectedWheelsUp(mode: .sea), dep.addingTimeInterval(10 * 60))
+        XCTAssertEqual(s.expectedWheelsUp(mode: .rail), dep)
     }
 
     func testAFlightCardStillHedgesThroughTheTaxi() {
