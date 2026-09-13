@@ -162,3 +162,35 @@ test("the first gate is a banner; a gate going null is not a gate change", () =>
   assert.equal(first!.body, "Gate A64");
   assert.equal(laAlert({ flightNumber: "LX2146", priorGate: "A64", gate: null, priorDelay: 30, delay: 30 }), null);
 });
+
+// ── The Settings toggles reach the server ──
+//
+// "Delays" and "Gate changes" in Settings only ever gated the LOCAL alerts;
+// the watcher and the Live Activity banner ignored them. The device mirrors
+// the toggles into profiles.notify_prefs, and the Worker honours them here.
+// A cancellation has no toggle and always travels.
+import { applyPrefs } from "../src/alerts.ts";
+
+test("delays switched off keep delay news at home; gates and cancellations still travel", () => {
+  const delay = flightNews({ ...base, delayMinutes: 40 })!;
+  assert.equal(delay.kind, "delay");
+  assert.equal(applyPrefs(delay, { delays: false }), null);
+  assert.ok(applyPrefs(delay, {}));
+  const gate = flightNews({ ...base, departureGate: "B12" })!;
+  assert.equal(gate.kind, "gate");
+  assert.ok(applyPrefs(gate, { delays: false }));
+  assert.equal(applyPrefs(gate, { gates: false }), null);
+  const c = flightNews({ ...base, status: "cancelled" })!;
+  assert.ok(applyPrefs(c, { delays: false, gates: false }));
+});
+
+test("a Live Activity banner drops the parts the user switched off", () => {
+  const both = laAlert({ flightNumber: "LX318", priorGate: null, gate: "B12", priorDelay: 0, delay: 40 })!;
+  assert.equal(both.body, "Gate B12 · 40m late");
+  assert.equal(laAlert({ flightNumber: "LX318", priorGate: null, gate: "B12", priorDelay: 0, delay: 40,
+                         prefs: { gates: false } })!.body, "40m late");
+  assert.equal(laAlert({ flightNumber: "LX318", priorGate: null, gate: "B12", priorDelay: 0, delay: 40,
+                         prefs: { delays: false } })!.body, "Gate B12");
+  assert.equal(laAlert({ flightNumber: "LX318", priorGate: null, gate: "B12", priorDelay: 0, delay: 40,
+                         prefs: { gates: false, delays: false } }), null);
+});

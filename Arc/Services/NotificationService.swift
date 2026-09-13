@@ -1,6 +1,73 @@
 import Foundation
 import UserNotifications
 
+/// What the local alerts say — word for word what the Worker's say, so one
+/// fact has one voice whichever channel happens to speak (alerts.ts is the
+/// other copy). Pure and tested.
+enum LocalAlertNews {
+    struct News: Equatable {
+        let title: String
+        let body: String
+        /// The delay to remember as announced, so a restatement waits for
+        /// a real move.
+        var announced: Int = 0
+    }
+
+    /// Same floor and step as the Worker's watcher: a delay becomes news at
+    /// fifteen minutes, again only when it has moved ten, and once when it
+    /// clears. A signed-out user, or anyone on a train, used to be buzzed on
+    /// every minute of drift.
+    static let delayFloor = 15
+    static let delayStep = 10
+
+    static func delay(flightNumber: String, arrivalCity: String, delayMinutes: Int, announced: Int) -> News? {
+        if delayMinutes >= delayFloor, abs(delayMinutes - announced) >= delayStep {
+            let improving = delayMinutes < announced
+            return News(
+                title: "\(flightNumber) is \(FlightClock.delayText(delayMinutes)) late",
+                body: improving
+                    ? "Down from \(announced)m. Now departing about \(delayMinutes) minutes behind schedule."
+                    : "Departure to \(arrivalCity) is running about \(delayMinutes) minutes behind schedule.",
+                announced: delayMinutes)
+        }
+        if announced >= delayFloor, delayMinutes < delayFloor {
+            return News(title: "\(flightNumber) is back on schedule",
+                        body: "The \(announced)m delay has cleared.", announced: delayMinutes)
+        }
+        return nil
+    }
+
+    static func gate(flightNumber: String, mode: TripMode, newGate: String, oldGate: String?) -> News {
+        let point = mode.boardingPointLabel.lowercased()
+        if let oldGate {
+            return News(title: "\(flightNumber) moved to \(point) \(newGate)",
+                        body: "Changed from \(point) \(oldGate).")
+        }
+        return News(title: "\(flightNumber) departs from \(point) \(newGate)",
+                    body: "\(mode.boardingPointLabel) is now published.")
+    }
+
+    private static func vehicle(_ mode: TripMode) -> (noun: String, place: String) {
+        switch mode {
+        case .air: ("flight", "airport")
+        case .rail: ("train", "station")
+        case .sea: ("ferry", "port")
+        }
+    }
+
+    static func cancelled(flightNumber: String, mode: TripMode, arrivalCity: String) -> News {
+        let v = vehicle(mode)
+        return News(title: "\(flightNumber) is cancelled",
+                    body: "Your \(v.noun) to \(arrivalCity) won't operate. Rebooking now beats rebooking at the \(v.place).")
+    }
+
+    static func possiblyCancelled(flightNumber: String, arrivalCity: String) -> News {
+        News(title: "\(flightNumber) may be cancelled",
+             body: "The data feed flags your flight to \(arrivalCity) as possibly cancelled — "
+                 + "rescheduled flights sometimes carry this mark. Worth checking with the airline.")
+    }
+}
+
 /// Schedules local notifications for flight events.
 /// Respects user preferences from Settings.
 enum ArcNotifications {
@@ -86,29 +153,31 @@ enum ArcNotifications {
             && flight.effectiveDeparture.timeIntervalSince(now) > 3 * 3600
     }
 
-    static func notifyGateChange(flight: Flight, newGate: String) {
+    static func notifyGateChange(flight: Flight, newGate: String, oldGate: String?) {
         guard prefs.object(forKey: "notifyGateChanges") == nil || prefs.bool(forKey: "notifyGateChanges") else { return }
         guard !serverWillSayIt(flight) else { return }
-        send(
-            // Platform changes are the rail equivalent, and they arrive through
-            // this same path — so the word has to come from the mode.
-            title: "\(flight.mode.boardingPointLabel) changed — \(flight.flightNumber)",
-            body: "New \(flight.mode.boardingPointLabel.lowercased()): \(newGate)",
-            id: "gate-\(flight.flightNumber)-\(newGate)",
-            flight: flight
-        )
+        // Platform changes are the rail equivalent, and they arrive through
+        // this same path — so the word comes from the mode.
+        let news = LocalAlertNews.gate(flightNumber: flight.flightNumber, mode: flight.mode,
+                                       newGate: newGate, oldGate: oldGate)
+        // One id per flight: a second move REPLACES the first banner.
+        send(title: news.title, body: news.body, id: "gate-\(flight.flightNumber)-", flight: flight)
     }
+
+    /// Where the last announced delay is kept, per flight, so a restatement
+    /// waits for a real move — the same memory the Worker keeps in
+    /// watch_state.
+    private static func announcedDelayKey(_ flight: Flight) -> String { "delayAnnounced.\(flight.id.uuidString)" }
 
     static func notifyDelay(flight: Flight) {
         guard prefs.object(forKey: "notifyDelays") == nil || prefs.bool(forKey: "notifyDelays") else { return }
-        guard flight.delayMinutes > 0 else { return } // Don't notify on delay improvements
         guard !serverWillSayIt(flight) else { return }
-        send(
-            title: "\(flight.flightNumber) delayed",
-            body: "Now \(flight.delayMinutes) min late. \(flight.departureIATA) → \(flight.arrivalIATA)",
-            id: "delay-\(flight.flightNumber)-\(flight.delayMinutes)",
-            flight: flight
-        )
+        let announced = prefs.integer(forKey: announcedDelayKey(flight))
+        guard let news = LocalAlertNews.delay(
+            flightNumber: flight.flightNumber, arrivalCity: flight.arrivalCity.isEmpty ? flight.arrivalIATA : flight.arrivalCity,
+            delayMinutes: flight.delayMinutes, announced: announced) else { return }
+        prefs.set(news.announced, forKey: announcedDelayKey(flight))
+        send(title: news.title, body: news.body, id: "delay-\(flight.flightNumber)-", flight: flight)
     }
 
     static func notifyLanded(flight: Flight) {
@@ -171,12 +240,11 @@ enum ArcNotifications {
         // A cancellation discovered a day after the flight's own departure is
         // history the user lived through, not a banner to wake them with.
         guard flight.scheduledDeparture.timeIntervalSince(.now) > -24 * 3600 else { return }
-        send(
-            title: "\(flight.flightNumber) cancelled",
-            body: "\(flight.departureIATA) → \(flight.arrivalIATA) has been cancelled.",
-            id: "cancelled-\(flight.flightNumber)-\(Int(flight.scheduledDeparture.timeIntervalSince1970))",
-            flight: flight
-        )
+        let news = LocalAlertNews.cancelled(flightNumber: flight.flightNumber, mode: flight.mode,
+                                            arrivalCity: flight.arrivalCity.isEmpty ? flight.arrivalIATA : flight.arrivalCity)
+        send(title: news.title, body: news.body,
+             id: "cancelled-\(flight.flightNumber)-\(Int(flight.scheduledDeparture.timeIntervalSince1970))",
+             flight: flight)
     }
 
     /// The provider's guess, worded as one — never the certainty above:
@@ -185,12 +253,11 @@ enum ArcNotifications {
     static func notifyPossiblyCancelled(flight: Flight) {
         guard !serverWillSayIt(flight) else { return }
         guard flight.scheduledDeparture.timeIntervalSince(.now) > -24 * 3600 else { return }
-        send(
-            title: "\(flight.flightNumber) may be cancelled",
-            body: "The data feed flags \(flight.departureIATA) → \(flight.arrivalIATA) as possibly cancelled. Worth checking with the airline.",
-            id: "cancelled-\(flight.flightNumber)-\(Int(flight.scheduledDeparture.timeIntervalSince1970))",
-            flight: flight
-        )
+        let news = LocalAlertNews.possiblyCancelled(
+            flightNumber: flight.flightNumber, arrivalCity: flight.arrivalCity.isEmpty ? flight.arrivalIATA : flight.arrivalCity)
+        send(title: news.title, body: news.body,
+             id: "cancelled-\(flight.flightNumber)-\(Int(flight.scheduledDeparture.timeIntervalSince1970))",
+             flight: flight)
     }
 
     /// "Anna is at ZRH too" — fired once per friend-and-airport, because the

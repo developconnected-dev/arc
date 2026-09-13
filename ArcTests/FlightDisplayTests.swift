@@ -955,3 +955,60 @@ final class GatePredictionTests: XCTestCase {
         XCTAssertFalse(P(gate: "", terminal: nil, agreeing: 3, samples: 3, confidence: 1.0).isConfident)
     }
 }
+
+/// The local alerts say exactly what the Worker's say — one voice per fact,
+/// whichever channel happens to speak — and the local delay alert carries
+/// the same fifteen-minute floor and ten-minute step. Until now a signed-out
+/// user, or anyone on a train, was buzzed on every minute of drift, and the
+/// same delay read "LX17 delayed · Now 25 min late" here and "LX17 is 25m
+/// late" from the server.
+final class LocalAlertWordingTests: XCTestCase {
+    func testADelayUnderTheFloorIsNotNews() {
+        XCTAssertNil(LocalAlertNews.delay(flightNumber: "LX17", arrivalCity: "Zurich", delayMinutes: 8, announced: 0))
+    }
+
+    func testADelayIsSaidOnceAndRestatedOnlyWhenItMovesTenMinutes() {
+        let first = LocalAlertNews.delay(flightNumber: "LX17", arrivalCity: "Zurich", delayMinutes: 40, announced: 0)!
+        XCTAssertEqual(first.title, "LX17 is 40m late")
+        XCTAssertEqual(first.body, "Departure to Zurich is running about 40 minutes behind schedule.")
+        XCTAssertEqual(first.announced, 40)
+        XCTAssertNil(LocalAlertNews.delay(flightNumber: "LX17", arrivalCity: "Zurich", delayMinutes: 45, announced: 40))
+        XCTAssertEqual(LocalAlertNews.delay(flightNumber: "LX17", arrivalCity: "Zurich", delayMinutes: 75, announced: 40)?.title,
+                       "LX17 is 1h 15m late")
+    }
+
+    func testAnImprovingDelaySaysSo() {
+        let better = LocalAlertNews.delay(flightNumber: "LX17", arrivalCity: "Zurich", delayMinutes: 20, announced: 40)!
+        XCTAssertEqual(better.body, "Down from 40m. Now departing about 20 minutes behind schedule.")
+    }
+
+    func testAClearedDelayIsSaidOnce() {
+        let cleared = LocalAlertNews.delay(flightNumber: "LX17", arrivalCity: "Zurich", delayMinutes: 0, announced: 35)!
+        XCTAssertEqual(cleared.title, "LX17 is back on schedule")
+        XCTAssertEqual(cleared.body, "The 35m delay has cleared.")
+        XCTAssertEqual(cleared.announced, 0)
+        XCTAssertNil(LocalAlertNews.delay(flightNumber: "LX17", arrivalCity: "Zurich", delayMinutes: 0, announced: 0))
+    }
+
+    func testGateWordingMatchesTheServer() {
+        let published = LocalAlertNews.gate(flightNumber: "LX17", mode: .air, newGate: "B12", oldGate: nil)
+        XCTAssertEqual(published.title, "LX17 departs from gate B12")
+        XCTAssertEqual(published.body, "Gate is now published.")
+        let moved = LocalAlertNews.gate(flightNumber: "LX17", mode: .air, newGate: "B12", oldGate: "A5")
+        XCTAssertEqual(moved.title, "LX17 moved to gate B12")
+        XCTAssertEqual(moved.body, "Changed from gate A5.")
+        XCTAssertEqual(LocalAlertNews.gate(flightNumber: "ICE 79", mode: .rail, newGate: "4", oldGate: "7").title,
+                       "ICE 79 moved to platform 4")
+    }
+
+    func testCancellationWordingMatchesTheServer() {
+        let c = LocalAlertNews.cancelled(flightNumber: "LX17", mode: .air, arrivalCity: "Zurich")
+        XCTAssertEqual(c.title, "LX17 is cancelled")
+        XCTAssertEqual(c.body, "Your flight to Zurich won't operate. Rebooking now beats rebooking at the airport.")
+        XCTAssertEqual(LocalAlertNews.cancelled(flightNumber: "ICE 79", mode: .rail, arrivalCity: "Munich").body,
+                       "Your train to Munich won't operate. Rebooking now beats rebooking at the station.")
+        let maybe = LocalAlertNews.possiblyCancelled(flightNumber: "LX17", arrivalCity: "Zurich")
+        XCTAssertEqual(maybe.title, "LX17 may be cancelled")
+        XCTAssertEqual(maybe.body, "The data feed flags your flight to Zurich as possibly cancelled — rescheduled flights sometimes carry this mark. Worth checking with the airline.")
+    }
+}

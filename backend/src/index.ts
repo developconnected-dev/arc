@@ -1,9 +1,9 @@
-import { apnsConfigured, sendLiveActivityPush, sendAlertPush, apnsJwt, tokenIsDead } from "./apns";
+import { apnsConfigured, sendLiveActivityPush, sendAlertPush, sendBackgroundPush, apnsJwt, tokenIsDead } from "./apns";
 import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, templatesFromNeighbour, completeLeg, confirmedRunwayTime, movementIsLive, localDay, departsOnLocalDate, answerForDay, normalizeStatus, isCancelUncertain, pickEstimatedArrival } from "./legs";
 import { classifyGround, taxiPriorMinutes, adbPositionToSample, landedSighting, DEFAULT_TAXI_PRIOR, taxiPriorForMode } from "./ground";
 import { predictGate, standFromBoard, type GateObservation } from "./gates";
 import { contentState, liveActivityClock, sanitizeLiveActivityLocal } from "./activity";
-import { flightNews, laAlert, type WatchState } from "./alerts";
+import { flightNews, laAlert, applyPrefs, type WatchState, type NotifyPrefs } from "./alerts";
 import { friendFlightNews, tripInviteNews, recipientsFor, airportOverlaps, overlapNews, type FriendAlertState, type OverlapFlight } from "./social";
 import { staleTokenQueries } from "./tokens";
 import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS, adbGate, resetAtFromHeader, ADB_MONTHLY_UNITS, ADB_UNITS_PER_CALL, cronRefreshIntervalMs, takeoffWatchDue } from "./freshness";
@@ -2667,6 +2667,9 @@ async function runLiveActivityCron(env: Env): Promise<void> {
     try {
       await announceTripInvites(env);
     } catch (e) { console.error("invite announce failed:", String(e)); }
+    try {
+      await nudgeDevices(env);
+    } catch (e) { console.error("nudge failed:", String(e)); }
     // Coincidences move on the hour, not the minute; every fifth tick.
     if (new Date(Date.now()).getUTCMinutes() % 5 === 2) {
       try {
@@ -3135,8 +3138,13 @@ async function watchUpcoming(env: Env): Promise<void> {
         prior: (row.watch_state ?? {}) as WatchState,
       });
       if (news) {
-        await sendToUser(env, String(row.user_id), news.title, news.body,
-                         news.collapseId, String(row.flight_number));
+        // Recorded whether or not it is sent: a toggle switched back on
+        // must not replay a delay the user chose not to hear about.
+        const allowed = applyPrefs(news, await prefsFor(env, String(row.user_id)));
+        if (allowed) {
+          await sendToUser(env, String(row.user_id), allowed.title, allowed.body,
+                           allowed.collapseId, String(row.flight_number));
+        }
         checked.watch_state = news.state;
       }
       await sbService(env, "PATCH", `/user_flights?id=eq.${row.id}`, checked);
@@ -3419,6 +3427,52 @@ async function announceAirportOverlaps(env: Env): Promise<void> {
   }
 }
 
+/// The Settings toggles a user mirrored to their profile. Absent means on.
+async function prefsFor(env: Env, userId: string): Promise<NotifyPrefs | null> {
+  const rows = await sbSelect(env, `/profiles?select=notify_prefs&id=eq.${encodeURIComponent(userId)}`);
+  return (rows[0]?.notify_prefs as NotifyPrefs | undefined) ?? null;
+}
+
+/// The silent nudge: facts only the device can compute — the inbound-chain
+/// prediction, "your aircraft has arrived", the connection re-rating —
+/// waited for the next app open. In the last six hours before an air
+/// departure, each of the traveller's devices is woken every half hour for
+/// the refresh it would otherwise only get by chance. iOS budgets these,
+/// so the cadence is modest and the push carries nothing to show.
+const NUDGE_INTERVAL_MS = 30 * 60_000;
+const NUDGE_HORIZON_MS = 6 * 3600_000;
+const NUDGES_PER_TICK = 10;
+
+async function nudgeDevices(env: Env): Promise<void> {
+  const now = Date.now();
+  const upcoming = await sbSelect(env,
+    "/user_flights?select=user_id" +
+    `&scheduled_departure=gte.${new Date(now).toISOString()}` +
+    `&scheduled_departure=lte.${new Date(now + NUDGE_HORIZON_MS).toISOString()}` +
+    "&mode=eq.air&status=in.(scheduled,boarding,gateClosed)");
+  const owners = [...new Set(upcoming.map(u => String(u.user_id)))];
+  if (owners.length === 0) return;
+  const due = new Date(now - NUDGE_INTERVAL_MS).toISOString();
+  const tokens = await sbSelect(env,
+    "/device_tokens?select=token,apns_env,user_id" +
+    `&user_id=in.(${owners.map(encodeURIComponent).join(",")})` +
+    `&or=(nudged_at.is.null,nudged_at.lt.${due})`
+  ) as unknown as { token: string; apns_env: "sandbox" | "production"; user_id: string }[];
+  let sent = 0;
+  for (const t of tokens.slice(0, NUDGES_PER_TICK)) {
+    const { status, reason } = await sendBackgroundPush(env, t.token, t.apns_env, APP_BUNDLE_ID);
+    if (status === 200) sent++;
+    else console.error("nudge non-200:", status, reason ?? "(no reason)", t.token.slice(0, 8));
+    if (tokenIsDead(status, reason)) {
+      await sbService(env, "DELETE", `/device_tokens?token=eq.${encodeURIComponent(t.token)}`);
+      continue;
+    }
+    await sbService(env, "PATCH", `/device_tokens?token=eq.${encodeURIComponent(t.token)}`,
+                    { nudged_at: new Date(now).toISOString() });
+  }
+  if (tokens.length > 0) console.log("nudge:", owners.length, "travellers,", tokens.length, "devices due,", sent, "woken");
+}
+
 /// How often the cron re-consults the provider, by flight phase. Progress
 /// ticks between refreshes cost nothing — they're computed from stored
 /// times. Only the windows where data really moves get tight cadence.
@@ -3436,6 +3490,7 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   let lastFetch = fetchedAt;
   let dataChanged = false;
   let alert: { title: string; body: string } | null = null;
+  let alertInputs: { priorGate: string | null; gate: string | null; priorDelay: number; delay: number } | null = null;
   // What this token has established about the gate-to-runway gap, carried
   // between ticks in last_state. Without it every push rebuilt the lock
   // screen's DepartureEvidence from nothing, so the card that said
@@ -3497,13 +3552,13 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
         // Effective delays, so the banner sings the same number the card
         // counts to — and so a reschedule adopted by pickLeg announces
         // itself as the delay it is.
-        alert = laAlert({
-          flightNumber: row.flight_number!,
+        alertInputs = {
           priorGate: (flight["dep_gate"] as string | null) ?? null,
           gate: (leg["dep_gate"] as string | null) ?? null,
           priorDelay: effectiveDelayMinutes(flight, schedDepGuess),
           delay: effectiveDelayMinutes(leg, schedDepGuess),
-        });
+        };
+        alert = laAlert({ flightNumber: row.flight_number!, ...alertInputs });
       }
       flight = leg as Record<string, any>;
     }
@@ -3689,6 +3744,11 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
           previous_departure_gate: prior.insight_gate ?? null,
           baggage_belt: flight?.["arr_baggage"] ?? null,
         });
+  }
+
+  // The Settings toggles, read only when there is a banner to filter.
+  if (alert && alertInputs && row.user_id) {
+    alert = laAlert({ flightNumber: row.flight_number!, ...alertInputs, prefs: await prefsFor(env, row.user_id) });
   }
 
   const payload = {

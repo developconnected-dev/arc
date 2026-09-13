@@ -18,7 +18,18 @@ export interface WatchState {
   uncertainSaid?: boolean;
 }
 
+/// The Settings toggles, as the device mirrors them into
+/// profiles.notify_prefs. Absent means on. A cancellation has no toggle.
+export interface NotifyPrefs {
+  delays?: boolean;
+  gates?: boolean;
+  landing?: boolean;
+}
+
+export type AlertKind = "cancelled" | "uncertain" | "delay" | "gate";
+
 export interface AlertNews {
+  kind: AlertKind;
   /// Stable per fact, so a re-statement REPLACES the banner already on the
   /// lock screen rather than stacking a second, contradictory one.
   collapseId: string;
@@ -58,6 +69,7 @@ export function flightNews(args: {
     if (prior.cancelled) return null;
     state.cancelled = true;
     return {
+      kind: "cancelled",
       collapseId: `${flightNumber}-cancelled`,
       title: `${flightNumber} is cancelled`,
       body: `Your flight to ${arrivalCity} won't operate. Rebooking now beats rebooking at the airport.`,
@@ -75,6 +87,7 @@ export function flightNews(args: {
   if (args.cancelUncertain && !prior.uncertainSaid) {
     state.uncertainSaid = true;
     return {
+      kind: "uncertain",
       collapseId: `${flightNumber}-cancelled`,
       title: `${flightNumber} may be cancelled`,
       body: `The data feed flags your flight to ${arrivalCity} as possibly cancelled — `
@@ -87,6 +100,7 @@ export function flightNews(args: {
   if (!args.cancelUncertain && prior.uncertainSaid) {
     state.uncertainSaid = false;
     return {
+      kind: "uncertain",
       collapseId: `${flightNumber}-cancelled`,
       title: `${flightNumber} looks like it's operating`,
       body: `The possibly-cancelled flag on your flight to ${arrivalCity} has cleared.`,
@@ -99,6 +113,7 @@ export function flightNews(args: {
     state.delay = delayMinutes;
     const improving = delayMinutes < announced;
     return {
+      kind: "delay",
       collapseId: `${flightNumber}-delay`,
       title: `${flightNumber} is ${delayText(delayMinutes)} late`,
       body: improving
@@ -111,6 +126,7 @@ export function flightNews(args: {
   if (announced >= DELAY_FLOOR && delayMinutes < DELAY_FLOOR) {
     state.delay = delayMinutes;
     return {
+      kind: "delay",
       collapseId: `${flightNumber}-delay`,
       title: `${flightNumber} is back on schedule`,
       body: `The ${announced}m delay has cleared.`,
@@ -123,6 +139,7 @@ export function flightNews(args: {
     const moved = !!prior.gate;
     state.gate = departureGate;
     return {
+      kind: "gate",
       collapseId: `${flightNumber}-gate`,
       title: moved ? `${flightNumber} moved to gate ${departureGate}`
                    : `${flightNumber} departs from gate ${departureGate}`,
@@ -132,6 +149,14 @@ export function flightNews(args: {
   }
 
   return null;
+}
+
+/// What the user's Settings let through. The watcher still RECORDS a fact
+/// it does not send, so switching the toggle back on does not replay it.
+export function applyPrefs(news: AlertNews, prefs: NotifyPrefs | null | undefined): AlertNews | null {
+  if (news.kind === "delay" && prefs?.delays === false) return null;
+  if (news.kind === "gate" && prefs?.gates === false) return null;
+  return news;
 }
 
 /// The banner a Live Activity UPDATE push may carry, or null for a silent
@@ -149,17 +174,21 @@ export function laAlert(args: {
   gate: string | null;
   priorDelay: number;
   delay: number;
+  /// The Settings toggles: a part the user switched off is left out, and a
+  /// banner with nothing left is no banner.
+  prefs?: NotifyPrefs | null;
 }): { title: string; body: string } | null {
   const { flightNumber, priorGate, gate, priorDelay, delay } = args;
-  const gateChanged = !!gate && gate !== priorGate;
+  const gateChanged = !!gate && gate !== priorGate && args.prefs?.gates !== false;
   // Same floor and step as the watcher's delay news: a move under ten
   // minutes, or churn entirely below the fifteen-minute floor, is not news.
   const delayMoved = Math.abs(delay - priorDelay) >= 10
-    && (delay >= 15 || priorDelay >= 15);
+    && (delay >= 15 || priorDelay >= 15)
+    && args.prefs?.delays !== false;
   if (!gateChanged && !delayMoved) return null;
   const parts: string[] = [];
   if (gateChanged && gate) parts.push(`Gate ${gate}`);
-  if (delay > 0) parts.push(`${delayText(delay)} late`);
+  if (delay > 0 && args.prefs?.delays !== false) parts.push(`${delayText(delay)} late`);
   else if (delayMoved) parts.push("back on schedule");
   if (parts.length === 0) return null;
   return { title: `${flightNumber} update`, body: parts.join(" · ") };

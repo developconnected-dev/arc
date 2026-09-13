@@ -191,6 +191,9 @@ struct SettingsView: View {
                 } footer: {
                     Text("Choose which flight events trigger notifications.")
                 }
+                // The Worker's own pushes honour these too; it reads them
+                // from the profile, so every flip is mirrored there.
+                .modifier(NotifyPrefsMirror(gates: notifyGateChanges, delays: notifyDelays, landing: notifyLanding))
 
                 // Tracking
                 Section {
@@ -398,5 +401,21 @@ struct SettingsView: View {
             profileError = "Couldn't save: \(error.localizedDescription)"
         }
         profileSaving = false
+    }
+}
+
+
+/// Mirrors the notification toggles to the profile on every flip. A
+/// ViewModifier rather than three inline `.onChange` closures: the settings
+/// body sits at the type-checker's limit, like ArcRootView's.
+private struct NotifyPrefsMirror: ViewModifier {
+    let gates: Bool
+    let delays: Bool
+    let landing: Bool
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: gates) { _, _ in RemotePush.syncNotifyPrefs() }
+            .onChange(of: delays) { _, _ in RemotePush.syncNotifyPrefs() }
+            .onChange(of: landing) { _, _ in RemotePush.syncNotifyPrefs() }
     }
 }
