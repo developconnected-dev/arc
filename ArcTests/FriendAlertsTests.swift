@@ -296,3 +296,63 @@ final class FriendAlertsOwnershipTests: XCTestCase {
         XCTAssertEqual(muted, ["anna", "dan"])
     }
 }
+
+/// "Anna is at ZRH too" is a discovery: a friend who happens to be at the
+/// same airport. A friend on the SAME flight is not a discovery — you
+/// invited them, or they invited you — yet the detector matched their copy
+/// of the journey against yours, and every accepted trip invite rang twice
+/// ("at JSY too", "at ATH too") the moment it landed in the list.
+final class AirportOverlapTests: XCTestCase {
+    private let now = DateHelpers.parseAPIDate("2026-09-13T12:00:00.000Z")!
+
+    private func shared(_ id: String, _ number: String, user: String,
+                        from dep: String, to arr: String, depAt: Date, minutes: Double) -> ArcSupabase.SharedFlight {
+        let iso = ISO8601DateFormatter()
+        return .init(id: id, user_id: user, flight_number: number,
+              airline: "", departure_iata: dep, arrival_iata: arr,
+              departure_city: dep, arrival_city: arr,
+              departure_lat: 0, departure_lon: 0, arrival_lat: 0, arrival_lon: 0,
+              scheduled_departure: iso.string(from: depAt),
+              scheduled_arrival: iso.string(from: depAt.addingTimeInterval(minutes * 60)),
+              estimated_arrival: nil, status: "scheduled", delay_minutes: 0,
+              departure_gate: nil, arrival_gate: nil, baggage_claim: nil,
+              live_lat: nil, live_lon: nil, progress: 0, updated_at: nil)
+    }
+
+    private func mine(_ number: String, from dep: String, to arr: String, depAt: Date, minutes: Double) -> Flight {
+        let f = Flight(flightNumber: number, date: depAt)
+        f.departureIATA = dep; f.arrivalIATA = arr
+        f.scheduledDeparture = depAt
+        f.scheduledArrival = depAt.addingTimeInterval(minutes * 60)
+        f.statusRaw = "scheduled"
+        return f
+    }
+
+    private func friend(_ id: String, _ name: String, flights: [ArcSupabase.SharedFlight]) -> FriendsStore.FriendEntry {
+        .init(friendshipId: "fs-\(id)",
+              user: .init(id: id, display_name: name, handle: nil, avatar_url: nil, home_airport: nil, nationality: nil),
+              flights: flights)
+    }
+
+    func testACompanionOnTheSameFlightIsNotAnOverlap() {
+        let dep = now.addingTimeInterval(3 * 24 * 3600)
+        let my = mine("GQ21", from: "JSY", to: "ATH", depAt: dep, minutes: 45)
+        let carl = friend("carl", "Carl", flights: [
+            shared("s1", "GQ 21", user: "carl", from: "JSY", to: "ATH", depAt: dep, minutes: 45),
+        ])
+        let found = FriendsStore.airportOverlaps(myFlights: [my], friends: [carl], now: now)
+        XCTAssertTrue(found.isEmpty, "the same journey is a companion, not a coincidence")
+    }
+
+    func testAFriendOnAnotherFlightThroughTheSameAirportStillIs() {
+        let dep = now.addingTimeInterval(3 * 24 * 3600)
+        let my = mine("GQ21", from: "JSY", to: "ATH", depAt: dep, minutes: 45)
+        let anna = friend("anna", "Anna", flights: [
+            shared("s2", "OA123", user: "anna", from: "ATH", to: "LHR", depAt: dep.addingTimeInterval(120 * 60), minutes: 220),
+        ])
+        let found = FriendsStore.airportOverlaps(myFlights: [my], friends: [anna], now: now)
+        XCTAssertEqual(found.map(\.airportIATA), ["ATH"])
+        XCTAssertEqual(found.first?.friend.id, "anna")
+        XCTAssertEqual(found.first?.myFlightId, my.id)
+    }
+}
