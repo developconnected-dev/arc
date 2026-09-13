@@ -358,10 +358,21 @@ final class NonAirDepartureEvidenceTests: XCTestCase {
     private let offBlock = Date(timeIntervalSince1970: 1_800_000_000)
     private func at(_ minutes: Double) -> Date { offBlock.addingTimeInterval(minutes * 60) }
 
-    func testASailingIsUnderwayAtItsDepartureTime() {
+    /// A ship still has to leave the berth and clear the harbour — about
+    /// ten minutes, never an airport's twenty, and never slid by a refresh.
+    func testASailingClearsTheHarbourInTenMinutes() {
         let e = DepartureEvidence(mode: .sea, offBlock: offBlock, lastSeenOnGround: at(30), taxiPriorMinutes: 20)
-        XCTAssertEqual(e.expectedWheelsUp, offBlock)
+        XCTAssertEqual(e.expectedWheelsUp, at(Double(DepartureEvidence.harbourManoeuvreMinutes)))
+        XCTAssertEqual(DepartureEvidence.harbourManoeuvreMinutes, 10)
         XCTAssertEqual(e.phase(at: at(-1)), .beforeDeparture)
+        XCTAssertEqual(e.phase(at: at(5)), .departing)
+        XCTAssertEqual(e.phase(at: at(11)), .presumedAirborne)
+    }
+
+    /// A train leaves at its minute: no manoeuvre at all.
+    func testATrainIsUnderwayAtItsDepartureTime() {
+        let e = DepartureEvidence(mode: .rail, offBlock: offBlock)
+        XCTAssertEqual(e.expectedWheelsUp, offBlock)
         XCTAssertEqual(e.phase(at: at(1)), .presumedAirborne)
     }
 

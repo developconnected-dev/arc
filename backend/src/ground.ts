@@ -24,6 +24,20 @@ export function classifyGround(
 /// airport has not yet taught it better.
 export const DEFAULT_TAXI_PRIOR = 20;
 
+/// A ship's "taxi": leaving the berth and clearing the harbour — about ten
+/// minutes on a fast ferry. Mirrors DepartureEvidence.harbourManoeuvreMinutes.
+export const HARBOUR_MANOEUVRE_MINUTES = 10;
+
+/// The hedge window for a leg of this kind, mirroring
+/// DepartureEvidence.init(mode:) on the device: a train leaves at its
+/// minute, a ferry takes about ten to clear the harbour, and only an air
+/// leg gets the airport's learned taxi.
+export function taxiPriorForMode(mode: string | null | undefined, airTaxi: number): number {
+  if (mode === "rail") return 0;
+  if (mode === "sea") return HARBOUR_MANOEUVRE_MINUTES;
+  return airTaxi;
+}
+
 /// p85 taxi-out at an airport for this hour of the day, from observed
 /// (taxi start → wheels-up) durations. Same-hour-ish samples first; all of
 /// the airport's samples when the hour is thin; the default when the airport

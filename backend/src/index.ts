@@ -1,6 +1,6 @@
 import { apnsConfigured, sendLiveActivityPush, sendAlertPush, apnsJwt, tokenIsDead } from "./apns";
 import { toISO, repairLegForRoute, cachedRowFresh, isCompleteLeg, templatesFromNeighbour, completeLeg, confirmedRunwayTime, movementIsLive, localDay, departsOnLocalDate, answerForDay, normalizeStatus, isCancelUncertain, pickEstimatedArrival } from "./legs";
-import { classifyGround, taxiPriorMinutes, adbPositionToSample, landedSighting, DEFAULT_TAXI_PRIOR } from "./ground";
+import { classifyGround, taxiPriorMinutes, adbPositionToSample, landedSighting, DEFAULT_TAXI_PRIOR, taxiPriorForMode } from "./ground";
 import { predictGate, standFromBoard, type GateObservation } from "./gates";
 import { contentState, liveActivityClock, sanitizeLiveActivityLocal } from "./activity";
 import { flightNews, laAlert, type WatchState } from "./alerts";
@@ -3459,10 +3459,10 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
 
   // What this airport's taxi actually takes at this hour — the grace the
   // lock screen gives a departure before it may presume wheels-up.
-  const taxiPrior = !isAir ? 0
+  const taxiPrior = taxiPriorForMode(row.mode, !isAir ? 0
     : (flight?.["dep_iata"])
       ? (await taxiPriorFor(env, String(flight["dep_iata"]), new Date(depMs).getUTCHours())).minutes
-      : DEFAULT_TAXI_PRIOR;
+      : DEFAULT_TAXI_PRIOR);
 
   // stale-date = next phase boundary: iOS re-renders the Live Activity once
   // when content goes stale, and that render re-evaluates the clock-based
