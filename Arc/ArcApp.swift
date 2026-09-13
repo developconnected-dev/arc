@@ -24,6 +24,8 @@ struct ArcApp: App {
         // line that runs early enough to hand the sensor its data and let
         // its delegate receive the very region event that caused the launch.
         TakeoffSensor.shared.adoptContainer(modelContainer)
+        // Same reason: a silent push can be the thing that launches Arc.
+        RemotePush.adoptContainer(modelContainer)
     }
 
     var body: some Scene {
@@ -73,7 +75,7 @@ struct ArcApp: App {
     }
 
     @MainActor
-    private static func runBackgroundRefresh(container: ModelContainer) async {
+    static func runBackgroundRefresh(container: ModelContainer) async {
         let context = ModelContext(container)
         let descriptor = FetchDescriptor<Flight>()
         guard let flights = try? context.fetch(descriptor) else { return }

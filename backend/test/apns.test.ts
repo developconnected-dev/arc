@@ -66,3 +66,15 @@ test("a custom key can never replace aps", () => {
   const p = alertPayload({ title: "t", body: "b" }, undefined, { aps: "nope" } as any);
   assert.equal((p.aps as any).alert.body, "b");
 });
+
+// ── The silent nudge ──
+//
+// Facts only the device can compute — the inbound-chain prediction, the
+// "your aircraft has arrived" moment — waited for the next app open. A
+// background push wakes the app for a refresh: content-available, nothing
+// visible, no sound.
+import { backgroundPayload } from "../src/apns.ts";
+
+test("a background push is content-available and nothing else", () => {
+  assert.deepEqual(backgroundPayload(), { aps: { "content-available": 1 } });
+});

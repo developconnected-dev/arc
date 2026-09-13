@@ -89,6 +89,43 @@ export function alertPayload(
   };
 }
 
+/// A silent push: wakes the app for a background refresh, shows nothing.
+export function backgroundPayload(): Record<string, unknown> {
+  return { aps: { "content-available": 1 } };
+}
+
+/// Sends one background push. iOS budgets these (a few per hour per app)
+/// and may hold one for a better moment, so the caller spaces them out.
+export async function sendBackgroundPush(
+  env: ApnsEnv,
+  deviceToken: string,
+  apnsHostEnv: "sandbox" | "production",
+  bundleId: string
+): Promise<ApnsResult> {
+  const host = apnsHostEnv === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com";
+  const jwt = await apnsJwt(env);
+  const res = await fetch(`https://${host}/3/device/${deviceToken}`, {
+    method: "POST",
+    headers: {
+      authorization: `bearer ${jwt}`,
+      "apns-topic": bundleId,
+      "apns-push-type": "background",
+      "apns-priority": "5",
+      "apns-expiration": String(Math.floor(Date.now() / 1000) + 1800),
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(backgroundPayload()),
+  });
+  let reason: string | null = null;
+  if (res.status !== 200) {
+    try {
+      const body = await res.text();
+      if (body) reason = (JSON.parse(body) as { reason?: string }).reason ?? null;
+    } catch { /* an unreadable refusal names nothing */ }
+  }
+  return { status: res.status, reason };
+}
+
 export async function sendAlertPush(
   env: ApnsEnv,
   deviceToken: string,

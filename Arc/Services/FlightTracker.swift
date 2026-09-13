@@ -394,11 +394,14 @@ final class FlightTracker: ObservableObject {
         if flight.cancelUncertain && !wasUncertain {
             ArcNotifications.notifyPossiblyCancelled(flight: flight)
         }
-        if flight.delayMinutes != oldDelay && flight.delayMinutes > 0 {
+        // Every move, including back to zero: the alert itself decides what
+        // is news (fifteen-minute floor, ten-minute step, one line when it
+        // clears — the Worker's rules).
+        if flight.delayMinutes != oldDelay {
             ArcNotifications.notifyDelay(flight: flight)
         }
         if let newGate = flight.departureGate, newGate != oldGate {
-            ArcNotifications.notifyGateChange(flight: flight, newGate: newGate)
+            ArcNotifications.notifyGateChange(flight: flight, newGate: newGate, oldGate: oldGate)
         }
 
         // Gate-prediction flywheel: record what gates this flight used today.

@@ -60,7 +60,10 @@ targets:
         # CLBackgroundActivitySession keeps GPS delivering after the phone
         # is pocketed — with the system's own indicator showing — and the
         # session ends at the first confirmed wheels-up.
-        UIBackgroundModes: [fetch, location]
+        # `remote-notification` is the Worker's silent nudge: a background
+        # push that wakes Arc for the refresh only the device can do (the
+        # inbound-chain prediction), in the last hours before departure.
+        UIBackgroundModes: [fetch, location, remote-notification]
         NSLocationWhenInUseUsageDescription: >-
           Arc uses your location only around takeoff, to confirm the moment
           your flight actually leaves the ground. It is processed on your

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import UIKit
 import UserNotifications
 
@@ -32,6 +33,27 @@ final class RemotePush: NSObject, UIApplicationDelegate {
     }
 
     private static var lastToken: String?
+    /// Handed over in ArcApp.init — a silent push can wake a dead Arc, and
+    /// the refresh it runs needs the store.
+    private static var container: ModelContainer?
+
+    static func adoptContainer(_ container: ModelContainer) {
+        Self.container = container
+    }
+
+    /// The Settings toggles, as the Worker reads them (`profiles.notify_prefs`).
+    /// Absent keys mean on, like the local defaults.
+    nonisolated static func notifyPrefsBody() -> [String: Bool] {
+        let d = UserDefaults.standard
+        func on(_ key: String) -> Bool { d.object(forKey: key) == nil || d.bool(forKey: key) }
+        return ["gates": on("notifyGateChanges"), "delays": on("notifyDelays"), "landing": on("notifyLanding")]
+    }
+
+    /// Mirror the toggles to the profile. On every change, and once per
+    /// registration so a fresh sign-in starts from what Settings shows.
+    static func syncNotifyPrefs() {
+        Task { try? await ArcSupabase.shared.setNotifyPrefs(notifyPrefsBody()) }
+    }
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
@@ -92,6 +114,23 @@ final class RemotePush: NSObject, UIApplicationDelegate {
         let env = APNsEnvironment.current
         guard let body = try? JSONSerialization.data(
             withJSONObject: ["token": token, "env": env, "user_id": userId]) else { return }
-        setRegistered(await FlightAPIClient.shared.registerDeviceToken(body))
+        let ok = await FlightAPIClient.shared.registerDeviceToken(body)
+        setRegistered(ok)
+        if ok { syncNotifyPrefs() }
+    }
+
+    /// A silent push from the Worker: the app is woken for the refresh it
+    /// would otherwise only get on the next open — the inbound-chain
+    /// prediction, "your aircraft has arrived", the connection re-rating.
+    /// Same work as the background app-refresh task, on the Worker's clock
+    /// instead of iOS's guess.
+    func application(_ application: UIApplication,
+                     didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        guard let container = Self.container else { completionHandler(.noData); return }
+        Task { @MainActor in
+            await ArcApp.runBackgroundRefresh(container: container)
+            completionHandler(.newData)
+        }
     }
 }
