@@ -1614,6 +1614,9 @@ export default {
             ? body.user_id : null,
           apns_env: body.env === "production" ? "production" : "sandbox",
           flight_number: f["flight_number"] ?? null,
+          // Rail and sea cards are clock-driven: the cron must never ask the
+          // airline feed about a vessel name. Older apps send no mode.
+          mode: f["mode"] === "rail" || f["mode"] === "sea" ? f["mode"] : "air",
           departure_iata: f["departure_iata"] ?? null,
           arrival_iata: f["arrival_iata"] ?? null,
           departure_city: f["departure_city"] ?? null,
@@ -2501,6 +2504,7 @@ function refDate(iso: string | null | undefined): number | null {
 interface TokenRow {
   token: string;
   token_type: string;
+  mode?: string | null;
   user_id: string | null;
   apns_env: "sandbox" | "production";
   flight_number: string | null;
@@ -3333,6 +3337,11 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   // Nothing to do far ahead of departure — and no reason to burn quota.
   const schedDepGuess = new Date(row.scheduled_departure!).getTime();
   if (now < schedDepGuess - 4 * 60 * 60 * 1000) return;
+  // A ferry or train has no airline record and no taxi. Its card is
+  // clock-driven: the provider is never consulted (the "flight number" is
+  // a vessel or service name, and the call could only miss), and the hedge
+  // window is nil — it left when it left.
+  const isAir = ((row.mode as string) ?? "air") === "air";
 
   // Phase-aware provider refresh through the SHARED cache (source "cron",
   // capped by its own monthly budget — it can never eat the interactive
@@ -3344,7 +3353,7 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
   const knownDep = flight?.["dep_actual"] ? new Date(flight["dep_actual"]).getTime() : schedDepGuess + priorDelayMs;
   const knownArr = flight?.["arr_actual"] ? new Date(flight["arr_actual"]).getTime()
     : new Date(row.scheduled_arrival ?? row.scheduled_departure!).getTime() + priorDelayMs;
-  if (now - fetchedAt > cronRefreshIntervalMs(knownDep, knownArr, now, !!flight?.["dep_actual"])) {
+  if (isAir && now - fetchedAt > cronRefreshIntervalMs(knownDep, knownArr, now, !!flight?.["dep_actual"])) {
     const day = row.scheduled_departure!.slice(0, 10);
     const { legs } = await fetchLegsCached(env, "flight", row.flight_number!, day, "cron");
     // A flight number can have multiple legs that day — and on a route that
@@ -3450,9 +3459,10 @@ async function pushUpdateForRow(env: Env, row: TokenRow): Promise<void> {
 
   // What this airport's taxi actually takes at this hour — the grace the
   // lock screen gives a departure before it may presume wheels-up.
-  const taxiPrior = (flight?.["dep_iata"])
-    ? (await taxiPriorFor(env, String(flight["dep_iata"]), new Date(depMs).getUTCHours())).minutes
-    : DEFAULT_TAXI_PRIOR;
+  const taxiPrior = !isAir ? 0
+    : (flight?.["dep_iata"])
+      ? (await taxiPriorFor(env, String(flight["dep_iata"]), new Date(depMs).getUTCHours())).minutes
+      : DEFAULT_TAXI_PRIOR;
 
   // stale-date = next phase boundary: iOS re-renders the Live Activity once
   // when content goes stale, and that render re-evaluates the clock-based

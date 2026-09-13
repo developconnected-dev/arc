@@ -77,6 +77,41 @@ public struct DepartureEvidence: Equatable, Sendable {
         self.isLiveCovered = isLiveCovered
     }
 
+    /// The same evidence, read for the kind of leg it describes.
+    ///
+    /// A train or a ferry leaves when it leaves: there is no gate-to-runway
+    /// gap to hedge across, and no live feed that could ever confirm the
+    /// departure — so the taxi prior is nothing, a "still on the ground"
+    /// refresh is not evidence, and ground sightings (which only ADS-B
+    /// produces) cannot apply. A reported departure still confirms. Air
+    /// legs pass straight through to the full model.
+    init(
+        mode: TripMode,
+        offBlock: Date,
+        estimatedTakeoff: Date? = nil,
+        actualDeparture: Date? = nil,
+        groundState: String? = nil,
+        groundObservedAt: Date? = nil,
+        taxiStartedAt: Date? = nil,
+        lastSeenOnGround: Date? = nil,
+        taxiPriorMinutes: Int? = nil,
+        isLiveCovered: Bool = true
+    ) {
+        if mode == .air {
+            self.init(offBlock: offBlock, estimatedTakeoff: estimatedTakeoff,
+                      actualDeparture: actualDeparture, groundState: groundState,
+                      groundObservedAt: groundObservedAt, taxiStartedAt: taxiStartedAt,
+                      lastSeenOnGround: lastSeenOnGround,
+                      taxiPriorMinutes: taxiPriorMinutes ?? DepartureEvidence.defaultTaxiPrior,
+                      isLiveCovered: isLiveCovered)
+        } else {
+            self.init(offBlock: offBlock, estimatedTakeoff: nil,
+                      actualDeparture: actualDeparture, groundState: nil,
+                      groundObservedAt: nil, taxiStartedAt: nil, lastSeenOnGround: nil,
+                      taxiPriorMinutes: 0, isLiveCovered: false)
+        }
+    }
+
     /// When Arc expects the wheels to leave the ground.
     ///
     /// Never sooner than off-block plus this airport's taxi, never sooner

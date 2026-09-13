@@ -131,3 +131,31 @@ final class LiveActivitySamePlaneTests: XCTestCase {
             incomingIsOwn: false))
     }
 }
+
+/// The lock screen's own copy of the departure question has to know what
+/// kind of leg it is asking about: the content-state carries no mode, so
+/// the widget hands in the attributes' one. Without it a ferry's card
+/// hedged "Departing…" for an airport taxi it never takes.
+final class LiveActivityNonAirPhaseTests: XCTestCase {
+    private let dep = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func state(status: String = "scheduled") -> FlightActivityAttributes.ContentState {
+        FlightActivityAttributes.ContentState(
+            status: status, departureTime: dep, arrivalTime: dep.addingTimeInterval(3 * 3600),
+            boardingTime: nil, delayMinutes: 0, arrivalDelayMinutes: nil,
+            departureGate: nil, departureTerminal: nil, arrivalGate: nil, arrivalTerminal: nil,
+            baggageClaim: nil, progress: 0)
+    }
+
+    func testAFerryCardIsUnderwayFromItsDepartureTime() {
+        let s = state()
+        XCTAssertEqual(s.departurePhase(at: dep.addingTimeInterval(5 * 60), mode: .sea), .presumedAirborne)
+        XCTAssertEqual(s.expectedWheelsUp(mode: .sea), dep)
+    }
+
+    func testAFlightCardStillHedgesThroughTheTaxi() {
+        let s = state()
+        XCTAssertEqual(s.departurePhase(at: dep.addingTimeInterval(5 * 60), mode: .air), .departing)
+        XCTAssertEqual(s.expectedWheelsUp(mode: .air), dep.addingTimeInterval(20 * 60))
+    }
+}

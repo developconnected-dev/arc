@@ -264,3 +264,22 @@ final class TripModeTests: XCTestCase {
         XCTAssertTrue(old.reportsPunctuality)
     }
 }
+
+/// A timetable has no notion of "underway": Ferryhopper and the rail board
+/// answer "scheduled" for a crossing that cast off an hour ago. Stamping
+/// that onto the leg every poll undid the clock's own "active" thirty
+/// minutes at a time — the row, the card and the map flapped between
+/// departing and at sea for the whole voyage.
+final class TransitStatusMergeTests: XCTestCase {
+    func testATimetableCannotUndoAnUnderwayLeg() {
+        XCTAssertEqual(FlightTracker.transitStatus(local: .active, provider: .scheduled), .active)
+        XCTAssertEqual(FlightTracker.transitStatus(local: .landed, provider: .scheduled), .landed)
+    }
+
+    func testTheProviderStillWinsWhenItKnowsSomething() {
+        XCTAssertEqual(FlightTracker.transitStatus(local: .active, provider: .cancelled), .cancelled)
+        XCTAssertEqual(FlightTracker.transitStatus(local: .active, provider: .landed), .landed)
+        XCTAssertEqual(FlightTracker.transitStatus(local: .scheduled, provider: .active), .active)
+        XCTAssertEqual(FlightTracker.transitStatus(local: .scheduled, provider: .scheduled), .scheduled)
+    }
+}

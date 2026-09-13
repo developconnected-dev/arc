@@ -13,7 +13,10 @@ extension Flight {
     }
 
     var departureEvidence: DepartureEvidence {
+        // Mode-aware: a train or ferry gets no taxi and no live-coverage
+        // hedge — it left when it left (see DepartureEvidence.init(mode:)).
         DepartureEvidence(
+            mode: mode,
             offBlock: offBlock,
             estimatedTakeoff: estimatedTakeoff,
             actualDeparture: actualDeparture,
@@ -21,11 +24,8 @@ extension Flight {
             groundObservedAt: groundObservedAt,
             taxiStartedAt: taxiStartedAt,
             lastSeenOnGround: lastSeenOnGround,
-            taxiPriorMinutes: taxiPriorMinutes ?? DepartureEvidence.defaultTaxiPrior,
-            // Non-air legs have no ADS-B and no runway times; a train that is
-            // late leaving is simply late, so the taxi machinery stays out of
-            // their way and the clock decides as it always did.
-            isLiveCovered: mode == .air ? (departureLiveCovered ?? true) : true)
+            taxiPriorMinutes: taxiPriorMinutes,
+            isLiveCovered: departureLiveCovered ?? true)
     }
 
     /// The evidence, read through what the app already knows about the leg.

@@ -215,6 +215,7 @@ struct WidgetFlight: Identifiable {
     /// cannot drift from them.
     var departureEvidence: DepartureEvidence {
         DepartureEvidence(
+            mode: mode,
             offBlock: offBlock,
             estimatedTakeoff: estimatedTakeoff,
             actualDeparture: actualDeparture,
@@ -222,8 +223,7 @@ struct WidgetFlight: Identifiable {
             groundObservedAt: groundObservedAt,
             taxiStartedAt: taxiStartedAt,
             lastSeenOnGround: lastSeenOnGround,
-            taxiPriorMinutes: taxiPriorMinutes ?? DepartureEvidence.defaultTaxiPrior,
-            isLiveCovered: mode == .air)
+            taxiPriorMinutes: taxiPriorMinutes)
     }
 
     /// Takes the moment explicitly because widget entries render at future

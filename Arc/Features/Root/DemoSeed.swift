@@ -216,7 +216,7 @@ enum DemoSeed {
             _ = try? Activity.request(
                 attributes: attrs,
                 content: .init(state: state,
-                               staleDate: max(state.expectedWheelsUp, .now.addingTimeInterval(60))),
+                               staleDate: max(state.expectedWheelsUp(mode: .air), .now.addingTimeInterval(60))),
                 pushType: nil)
             return
         }

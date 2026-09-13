@@ -182,7 +182,7 @@ final class LiveActivityManager {
             // still work exactly the same alongside push.
             let activity = try Activity.request(
                 attributes: attributes,
-                content: .init(state: state, staleDate: Self.staleDate(for: state)),
+                content: .init(state: state, staleDate: Self.staleDate(for: state, mode: flight.mode)),
                 pushType: .token
             )
             activeActivities[key] = activity
@@ -198,7 +198,7 @@ final class LiveActivityManager {
     /// exactly the right moment even with the app dead and the device
     /// offline — which is precisely the in-flight situation. While online,
     /// pushes keep resetting it anyway.
-    private static func staleDate(for state: FlightActivityAttributes.ContentState) -> Date {
+    private static func staleDate(for state: FlightActivityAttributes.ContentState, mode: TripMode) -> Date {
         if state.status == "landed" { return .now.addingTimeInterval(3600) }
         // The "directions to the airport" pill retires ~1¾ h before
         // departure — schedule the re-render that removes it.
@@ -211,7 +211,7 @@ final class LiveActivityManager {
         // and the lock screen of someone sitting in that queue announced she
         // was flying. Schedule the re-render for the moment the label may
         // legitimately change (the offline-takeoff case).
-        let wheelsUp = state.expectedWheelsUp
+        let wheelsUp = state.expectedWheelsUp(mode: mode)
         if state.actualDeparture == nil, Date.now < wheelsUp { return wheelsUp }
         return max(state.arrivalTime, .now.addingTimeInterval(60))
     }
@@ -242,7 +242,7 @@ final class LiveActivityManager {
         // One ActivityContent, one update. ActivityKit replaces the whole
         // state on every presentation — there is no "lock only" or "Island
         // only" write. A half-updated card is worse than a stale matching one.
-        let content = ActivityContent(state: state, staleDate: Self.staleDate(for: state))
+        let content = ActivityContent(state: state, staleDate: Self.staleDate(for: state, mode: flight.mode))
         nonisolated(unsafe) let act = activity
         await act.update(content)
         // Boarding lead and companions are ours alone to know, and a server
