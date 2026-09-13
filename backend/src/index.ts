@@ -4,7 +4,8 @@ import { classifyGround, taxiPriorMinutes, adbPositionToSample, landedSighting, 
 import { predictGate, standFromBoard, type GateObservation } from "./gates";
 import { contentState, liveActivityClock, sanitizeLiveActivityLocal } from "./activity";
 import { flightNews, laAlert, type WatchState } from "./alerts";
-import { friendFlightNews, tripInviteNews, recipientsFor, type FriendAlertState } from "./social";
+import { friendFlightNews, tripInviteNews, recipientsFor, airportOverlaps, overlapNews, type FriendAlertState, type OverlapFlight } from "./social";
+import { staleTokenQueries } from "./tokens";
 import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS, adbGate, resetAtFromHeader, ADB_MONTHLY_UNITS, ADB_UNITS_PER_CALL, cronRefreshIntervalMs, takeoffWatchDue } from "./freshness";
 import { pickLeg, plausibleActualDeparture, plausibleEstimatedArrival, effectiveDelayMinutes } from "./legmatch";
 import { verifiedRoute } from "./place";
@@ -1839,6 +1840,12 @@ export default {
       const cutoff = new Date(Date.now() - 45 * 86_400_000).toISOString();
       ctx.waitUntil(sbService(env, "DELETE", `/flight_cache?fetched_at=lt.${cutoff}`));
     }
+    // The token table only ever grew too: 280 of 284 rows were start tokens
+    // nothing would push to (see tokens.ts). Once an hour, with the
+    // overlap-alert rows that have served their few days.
+    if (new Date().getUTCMinutes() === 11) {
+      ctx.waitUntil(sweepTokens(env));
+    }
   },
 };
 
@@ -2660,6 +2667,12 @@ async function runLiveActivityCron(env: Env): Promise<void> {
     try {
       await announceTripInvites(env);
     } catch (e) { console.error("invite announce failed:", String(e)); }
+    // Coincidences move on the hour, not the minute; every fifth tick.
+    if (new Date(Date.now()).getUTCMinutes() % 5 === 2) {
+      try {
+        await announceAirportOverlaps(env);
+      } catch (e) { console.error("overlap announce failed:", String(e)); }
+    }
   }
 
   // LAST, deliberately. Flights that are still too far out for a Live Activity
@@ -3307,6 +3320,102 @@ async function announceTripInvites(env: Env): Promise<void> {
     } catch (e) {
       console.error("trip invite announce failed:", inv?.id, String(e));
     }
+  }
+}
+
+/// Delete the token rows nothing will ever push to, and say how many.
+async function sweepTokens(env: Env): Promise<void> {
+  const now = Date.now();
+  const counts: string[] = [];
+  for (const q of staleTokenQueries(now)) {
+    const rows = await sbSelect(env, q.path.replace("?", "?select=token&"));
+    if (rows.length === 0) continue;
+    await sbService(env, "DELETE", q.path);
+    counts.push(`${q.reason} ${rows.length}`);
+  }
+  const overlapCutoff = new Date(now - 3 * 86_400_000).toISOString();
+  await sbService(env, "DELETE", `/overlap_alerts?announced_at=lt.${overlapCutoff}`);
+  console.log("LA sweep:", counts.length ? counts.join(", ") : "nothing stale");
+}
+
+/// "Anna is at ZRH too" — the last social alert that only the reader's
+/// phone used to discover, on its next open. A handful of users per pass:
+/// each costs a friendships read, their friends' rows, and the names.
+const OVERLAP_USERS_PER_PASS = 8;
+
+async function announceAirportOverlaps(env: Env): Promise<void> {
+  const now = Date.now();
+  const H = 3600_000;
+  const mineRows = await sbSelect(env,
+    "/user_flights?select=id,user_id,flight_number,departure_iata,arrival_iata,scheduled_departure," +
+    "scheduled_arrival,delay_minutes,status,estimated_arrival,actual_arrival,departure_tz,arrival_tz" +
+    `&scheduled_departure=gte.${new Date(now - 12 * H).toISOString()}` +
+    `&scheduled_departure=lte.${new Date(now + 36 * H).toISOString()}&status=neq.cancelled`
+  ) as unknown as (OverlapFlight & { user_id: string; departure_tz?: string | null; arrival_tz?: string | null })[];
+  const byUser = new Map<string, typeof mineRows>();
+  for (const r of mineRows) {
+    const list = byUser.get(String(r.user_id)) ?? [];
+    list.push(r);
+    byUser.set(String(r.user_id), list);
+  }
+  const users = [...byUser.keys()];
+  for (let i = users.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [users[i], users[j]] = [users[j], users[i]];
+  }
+  let announced = 0;
+  for (const userId of users.slice(0, OVERLAP_USERS_PER_PASS)) {
+    try {
+      const uid = encodeURIComponent(userId);
+      const friendships = await sbSelect(env,
+        `/friendships?select=requester_id,addressee_id,status&status=eq.accepted` +
+        `&or=(requester_id.eq.${uid},addressee_id.eq.${uid})`);
+      const friendIds = [...new Set(friendships
+        .map(f => String(f.requester_id) === userId ? String(f.addressee_id) : String(f.requester_id))
+        .filter(id => id !== userId))];
+      if (friendIds.length === 0) continue;
+      const idList = friendIds.map(encodeURIComponent).join(",");
+      const [shared, profiles, done] = await Promise.all([
+        sbSelect(env,
+          "/shared_flights?select=id,user_id,flight_number,departure_iata,arrival_iata,scheduled_departure," +
+          "scheduled_arrival,delay_minutes,status,estimated_arrival,actual_arrival,audience" +
+          `&user_id=in.(${idList})` +
+          `&scheduled_departure=gte.${new Date(now - 24 * H).toISOString()}` +
+          `&scheduled_departure=lte.${new Date(now + 48 * H).toISOString()}`),
+        sbSelect(env, `/profiles?select=id,display_name&id=in.(${idList})`),
+        sbSelect(env, `/overlap_alerts?select=friend_id,airport&user_id=eq.${uid}`),
+      ]);
+      const names = new Map(profiles.map(p => [String(p.id), String(p.display_name || "A friend")]));
+      const friends = friendIds.map(id => ({
+        id, name: names.get(id) ?? "A friend",
+        flights: (shared as unknown as (OverlapFlight & { user_id: string; audience?: string[] | null })[])
+          .filter(f => String(f.user_id) === id && (!f.audience || f.audience.includes(userId))),
+      }));
+      const mine = byUser.get(userId)!;
+      const found = airportOverlaps({ mine, friends, now });
+      const already = new Set(done.map(d => `${d.friend_id}|${d.airport}`));
+      for (const o of found) {
+        if (already.has(`${o.friendId}|${o.airport}`)) continue;
+        const my = mine.find(m => m.id === o.myFlightId);
+        const zone = my && o.airport === String(my.departure_iata).toUpperCase() ? my.departure_tz : my?.arrival_tz;
+        const news = overlapNews({ friendName: o.friendName, airport: o.airport,
+                                   windowStart: o.windowStart, windowEnd: o.windowEnd, timeZone: zone, now });
+        await sendToUser(env, userId, news.title, news.body, `overlap-${o.friendId}-${o.airport}`,
+                         `overlap-${o.airport}`, { flightId: o.myFlightId });
+        await sbService(env, "POST", "/overlap_alerts?on_conflict=user_id,friend_id,airport", {
+          user_id: userId, friend_id: o.friendId, airport: o.airport,
+          my_flight_id: o.myFlightId, announced_at: new Date(now).toISOString(),
+        });
+        announced++;
+        console.log("overlap announced:", o.airport, "to", userId.slice(0, 8), "about", o.friendId.slice(0, 8));
+      }
+    } catch (e) {
+      console.error("overlap pass failed for", userId.slice(0, 8), String(e));
+    }
+  }
+  if (users.length > 0) {
+    console.log("overlaps:", users.length, "users with flights,", Math.min(users.length, OVERLAP_USERS_PER_PASS),
+                "checked,", announced, "announced");
   }
 }
 

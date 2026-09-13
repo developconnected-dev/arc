@@ -139,3 +139,130 @@ export function recipientsFor(args: {
   }
   return [...out];
 }
+
+// ── "Anna is at ZRH too" ──
+
+export interface OverlapFlight {
+  id: string;
+  flight_number: string;
+  departure_iata: string;
+  arrival_iata: string;
+  scheduled_departure: string;
+  scheduled_arrival: string;
+  delay_minutes: number;
+  status: string;
+  estimated_arrival?: string | null;
+  actual_arrival?: string | null;
+}
+
+export interface AirportOverlap {
+  friendId: string;
+  friendName: string;
+  airport: string;
+  windowStart: number;
+  windowEnd: number;
+  myFlightId: string;
+}
+
+const HOUR = 3600_000;
+/// Same rules as FriendsStore.airportOverlaps on the device.
+const OVERLAP_WINDOW = 3 * HOUR;
+const OVERLAP_GRACE = 6 * HOUR;
+const COMPANION_ROTATION = 18 * HOUR;
+
+function effectiveDeparture(f: OverlapFlight): number {
+  return Date.parse(f.scheduled_departure) + (f.delay_minutes ?? 0) * 60_000;
+}
+
+function effectiveArrival(f: OverlapFlight): number {
+  const dep = effectiveDeparture(f);
+  const actual = f.actual_arrival ? Date.parse(f.actual_arrival) : NaN;
+  if (Number.isFinite(actual) && actual > dep) return actual;
+  const est = f.estimated_arrival ? Date.parse(f.estimated_arrival) : NaN;
+  if (Number.isFinite(est) && est > dep) return est;
+  return Date.parse(f.scheduled_arrival) + (f.delay_minutes ?? 0) * 60_000;
+}
+
+function norm(n: string): string { return n.replace(/\s+/g, "").toUpperCase(); }
+
+/// The coincidences: a friend at one of my airports within three hours of
+/// me, on a flight that is NOT mine — a companion on the same journey is
+/// shown on the flight itself, not announced as a meeting.
+export function airportOverlaps(args: {
+  mine: OverlapFlight[];
+  friends: { id: string; name: string; flights: OverlapFlight[] }[];
+  now: number;
+}): AirportOverlap[] {
+  const { now } = args;
+  const found: AirportOverlap[] = [];
+  const seen = new Set<string>();
+  for (const my of args.mine) {
+    if (my.status === "cancelled") continue;
+    const myDep = effectiveDeparture(my), myArr = effectiveArrival(my);
+    const myDepIata = my.departure_iata.toUpperCase(), myArrIata = my.arrival_iata.toUpperCase();
+    const myNumber = norm(my.flight_number);
+    for (const friend of args.friends) {
+      for (const f of friend.flights) {
+        if (f.status === "cancelled") continue;
+        const fDep = effectiveDeparture(f), fArr = effectiveArrival(f);
+        if (myNumber && norm(f.flight_number) === myNumber
+            && Math.abs(fDep - Date.parse(my.scheduled_departure)) < COMPANION_ROTATION) continue;
+        const fDepIata = f.departure_iata.toUpperCase(), fArrIata = f.arrival_iata.toUpperCase();
+
+        let airport: string | null = null, start = 0, end = 0;
+        if (myDepIata === fDepIata
+            && Math.abs(myDep - fDep) <= OVERLAP_WINDOW && myDep > now - OVERLAP_GRACE) {
+          airport = myDepIata;
+          start = Math.min(myDep, fDep) - HOUR;
+          end = Math.max(myDep, fDep);
+        } else if (myArrIata === fDepIata || myDepIata === fArrIata || myArrIata === fArrIata) {
+          // My time at the shared airport, and theirs.
+          const myT = myDepIata === fArrIata ? myDep : myArr;
+          const fT = fDepIata === myArrIata ? fDep : fArr;
+          if (Math.abs(myT - fT) <= OVERLAP_WINDOW && myT > now - OVERLAP_GRACE) {
+            airport = myArrIata === fDepIata ? myArrIata : fArrIata;
+            start = Math.min(myT, fT) - HOUR;
+            end = Math.max(myT, fT) + HOUR;
+          }
+        }
+        if (!airport) continue;
+        const key = `${friend.id}|${airport}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        found.push({ friendId: friend.id, friendName: friend.name, airport,
+                     windowStart: start, windowEnd: end, myFlightId: my.id });
+      }
+    }
+  }
+  return found;
+}
+
+/// Mirrors ArcNotifications.notifyAirportOverlap: the window in the
+/// airport's own zone, "today" judged there too.
+export function overlapNews(args: {
+  friendName: string; airport: string; windowStart: number; windowEnd: number;
+  timeZone: string | null | undefined; now: number;
+}): { title: string; body: string } {
+  const zone = args.timeZone || "UTC";
+  const hm = (ms: number) => {
+    try {
+      return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: zone })
+        .format(new Date(ms));
+    } catch {
+      return new Date(ms).toISOString().slice(11, 16);
+    }
+  };
+  const day = (ms: number) => {
+    try {
+      return new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: zone })
+        .format(new Date(ms));
+    } catch {
+      return new Date(ms).toISOString().slice(0, 10);
+    }
+  };
+  const today = day(args.windowStart) === day(args.now);
+  return {
+    title: `${args.friendName} is at ${args.airport} too`,
+    body: `You're both there ${today ? "today" : "in the same window"} · ${hm(args.windowStart)} - ${hm(args.windowEnd)}.`,
+  };
+}
