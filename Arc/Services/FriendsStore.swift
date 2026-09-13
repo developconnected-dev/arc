@@ -325,7 +325,10 @@ final class FriendsStore {
                     else if myFlight.arrivalIATA.uppercased() == friendFlight.departure_iata.uppercased() ||
                             myFlight.departureIATA.uppercased() == friendFlight.arrival_iata.uppercased() ||
                             myFlight.arrivalIATA.uppercased() == friendFlight.arrival_iata.uppercased() {
-                        let myT = myFlight.arrivalIATA.uppercased() == friendFlight.arrival_iata.uppercased() ? myArrTime : myDepTime
+                        // My time AT the shared airport: my arrival when the
+                        // friend leaves from where I land, my departure when
+                        // they land where I leave. (Same rule as the Worker.)
+                        let myT = myFlight.departureIATA.uppercased() == friendFlight.arrival_iata.uppercased() ? myDepTime : myArrTime
                         let fT = friendFlight.departure_iata.uppercased() == myFlight.arrivalIATA.uppercased() ? friendDep : friendArr
                         if abs(myT.timeIntervalSince(fT)) <= 3 * 3600, myT > now.addingTimeInterval(-6 * 3600) {
                             matchIATA = myFlight.arrivalIATA.uppercased() == friendFlight.departure_iata.uppercased() ? myFlight.arrivalIATA.uppercased() : friendFlight.arrival_iata.uppercased()
@@ -360,12 +363,19 @@ final class FriendsStore {
         // the same airport can announce again.
         let announcedKey = "friendOverlaps.announced"
         var announced = Set(UserDefaults.standard.stringArray(forKey: announcedKey) ?? [])
+        // With a push token registered the Worker says these from its cron,
+        // the hour they become true; the set still fills so a later sign-out
+        // cannot replay every one the server already announced.
+        var fresh: [AirportOverlap] = []
         for overlap in found {
             let key = "\(overlap.friend.id)|\(overlap.airportIATA)"
             if !announced.contains(key) {
                 announced.insert(key)
-                ArcNotifications.notifyAirportOverlap(overlap)
+                fresh.append(overlap)
             }
+        }
+        for overlap in FriendAlerts.locallyDelivered(fresh, serverAnnounces: RemotePush.isRegistered) {
+            ArcNotifications.notifyAirportOverlap(overlap)
         }
         // Only prune on a real pass — a refresh that ran before the friends
         // list loaded would otherwise wipe the memory and re-announce

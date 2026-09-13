@@ -165,3 +165,76 @@ test("the traveller never hears about their own flight", () => {
   const r = recipientsFor({ travellerId: "anna", audience: ["anna", "carl"], friendships, profiles: [] });
   assert.deepEqual(r, ["carl"]);
 });
+
+// ── airportOverlaps: "Anna is at ZRH too" ──
+//
+// Mirrors FriendsStore.airportOverlaps on the device: a friend at one of my
+// airports within three hours of me, on a flight that is NOT mine. Times are
+// the effective ones (schedule plus delay).
+import { airportOverlaps, overlapNews } from "../src/social.ts";
+
+const T0 = Date.parse("2026-09-20T10:00:00Z");
+const mine = (over: Partial<Parameters<typeof airportOverlaps>[0]["mine"][0]> = {}) => ({
+  id: "my1", flight_number: "GQ21", departure_iata: "JSY", arrival_iata: "ATH",
+  scheduled_departure: iso(T0), scheduled_arrival: iso(T0 + 45 * 60_000),
+  delay_minutes: 0, status: "scheduled", ...over,
+});
+const theirs = (over: Record<string, unknown> = {}) => ({
+  id: "s1", flight_number: "OA123", departure_iata: "ATH", arrival_iata: "LHR",
+  scheduled_departure: iso(T0 + 120 * 60_000), scheduled_arrival: iso(T0 + 340 * 60_000),
+  delay_minutes: 0, status: "scheduled", estimated_arrival: null, ...over,
+});
+const anna = { id: "anna", name: "Anna" };
+
+test("a friend leaving my arrival airport within three hours is an overlap there", () => {
+  const found = airportOverlaps({ mine: [mine()], friends: [{ ...anna, flights: [theirs()] }], now: T0 - 3600_000 });
+  assert.equal(found.length, 1);
+  assert.equal(found[0].airport, "ATH");
+  assert.equal(found[0].friendId, "anna");
+  assert.equal(found[0].myFlightId, "my1");
+});
+
+test("a friend at my departure airport around my departure is an overlap there", () => {
+  const f = theirs({ departure_iata: "JSY", arrival_iata: "ATH", scheduled_departure: iso(T0 + 90 * 60_000) });
+  const found = airportOverlaps({ mine: [mine()], friends: [{ ...anna, flights: [f] }], now: T0 - 3600_000 });
+  assert.deepEqual(found.map(o => o.airport), ["JSY"]);
+});
+
+test("a companion on my own flight is not an overlap", () => {
+  const same = theirs({ flight_number: "GQ 21", departure_iata: "JSY", arrival_iata: "ATH", scheduled_departure: iso(T0) });
+  const found = airportOverlaps({ mine: [mine()], friends: [{ id: "carl", name: "Carl", flights: [same] }], now: T0 - 3600_000 });
+  assert.equal(found.length, 0);
+});
+
+test("more than three hours apart is not an overlap", () => {
+  const far = theirs({ scheduled_departure: iso(T0 + 300 * 60_000) });
+  assert.equal(airportOverlaps({ mine: [mine()], friends: [{ ...anna, flights: [far] }], now: T0 - 3600_000 }).length, 0);
+});
+
+test("my flight more than six hours gone no longer overlaps with anyone", () => {
+  assert.equal(airportOverlaps({ mine: [mine()], friends: [{ ...anna, flights: [theirs()] }], now: T0 + 8 * 3600_000 }).length, 0);
+});
+
+test("a cancelled friend flight and a cancelled own flight are ignored", () => {
+  assert.equal(airportOverlaps({ mine: [mine()], friends: [{ ...anna, flights: [theirs({ status: "cancelled" })] }], now: T0 - 3600_000 }).length, 0);
+  assert.equal(airportOverlaps({ mine: [mine({ status: "cancelled" })], friends: [{ ...anna, flights: [theirs()] }], now: T0 - 3600_000 }).length, 0);
+});
+
+test("one overlap per friend and airport, whatever the number of matching flights", () => {
+  const found = airportOverlaps({ mine: [mine(), mine({ id: "my2", flight_number: "GQ23" })],
+    friends: [{ ...anna, flights: [theirs(), theirs({ id: "s2", flight_number: "OA125" })] }], now: T0 - 3600_000 });
+  assert.equal(found.length, 1);
+});
+
+test("the banner names the friend, the airport and the window in the airport's own zone", () => {
+  const n = overlapNews({ friendName: "Anna", airport: "ATH", windowStart: T0 + 60 * 60_000, windowEnd: T0 + 180 * 60_000,
+    timeZone: "Europe/Athens", now: T0 });
+  assert.equal(n.title, "Anna is at ATH too");
+  assert.equal(n.body, "You're both there today · 14:00 - 16:00.");
+});
+
+test("a window on another day says so", () => {
+  const n = overlapNews({ friendName: "Anna", airport: "ATH", windowStart: T0 + 25 * 3600_000, windowEnd: T0 + 27 * 3600_000,
+    timeZone: "Europe/Athens", now: T0 });
+  assert.match(n.body, /in the same window/);
+});
