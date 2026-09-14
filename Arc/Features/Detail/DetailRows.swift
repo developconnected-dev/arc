@@ -24,9 +24,9 @@ struct DetailRow<Trailing: View>: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
-                Text(text).font(.system(size: 15)).foregroundStyle(.primary)
+                Text(text).font(.subheadline).foregroundStyle(.primary)
                 if let subtitle {
-                    Text(subtitle).font(.system(size: 13)).foregroundStyle(.secondary)
+                    Text(subtitle).font(.footnote).foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -64,7 +64,7 @@ extension DetailRow where Trailing == Text {
          valueColor: Color = Color(.secondaryLabel), chevron: Bool = false,
          action: (() -> Void)? = nil) {
         self.init(icon: icon, text: text, subtitle: subtitle, chevron: chevron, action: action) {
-            Text(value).font(.system(size: 15)).foregroundStyle(valueColor)
+            Text(value).font(.subheadline).foregroundStyle(valueColor)
         }
     }
 }

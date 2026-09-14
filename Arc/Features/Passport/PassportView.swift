@@ -53,6 +53,11 @@ struct PassportView: View {
                 // (see delete(_:) below). Cards above stay as plain, non-swipeable
                 // rows with the List's own chrome stripped out.
                 List {
+                    if let latest = scoped.first(where: { $0.status == .landed }) {
+                        listRow(bottom: 16) {
+                            JourneyRecapCard(flight: latest, onOpen: { onSelect(latest) })
+                        }
+                    }
                     listRow(bottom: 7) { passportCard }
                     if stats.delayMinutesLost > 0 { listRow(bottom: 7) { delayCard } }
                     listRow(bottom: 12) { pastFlightsHeader }
@@ -216,7 +221,7 @@ struct PassportView: View {
     private var pastFlightsHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Past Flights").font(.system(size: 22, weight: .bold))
+                Text("Past journeys").font(.system(size: 22, weight: .bold))
                 Spacer()
             }
             ScrollView(.horizontal, showsIndicators: false) {
@@ -238,7 +243,7 @@ struct PassportView: View {
                 // Same number as the stats card above: trips actually flown.
                 // `scoped` also holds cancelled/diverted legs, and two counts
                 // on one screen is one too many.
-                Text("\(scoped.filter { $0.status == .landed }.count) FLOWN")
+                Text("\(scoped.filter { $0.status == .landed }.count) COMPLETED")
                     .font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
             }
             .padding(.top, 4)

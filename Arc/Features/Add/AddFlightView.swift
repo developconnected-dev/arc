@@ -637,7 +637,9 @@ struct AddFlightView: View {
 
             LazyVStack(alignment: .leading, spacing: 0) {
                 if query.isEmpty {
-                    listHeader("FREQUENTLY USED")
+                    importOptions
+                        .padding(.horizontal, 20).padding(.bottom, 16)
+                    listHeader(allFlights.isEmpty ? "AIRLINES TO EXPLORE" : "YOUR AIRLINES & SUGGESTIONS")
                     ForEach(frequentAirlines, id: \.iata) { a in airlineRow(a) }
                 } else {
                     if TextHelpers.looksLikeFlightNumber(query), let a = detectedAirline {
@@ -725,6 +727,42 @@ struct AddFlightView: View {
                 livePrefetch = (trimmed, found)
             }
         }
+    }
+
+    private var importOptions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Already booked?")
+                .font(.headline)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) { importButtons }
+                VStack(alignment: .leading, spacing: 12) { importButtons }
+            }
+            Text("Or search a flight number, a train station or a ferry port above.")
+                .font(.footnote).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    @ViewBuilder private var importButtons: some View {
+        PasteButton(payloadType: String.self) { values in
+            guard let text = values.first, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            query = text
+            Task { await runUnifiedSearch() }
+        }
+        .tint(ArcTheme.brand)
+        .accessibilityLabel("Paste a booking or trip number")
+        Button { showPassScanner = true } label: {
+            Label("Scan pass", systemImage: "barcode.viewfinder")
+                .font(.subheadline.weight(.semibold))
+                .padding(.vertical, 12).padding(.horizontal, 14)
+                .background(ArcTheme.brand.opacity(0.1), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(ArcTheme.brand)
+        .accessibilityLabel("Scan a boarding pass")
     }
 
     private var frequentAirlines: [AirlineRef] {

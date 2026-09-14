@@ -24,6 +24,7 @@ struct FlightDetailView: View {
     var friendNote: String = "Shared with you"
     var heroKey: String? = nil
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.modelContext) private var modelContext
 
     @State private var editing: EditField?
@@ -65,7 +66,15 @@ struct FlightDetailView: View {
                         Group {
                             if let friend { friendSection(friend) }
                             statusSection
-                            if isOwnFlight { tripSection }
+                            if isOwnFlight, flight.status == .landed {
+                                JourneyRecapCard(flight: flight)
+                            }
+                            if isOwnFlight {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text("Your trip").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                                    tripSection
+                                }
+                            }
                             if isOwnFlight, flight.mode == .air, !flight.isCompleted { aircraftSection }
                         }
                     }
@@ -90,14 +99,14 @@ struct FlightDetailView: View {
                 let target = args.contains("-detailBottom") ? "bottom" : args.contains("-detailPlane") ? "plane" : nil
                 if let target {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                        withAnimation { proxy.scrollTo(target, anchor: target == "plane" ? .top : .bottom) }
+                        withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { proxy.scrollTo(target, anchor: target == "plane" ? .top : .bottom) }
                     }
                 }
             }
             .onChange(of: aircraftExpanded) { _, expanded in
                 guard expanded else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    withAnimation { proxy.scrollTo("plane", anchor: .top) }
+                    withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { proxy.scrollTo("plane", anchor: .top) }
                 }
             }
         }
@@ -156,7 +165,9 @@ struct FlightDetailView: View {
     // MARK: Grabber-row controls
 
     private var closeButton: some View {
-        Button { close() } label: { circleIcon("xmark") }.buttonStyle(.plain)
+        Button { close() } label: { circleIcon("xmark") }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close trip details")
     }
 
     private var menuButton: some View {
@@ -168,19 +179,21 @@ struct FlightDetailView: View {
             Button(role: .destructive) { confirmDelete = true } label: { Label("Delete Flight", systemImage: "trash") }
         } label: { circleIcon("ellipsis") }
         .buttonStyle(.plain)
+        .accessibilityLabel("Trip actions")
     }
 
     /// The menu and the X: comfortable to hit, and sized to the 15pt text
     /// they sit beside rather than to the grabber's capsule.
-    private let controlSize: CGFloat = 34
+    private let controlSize: CGFloat = 44
 
     private func circleIcon(_ name: String) -> some View {
         Image(systemName: name)
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(.secondary)
-            .frame(width: controlSize, height: controlSize)
+            .frame(width: 34, height: 34)
             .background(Color(.secondarySystemFill), in: Circle())
-            .contentShape(Circle())
+            .frame(width: controlSize, height: controlSize)
+            .contentShape(Rectangle())
     }
 
     // MARK: Whose flight
@@ -202,14 +215,13 @@ struct FlightDetailView: View {
     @ViewBuilder private var statusSection: some View {
         let inbound = inboundLine
         let plan = connection
-        let belt = flight.showsBaggageBelt ? flight.baggageClaim : nil
-        if inbound != nil || plan != nil || belt != nil {
+        if inbound != nil || plan != nil {
             DetailGroup {
                 if let inbound {
                     DetailRow(icon: "arrow.triangle.2.circlepath", text: inbound,
                               chevron: flight.isUpcoming && flight.aircraftRegistration != nil,
                               action: flight.isUpcoming && flight.aircraftRegistration != nil
-                                  ? { withAnimation { aircraftExpanded = true } } : nil)
+                                  ? { withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { aircraftExpanded = true } } : nil)
                 }
                 if let plan {
                     let other = plan.inbound.id == flight.id ? plan.outbound : plan.inbound
@@ -222,12 +234,8 @@ struct FlightDetailView: View {
                               value: plan.risk.rawValue,
                               valueColor: plan.risk == .risky ? ArcTheme.late : (plan.risk == .tight ? .orange : ArcTheme.onTime),
                               chevron: true) {
-                        withAnimation { connectionExpanded.toggle() }
+                        withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { connectionExpanded.toggle() }
                     }
-                }
-                if let belt {
-                    DetailRow(icon: "suitcase.rolling", text: "Baggage belt \(belt)",
-                              value: flight.arrivalTerminal.map { "Terminal \($0)" } ?? "")
                 }
             }
         }
@@ -344,7 +352,7 @@ struct FlightDetailView: View {
                       subtitle: aircraftContext,
                       value: flight.aircraftRegistration ?? "",
                       chevron: true) {
-                withAnimation { aircraftExpanded.toggle() }
+                withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { aircraftExpanded.toggle() }
             }
             .id("plane")
             if aircraftExpanded {

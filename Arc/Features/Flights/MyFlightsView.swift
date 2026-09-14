@@ -93,7 +93,7 @@ struct MyFlightsView: View {
                 }
                 if flights.isEmpty {
                     Button(action: onAdd) {
-                        emptyState.padding(.top, 40)
+                        emptyState.padding(.top, 12).padding(.bottom, 20)
                     }
                     .buttonStyle(.plain)
                     .listRowSeparator(.hidden)
@@ -107,10 +107,27 @@ struct MyFlightsView: View {
                     // of a container that breaks the surface.
                     ForEach(Array(flights.enumerated()), id: \.element.id) { idx, flight in
                         Button { onSelect(flight) } label: {
-                            FlightRowCard(flight: flight)
-                                // The card the detail opens from and closes
-                                // back into (see `Morph`).
-                                .heroCopy(for: flight, side: .list)
+                            VStack(alignment: .leading, spacing: 0) {
+                                if idx == 0 {
+                                    JourneyBriefView(flight: flight)
+                                        .padding(.horizontal, 14).padding(.top, 16)
+                                }
+                                FlightRowCard(flight: flight)
+                                    .heroCopy(for: flight, side: .list)
+                            }
+                            .background {
+                                if idx == 0 {
+                                    RoundedRectangle(cornerRadius: 22)
+                                        .fill(Color(.secondarySystemGroupedBackground))
+                                }
+                            }
+                            .overlay {
+                                if idx == 0 {
+                                    RoundedRectangle(cornerRadius: 22)
+                                        .strokeBorder(ArcTheme.brand.opacity(0.16), lineWidth: 1)
+                                }
+                            }
+                            .padding(.bottom, idx == 0 ? 12 : 0)
                         }
                             .buttonStyle(.plain)
                             .listRowSeparator(.hidden)
@@ -296,23 +313,44 @@ struct MyFlightsView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "airplane.departure")
-                .font(.system(size: 44))
-                .foregroundStyle(ArcTheme.smartGradient.opacity(0.75))
-            Text("Where to next?")
-                .font(.system(size: 17, weight: .semibold))
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 10) {
+                Image(systemName: "airplane")
+                Image(systemName: "tram.fill")
+                Image(systemName: "ferry.fill")
+            }
+            .font(.title3)
+            .foregroundStyle(ArcTheme.brand)
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Your next journey\nstarts here.")
+                    .font(.title.bold())
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Bring your flights, trains and ferries together. One place for the journey ahead.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Text(allFlights.isEmpty ? "Add your first trip" : "Add your next trip").font(.headline)
+                Spacer()
+                Image(systemName: "arrow.up.right").font(.headline)
+            }
+            .foregroundStyle(.white)
+            .padding(16)
+            .background(ArcTheme.brand, in: RoundedRectangle(cornerRadius: 16))
+            Text("Search a route, paste a booking or scan a boarding pass.")
+                .font(.footnote)
                 .foregroundStyle(.secondary)
-            Text("Search a flight number, route, or just paste your booking email.")
-                .font(.system(size: 14))
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            Text("Tap to add a trip")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(ArcTheme.action)
-                .padding(.top, 4)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity)
+        .padding(22)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
+        .padding(.horizontal, 16)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Opens trip search, booking import and boarding pass scanning")
     }
 }
