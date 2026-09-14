@@ -303,6 +303,8 @@ final class TakeoffSensor: NSObject {
     /// a person boards one plane — and the sensor owns its own lifecycle
     /// past the takeoff (the landing watch outlives `watchingForTakeoff`).
     func reconcile(flights: [Flight], modelContext: ModelContext) {
+        // Screenshot launches must not start sensors or present permission prompts.
+        guard !DemoSeed.suppressPrompts else { return }
         self.modelContext = modelContext
         armAirportWake(flights: flights)
 

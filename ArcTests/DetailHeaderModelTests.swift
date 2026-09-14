@@ -67,4 +67,39 @@ final class DetailHeaderModelTests: XCTestCase {
         f.seat = "14A"
         XCTAssertFalse(TripGroup.isEmpty(f))
     }
+    func testRecapNeverSharesPrivateTripDetails() {
+        let f = flight(status: .landed)
+        f.bookingCode = "PRIVATE123"
+        f.seat = "99Z"
+        f.notes = "Private travel notes"
+        f.departureCity = "Zurich"
+        f.arrivalCity = "Chicago"
+        let recap = JourneyRecap(f)
+        XCTAssertTrue(recap.shareText.contains("Zurich → Chicago"))
+        XCTAssertFalse(recap.shareText.contains("PRIVATE123"))
+        XCTAssertFalse(recap.shareText.contains("99Z"))
+        XCTAssertFalse(recap.shareText.contains("Private travel notes"))
+    }
+
+    func testRecapRequiresValidActualTimesForTravelDuration() {
+        let f = flight(status: .landed)
+        XCTAssertNil(JourneyRecap(f).travelTime)
+        f.actualDeparture = f.scheduledDeparture
+        f.actualArrival = f.scheduledDeparture.addingTimeInterval(90 * 60)
+        XCTAssertEqual(JourneyRecap(f).travelTime, "1h 30m")
+        f.actualArrival = f.scheduledDeparture.addingTimeInterval(-60)
+        XCTAssertNil(JourneyRecap(f).travelTime)
+    }
+
+    func testDepartureComparisonSeparatesPredictionAndMarksNextDay() {
+        let f = flight(depTZ: "UTC")
+        f.scheduledDeparture = Date(timeIntervalSince1970: 86400 + 23 * 3600 + 50 * 60)
+        f.delayMinutes = 5
+        f.predictedDelayMinutes = 30
+        let comparison = DepartureComparison(f)
+        XCTAssertEqual(comparison.reportedTime, "23:55")
+        XCTAssertEqual(comparison.predictedTime, "00:20 (+1d)")
+        XCTAssertEqual(comparison.reportedLabel, "Latest operator time")
+    }
+
 }

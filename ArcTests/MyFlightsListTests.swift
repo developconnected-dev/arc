@@ -47,4 +47,36 @@ final class MyFlightsListTests: XCTestCase {
 
         XCTAssertEqual(listed.map(\.flightNumber), ["LH400", "LX8", "GQ873"])
     }
+    func testManualBriefDoesNotClaimLiveMonitoring() {
+        let flight = makeFlight("LX17", departsIn: 12)
+        flight.dataTier = .manual
+        let brief = JourneyBrief(flight)
+        XCTAssertEqual(brief.title, "Your plans, together")
+        XCTAssertTrue(brief.message.hasPrefix("Added by you."))
+    }
+
+    func testFerryBriefNamesTimetableInsteadOfPunctuality() {
+        let flight = makeFlight("BLUE STAR", departsIn: 48)
+        flight.mode = .sea
+        flight.dataTier = .scheduled
+        XCTAssertTrue(JourneyBrief(flight).message.hasPrefix("Based on the published timetable."))
+    }
+
+    func testRailBriefUsesPlatformVocabulary() {
+        let flight = makeFlight("ICE373", departsIn: 2)
+        flight.mode = .rail
+        flight.departureGate = "7"
+        XCTAssertTrue(JourneyBrief(flight).message.hasPrefix("Platform 7."))
+    }
+
+    func testCancellationUncertaintyOutranksGateAdvice() {
+        let flight = makeFlight("LX17", departsIn: 2)
+        flight.departureGate = "A12"
+        flight.cancelUncertain = true
+        let brief = JourneyBrief(flight)
+        XCTAssertEqual(brief.title, "Worth checking")
+        XCTAssertTrue(brief.message.contains("possible cancellation"))
+        XCTAssertFalse(brief.message.contains("A12"))
+    }
+
 }

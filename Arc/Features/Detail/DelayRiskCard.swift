@@ -21,14 +21,7 @@ struct DelayRiskCard: View {
                     // screen — the list chip states the number, this card
                     // explains it.
                     if flight.showsPrediction {
-                        VStack(alignment: .leading, spacing: 3) {
-                            SmartLabel(text: "Arc predicts +\(FlightClock.delayText(flight.predictedDelayMinutes))", size: 15)
-                            Text((flight.predictionReason ?? "Knock-on from the aircraft's earlier legs today")
-                                 + " — the airline still shows \(flight.delayMinutes > 0 ? "+\(FlightClock.delayText(flight.delayMinutes))" : "on time").")
-                                .font(.system(size: 13))
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
+                        predictionSummary
                     }
                     ForEach(shown ?? [], id: \.airport) { entry in
                         row(entry)
@@ -60,6 +53,38 @@ struct DelayRiskCard: View {
         // minutes, and a knock-on that appears mid-view should surface
         // without leaving the screen.
         .task(id: "\(flight.id)-\(flight.predictedDelayMinutes)") { await load() }
+    }
+
+    private var predictionSummary: some View {
+        let comparison = DepartureComparison(flight)
+        return VStack(alignment: .leading, spacing: 12) {
+            SmartLabel(text: "An early heads-up", size: 15)
+            Text(flight.predictionReason ?? "Delays on this aircraft’s earlier journeys may affect your departure.")
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 24) { comparisonTimes(comparison) }
+                VStack(alignment: .leading, spacing: 12) { comparisonTimes(comparison) }
+            }
+            Text("Departure airport time. Arc’s estimate may change; follow the operator’s boarding instructions.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder private func comparisonTimes(_ comparison: DepartureComparison) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Arc estimate").font(.caption).foregroundStyle(.secondary)
+            Text(comparison.predictedTime).font(.title3.weight(.semibold).monospacedDigit())
+                .foregroundStyle(ArcTheme.brand)
+        }
+        VStack(alignment: .leading, spacing: 4) {
+            Text(comparison.reportedLabel).font(.caption).foregroundStyle(.secondary)
+            Text(comparison.reportedTime).font(.title3.weight(.semibold).monospacedDigit())
+                .foregroundStyle(.primary)
+        }
     }
 
     private struct Entry {
@@ -157,5 +182,36 @@ struct DelayRiskCard: View {
             arrival = DelayRisk.assess(now: conditions.now, atDeparture: conditions.atTime)
         }
         checkedAt = .now
+    }
+}
+
+/// Compare the two sources against the same original schedule. Neither a
+/// cached operator time nor an Arc estimate is presented as a confirmed event.
+struct DepartureComparison {
+    let predictedTime: String
+    let reportedTime: String
+    let reportedLabel: String
+
+    init(_ flight: Flight) {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_GB")
+        formatter.timeZone = flight.depTimeZone
+        formatter.dateFormat = "HH:mm"
+        let predicted = flight.scheduledDeparture.addingTimeInterval(Double(flight.predictedDelayMinutes) * 60)
+        let reported = flight.scheduledDeparture.addingTimeInterval(Double(flight.delayMinutes) * 60)
+        let calendar = Calendar(identifier: .gregorian)
+        var localCalendar = calendar
+        localCalendar.timeZone = flight.depTimeZone
+        let display = { (date: Date) -> String in
+            let time = formatter.string(from: date)
+            let days = localCalendar.dateComponents([.day],
+                from: localCalendar.startOfDay(for: flight.scheduledDeparture),
+                to: localCalendar.startOfDay(for: date)).day ?? 0
+            return time + (days > 0 ? " (+\(days)d)" : "")
+        }
+        predictedTime = display(predicted)
+        reportedTime = display(reported)
+        reportedLabel = flight.dataTier == .manual ? "Saved departure"
+            : flight.delayMinutes > 0 ? "Latest operator time" : "Published departure"
     }
 }

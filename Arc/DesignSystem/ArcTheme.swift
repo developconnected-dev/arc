@@ -73,12 +73,12 @@ struct GatePill: View {
 
 /// "✦ Arc predicts ~32m late" — the badge for Arc's own inferences.
 /// Sparkles + the smart gradient and nothing else; if a number came from the
-/// airline, it never wears this. A slow shimmer sweeps across on a long,
-/// regular cadence — a quiet pulse, not a spinner: the pause between sweeps
-/// is what keeps it feeling considered rather than busy.
+/// airline, it never wears this. A single sweep marks a new prediction;
+/// unchanged information stays still.
 struct SmartLabel: View {
     let text: String
     var size: CGFloat = 14
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var sweeping = false
 
     var body: some View {
@@ -93,25 +93,12 @@ struct SmartLabel: View {
                 .mask(label)
                 .allowsHitTesting(false)
             }
-            .task {
-                // Both rest positions sit outside the mask, so the un-animated
-                // reset between sweeps is invisible.
-                try? await Task.sleep(for: .seconds(0.4))
-                while !Task.isCancelled {
-                    withAnimation(.easeInOut(duration: 1.8)) { sweeping = true }
-                    try? await Task.sleep(for: .seconds(2.0))
-                    sweeping = false
-                    try? await Task.sleep(for: .seconds(6.0))
-                }
-            }
-            // A changed prediction sweeps IMMEDIATELY — the shimmer is Arc
-            // saying "I just re-thought this", not only an ambient pulse.
-            .onChange(of: text) { _, _ in
-                Task {
-                    sweeping = false
-                    try? await Task.sleep(for: .milliseconds(60))
-                    withAnimation(.easeInOut(duration: 1.8)) { sweeping = true }
-                }
+            .task(id: text + String(reduceMotion)) {
+                sweeping = false
+                guard !reduceMotion else { return }
+                do { try await Task.sleep(for: .milliseconds(80)) }
+                catch { return }
+                withAnimation(.easeInOut(duration: 1.2)) { sweeping = true }
             }
     }
 
@@ -126,11 +113,9 @@ struct SmartLabel: View {
     }
 }
 
-/// The Apple-Intelligence edge treatment, honestly borrowed: the Siri palette
-/// as an angular gradient stroked around a capsule, a blurred twin providing
-/// the bloom, and a slowly rotating phase so the colors travel. At rest it
-/// breathes quietly; `active` (the AI is reading) brightens and widens it.
+/// A quiet border at rest; a moving accent only while a booking is being read.
 struct SiriGlow: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var active: Bool
 
     private static let palette: [Color] = [
@@ -144,8 +129,8 @@ struct SiriGlow: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay {
-                TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { context in
-                    let t = context.date.timeIntervalSinceReferenceDate
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !active || reduceMotion)) { context in
+                    let t = active && !reduceMotion ? context.date.timeIntervalSinceReferenceDate : 0
                     // Siri speeds up when it's listening: slow color travel at
                     // rest, brisk while the AI reads.
                     let gradient = AngularGradient(
@@ -168,7 +153,7 @@ struct SiriGlow: ViewModifier {
                 }
                 .allowsHitTesting(false)
             }
-            .animation(.easeInOut(duration: 0.35), value: active)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: active)
     }
 }
 

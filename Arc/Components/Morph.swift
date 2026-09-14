@@ -12,10 +12,10 @@ import SwiftUI
 /// arriving copy sat on the departing one's frame and snapped at the end.
 /// Here the frames are measured and the card is placed — nothing to guess.
 enum Morph {
-    /// Everything that is not the hero is only there while its side is
-    /// mostly present: gone in the first part of a departure, back in the
-    /// last part of an arrival.
-    static func presence(_ progress: Double) -> Double { ramp(progress, from: 0.55, to: 1) }
+    /// Overlap the two surfaces throughout the transition. Delaying each
+    /// side until 55% left BOTH invisible at the midpoint, flashing the map
+    /// through the sheet on every open and close.
+    static func presence(_ progress: Double) -> Double { ramp(progress, from: 0, to: 1) }
 
     static func ramp(_ x: Double, from a: Double, to b: Double) -> Double {
         min(max((x - a) / (b - a), 0), 1)
@@ -134,22 +134,19 @@ private struct HeroReporter: ViewModifier {
     let side: MorphSide
     func body(content: Content) -> some View {
         content
-            // `hidden()` rather than `opacity(0)`: inside a List cell the
-            // faded parent rasterises the row, and a zero opacity on the
-            // child was still drawn for the length of the fade.
-            .hidden(travelling == key)
+            // Keep the same view identity when handing off to the overlay.
+            // A conditional hidden() replaced the subtree twice per trip,
+            // restarting layout and appearance callbacks during the glide.
+            .compositingGroup()
+            .opacity(travelling == key ? 0 : 1)
+            .animation(nil, value: travelling == key)
+            .accessibilityHidden(travelling == key)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
                 switch side {
                 case .list: frames?.rows[key] = rect
                 case .detail: frames?.detail = rect
                 }
             }
-    }
-}
-
-private extension View {
-    @ViewBuilder func hidden(_ isHidden: Bool) -> some View {
-        if isHidden { self.hidden() } else { self }
     }
 }
 
