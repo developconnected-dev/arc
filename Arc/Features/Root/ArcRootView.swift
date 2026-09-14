@@ -5,6 +5,7 @@ import SwiftData
 struct ArcRootView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.openURL) private var openURL
     @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
     @ObservedObject private var supabase = ArcSupabase.shared
@@ -676,6 +677,11 @@ struct ArcRootView: View {
         heroTarget = 1
         heroFrames.detail = nil
         detailFlight = flight
+        if reduceMotion {
+            heroTravelling = nil
+            heroProgress = 1
+            return
+        }
         if heroFrames.rows[source.key] != nil {
             heroTravelling = source
         } else {
@@ -730,6 +736,14 @@ struct ArcRootView: View {
         if detailFriend != nil { FriendsStore.shared.focusedRoute = nil }
         heroProgress = 1
         heroTarget = 0
+        if reduceMotion {
+            heroTravelling = nil
+            heroFrames.onDetail = nil
+            heroProgress = 0
+            detailFlight = nil
+            presentQueuedDetail()
+            return
+        }
         if heroFrames.rows[source.key] != nil {
             heroTravelling = source
         } else {
@@ -909,7 +923,7 @@ struct ArcRootView: View {
                 // Declared HERE, not only in a withAnimation from the root:
                 // the tab content is hosted by UIKit's tab controller, and a
                 // transaction opened outside it never reaches this tree.
-                .animation(ArcTheme.morph, value: heroProgress)
+                .animation(reduceMotion ? nil : ArcTheme.morph, value: heroProgress)
                 .environment(\.heroFrames, heroFrames)
                 .environment(\.heroTravelling, heroTravelling?.key)
             }

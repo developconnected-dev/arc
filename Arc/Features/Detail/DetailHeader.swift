@@ -176,7 +176,7 @@ struct DetailHeader: View {
                     actionButton("Terminal map", icon: "map") { onShowAirport?(flight) }
                 }
                 if showsPlane {
-                    actionButton("My plane", icon: "airplane") { onShowAtGate?(flight) }
+                    actionButton(flight.isRecentlyLanded ? "Arrival gate" : "My plane", icon: "airplane") { onShowAtGate?(flight) }
                 }
             }
         }
