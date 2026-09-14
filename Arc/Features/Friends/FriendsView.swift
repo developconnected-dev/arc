@@ -663,7 +663,6 @@ struct FriendsListView: View {
         Button { onSelect(item) } label: {
             FriendFlightRow(item: item)
                 // The card the detail opens from and closes back into.
-                .heroCopy(key: item.id, side: .list)
         }
         .buttonStyle(.plain)
     }
