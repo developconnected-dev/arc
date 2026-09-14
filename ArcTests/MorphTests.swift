@@ -1,16 +1,20 @@
 import XCTest
 @testable import Arc
 
-/// The list is present at the start of the travel and the detail at the
-/// end, and neither is half-there for long: the departing side is gone by
-/// the time the arriving one begins to show.
+/// Opening and closing must never expose an empty sheet between surfaces.
 final class MorphTests: XCTestCase {
-    func testTheTwoSidesNeverOverlapMidTravel() {
-        for p in stride(from: 0.0, through: 1.0, by: 0.05) {
+    func testTransitionNeverBlanksBothSurfaces() {
+        for p in stride(from: 0.0, through: 1.0, by: 0.01) {
             let list = Morph.presence(1 - p), detail = Morph.presence(p)
-            XCTAssertLessThanOrEqual(min(list, detail), 0.0001, "both visible at \(p)")
+            XCTAssertEqual(list + detail, 1, accuracy: 0.0001, "coverage lost at \(p)")
+            XCTAssertGreaterThanOrEqual(max(list, detail), 0.5)
         }
         XCTAssertEqual(Morph.presence(0), 0)
         XCTAssertEqual(Morph.presence(1), 1)
+    }
+
+    func testSpringOvershootKeepsOpacityInBounds() {
+        XCTAssertEqual(Morph.presence(-0.1), 0)
+        XCTAssertEqual(Morph.presence(1.1), 1)
     }
 }
