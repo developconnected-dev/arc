@@ -86,7 +86,6 @@ struct MyFlightsView: View {
                                    onOpen: { onPreview(item, $0) },
                                    onAccept: { accept(item) },
                                    onDecline: { friendsStore.decline(item) })
-                        .heroCopy(key: item.id, side: .list)
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
@@ -113,7 +112,6 @@ struct MyFlightsView: View {
                                         .padding(.horizontal, 14).padding(.top, 16)
                                 }
                                 FlightRowCard(flight: flight)
-                                    .heroCopy(for: flight, side: .list)
                             }
                             .background {
                                 if idx == 0 {

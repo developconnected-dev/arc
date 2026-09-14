@@ -1,8 +1,8 @@
 import SwiftUI
 import SwiftData
 
-/// A flight's detail, hosted inside the tab sheet. The tapped row glides
-/// into `DetailHeader`; beneath it everything is the one row grammar of
+/// A flight's detail, hosted inside the existing tab sheet.
+/// Beneath the header, sections use the shared components
 /// `DetailRow` / `DetailGroup`: what needs attention, what the traveller
 /// wrote down, and the aircraft. See docs/superpowers/specs/
 /// 2026-09-12-detail-redesign-design.md.
@@ -14,15 +14,13 @@ struct FlightDetailView: View {
     var onOpenFlight: ((Flight) -> Void)? = nil
     /// Inside the tab sheet the detail is not a presentation, so there is
     /// nothing for `dismiss` to dismiss: the root clears `detailFlight` and
-    /// the card glides back. A friend's read-only preview is still a real
+    /// the list is revealed. A friend's read-only preview is still a real
     /// sheet and falls back to `dismiss`.
     var onClose: (() -> Void)? = nil
-    /// A friend's flight: the row it glides from is keyed by their feed item
-    /// (`heroKey`), and the detail names them first.
+    /// A friend's detail names the person sharing it first.
     var friend: ArcSupabase.ArcUser? = nil
     /// What the friend row says on the right: how this flight reached you.
     var friendNote: String = "Shared with you"
-    var heroKey: String? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.modelContext) private var modelContext
@@ -33,7 +31,6 @@ struct FlightDetailView: View {
     @State private var airportSheet: AirportSheetTarget?
     @State private var showShare = false
     @State private var confirmDelete = false
-    @State private var sectionsIn = false
     @State private var connectionExpanded = false
     @State private var aircraftExpanded = false
     @State private var newCompanionIds: [String] = []
@@ -54,29 +51,23 @@ struct FlightDetailView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(spacing: 16) {
+                LazyVStack(spacing: 16) {
                     DetailHeader(flight: flight, isOwnFlight: isOwnFlight,
                                  onShowAtGate: onShowAtGate, onShowAirport: onShowAirport,
                                  onAirport: flight.mode == .air ? { airportSheet = AirportSheetTarget(id: $0) } : nil)
-                        // The card the row glides into and back out of (see `Morph`).
-                        .heroCopy(key: heroKey ?? flight.id.uuidString, side: .detail)
-                    // Everything else is laid out a beat later: laying the whole
-                    // tree out on the first frame cost ~200 ms and froze the glide.
-                    if sectionsIn {
-                        Group {
-                            if let friend { friendSection(friend) }
-                            statusSection
-                            if isOwnFlight, flight.status == .landed {
-                                JourneyRecapCard(flight: flight)
-                            }
-                            if isOwnFlight {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Text("Your trip").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-                                    tripSection
-                                }
-                            }
-                            if isOwnFlight, flight.mode == .air, !flight.isCompleted { aircraftSection }
+                    Group {
+                        if let friend { friendSection(friend) }
+                        statusSection
+                        if isOwnFlight, flight.status == .landed {
+                            JourneyRecapCard(flight: flight)
                         }
+                        if isOwnFlight {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Your trip").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                                tripSection
+                            }
+                        }
+                        if isOwnFlight, flight.mode == .air, !flight.isCompleted { aircraftSection }
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
@@ -86,14 +77,10 @@ struct FlightDetailView: View {
                 // the tab sheet the menu and X sit in the grabber row, and
                 // the top line needs a breath beneath them so the status pill
                 // is not wedged against the X.
-                .padding(.top, onClose == nil ? 26 : Morph.detailTopInset)
+                .padding(.top, onClose == nil ? 26 : 12)
                 .padding(.bottom, 40)
             }
             .onAppear {
-                DispatchQueue.main.asyncAfter(deadline: .now() + Morph.sectionsDelay) {
-                    var still = Transaction(); still.disablesAnimations = true
-                    withTransaction(still) { sectionsIn = true }
-                }
                 let args = ProcessInfo.processInfo.arguments
                 if args.contains("-detailPlane") { aircraftExpanded = true }
                 let target = args.contains("-detailBottom") ? "bottom" : args.contains("-detailPlane") ? "plane" : nil
@@ -130,7 +117,7 @@ struct FlightDetailView: View {
                 // Centred on the grabber's capsule, so the circles have the
                 // same 8pt to the sheet's edge as the header's top line has
                 // to them (see `BottomSheet`).
-                .offset(y: -Morph.grabberCentreAboveContent - controlSize / 2)
+                .offset(y: -13 - controlSize / 2)
             }
         }
         .confirmationDialog("Delete this flight?", isPresented: $confirmDelete, titleVisibility: .visible) {
