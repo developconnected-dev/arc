@@ -122,14 +122,28 @@ final class RouteRevealTests: XCTestCase {
         XCTAssertEqual(got.center.longitude, want.center.longitude, accuracy: 0.01)
     }
 
+    func testReducedMotionFocusFramesTheSameRoute() {
+        let flight = trip(.rail, from: madrid, to: beijing)
+        let animated = MapController()
+        animated.focus(on: flight)
+        let still = MapController()
+        still.focus(on: flight, animated: false)
+        guard let expected = animated.position.region,
+              let actual = still.position.region else { return XCTFail("camera didn't move") }
+        XCTAssertEqual(actual.center.latitude, expected.center.latitude, accuracy: 0.001)
+        XCTAssertEqual(actual.center.longitude, expected.center.longitude, accuracy: 0.001)
+        XCTAssertEqual(actual.span.latitudeDelta, expected.span.latitudeDelta, accuracy: 0.001)
+        XCTAssertEqual(actual.span.longitudeDelta, expected.span.longitudeDelta, accuracy: 0.001)
+    }
+
     /// A friend's sailing is drawn on a rhumb line; the camera that zooms
     /// onto it frames that line, not the arc a flight between the same ports
     /// would fly.
-    func testFocusRouteFramesAFriendsLegInItsOwnGeometry() {
+    func testFocusFramesASailingInItsOwnGeometry() {
         let controller = MapController()
-        controller.focusRoute(dep: madrid, arr: beijing, mode: .sea)
+        controller.focus(on: trip(.sea, from: madrid, to: beijing))
         let expected = MapController()
-        expected.frameInUpperHalf(GeoMath.rhumbLine(from: madrid, to: beijing))
+        expected.frameInUpperHalf(GeoMath.rhumbLine(from: madrid, to: beijing), padding: 1.3)
         guard let got = controller.position.region,
               let want = expected.position.region else { return XCTFail("camera didn't move") }
         XCTAssertEqual(got.center.latitude, want.center.latitude, accuracy: 0.01)

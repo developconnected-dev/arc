@@ -174,7 +174,7 @@ final class MapController {
 
     /// Frame the camera on a single flight's route (detail sheet at medium
     /// covers the lower half — the arc goes above it).
-    func focus(on flight: Flight) {
+    func focus(on flight: Flight, animated: Bool = true) {
         // Frame what will actually be DRAWN. A routed leg can bulge far outside
         // the arc between its endpoints — an ICE from München to Hamburg reaches
         // Berlin, 2° east of either — so framing the arc would crop the very
@@ -184,7 +184,7 @@ final class MapController {
         // a flight's arc, but a train's or a sailing's straight ground line —
         // the arc between two stations peaks degrees north of a long
         // east–west leg, and framing it put the real line low in the frame.
-        frameInUpperHalf(RouteReveal.geometry(for: flight), padding: 1.3)
+        frameInUpperHalf(RouteReveal.geometry(for: flight), padding: 1.3, animated: animated)
     }
 
     /// Frame `coords` in the UPPER half of the screen — for content shown
@@ -192,7 +192,7 @@ final class MapController {
     /// decides the zoom MapKit actually shows, so the vertical shift must be
     /// computed from the EFFECTIVE displayed latitude span, not the fitted
     /// one — a plain latitude offset gets swallowed whole.
-    func frameInUpperHalf(_ coords: [CLLocationCoordinate2D], padding: Double = 1.25) {
+    func frameInUpperHalf(_ coords: [CLLocationCoordinate2D], padding: Double = 1.25, animated: Bool = true) {
         guard var region = GeoMath.region(fitting: coords, paddingFactor: padding) else { return }
         let portraitAspect = 2.16   // full-screen map height / width
         let latScale = max(0.2, cos(region.center.latitude * .pi / 180))
@@ -203,14 +203,7 @@ final class MapController {
                                        region.span.longitudeDelta * portraitAspect * latScale))
         region.span.latitudeDelta = min(160, effectiveLat * 2.0)
         region.center.latitude = max(-75, min(75, region.center.latitude - effectiveLat / 2))
-        withAnimation(.easeInOut(duration: 0.8)) { position = .region(region) }
-    }
-
-    /// Frame one route in the upper half (friend-flight detail) — in the
-    /// geometry the overlay draws it with, so a friend's sailing is framed
-    /// on its rhumb line rather than on the arc a flight would fly.
-    func focusRoute(dep: CLLocationCoordinate2D, arr: CLLocationCoordinate2D, mode: TripMode) {
-        frameInUpperHalf(ArcMapView.RouteStyle(mode: mode).path(from: dep, to: arr))
+        withAnimation(animated ? .easeInOut(duration: 0.8) : nil) { position = .region(region) }
     }
 
     // MARK: - The add / import moment

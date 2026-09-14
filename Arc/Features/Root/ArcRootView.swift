@@ -18,22 +18,10 @@ struct ArcRootView: View {
     @State private var showAdd = false
     @State private var didSetInitialDetent = false
     @State private var detailFlight: Flight?
-    /// One namespace links a tapped row to the card at the top of its
-    /// detail, so the row glides up into the detail and back (see `Morph`).
-    /// The row-to-detail moment (see `Morph`): where the hero copies are,
-    /// which flight's card is travelling, and how far along it is (0 at the
-    /// row, 1 at the detail).
-    @State private var heroFrames = HeroFrames()
-    @State private var heroTravelling: HeroSource?
     /// Set while the open detail is a friend's flight: the row's feed item.
     @State private var detailFriend: FriendsStore.FeedItem?
     /// Set while the open detail is a trip invite's preview.
     @State private var detailInvite: FriendsStore.TripInviteItem?
-    @State private var heroProgress: Double = 0
-    /// Where the travelling copy is headed: 1 the detail, 0 the row. Set
-    /// with `heroTravelling`; the copy starts moving once it has had a
-    /// frame at its origin (`heroOverlay`'s onAppear).
-    @State private var heroTarget: Double = 0
     @State private var pendingOpenDetail = ProcessInfo.processInfo.arguments.contains("-openDetail")
     @State private var lastCameraTab: ArcTab?
     @State private var planeWatchTask: Task<Void, Never>?
@@ -66,7 +54,7 @@ struct ArcRootView: View {
         return args[i + 1]
     }
 
-    var body: some View {
+    private var sheetTabs: some View {
         tabs
         // (tab content, map background and accessory live in `tabs` — split out
         // so the modifier chain below stays inside the type checker's budget.)
@@ -141,18 +129,13 @@ struct ArcRootView: View {
         .onChange(of: friendsStore.friends.count) { _, _ in
             if tab == .friends { applyCameraForCurrentTab() }
         }
-        // Friend-flight detail opened → zoom onto that arc; dismissed →
-        // re-frame all friends.
         .onChange(of: friendsStore.focusedRoute) { _, route in
-            guard tab == .friends else { return }
-            if let route {
-                // The friend's detail lives in the tab sheet now, at whatever
-                // height the sheet has — the camera moves, the sheet does not.
-                controller.focusRoute(dep: route.dep, arr: route.arr, mode: route.mode)
-            } else {
-                applyCameraForCurrentTab()
-            }
+            if tab == .friends, route == nil { applyCameraForCurrentTab() }
         }
+    }
+
+    var body: some View {
+        sheetTabs
         // arc://friend/<code> — invite links from the /f/ landing page. The
         // code parks in the store: redeemed immediately when a session
         // exists, or right after first-time profile setup when it doesn't.
@@ -190,9 +173,7 @@ struct ArcRootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .arcOpenFlight)) { _ in
             drainPendingOpen()
         }
-        .onChange(of: detailFlight?.id) { _, _ in
-            if let f = detailFlight { controller.focus(on: f) }
-        }
+        .task(id: detailFlight?.id) { await focusPresentedTrip() }
         .onChange(of: supabase.isSignedIn) { wasSignedIn, isSignedIn in
             // Backfill flights added before this sign-in — "put flights in
             // Supabase too" should cover what's already here, not just what's
@@ -234,6 +215,15 @@ struct ArcRootView: View {
             if ProcessInfo.processInfo.arguments.contains("-openAdd") { showAdd = true }
             drainPendingOpen()
         }
+    }
+
+    private func focusPresentedTrip() async {
+        guard let flight = detailFlight else { return }
+        // Finish initial detail layout before the only opening animation.
+        // Closing or selecting another trip cancels this pending camera move.
+        do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+        guard !Task.isCancelled, detailFlight?.id == flight.id else { return }
+        controller.focus(on: flight, animated: !reduceMotion)
     }
 
     private func prepareInitialSheet() {
@@ -416,7 +406,7 @@ struct ArcRootView: View {
             }
             guard !Task.isCancelled, detailFlight?.id == flight.id else { return }
             controller.showGate(lat: target.lat, lon: target.lon, label: target.label)
-            withAnimation(ArcTheme.morph) { detent = .medium }
+            withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.88)) { detent = .medium }
             if watching { startPlaneWatch(flight) }
         }
     }
@@ -443,7 +433,7 @@ struct ArcRootView: View {
                     highlighted: $0.ref == matched?.ref)
             }
             controller.showAirport(iata: iata, name: name, lat: lat, lon: lon, gates: gates)
-            withAnimation(ArcTheme.morph) { detent = .medium }
+            withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.88)) { detent = .medium }
             // The terminal map used to draw the gates and then sit there. The
             // aircraft is the reason you opened it.
             startPlaneWatch(flight)
@@ -627,12 +617,11 @@ struct ArcRootView: View {
         return true
     }
 
-    /// The row becomes the detail. The detail is inserted hidden; on the
-    /// next frame, once its card has reported where it is, the overlay's
-    /// copy of the row glides up to it while the list fades and the detail
-    /// comes in. When it lands, the detail's own card takes over.
+    /// Present details in the existing sheet without duplicating or moving cards.
     private func openDetail(_ flight: Flight) {
-        open(.own(flight))
+        detailFriend = nil
+        detailInvite = nil
+        presentDetail(flight)
     }
 
     /// A friend's flight from the feed: a transient Flight built from the
@@ -651,111 +640,34 @@ struct ArcRootView: View {
                 arr: .init(latitude: alat, longitude: alon),
                 mode: item.flight.tripMode)
         }
-        open(.friend(item, flight))
+        detailInvite = nil
+        presentDetail(flight)
     }
 
     /// An invited trip's preview, from its card in My Trips: read-only, the
     /// inviter named beneath the header.
     private func openInvitePreview(_ item: FriendsStore.TripInviteItem, _ flight: Flight) {
         detailInvite = item
-        open(.invite(item, flight))
+        detailFriend = nil
+        presentDetail(flight)
     }
 
-    private func open(_ source: HeroSource) {
-        let flight = source.flight
-        switch source {
-        case .own: detailFriend = nil; detailInvite = nil
-        case .friend: detailInvite = nil
-        case .invite: detailFriend = nil
-        }
-        if detailFlight != nil {
-            // A second flight over an open one: no travel, just the swap.
-            detailFlight = flight
-            return
-        }
-        heroProgress = 0
-        heroTarget = 1
-        heroFrames.detail = nil
-        detailFlight = flight
-        if reduceMotion {
-            heroTravelling = nil
-            heroProgress = 1
-            return
-        }
-        if heroFrames.rows[source.key] != nil {
-            heroTravelling = source
-        } else {
-            // No row on screen to glide from (a widget, a notification, the
-            // Passport list): the detail simply fades in over the tab.
-            withAnimation(ArcTheme.morph) { heroProgress = 1 }
-        }
+    private func presentDetail(_ flight: Flight) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { detailFlight = flight }
     }
 
-    /// Called by the travelling copy once it has been drawn at its origin:
-    /// a move requested in the same update as its insertion has nothing to
-    /// animate from. It glides to `heroTarget`; when it lands the trees'
-    /// copies take over, and on a close the detail is removed.
-    private func heroDidAppear() {
-        let flight = detailFlight
-        let target = heroTarget
-        let start = {
-            // One cheap frame after the detail's first layout, so the glide
-            // has a drawn origin to leave from.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
-                guard heroTarget == target, detailFlight?.id == flight?.id else { return }
-                withAnimation(ArcTheme.morph) { heroProgress = target }
-                DispatchQueue.main.asyncAfter(deadline: .now() + Morph.travelDuration) {
-                    guard heroTarget == target, detailFlight?.id == flight?.id else { return }
-                    heroTravelling = nil
-                    if target == 0 {
-                        detailFlight = nil
-                        presentQueuedDetail()
-                    }
-                }
-            }
-        }
-        if target == 1, heroFrames.detail == nil {
-            heroFrames.onDetail = start
-        } else {
-            start()
-        }
-    }
-
-    /// The exact reverse: the card glides back down into its slot in the
-    /// list while the detail fades and the list returns; only once it has
-    /// landed is the detail removed. The ground view and gate marker belong
-    /// to the detail and leave with it.
     private func closeDetail() {
-        guard let flight = detailFlight else { return }
+        guard detailFlight != nil else { return }
         groundViewTask?.cancel()
         groundViewTask = nil
         controller.clearGateMarker()
-        let source: HeroSource = detailFriend.map { .friend($0, flight) }
-            ?? detailInvite.map { .invite($0, flight) }
-            ?? .own(flight)
         if detailFriend != nil { FriendsStore.shared.focusedRoute = nil }
-        heroProgress = 1
-        heroTarget = 0
-        if reduceMotion {
-            heroTravelling = nil
-            heroFrames.onDetail = nil
-            heroProgress = 0
-            detailFlight = nil
-            presentQueuedDetail()
-            return
-        }
-        if heroFrames.rows[source.key] != nil {
-            heroTravelling = source
-        } else {
-            // No row to glide back to (opened from a widget, Passport…):
-            // the detail simply fades.
-            withAnimation(ArcTheme.morph) { heroProgress = 0 }
-            DispatchQueue.main.asyncAfter(deadline: .now() + Morph.travelDuration) {
-                guard heroTarget == 0, detailFlight?.id == flight.id else { return }
-                detailFlight = nil
-                presentQueuedDetail()
-            }
-        }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { detailFlight = nil }
+        presentQueuedDetail()
     }
 
     private func presentQueuedDetail() {
@@ -855,28 +767,7 @@ struct ArcRootView: View {
         }
     }
 
-    /// Each tab shows the same draggable sheet over the shared map — the detent
-    /// is shared state, so the height carries across tabs exactly as before.
-    /// The sheet still slides away while a detail or add sheet is up, so two
-    /// sheets are never stacked.
-    /// The travelling copy of the tapped row, placed between where the list
-    /// row is and where the detail's card is. Nothing while nothing travels.
-    @ViewBuilder private var heroOverlay: some View {
-        if let source = heroTravelling, let from = heroFrames.rows[source.key] {
-            GeometryReader { geo in
-                let origin = geo.frame(in: .global).origin
-                let local = { (r: CGRect) in r.offsetBy(dx: -origin.x, dy: -origin.y) }
-                HeroCard(source: source, progress: heroProgress)
-                    .modifier(HeroPlacement(progress: heroProgress,
-                                            from: local(from),
-                                            to: heroFrames.detail.map(local)
-                                                ?? Morph.target(in: geo.size, rowHeight: from.height)))
-                    .onAppear { DispatchQueue.main.async { heroDidAppear() } }
-            }
-            .allowsHitTesting(false)
-        }
-    }
-
+    /// Keep the map, sheet, and list identity stable when opening details.
     private func tabSurface<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         // Built here rather than passed along, so the closure needn't escape.
         let built = content()
@@ -891,14 +782,11 @@ struct ArcRootView: View {
             // sheet knows nothing about, so its content needs the clearance —
             // otherwise the last control on a screen hides behind it.
             BottomSheet(detent: $detent) {
-                // The detail lives IN the sheet, over the tab content, which
-                // stays in the tree (so its rows keep reporting where they
-                // are, and the list keeps its scroll position) and merely
-                // fades. The tapped row's card travels between the two in
-                // the overlay below (see `Morph`).
+                // Retain the list's scroll position beneath the detail.
                 ZStack {
                     built
-                        .modifier(SidePresence(side: .list, progress: heroProgress))
+                        .opacity(detailFlight == nil ? 1 : 0)
+                        .accessibilityHidden(detailFlight != nil)
                         .allowsHitTesting(detailFlight == nil)
                     if let flight = detailFlight {
                         let own = detailFriend == nil && detailInvite == nil
@@ -909,23 +797,12 @@ struct ArcRootView: View {
                                          onOpenFlight: own ? { other in _ = show(other) } : nil,
                                          onClose: { closeDetail() },
                                          friend: detailFriend?.user ?? detailInvite?.sender,
-                                         friendNote: detailInvite != nil ? "Invited you" : "Shared with you",
-                                         heroKey: detailFriend?.id ?? detailInvite?.id)
+                                         friendNote: detailInvite != nil ? "Invited you" : "Shared with you")
                             .id(flight.id)
-                            .modifier(SidePresence(side: .detail, progress: heroProgress))
+                            .transition(.identity)
                     }
                 }
-                .overlay { heroOverlay }
                 .padding(.bottom, 56)
-                // Declared HERE, not in the root: the tab content is hosted
-                // by UIKit's tab controller, and a transaction opened outside
-                // it never reaches this tree.
-                // Declared HERE, not only in a withAnimation from the root:
-                // the tab content is hosted by UIKit's tab controller, and a
-                // transaction opened outside it never reaches this tree.
-                .animation(reduceMotion ? nil : ArcTheme.morph, value: heroProgress)
-                .environment(\.heroFrames, heroFrames)
-                .environment(\.heroTravelling, heroTravelling?.key)
             }
             .offset(y: showAdd ? 1500 : 0)
             .animation(.spring(duration: 0.45), value: showAdd)
