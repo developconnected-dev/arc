@@ -36,20 +36,10 @@ struct BottomSheet<Content: View>: View {
 /// `BottomSheet` itself so high-frequency updates here never force `content`
 /// (handed down as an already-built value, not a closure) to reconstruct.
 ///
-/// Deliberately the simplest version of this gesture that's still correct —
-/// no spring, no implicit animation in the drag, snapping on release is an
-/// instant reassignment. (A detent set programmatically — see `onChange` —
-/// is the one move that animates, on the morph spring.) This is a diagnostic as much as a design choice:
-/// after three rounds of fixes (double-animation-trigger, material cost,
-/// .local-coordinate-space feedback) still left dragging feeling like it
-/// jumps, animation logic itself is the next thing to rule out by removing
-/// it completely rather than reasoning about it further. `liveHeight` is
-/// plain `@State`, not `@GestureState`, only because `@GestureState` resets
-/// to its initial value the instant the gesture ends and there's no
-/// animation here to smooth that transition over anymore anyway — a plain
-/// `@State` that onEnded sets directly is the more direct match for "no
-/// animation" than layering one on top of `@GestureState`'s own reset.
+/// Finger tracking is unanimated; release settles onto the projected detent.
+/// Keeping drag state here avoids rebuilding the trip list on every frame.
 private struct SheetChrome<Content: View>: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var detent: SheetDetent
     let height: CGFloat
     let content: Content
@@ -102,12 +92,10 @@ private struct SheetChrome<Content: View>: View {
             // with the elements rather than jumping ahead of them.
             liveHeight = h * newValue.fraction
         }
-        // The spring for a programmatic detent lives on the view, where the
-        // change happens: an animation opened by the caller never reaches
-        // this tree through the tab controller's hosting boundary. A drag
-        // bypasses it — `dragBaseline` is set for the finger's whole travel,
-        // and the snap on release disables animation on its transaction.
-        .animation(dragBaseline == nil ? ArcTheme.morph : nil, value: liveHeight)
+        .animation(dragBaseline == nil && !reduceMotion
+                   ? .spring(response: 0.38, dampingFraction: 0.88) : nil, value: liveHeight)
+        .accessibilityAction(named: "Expand sheet") { detent = .large }
+        .accessibilityAction(named: "Collapse sheet") { detent = .small }
     }
 
     private func dragGesture(height h: CGFloat, currentVisible: CGFloat) -> some Gesture {
@@ -141,12 +129,8 @@ private struct SheetChrome<Content: View>: View {
                 let nearest = SheetDetent.allCases.min {
                     abs($0.fraction * h - projected) < abs($1.fraction * h - projected)
                 } ?? detent
-                var snap = Transaction()
-                snap.disablesAnimations = true
-                withTransaction(snap) {
-                    liveHeight = h * nearest.fraction   // instant, no animation
-                    detent = nearest
-                }
+                liveHeight = h * nearest.fraction
+                detent = nearest
             }
     }
 

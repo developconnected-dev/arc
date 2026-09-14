@@ -15,6 +15,7 @@ struct ArcRootView: View {
         : ProcessInfo.processInfo.arguments.contains("-tabFriends") ? .friends : .myFlights
     @State private var detent: SheetDetent = ProcessInfo.processInfo.arguments.contains("-sheetLarge") ? .large : .medium
     @State private var showAdd = false
+    @State private var didSetInitialDetent = false
     @State private var detailFlight: Flight?
     /// One namespace links a tapped row to the card at the top of its
     /// detail, so the row glides up into the detail and back (see `Morph`).
@@ -217,6 +218,7 @@ struct ArcRootView: View {
             // either side of this view's construction, so drain here as well as
             // on `.arcOpenFlight`: whichever happens second finds it.
             drainPendingOpen()
+            prepareInitialSheet()
             DemoSeed.seedIfRequested(into: modelContext, existing: allFlights)
             DemoSeed.seedStuckFlightIfRequested(into: modelContext, existing: allFlights)
             DemoSeed.startDemoLiveActivityIfRequested()
@@ -230,6 +232,14 @@ struct ArcRootView: View {
             refreshClipboardOffer()
             if ProcessInfo.processInfo.arguments.contains("-openAdd") { showAdd = true }
             drainPendingOpen()
+        }
+    }
+
+    private func prepareInitialSheet() {
+        guard !didSetInitialDetent else { return }
+        didSetInitialDetent = true
+        if allFlights.isEmpty, !DemoSeed.isRequested, tab == .myFlights {
+            detent = .large
         }
     }
 
@@ -784,7 +794,8 @@ struct ArcRootView: View {
         // The old circular search button competed with the tab bar for the same
         // corner. The accessory is the native slot for a persistent primary
         // action, and it doubles as the home for the paste offer.
-        .tabViewBottomAccessory { bottomAccessory }
+        .modifier(JourneyAccessory(isEnabled: tab != .myFlights || !allFlights.isEmpty,
+                                   accessory: bottomAccessory))
     }
 
     /// Everything that belongs to the map, built once behind the tabs.
@@ -1021,4 +1032,19 @@ struct ArcRootView: View {
         showAdd = true
     }
 
+}
+
+/// Empty accessory content still reserves a glass capsule. Disable the native
+/// slot itself on supported systems; iOS 26.0 retains the working add action.
+private struct JourneyAccessory<Accessory: View>: ViewModifier {
+    let isEnabled: Bool
+    let accessory: Accessory
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.1, *) {
+            content.tabViewBottomAccessory(isEnabled: isEnabled) { accessory }
+        } else {
+            content.tabViewBottomAccessory { accessory }
+        }
+    }
 }
