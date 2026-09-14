@@ -47,6 +47,7 @@
 		4BE4CB84B06880211275E457 /* FlightLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB40E7D146DE8662884B50D /* FlightLiveActivity.swift */; };
 		4DC5DD74216D89BCF661E139 /* ArcDesign.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BFECC1DABBC5FC07371E956 /* ArcDesign.swift */; };
 		4E1EF5883022DA56C4F009FB /* TakeoffSensor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3B41C8E240118941DEB4492 /* TakeoffSensor.swift */; };
+		4F21E974DF4EB8A40B455235 /* Morph.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A6E858F2D653D54302F578 /* Morph.swift */; };
 		4FD88C15CD2DFD4314F019FA /* DeadReckoningTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D81203FA2864B636065691E /* DeadReckoningTests.swift */; };
 		4FE84FF36951222122D6AFFE /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7219FA5EF2671212E6AFBC29 /* NetworkMonitor.swift */; };
 		57E9B84380BBA34EF0FA2060 /* LiveActivityClockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5071EA7C352056408F298DEA /* LiveActivityClockTests.swift */; };
@@ -109,6 +110,7 @@
 		AD144643F6272369E3A1D584 /* ReferenceData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 178D23CC53F67645C9230260 /* ReferenceData.swift */; };
 		AE8A969D54CC001AF4336515 /* Flight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 210826009A37E90654E69671 /* Flight.swift */; };
 		B25EC52E0FA211AB82FC6644 /* AirlineBranding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E523F671AB6E8AFA8FCF1C3 /* AirlineBranding.swift */; };
+		B433A3B72F3678AA2DC2CD61 /* MorphTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3577A75E1B336DE5CD19A6A9 /* MorphTests.swift */; };
 		B646A862A5FB908BF520D1E8 /* MapController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD77AF2CE7584E492AA0A637 /* MapController.swift */; };
 		B898832B7AC151BC27E0C6FD /* TripMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DDFB16C2832C0B19003EA0D /* TripMode.swift */; };
 		BDA9D40E00E8F38131B3C8FD /* AirportStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9371C57F0DE1D1A4B88E3 /* AirportStatusView.swift */; };
@@ -209,6 +211,7 @@
 		343257F6CBC830BB8386C5BA /* FriendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsView.swift; sourceTree = "<group>"; };
 		345D5BC68228BFA3CD7DD4DB /* FlightExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightExporterTests.swift; sourceTree = "<group>"; };
 		350CDBD64C98220C09B88C41 /* StatsDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsDetailView.swift; sourceTree = "<group>"; };
+		3577A75E1B336DE5CD19A6A9 /* MorphTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MorphTests.swift; sourceTree = "<group>"; };
 		3656C3156166F8E024EE5B7D /* ReferenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceModels.swift; sourceTree = "<group>"; };
 		37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		38329F5149CBA92432A823C7 /* RotationChainTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationChainTests.swift; sourceTree = "<group>"; };
@@ -306,6 +309,7 @@
 		E541D2FFAAC64594CCFDC7CE /* FlightClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightClock.swift; sourceTree = "<group>"; };
 		E909886CA15B1B79B6D631A0 /* WidgetSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSync.swift; sourceTree = "<group>"; };
 		ED3BBC117AA0A74224DAF8AB /* WidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetData.swift; sourceTree = "<group>"; };
+		F1A6E858F2D653D54302F578 /* Morph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Morph.swift; sourceTree = "<group>"; };
 		F70B4249290027FDAFA9D021 /* DelayRiskTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelayRiskTests.swift; sourceTree = "<group>"; };
 		F9D60FB79B4585323258D954 /* RemotePush.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePush.swift; sourceTree = "<group>"; };
 		FA61B45722DDEC3425D45B09 /* DepartureEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DepartureEvidence.swift; sourceTree = "<group>"; };
@@ -541,6 +545,7 @@
 				85FA6BAFEA7DEBB5CB2DB08F /* BottomSheet.swift */,
 				3B473AA396AFB87F8FA33DBD /* FriendAvatar.swift */,
 				4CDBA155BE116022B7E2F90F /* MapControls.swift */,
+				F1A6E858F2D653D54302F578 /* Morph.swift */,
 				81A83E908E4D238FB3AB6A45 /* TripLogoView.swift */,
 			);
 			path = Components;
@@ -598,6 +603,7 @@
 				3982B16A2E83D23E09279400 /* InboundSelectionTests.swift */,
 				5071EA7C352056408F298DEA /* LiveActivityClockTests.swift */,
 				B30B1695E898672BA030B089 /* LiveActivityPushSyncTests.swift */,
+				3577A75E1B336DE5CD19A6A9 /* MorphTests.swift */,
 				A72DEFC7F9784FE95B570D5E /* MyFlightsListTests.swift */,
 				B48F84455243D0E4149FB369 /* PlanePositionTests.swift */,
 				A136200E180C33472B503DE3 /* ReferenceDataTests.swift */,
@@ -777,6 +783,7 @@
 				132186CB080D804A397303E6 /* InboundSelectionTests.swift in Sources */,
 				57E9B84380BBA34EF0FA2060 /* LiveActivityClockTests.swift in Sources */,
 				BEE4C5661C61DDB3D277469B /* LiveActivityPushSyncTests.swift in Sources */,
+				B433A3B72F3678AA2DC2CD61 /* MorphTests.swift in Sources */,
 				144D833025BF320731CD2872 /* MyFlightsListTests.swift in Sources */,
 				C870B531E4885665A67DA68F /* PlanePositionTests.swift in Sources */,
 				3190C8FCAC6039B71113589D /* ReferenceDataTests.swift in Sources */,
@@ -858,6 +865,7 @@
 				9A74B2D6E44F84C536E4BD1F /* ManageFriendsSheet.swift in Sources */,
 				B646A862A5FB908BF520D1E8 /* MapController.swift in Sources */,
 				021C5737EED7AB35B1ED3A71 /* MapControls.swift in Sources */,
+				4F21E974DF4EB8A40B455235 /* Morph.swift in Sources */,
 				3C9CBF3FB7BC17B415D90698 /* MyFlightsView.swift in Sources */,
 				4FE84FF36951222122D6AFFE /* NetworkMonitor.swift in Sources */,
 				C95804ADD76EDEB2671A5121 /* NotificationService.swift in Sources */,

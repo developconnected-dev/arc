@@ -20,6 +20,8 @@ struct FlightDetailView: View {
     /// A friend's detail names the person sharing it first.
     var friend: ArcSupabase.ArcUser? = nil
     /// What the friend row says on the right: how this flight reached you.
+    var heroKey: String? = nil
+    var transitionActive = false
     var friendNote: String = "Shared with you"
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -55,6 +57,7 @@ struct FlightDetailView: View {
                     DetailHeader(flight: flight, isOwnFlight: isOwnFlight,
                                  onShowAtGate: onShowAtGate, onShowAirport: onShowAirport,
                                  onAirport: flight.mode == .air ? { airportSheet = AirportSheetTarget(id: $0) } : nil)
+                        .heroCopy(key: heroKey ?? flight.id.uuidString, side: .detail)
                     Group {
                         if let friend { friendSection(friend) }
                         statusSection
@@ -97,8 +100,8 @@ struct FlightDetailView: View {
                 }
             }
         }
-        .task(id: flight.id) {
-            guard isOwnFlight, !flight.isCompleted else { return }
+        .task(id: transitionActive) {
+            guard !transitionActive, isOwnFlight, !flight.isCompleted else { return }
             await FlightTracker.shared.burstUpdate(flights: [flight], modelContext: modelContext)
             if flight.isUpcoming {
                 await InboundMonitor.checkInbound(for: flight)
