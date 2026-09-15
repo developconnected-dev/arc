@@ -235,7 +235,8 @@ struct HeroCard: View {
                 case .own(let flight): FlightRowCard(flight: flight)
                 case .friend(let item, _): FriendFlightRow(group: item)
                 case .invite(let item, _):
-                    TripInviteCard(item: item, onOpen: { _ in }, onAccept: {}, onDecline: {})
+                    TripInviteCard(item: item, onOpen: { _ in }, onAccept: {}, onDecline: {},
+                                   drawsBackground: !glass)
                 }
             }
             .opacity(1 - progress)

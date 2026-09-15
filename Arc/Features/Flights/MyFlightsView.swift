@@ -35,10 +35,12 @@ struct MyFlightsView: View {
 
     @State private var friendsStore = FriendsStore.shared
     @State private var pendingJourney: UUID?
+    /// Landed ids `reveal` couldn't place yet — the save that produced them
+    /// hasn't reached `allFlights` through the query. Retried on every
+    /// change to the query until they resolve or drop out of the list.
+    @State private var unresolvedLanded: Set<UUID> = []
 
     static let topID = "trips-top"
-
-    private var flights: [Flight] { Self.listed(Array(allFlights)) }
 
     /// The rows this list draws, in the order it draws them: active and
     /// recently-landed pinned above the upcoming-by-soonest timeline.
@@ -93,7 +95,6 @@ struct MyFlightsView: View {
             }
             .scrollDisabled(folded)
             .scrollIndicators(.hidden)
-            .scrollBounceBehavior(.basedOnSize)
             .refreshable {
                 await FlightTracker.shared.burstUpdate(flights: Array(allFlights), modelContext: modelContext)
                 // Pull-to-refresh is also "did anyone add a trip for me?"
@@ -112,12 +113,8 @@ struct MyFlightsView: View {
                 }
             }
             .onChange(of: landed) { _, ids in
-                guard let row = Self.rowToReveal(ids: Set(ids), among: Array(allFlights)),
-                      let index = journeys.firstIndex(where: { $0.legs.contains { $0.id == row } })
-                else { return }
-                guard index > 0 else { return }   // the folded card already shows it
-                pendingJourney = journeys[index].id
-                if !revealing { unfoldToPending(proxy) }
+                let ids = Set(ids)
+                if !reveal(ids, journeys: journeys, proxy: proxy) { unresolvedLanded.formUnion(ids) }
             }
             .onChange(of: revealing) { _, isRevealing in
                 if !isRevealing { unfoldToPending(proxy) }
@@ -128,12 +125,23 @@ struct MyFlightsView: View {
                 guard nowFolded else { return }
                 withAnimation(reduceMotion ? nil : ArcTheme.fold) { proxy.scrollTo(Self.topID, anchor: .top) }
             }
+            .onChange(of: allFlights.map(\.id)) { _, _ in
+                friendsStore.updateAirportOverlaps(with: Array(allFlights))
+                friendsStore.reconcileTripInvites(with: Array(allFlights))
+                // A save the query hadn't caught up with yet: try the same
+                // reveal again now that `allFlights` moved.
+                guard !unresolvedLanded.isEmpty else { return }
+                if reveal(unresolvedLanded, journeys: journeys, proxy: proxy) {
+                    unresolvedLanded.removeAll()
+                } else {
+                    // Drop ids that fell out of the list entirely (deleted,
+                    // landed past the 30-minute window) — they'll never resolve.
+                    let stillListed = Set(Self.listed(Array(allFlights)).map(\.id))
+                    unresolvedLanded.formIntersection(stillListed)
+                }
+            }
         }
         .onAppear {
-            friendsStore.updateAirportOverlaps(with: Array(allFlights))
-            friendsStore.reconcileTripInvites(with: Array(allFlights))
-        }
-        .onChange(of: allFlights.map(\.id)) { _, _ in
             friendsStore.updateAirportOverlaps(with: Array(allFlights))
             friendsStore.reconcileTripInvites(with: Array(allFlights))
         }
@@ -141,6 +149,28 @@ struct MyFlightsView: View {
         .onChange(of: friendsStore.tripInvites.map(\.id)) { _, _ in
             friendsStore.reconcileTripInvites(with: Array(allFlights))
         }
+    }
+
+    /// Scrolls to the journey holding one of `ids`' topmost row, when the
+    /// query has already caught up with the save that produced them. False
+    /// means the caller should retry once `allFlights` changes again.
+    private func reveal(_ ids: Set<UUID>, journeys: [TripJourney], proxy: ScrollViewProxy) -> Bool {
+        guard let row = Self.rowToReveal(ids: ids, among: Array(allFlights)),
+              let index = journeys.firstIndex(where: { $0.legs.contains { $0.id == row } })
+        else { return false }
+        if index == 0 {
+            // The folded card already shows it — but an unfolded stack may
+            // have scrolled past it, so bring it back to the top.
+            if !folded {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) {
+                    proxy.scrollTo(Self.topID, anchor: .top)
+                }
+            }
+        } else {
+            pendingJourney = journeys[index].id
+            if !revealing { unfoldToPending(proxy) }
+        }
+        return true
     }
 
     /// Everything a folded stack shows: invites (they need an answer) and the

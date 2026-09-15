@@ -17,7 +17,7 @@ final class TripOpeningTests: XCTestCase {
             row.tap()
             let ready = app.descendants(matching: .any)["trip-detail-ready"].firstMatch
             XCTAssertTrue(ready.waitForExistence(timeout: 3), "Opening stuck for \(identifier)")
-            let close = app.buttons["Close trip details"]
+            let close = app.buttons["trip-detail-close"]
             XCTAssertTrue(close.isHittable)
             close.tap()
             XCTAssertTrue(row.waitForExistence(timeout: 3), "Closing stuck for \(identifier)")
@@ -40,7 +40,7 @@ final class TripOpeningTests: XCTestCase {
         let first = app.buttons["trip-row-LX14"]
         XCTAssertTrue(first.waitForExistence(timeout: 5))
         first.tap()
-        let close = app.buttons["Close trip details"]
+        let close = app.buttons["trip-detail-close"]
         XCTAssertTrue(close.waitForExistence(timeout: 2))
         close.tap()
         cycle(app, rows: ["trip-row-LX1413", "trip-row-LX14"])
@@ -65,7 +65,7 @@ final class TripOpeningTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["trip-detail-ready"].firstMatch.waitForExistence(timeout: 3))
         for index in 1...4 { XCTAssertTrue(app.staticTexts["Friend \(index)"].exists) }
         XCTAssertTrue(app.staticTexts["You’re on this flight"].exists)
-        app.buttons["Close trip details"].tap()
+        app.buttons["trip-detail-close"].tap()
         XCTAssertTrue(row.waitForExistence(timeout: 3))
     }
 }

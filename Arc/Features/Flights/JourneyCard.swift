@@ -26,6 +26,7 @@ struct JourneyCard: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("trip-row-\(leg.flightNumber)")
+                .contentShape(.contextMenuPreview, .rect(cornerRadius: ArcTheme.cardCorner))
                 // Swipe actions exist only in List, whose per-row cells would
                 // split this card into strips of glass; a long press deletes.
                 .contextMenu {
@@ -33,6 +34,7 @@ struct JourneyCard: View {
                         Label("Delete", systemImage: "trash")
                     }
                 }
+                .accessibilityAction(named: "Delete") { onDelete(leg) }
             }
         }
         .glassEffect(ArcTheme.tripGlass, in: .rect(cornerRadius: ArcTheme.cardCorner))
@@ -63,6 +65,7 @@ struct LayoverConnector: View {
                 Image(systemName: "clock")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(tint)
+                    .accessibilityHidden(true)
                 Text("\(FriendFlightMath.hmLower(layover)) layover in \(plan.inbound.arrivalIATA) • \(risk.rawValue)")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(tint)

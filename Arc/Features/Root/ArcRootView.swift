@@ -899,7 +899,11 @@ struct ArcRootView: View {
                                          transitionActive: transition.request != nil,
                                          friendNote: detailInvite != nil ? "Invited you" : "Shared with you")
                             .id(flight.id)
-                            .accessibilityIdentifier(transition.request == nil ? "trip-detail-ready" : "trip-detail-transition")
+                            .background {
+                                Color.clear.frame(width: 1, height: 1)
+                                    .accessibilityElement()
+                                    .accessibilityIdentifier(transition.request == nil ? "trip-detail-ready" : "trip-detail-transition")
+                            }
                             .modifier(SidePresence(side: .detail, progress: heroProgress))
                     }
                 }

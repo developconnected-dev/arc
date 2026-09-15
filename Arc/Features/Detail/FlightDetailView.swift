@@ -161,6 +161,7 @@ struct FlightDetailView: View {
         Button { close() } label: { circleIcon("xmark") }
             .buttonStyle(.plain)
             .accessibilityLabel("Close trip details")
+            .accessibilityIdentifier("trip-detail-close")
     }
 
     private var menuButton: some View {
