@@ -157,8 +157,8 @@ final class MapController {
 
     enum MapStyleKind { case standard, hybrid }
 
-    /// Frame the camera to fit all given flights' routes — in the visible
-    /// upper half, since a sheet always owns the bottom of every page.
+    /// Frame the camera to fit all given flights' routes into `band` — by
+    /// default the upper half the sheet tabs leave visible.
     func fitAll(_ flights: [Flight], padding: Double = 1.25, band: MapBand = .upperHalf) {
         var coords: [CLLocationCoordinate2D] = []
         for f in flights where f.departureLat != 0 && f.arrivalLat != 0 {
@@ -172,8 +172,8 @@ final class MapController {
         }
     }
 
-    /// Frame the camera on a single flight's route (detail sheet at medium
-    /// covers the lower half — the arc goes above it).
+    /// Frame the camera on a single flight's route, into `band` — by default
+    /// the upper half the sheet tabs leave visible.
     func focus(on flight: Flight, band: MapBand = .upperHalf, animated: Bool = true) {
         // Frame what will actually be DRAWN. A routed leg can bulge far outside
         // the arc between its endpoints — an ICE from München to Hamburg reaches
@@ -213,6 +213,8 @@ final class MapController {
         // routes get best-effort placement instead.
         let effectiveLat = min(70, max(region.span.latitudeDelta,
                                        region.span.longitudeDelta * portraitAspect * latScale))
+        // Floored: a thin or inverted band would otherwise divide the span
+        // toward zero and blow the zoom out to the whole globe.
         let visible = max(0.2, band.bottom - band.top)
         let span = min(160, effectiveLat / visible)
         let bandCentre = (band.top + band.bottom) / 2
