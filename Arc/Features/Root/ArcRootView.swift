@@ -436,7 +436,7 @@ struct ArcRootView: View {
             }
             guard !Task.isCancelled, detailFlight?.id == flight.id else { return }
             controller.showGate(lat: target.lat, lon: target.lon, label: target.label)
-            lowerPanelForGroundView()
+            lowerPanelForGroundViewAfterMapUpdate()
             if watching { startPlaneWatch(flight) }
         }
     }
@@ -464,7 +464,7 @@ struct ArcRootView: View {
                     highlighted: $0.ref == matched?.ref)
             }
             controller.showAirport(iata: iata, name: name, lat: lat, lon: lon, gates: gates)
-            lowerPanelForGroundView()
+            lowerPanelForGroundViewAfterMapUpdate()
             // The terminal map used to draw the gates and then sit there. The
             // aircraft is the reason you opened it.
             startPlaneWatch(flight)
@@ -482,6 +482,19 @@ struct ArcRootView: View {
         let lowered = layout.panelTopForGroundView(current: panelTop ?? layout.panelOpeningTop(headerHeight: panelHeaderHeight),
                                                    headerHeight: panelHeaderHeight)
         withAnimation(reduceMotion ? nil : ArcTheme.panelSettle) { panelTop = lowered }
+    }
+
+    /// The ground views switch the map to satellite, and MapKit's style swap
+    /// holds the main thread for a few frames. A spring started in that same
+    /// update lost its first frames to the stall and the panel jumped ~80 pt;
+    /// started on the next turn, it moves from its first frame, a beat after
+    /// the camera sets off.
+    private func lowerPanelForGroundViewAfterMapUpdate() {
+        let id = detailFlight?.id
+        DispatchQueue.main.async {
+            guard detailFlight?.id == id else { return }
+            lowerPanelForGroundView()
+        }
     }
 
     /// Follows the aircraft while either ground view is open.
