@@ -21,6 +21,9 @@ struct ArcRootView: View {
     @State private var tripsFolded = !ProcessInfo.processInfo.arguments.contains("-sheetLarge")
     @State private var tripsRestShown = ProcessInfo.processInfo.arguments.contains("-sheetLarge")
     @State private var tripsFoldedHeight: CGFloat = 0
+    /// The whole stack's height, every journey included: an unfolded stack
+    /// grows up from the bottom only this far.
+    @State private var tripsContentHeight: CGFloat = 0
     @State private var tripsLayout: MyTripsLayout?
     /// The detail panel's settled top edge; nil opens at 58 %.
     @State private var panelTop: CGFloat?
@@ -346,7 +349,7 @@ struct ArcRootView: View {
         if tab == .myFlights, let layout = tripsLayout {
             // Framed for the folded stack: unfolded, the cards cover the map
             // anyway, and the fold refits once it has settled.
-            let coverTop = layout.listTop(folded: true, foldedHeight: tripsFoldedHeight)
+            let coverTop = layout.listTop(folded: true, foldedHeight: tripsFoldedHeight, contentHeight: tripsContentHeight)
             controller.fitAll(mapFlights, padding: 1.25, band: layout.band(coverTop: coverTop))
             return
         }
@@ -749,7 +752,7 @@ struct ArcRootView: View {
     private func heroRowOrigin(_ key: String, onTrips: Bool) -> CGRect? {
         guard let rect = heroFrames.rows[key] else { return nil }
         guard onTrips, let layout = tripsLayout else { return rect }
-        let shown = (layout.listTop(folded: tripsFolded, foldedHeight: tripsFoldedHeight) - 1)...(layout.listBottom + 1)
+        let shown = (layout.listTop(folded: tripsFolded, foldedHeight: tripsFoldedHeight, contentHeight: tripsContentHeight) - 1)...(layout.listBottom + 1)
         return shown.contains(rect.minY) && shown.contains(rect.maxY) ? rect : nil
     }
 
@@ -1096,7 +1099,7 @@ struct ArcRootView: View {
     @ViewBuilder
     private func myTripsLayers(_ layout: MyTripsLayout, journeyCount: Int) -> some View {
         let onTrips = detailTab == .myFlights && tab == .myFlights
-        let listTop = layout.listTop(folded: tripsFolded, foldedHeight: tripsFoldedHeight)
+        let listTop = layout.listTop(folded: tripsFolded, foldedHeight: tripsFoldedHeight, contentHeight: tripsContentHeight)
         ZStack(alignment: .topLeading) {
             mapLayer
             tripsList(layout, listTop: listTop, detailOpen: onTrips && detailFlight != nil)
@@ -1139,6 +1142,7 @@ struct ArcRootView: View {
                       showsRest: tripsRestShown,
                       revealing: controller.isRevealingRoutes,
                       onFoldedHeight: { tripsFoldedHeight = $0 },
+                      onContentHeight: { tripsContentHeight = $0 },
                       onUnfold: { then in setTripsFolded(false, then: then) })
             .frame(width: layout.size.width, height: layout.listBottom - layout.unfoldedListTop, alignment: .top)
             // 6 pt of slack so the folded card's glass rim is never clipped;
@@ -1151,7 +1155,7 @@ struct ArcRootView: View {
             .contentShape(.interaction, TopSlice(height: layout.listBottom - listTop + 6))
             .offset(y: listTop)
             .modifier(SidePresence(side: .list, progress: detailTab == .myFlights && tab == .myFlights ? heroProgress : 0))
-            .modifier(UntilMeasured(measured: tripsFoldedHeight > 0))
+            .modifier(UntilMeasured(measured: tripsFoldedHeight > 0 && tripsContentHeight > 0))
             .allowsHitTesting(!detailOpen)
             .accessibilityHidden(detailOpen)
             .offset(y: showAdd ? 1500 : 0)
@@ -1190,7 +1194,7 @@ struct ArcRootView: View {
         .frame(width: layout.size.width, height: MyTripsLayout.control)
         .offset(y: layout.pillRowY(listTop: listTop))
         .modifier(SidePresence(side: .list, progress: detailTab == .myFlights && tab == .myFlights ? heroProgress : 0))
-        .modifier(UntilMeasured(measured: tripsFoldedHeight > 0))
+        .modifier(UntilMeasured(measured: tripsFoldedHeight > 0 && tripsContentHeight > 0))
         .allowsHitTesting(!detailOpen)
         .accessibilityHidden(detailOpen)
         .offset(y: showAdd ? 1500 : 0)
@@ -1233,9 +1237,10 @@ struct ArcRootView: View {
     }
 
     /// Folding and unfolding ride one spring. Cards past the next journey
-    /// exist from the moment an unfold starts until a fold has closed over
-    /// them, and the camera reframes only once a fold has settled — never
-    /// two movements at once.
+    /// are always laid out (so the unfolded height is known before any
+    /// unfold), and take touches and VoiceOver from the moment an unfold
+    /// starts until a fold has closed over them. The camera reframes only
+    /// once a fold has settled — never two movements at once.
     private func setTripsFolded(_ folded: Bool, then: (() -> Void)? = nil) {
         guard folded != tripsFolded else { then?(); return }
         if !folded { tripsRestShown = true }

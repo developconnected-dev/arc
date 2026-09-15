@@ -14,18 +14,43 @@ final class MyTripsLayoutTests: XCTestCase {
     }
 
     func testFoldedStackSitsOnTheBottomAndNeverClimbsPastUnfolded() {
-        XCTAssertEqual(layout.listTop(folded: true, foldedHeight: 250), layout.listBottom - 250)
-        XCTAssertEqual(layout.listTop(folded: true, foldedHeight: 2000), layout.unfoldedListTop)
-        XCTAssertEqual(layout.listTop(folded: false, foldedHeight: 250), layout.unfoldedListTop)
+        XCTAssertEqual(layout.listTop(folded: true, foldedHeight: 250, contentHeight: 900), layout.listBottom - 250)
+        XCTAssertEqual(layout.listTop(folded: true, foldedHeight: 2000, contentHeight: 2400), layout.unfoldedListTop)
+    }
+
+    /// A few journeys unfold on the folded stack's bottom edge and grow up
+    /// only as far as they need: no band of empty map above "Add a trip".
+    func testShortUnfoldedStackSitsOnTheBottom() {
+        XCTAssertEqual(layout.listTop(folded: false, foldedHeight: 250, contentHeight: 400), layout.listBottom - 400)
+    }
+
+    /// Taller than the room, the stack reaches the top it always had and scrolls.
+    func testTallUnfoldedStackStopsBelowTheShowLessRow() {
+        XCTAssertEqual(layout.listTop(folded: false, foldedHeight: 250, contentHeight: 2000), layout.unfoldedListTop)
+    }
+
+    /// Unfolding never lowers the stack's top, even before the whole stack
+    /// has been measured (a content height still below the folded block's).
+    func testUnfoldingNeverLowersTheTop() {
+        for folded in stride(from: 0.0, through: 900.0, by: 25.0) {
+            for content in stride(from: 0.0, through: 1500.0, by: 25.0) {
+                XCTAssertLessThanOrEqual(layout.listTop(folded: false, foldedHeight: folded, contentHeight: content),
+                                         layout.listTop(folded: true, foldedHeight: folded, contentHeight: content),
+                                         "folded=\(folded) content=\(content)")
+            }
+        }
     }
 
     /// The Show More / recenter row never reaches into the top row,
-    /// whatever the folded block measures.
+    /// whatever the folded block and the whole stack measure.
     func testPillRowNeverOverlapsTheTopRow() {
         for h in stride(from: 0.0, through: 2000.0, by: 25.0) {
-            for folded in [true, false] {
-                let y = layout.pillRowY(listTop: layout.listTop(folded: folded, foldedHeight: h))
-                XCTAssertGreaterThanOrEqual(y, layout.topBarBottom + MyTripsLayout.gap, "h=\(h) folded=\(folded)")
+            for content in stride(from: 0.0, through: 2500.0, by: 50.0) {
+                for folded in [true, false] {
+                    let y = layout.pillRowY(listTop: layout.listTop(folded: folded, foldedHeight: h, contentHeight: content))
+                    XCTAssertGreaterThanOrEqual(y, layout.topBarBottom + MyTripsLayout.gap,
+                                                "h=\(h) content=\(content) folded=\(folded)")
+                }
             }
         }
     }
@@ -136,9 +161,16 @@ final class MyTripsLayoutTests: XCTestCase {
                 }
 
                 for h in stride(from: 0.0, through: 1500.0, by: 25.0) {
-                    let y = layout.pillRowY(listTop: layout.listTop(folded: true, foldedHeight: h))
-                    XCTAssertGreaterThanOrEqual(y, layout.topBarBottom + MyTripsLayout.gap - 1e-9,
-                                                "\(tag) foldedHeight=\(h)")
+                    for content in stride(from: 0.0, through: 2500.0, by: 100.0) {
+                        for folded in [true, false] {
+                            let top = layout.listTop(folded: folded, foldedHeight: h, contentHeight: content)
+                            let y = layout.pillRowY(listTop: top)
+                            XCTAssertGreaterThanOrEqual(y, layout.topBarBottom + MyTripsLayout.gap - 1e-9,
+                                                        "\(tag) foldedHeight=\(h) content=\(content) folded=\(folded)")
+                            XCTAssertLessThanOrEqual(top, layout.listBottom + 1e-9,
+                                                     "\(tag) foldedHeight=\(h) content=\(content) folded=\(folded)")
+                        }
+                    }
                 }
 
                 for coverTop in stride(from: 0.0, through: Double(screen.size.height), by: 25.0) {

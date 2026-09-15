@@ -23,13 +23,19 @@ struct MyFlightsView: View {
     var landed: [UUID] = []
     /// Folded, only the first block shows and nothing scrolls.
     var folded = true
-    /// Whether the journeys after the first are built at all: from the start
-    /// of an unfold until a fold has finished closing over them.
+    /// Whether the journeys after the first take touches and VoiceOver: from
+    /// the start of an unfold until a fold has finished closing over them.
+    /// They are laid out either way, masked below the folded block, so the
+    /// whole stack's height is known before an unfold starts: measured only
+    /// once they appeared, the unfold's spring would aim for the folded
+    /// block's top and then jump.
     var showsRest = false
     /// The add moment is drawing a route. A trip that landed below the fold
     /// waits for the line to finish before the stack unfolds over the map.
     var revealing = false
     var onFoldedHeight: (CGFloat) -> Void = { _ in }
+    /// Every card's height together, reported like the folded block's.
+    var onContentHeight: (CGFloat) -> Void = { _ in }
     /// Asks the root to unfold, then runs the closure once the stack is open.
     var onUnfold: (@escaping () -> Void) -> Void = { $0() }
 
@@ -83,13 +89,14 @@ struct MyFlightsView: View {
                     foldedBlock(journeys.first)
                         .id(Self.topID)
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onFoldedHeight($0) }
-                    if showsRest {
-                        ForEach(journeys.dropFirst()) { journey in
-                            JourneyCard(journey: journey, onSelect: onSelect, onDelete: delete)
-                                .id(journey.id)
-                        }
+                    ForEach(journeys.dropFirst()) { journey in
+                        JourneyCard(journey: journey, onSelect: onSelect, onDelete: delete)
+                            .id(journey.id)
+                            .allowsHitTesting(showsRest)
+                            .accessibilityHidden(!showsRest)
                     }
                 }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onContentHeight($0) }
                 .padding(.horizontal, MyTripsLayout.margin)
                 .padding(.bottom, 12)
             }
