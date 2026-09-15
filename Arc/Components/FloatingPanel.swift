@@ -183,8 +183,10 @@ private struct PanelTopPlacement: ViewModifier, Animatable {
 /// release then shrank it and the content fell by the whole drag. A
 /// resizing sheet would instead reveal rows above while the last one stays
 /// on the edge — so while the panel rises, the detail scrolls up by exactly
-/// the inset that would show, in the same update. On release the offset is
-/// already the new maximum, so shrinking the inset moves nothing.
+/// the inset that would show. The scroll is set one run-loop turn after the
+/// drag moves the panel: set in the same update, it landed a frame ahead of
+/// the panel and the rows wobbled. On release the offset is already the new
+/// maximum, so shrinking the inset moves nothing.
 @MainActor
 final class PanelScrollLink {
     /// Written by the detail's scroll view as it scrolls; never observed.
