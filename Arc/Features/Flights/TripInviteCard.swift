@@ -9,6 +9,8 @@ struct TripInviteCard: View {
     var onOpen: (Flight) -> Void
     var onAccept: () -> Void
     var onDecline: () -> Void
+    /// Off on the floating surface, where the card's glass is its ground.
+    var drawsBackground = true
 
     /// Display-only — NOT inserted into SwiftData. Accept materialises a
     /// fresh one; this exists so the preview and the eventual row agree.
@@ -17,11 +19,13 @@ struct TripInviteCard: View {
     init(item: FriendsStore.TripInviteItem,
          onOpen: @escaping (Flight) -> Void,
          onAccept: @escaping () -> Void,
-         onDecline: @escaping () -> Void) {
+         onDecline: @escaping () -> Void,
+         drawsBackground: Bool = true) {
         self.item = item
         self.onOpen = onOpen
         self.onAccept = onAccept
         self.onDecline = onDecline
+        self.drawsBackground = drawsBackground
         _preview = State(initialValue: item.invite.flight.materialize())
     }
 
@@ -56,7 +60,8 @@ struct TripInviteCard: View {
             }
         }
         .padding(14)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(drawsBackground ? Color(.secondarySystemBackground) : .clear,
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func pill(_ title: String, fill: Color, text: Color, action: @escaping () -> Void) -> some View {

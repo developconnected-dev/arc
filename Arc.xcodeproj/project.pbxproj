@@ -151,6 +151,7 @@
 		F4EF39911CBB7F824BE309E4 /* FriendAvatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B473AA396AFB87F8FA33DBD /* FriendAvatar.swift */; };
 		F7B358F50A654FDD7B6C8809 /* TripJourneyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4C9490502E6959A58D724AD /* TripJourneyTests.swift */; };
 		F7FB1ADA70699CF04534CC8E /* LiveActivityAvatarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DED11A1E25ADE83A8C977857 /* LiveActivityAvatarStore.swift */; };
+		F8979AB2425AE951DB675711 /* JourneyCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72658F05DBC27FB8C743F252 /* JourneyCard.swift */; };
 		FA8E75916E0F5EBE5D6ACFFB /* TripJourney.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EBD3AA871F0E5B1559FDF42 /* TripJourney.swift */; };
 		FD25808FFF29607E6A8BCDC0 /* FloatingLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783264D1784139B2BBFB8BD2 /* FloatingLayout.swift */; };
 		FD48EDF02229BF53B07CF93B /* NextFlightWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888B0D037817C14E4AF0BAB7 /* NextFlightWidget.swift */; };
@@ -268,6 +269,7 @@
 		6E939CF90FDCC989380305A0 /* ArcWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcWidgetBundle.swift; sourceTree = "<group>"; };
 		6F6756FA9C3BDABF5E95114C /* DelayRiskCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelayRiskCard.swift; sourceTree = "<group>"; };
 		7219FA5EF2671212E6AFBC29 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
+		72658F05DBC27FB8C743F252 /* JourneyCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyCard.swift; sourceTree = "<group>"; };
 		734A69EC4EB99125C060E4F5 /* FlightDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightDetailView.swift; sourceTree = "<group>"; };
 		76A7ACD292B7C11B780E694F /* DepartureEvidenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DepartureEvidenceTests.swift; sourceTree = "<group>"; };
 		783264D1784139B2BBFB8BD2 /* FloatingLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingLayout.swift; sourceTree = "<group>"; };
@@ -612,6 +614,7 @@
 			children = (
 				4F7A0EB241567A257D24DFD0 /* FlightRowCard.swift */,
 				BE81C439079799A2214E528E /* JourneyBriefView.swift */,
+				72658F05DBC27FB8C743F252 /* JourneyCard.swift */,
 				A99FE65B13FFE0D0203987D5 /* MyFlightsView.swift */,
 				30B769750EA0E60EEC3EC42F /* TripInviteCard.swift */,
 				3EBD3AA871F0E5B1559FDF42 /* TripJourney.swift */,
@@ -935,6 +938,7 @@
 				47733FC27C873C75889EB557 /* InboundMonitor.swift in Sources */,
 				31B370AC6D89A2834BA50EE6 /* InboundSelection.swift in Sources */,
 				75E34916270480FD487B6AE7 /* JourneyBriefView.swift in Sources */,
+				F8979AB2425AE951DB675711 /* JourneyCard.swift in Sources */,
 				5B6F1C22294B92638EA60956 /* JourneyRecapCard.swift in Sources */,
 				F7FB1ADA70699CF04534CC8E /* LiveActivityAvatarStore.swift in Sources */,
 				86B066ECAFCF0E3B5E177C8C /* LiveActivityManager.swift in Sources */,
