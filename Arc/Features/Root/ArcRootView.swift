@@ -26,7 +26,7 @@ struct ArcRootView: View {
     @State private var panelTop: CGFloat?
     @State private var panelHeaderHeight: CGFloat = 260
     /// How far the tab bar reaches up without the accessory, learnt once.
-    @State private var tabBarReach: CGFloat?
+    @State private var tabBarReach: (width: CGFloat, reach: CGFloat)?
     @State private var detailFlight: Flight?
     @State private var heroFrames = HeroFrames()
     @State private var heroTravelling: HeroSource?
@@ -723,7 +723,15 @@ struct ArcRootView: View {
 
     private func prepareTransition(_ id: UUID) {
         guard transition.request?.id == id else { return }
-        guard let source = heroTravelling else { return }
+        guard let source = heroTravelling else {
+            // No glide (the row was half out of view), but the panel still
+            // fades in: learn the header now, or it re-clamps once it shows.
+            let key = detailFriendGroup?.id ?? detailInvite?.id ?? detailFlight?.id.uuidString
+            if detailTab == .myFlights, let key, let header = heroFrames.details[key] {
+                learnPanelHeader(header)
+            }
+            return
+        }
         guard detailTab == .myFlights, let measured = heroFrames.details[source.key] else {
             heroDestination = heroFrames.details[source.key]
             return
@@ -945,15 +953,18 @@ struct ArcRootView: View {
     /// My Trips: no sheet. The map fills the screen, the trips float over it
     /// as glass cards, and a trip opens in a glass panel the row glides into.
     private var myTripsSurface: some View {
-        GeometryReader { geo in
+        // Once per root pass: grouping runs the connection planner.
+        let journeyCount = MyFlightsView.journeys(Array(allFlights)).count
+        return GeometryReader { geo in
             let insets = geo.safeAreaInsets
             let full = CGSize(width: geo.size.width + insets.leading + insets.trailing,
                               height: geo.size.height + insets.top + insets.bottom)
+            let learnt = tabBarReach.flatMap { $0.width == full.width ? $0.reach : nil }
             let layout = MyTripsLayout(size: full, safeTop: insets.top,
-                                       tabBarClearance: tabBarReach ?? guessTabBarReach(bottomInset: insets.bottom),
+                                       tabBarClearance: learnt ?? guessTabBarReach(bottomInset: insets.bottom),
                                        accessoryHidesForDetail: Self.accessoryCanHide,
                                        listClearsAccessory: !allFlights.isEmpty || !Self.accessoryCanHide)
-            myTripsLayers(layout)
+            myTripsLayers(layout, journeyCount: journeyCount)
                 .frame(width: full.width, height: full.height, alignment: .topLeading)
                 .offset(x: -insets.leading, y: -insets.top)
                 .onChange(of: layout, initial: true) { _, new in tripsLayout = new }
@@ -961,18 +972,15 @@ struct ArcRootView: View {
                     if let top = panelTop { panelTop = layout.clampPanelTop(top, headerHeight: header) }
                 }
                 .onChange(of: insets.bottom, initial: true) { _, bottom in
-                    // Learnt once, at launch, when no open or close is under
-                    // way and the accessory flag and the inset agree. Never
-                    // re-derived: the inset follows the accessory a frame or
-                    // more after the flag, and re-deriving it moved the cards
-                    // 56 pt on close and the panel's height mid-glide.
-                    guard tabBarReach == nil, bottom > 0 else { return }
-                    tabBarReach = guessTabBarReach(bottomInset: bottom)                }
+                    learnTabBarReach(bottomInset: bottom, width: full.width)
+                }
+                .onChange(of: full.width) { _, width in
+                    learnTabBarReach(bottomInset: insets.bottom, width: width)
+                }
         }
-        .modifier(MyTripsSurfaceHooks(journeyCount: MyFlightsView.journeys(Array(allFlights)).count,
+        .modifier(MyTripsSurfaceHooks(journeyCount: journeyCount,
                                       detailID: detailFlight?.id,
-                                      layoutReady: tripsLayout != nil,
-                                      foldedHeightKnown: tripsFoldedHeight > 0,
+                                      firstFrameReady: tripsLayout != nil && tripsFoldedHeight > 0,
                                       onJourneyCount: { count in
                                           // Only the pill folds, and it is gone with one journey left.
                                           if count <= 1, !tripsFolded { setTripsFolded(true) }
@@ -989,6 +997,26 @@ struct ArcRootView: View {
         return bottomInset - (accessoryOnScreen ? MyTripsLayout.accessoryHeight : 0)
     }
 
+    /// Learnt per screen width, never re-guessed from the flag while that
+    /// width holds: the inset follows the accessory a frame or more after the
+    /// flag, and re-guessing moved the cards 56 pt on close and the panel's
+    /// height mid-glide. Only two insets can ever be observed, the reach and
+    /// the reach plus the accessory, so an inset 56 below the learnt reach, or
+    /// 112 above it, proves a first guess made while the two disagreed wrong.
+    private func learnTabBarReach(bottomInset bottom: CGFloat, width: CGFloat) {
+        guard bottom > 0 else { return }
+        guard let learnt = tabBarReach, learnt.width == width else {
+            tabBarReach = (width, guessTabBarReach(bottomInset: bottom))
+            return
+        }
+        guard Self.accessoryCanHide else { return }
+        if abs((learnt.reach - bottom) - MyTripsLayout.accessoryHeight) < 1 {
+            tabBarReach = (width, bottom)
+        } else if abs((bottom - learnt.reach) - 2 * MyTripsLayout.accessoryHeight) < 1 {
+            tabBarReach = (width, bottom - MyTripsLayout.accessoryHeight)
+        }
+    }
+
     /// An opening with no glide (Reduce Motion, one detail replacing another)
     /// never runs `prepareTransition`: learn the new header once it has laid out.
     private func learnHeaderWithoutGlide() async {
@@ -1000,20 +1028,21 @@ struct ArcRootView: View {
     }
 
     /// The launch fit runs before the surface has measured itself; frame
-    /// again for the real layout, and again for the real folded stack.
+    /// again, once, for the real layout and the real folded stack.
     private func refitTripsForFirstFrame() {
         guard tab == .myFlights, detailFlight == nil, !controller.isRevealingRoutes else { return }
         applyCameraForCurrentTab()
     }
 
     @ViewBuilder
-    private func myTripsLayers(_ layout: MyTripsLayout) -> some View {
+    private func myTripsLayers(_ layout: MyTripsLayout, journeyCount: Int) -> some View {
         let onTrips = detailTab == .myFlights && tab == .myFlights
         let listTop = layout.listTop(folded: tripsFolded, foldedHeight: tripsFoldedHeight)
         ZStack(alignment: .topLeading) {
             mapLayer
             tripsList(layout, listTop: listTop, detailOpen: onTrips && detailFlight != nil)
-            tripsPillRow(layout, listTop: listTop, detailOpen: onTrips && detailFlight != nil)
+            tripsPillRow(layout, listTop: listTop, journeyCount: journeyCount,
+                         detailOpen: onTrips && detailFlight != nil)
             if onTrips, let flight = detailFlight {
                 tripsPanel(layout, flight: flight)
             }
@@ -1065,10 +1094,9 @@ struct ArcRootView: View {
             .animation(reduceMotion ? nil : .spring(duration: 0.45), value: showAdd)
     }
 
-    private func tripsPillRow(_ layout: MyTripsLayout, listTop: CGFloat, detailOpen: Bool) -> some View {
-        let journeys = MyFlightsView.journeys(Array(allFlights)).count
-        return HStack {
-            if journeys > 1 {
+    private func tripsPillRow(_ layout: MyTripsLayout, listTop: CGFloat, journeyCount: Int, detailOpen: Bool) -> some View {
+        HStack {
+            if journeyCount > 1 {
                 Button { setTripsFolded(!tripsFolded) } label: {
                     Text(tripsFolded ? "Show More" : "Show Less")
                         .font(.system(size: 15, weight: .semibold))
@@ -1142,7 +1170,9 @@ struct ArcRootView: View {
             guard tripsFolded == folded else { return }
             if folded {
                 tripsRestShown = false
-                applyCameraForCurrentTab()
+                // The one-journey fold can run under an open detail, whose
+                // trip owns the camera.
+                if detailFlight == nil { applyCameraForCurrentTab() }
             }
             then?()
         }
@@ -1295,18 +1325,18 @@ struct ArcRootView: View {
 }
 
 /// The floating My Trips surface's hooks, kept out of the root's builders
-/// (they sit at the type checker's limit). The "first" hooks each fire once.
+/// (they sit at the type checker's limit). `onFirstFrame` fires once: one
+/// camera move at launch, not one per measurement.
 private struct MyTripsSurfaceHooks: ViewModifier {
     let journeyCount: Int
     let detailID: UUID?
-    let layoutReady: Bool
-    let foldedHeightKnown: Bool
+    /// The layout exists and the folded stack has reported its height.
+    let firstFrameReady: Bool
     let onJourneyCount: (Int) -> Void
     let onDetailSettled: () async -> Void
     let onFirstFrame: () -> Void
 
-    @State private var framedLayout = false
-    @State private var framedFoldedHeight = false
+    @State private var framed = false
 
     func body(content: Content) -> some View {
         content
@@ -1315,14 +1345,9 @@ private struct MyTripsSurfaceHooks: ViewModifier {
                 guard detailID != nil else { return }
                 await onDetailSettled()
             }
-            .onChange(of: layoutReady, initial: true) { _, ready in
-                guard ready, !framedLayout else { return }
-                framedLayout = true
-                onFirstFrame()
-            }
-            .onChange(of: foldedHeightKnown, initial: true) { _, known in
-                guard known, !framedFoldedHeight else { return }
-                framedFoldedHeight = true
+            .onChange(of: firstFrameReady, initial: true) { _, ready in
+                guard ready, !framed else { return }
+                framed = true
                 onFirstFrame()
             }
     }
