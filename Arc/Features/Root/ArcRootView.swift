@@ -775,7 +775,8 @@ struct ArcRootView: View {
         // A tap can't open mid-swipe (taps are off while holding), but a
         // widget, notification or link can.
         let top = layout.listTop(folded: tripsFolded, foldedHeight: tripsFoldedHeight, contentHeight: tripsContentHeight)
-            - tripsStackMotion.liveRise
+            - JourneyStackPaging.edgeRise(liveRise: tripsStackMotion.liveRise, restHeight: tripsFoldedHeight,
+                                          room: layout.listBottom - layout.unfoldedListTop)
         let shown = (min(top, layout.listBottom) - 1)...(layout.listBottom + 1)
         return shown.contains(rect.minY) && shown.contains(rect.maxY) ? rect : nil
     }
@@ -1181,7 +1182,8 @@ struct ArcRootView: View {
             // The rim's slack below the bottom edge, inside the frame, so the
             // bottom card's glass is never clipped.
             .frame(width: layout.size.width, height: layout.listBottom - layout.unfoldedListTop + MyFlightsView.rim, alignment: .top)
-            .modifier(TripsListReveal(motion: tripsStackMotion, visibleHeight: layout.listBottom - listTop))
+            .modifier(TripsListReveal(motion: tripsStackMotion, visibleHeight: layout.listBottom - listTop,
+                                      foldedHeight: tripsFoldedHeight, room: layout.listBottom - layout.unfoldedListTop))
             .offset(y: layout.unfoldedListTop)
             .modifier(SidePresence(side: .list, progress: detailTab == .myFlights && tab == .myFlights ? heroProgress : 0))
             .modifier(UntilMeasured(measured: tripsStackMotion.settledHeight > 0 && tripsContentHeight > 0))
@@ -1224,7 +1226,8 @@ struct ArcRootView: View {
         .padding(.horizontal, MyTripsLayout.margin)
         .frame(width: layout.size.width, height: MyTripsLayout.control)
         .offset(y: layout.pillRowY(listTop: listTop))
-        .modifier(RidesStackEdge(motion: tripsStackMotion))
+        .modifier(RidesStackEdge(motion: tripsStackMotion,
+                                 clamp: (tripsFoldedHeight, layout.listBottom - layout.unfoldedListTop)))
         .modifier(SidePresence(side: .list, progress: detailTab == .myFlights && tab == .myFlights ? heroProgress : 0))
         .modifier(UntilMeasured(measured: tripsStackMotion.settledHeight > 0 && tripsContentHeight > 0))
         .allowsHitTesting(!detailOpen)
@@ -1501,8 +1504,13 @@ private struct TripsListReveal: ViewModifier {
     let motion: JourneyStackMotion
     /// `listBottom - listTop`, at rest.
     let visibleHeight: CGFloat
+    /// The folded height at rest, and the most the list can show: the mask
+    /// opens no further than the top row, as the list itself stops there.
+    let foldedHeight: CGFloat
+    let room: CGFloat
     func body(content: Content) -> some View {
-        let h = max(0, visibleHeight + motion.liveRise + 2 * MyFlightsView.rim)
+        let rise = JourneyStackPaging.edgeRise(liveRise: motion.liveRise, restHeight: foldedHeight, room: room)
+        let h = max(0, visibleHeight + rise + 2 * MyFlightsView.rim)
         content
             .mask(alignment: .bottom) { Rectangle().frame(height: h) }
             .contentShape(.interaction, BottomSlice(height: h))

@@ -35,8 +35,16 @@ final class JourneyStackMotion {
 /// swipe never re-evaluates the views around it.
 struct RidesStackEdge: ViewModifier {
     let motion: JourneyStackMotion
+    /// For what sits on the list's edge rather than the stack's own (the
+    /// Show More row): the folded height at rest and the list's unfolded
+    /// height, past which the edge stops under the top row. Nil rides the
+    /// whole rise.
+    var clamp: (restHeight: CGFloat, room: CGFloat)? = nil
     func body(content: Content) -> some View {
-        content.offset(y: -motion.liveRise)
+        let rise = clamp.map {
+            JourneyStackPaging.edgeRise(liveRise: motion.liveRise, restHeight: $0.restHeight, room: $0.room)
+        } ?? motion.liveRise
+        content.offset(y: -rise)
     }
 }
 

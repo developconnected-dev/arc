@@ -87,4 +87,20 @@ final class JourneyStackPagingTests: XCTestCase {
         XCTAssertEqual(P.page(after: [a, b, c], now: [a], was: 2), 0)
         XCTAssertEqual(P.page(after: [a], now: [], was: 0), 0)
     }
+
+    /// What rides the stack's edge stops where the list does: never above
+    /// the top row, and a flip that starts or ends there only moves by the
+    /// part below it.
+    func testEdgeRiseStopsAtTheRoom() {
+        // Plenty of room: the whole rise.
+        XCTAssertEqual(P.edgeRise(liveRise: 120, restHeight: 200, room: 555), 120)
+        XCTAssertEqual(P.edgeRise(liveRise: -80, restHeight: 200, room: 555), -80)
+        // Rising into the top: only up to the room.
+        XCTAssertEqual(P.edgeRise(liveRise: 138, restHeight: 500, room: 555), 55)
+        // Already over the room at rest: nothing moves either way until the
+        // live height drops below it.
+        XCTAssertEqual(P.edgeRise(liveRise: 138, restHeight: 680, room: 555), 0)
+        XCTAssertEqual(P.edgeRise(liveRise: -100, restHeight: 680, room: 555), 0)
+        XCTAssertEqual(P.edgeRise(liveRise: -138, restHeight: 680, room: 555), -13)
+    }
 }

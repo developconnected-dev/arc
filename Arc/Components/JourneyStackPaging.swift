@@ -75,6 +75,15 @@ enum JourneyStackPaging {
         return x < 0 ? -damped : damped
     }
 
+    /// How far what sits on the stack's edge (the Show More row, the list's
+    /// mask) moves for a live rise, when the folded stack can be no taller
+    /// than `room`, the list's unfolded height: the stack's top stops under
+    /// the top row like the list's does.
+    static func edgeRise(liveRise: CGFloat, restHeight: CGFloat, room: CGFloat) -> CGFloat {
+        guard liveRise != 0 else { return 0 }
+        return min(room, restHeight + liveRise) - min(room, restHeight)
+    }
+
     /// The page to show once the journey list changes under the stack.
     static func page(after old: [UUID], now: [UUID], was page: Int) -> Int {
         guard !now.isEmpty else { return 0 }

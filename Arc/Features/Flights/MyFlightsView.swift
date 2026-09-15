@@ -266,7 +266,10 @@ struct MyFlightsView: View {
         .scrollClipDisabled()
         .scrollIndicators(.hidden)
         .scrollBounceBehavior(.basedOnSize)
-        .defaultScrollAnchor(.bottom, for: .alignment)
+        // Every role, not just alignment: invites that overflow the frame
+        // leave the stack on the bottom edge (and the top invites under the
+        // mask) rather than the stack pushed out of sight below it.
+        .defaultScrollAnchor(.bottom)
         // Travels with the list's rise, so its card and the list's cross
         // in register instead of fading in two places.
         .modifier(UnfoldRise(progress: folded ? 0 : 1, shift: unfoldShift, overlay: true))
