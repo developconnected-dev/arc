@@ -80,8 +80,7 @@ private struct FloatingPanelChrome<Content: View>: View {
         // below a lowered panel would swallow taps meant for the tab bar.
         .contentShape(.interaction, TopSlice(height: visible))
         .padding(.horizontal, MyTripsLayout.panelMargin)
-        .overlay(alignment: .topTrailing) { recenter(current) }
-        .offset(y: current - layout.panelHighestTop)
+        .modifier(PanelTopPlacement(top: current, layout: layout, onRecenter: onRecenter))
         // A cancelled gesture (a system alert, a scroll steal) never calls
         // `onEnded`; without this the panel would freeze at `liveTop` forever.
         .onChange(of: dragging) { _, isDragging in
@@ -135,19 +134,43 @@ private struct FloatingPanelChrome<Content: View>: View {
                 dragStart = nil
             }
     }
+}
 
-    @ViewBuilder
-    private func recenter(_ current: CGFloat) -> some View {
-        if let onRecenter {
-            let fits = layout.recenterYAbovePanel(panelTop: current) != nil
-            RecenterButton(action: onRecenter)
-                .padding(.trailing, MyTripsLayout.margin)
-                .offset(y: -(MyTripsLayout.gap + MyTripsLayout.control))
-                .opacity(fits ? 1 : 0)
-                .allowsHitTesting(fits)
-                .accessibilityHidden(!fits)
-                .animation(.easeOut(duration: 0.15), value: fits)
-        }
+/// Places the panel at its top edge and the recenter circle above it, both
+/// from the same animated value. The circle used to fade on its own 0.15 s
+/// curve keyed to whether it fits: on a programmatic move (Terminal map
+/// lowering a tall panel) that flipped with the target, so the circle raced
+/// ahead of the panel's spring onto the X, and faded in by the top row
+/// before the panel had moved away from it. Now it fades over the last few
+/// points before it would crowd the top row, wherever the panel really is.
+private struct PanelTopPlacement: ViewModifier, Animatable {
+    var top: CGFloat
+    let layout: MyTripsLayout
+    let onRecenter: (() -> Void)?
+
+    nonisolated var animatableData: CGFloat {
+        get { top }
+        set { top = newValue }
+    }
+
+    /// How far past the closest allowed position the circle fades.
+    private static let fade: CGFloat = 16
+
+    func body(content: Content) -> some View {
+        let fits = layout.recenterYAbovePanel(panelTop: top) != nil
+        let room = top - MyTripsLayout.gap - MyTripsLayout.control - (layout.topBarBottom + MyTripsLayout.gap)
+        content
+            .overlay(alignment: .topTrailing) {
+                if let onRecenter {
+                    RecenterButton(action: onRecenter)
+                        .padding(.trailing, MyTripsLayout.margin)
+                        .offset(y: -(MyTripsLayout.gap + MyTripsLayout.control))
+                        .opacity(Double(min(max(room / Self.fade, 0), 1)))
+                        .allowsHitTesting(fits)
+                        .accessibilityHidden(!fits)
+                }
+            }
+            .offset(y: top - layout.panelHighestTop)
     }
 }
 
