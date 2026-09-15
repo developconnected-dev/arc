@@ -55,6 +55,26 @@ final class MyTripsLayoutTests: XCTestCase {
         }
     }
 
+    /// The unfolded list keeps one fixed frame; short content gets room above
+    /// it so the journeys sit on the bottom edge like the folded stack.
+    func testContentTopSpacerFillsTheRoomAboveShortContent() {
+        let room = layout.listBottom - layout.unfoldedListTop
+        XCTAssertEqual(layout.contentTopSpacer(contentHeight: 250), room - 250)
+        XCTAssertEqual(layout.contentTopSpacer(contentHeight: room), 0)
+    }
+
+    func testContentTopSpacerIsZeroForTallContent() {
+        let room = layout.listBottom - layout.unfoldedListTop
+        XCTAssertEqual(layout.contentTopSpacer(contentHeight: room + 1), 0)
+        XCTAssertEqual(layout.contentTopSpacer(contentHeight: 2000), 0)
+    }
+
+    func testContentTopSpacerIsZeroForAZeroSizeLayout() {
+        let zero = MyTripsLayout(size: .zero, safeTop: 0, tabBarClearance: 0)
+        XCTAssertEqual(zero.contentTopSpacer(contentHeight: 0), 0)
+        XCTAssertEqual(zero.contentTopSpacer(contentHeight: 300), 0)
+    }
+
     func testPanelOpensAt58PercentAndClampsBetweenTopRowAndHeader() {
         XCTAssertEqual(layout.panelOpeningTop(headerHeight: 200), 874 * 0.42, accuracy: 0.001)
         XCTAssertEqual(layout.panelHighestTop, 118)

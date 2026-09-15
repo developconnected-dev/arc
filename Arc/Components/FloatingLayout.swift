@@ -59,6 +59,12 @@ struct MyTripsLayout: Equatable {
         return max(unfoldedListTop, listBottom - height)
     }
 
+    /// Room above short content in the fixed-frame list, so an unfolded
+    /// stack sits on the bottom edge like the folded one.
+    func contentTopSpacer(contentHeight: CGFloat) -> CGFloat {
+        max(0, (listBottom - unfoldedListTop) - contentHeight)
+    }
+
     func pillRowY(listTop: CGFloat) -> CGFloat { listTop - Self.gap - Self.control }
 
     // MARK: Detail panel

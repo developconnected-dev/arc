@@ -280,3 +280,13 @@ struct TopSlice: Shape {
         Path(CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: min(max(height, 0), rect.height)))
     }
 }
+
+/// The bottom `height` points of a view — the visible part of a list whose
+/// frame is fixed and whose mask opens from the bottom up.
+struct BottomSlice: Shape {
+    var height: CGFloat
+    func path(in rect: CGRect) -> Path {
+        let h = min(max(height, 0), rect.height)
+        return Path(CGRect(x: rect.minX, y: rect.maxY - h, width: rect.width, height: h))
+    }
+}
