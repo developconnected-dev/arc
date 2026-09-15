@@ -258,7 +258,15 @@ struct HeroCard: View {
                 }
             }
             .opacity(1 - progress)
-            DetailHeader(flight: source.flight, isOwnFlight: source.isOwn)
+            // The same actions the detail's header shows (inert: the overlay
+            // takes no touches). Without them the copy had no Terminal map /
+            // My plane row, and the row popped in as the card landed and
+            // vanished as a close began.
+            let noAction: (Flight) -> Void = { _ in }
+            DetailHeader(flight: source.flight, isOwnFlight: source.isOwn,
+                         onShowAtGate: source.isOwn ? noAction : nil,
+                         onShowAirport: source.isOwn ? noAction : nil,
+                         onAirport: source.flight.mode == .air ? { _ in } : nil)
                 .opacity(progress)
         }
         .background {
