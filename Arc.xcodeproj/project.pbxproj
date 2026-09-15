@@ -63,6 +63,7 @@
 		5FA1351EE55E4BE4797E59F1 /* FriendGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC305EC99186FF91058284B9 /* FriendGroups.swift */; };
 		5FBB7524476E7A27E16457B6 /* DeadReckoning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CA687861016F9A5A2E8044A /* DeadReckoning.swift */; };
 		633BC7BECD1E5940F2E2254D /* IntelligenceVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6674C644473A8513D0618BB7 /* IntelligenceVoice.swift */; };
+		649A69FA04C611A5E4F83A44 /* JourneyStackPagingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DA2B8E7143CF1066B4E9609 /* JourneyStackPagingTests.swift */; };
 		6695013CD5AAF30A7BEA4081 /* WidgetRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5399EEF19DFD1D734FB5504C /* WidgetRefresh.swift */; };
 		67CD1CA79C762C8CFD137523 /* ArcTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98164F646EF99E31FD3731AD /* ArcTabBar.swift */; };
 		68F8FBD1C2C9BBFD9A4A81EF /* FriendGroupsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60AED5E6E1620F00029D627 /* FriendGroupsTests.swift */; };
@@ -109,6 +110,7 @@
 		A0CFDAC70BB886B090D73B83 /* Airport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45CDEF12D33E504034C15720 /* Airport.swift */; };
 		A1BE988BFF2DE33864EE4EDA /* BookingExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C966E39F13C47E5E918B92FA /* BookingExtractorTests.swift */; };
 		A32EE9AAFF04496627E9FB54 /* Flight+Evidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B99C1400F0C14E02C6DFB4E /* Flight+Evidence.swift */; };
+		A6EAE562B5B1CCF755AAAD11 /* JourneyStackPaging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56BB6C9BCA4E160259EA1651 /* JourneyStackPaging.swift */; };
 		A83E77612126873053655DD1 /* ScheduleBackfillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 283EE3258EC82F97B3FD8892 /* ScheduleBackfillTests.swift */; };
 		A91DD38C05B6874B3C4B21B6 /* FloatingTripsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF727275593DAE9658AC4912 /* FloatingTripsTests.swift */; };
 		A9BD4EA4BA0EB46F87F971B3 /* DepartureEvidenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76A7ACD292B7C11B780E694F /* DepartureEvidenceTests.swift */; };
@@ -259,6 +261,7 @@
 		5399EEF19DFD1D734FB5504C /* WidgetRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetRefresh.swift; sourceTree = "<group>"; };
 		5460A62472771819DEC2B78A /* FriendsFeedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsFeedTests.swift; sourceTree = "<group>"; };
 		56B017439A4B961EDCDB7E05 /* FriendsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsStore.swift; sourceTree = "<group>"; };
+		56BB6C9BCA4E160259EA1651 /* JourneyStackPaging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyStackPaging.swift; sourceTree = "<group>"; };
 		5CCB5157053AA1F3BD9AF495 /* GeoMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeoMath.swift; sourceTree = "<group>"; };
 		5CD183275F16AE2660B43277 /* AircraftSilhouette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AircraftSilhouette.swift; sourceTree = "<group>"; };
 		5DFE5890F673E6E56FF7EAEF /* Arc.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Arc.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -269,6 +272,7 @@
 		66A38232A6E768DF2669A448 /* GeoMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeoMathTests.swift; sourceTree = "<group>"; };
 		68633311E781A8154C5A2CA5 /* LiveActivityPushSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityPushSync.swift; sourceTree = "<group>"; };
 		6B6726F433E4DC6595515C5E /* DetailHeaderModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailHeaderModelTests.swift; sourceTree = "<group>"; };
+		6DA2B8E7143CF1066B4E9609 /* JourneyStackPagingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyStackPagingTests.swift; sourceTree = "<group>"; };
 		6E939CF90FDCC989380305A0 /* ArcWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcWidgetBundle.swift; sourceTree = "<group>"; };
 		6F6756FA9C3BDABF5E95114C /* DelayRiskCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelayRiskCard.swift; sourceTree = "<group>"; };
 		7219FA5EF2671212E6AFBC29 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
@@ -593,6 +597,7 @@
 				783264D1784139B2BBFB8BD2 /* FloatingLayout.swift */,
 				206D298764D047DA3F0C2844 /* FloatingPanel.swift */,
 				3B473AA396AFB87F8FA33DBD /* FriendAvatar.swift */,
+				56BB6C9BCA4E160259EA1651 /* JourneyStackPaging.swift */,
 				4CDBA155BE116022B7E2F90F /* MapControls.swift */,
 				F1A6E858F2D653D54302F578 /* Morph.swift */,
 				81A83E908E4D238FB3AB6A45 /* TripLogoView.swift */,
@@ -653,6 +658,7 @@
 				5460A62472771819DEC2B78A /* FriendsFeedTests.swift */,
 				66A38232A6E768DF2669A448 /* GeoMathTests.swift */,
 				3982B16A2E83D23E09279400 /* InboundSelectionTests.swift */,
+				6DA2B8E7143CF1066B4E9609 /* JourneyStackPagingTests.swift */,
 				5071EA7C352056408F298DEA /* LiveActivityClockTests.swift */,
 				B30B1695E898672BA030B089 /* LiveActivityPushSyncTests.swift */,
 				8CED6921B4641AFAFE1DEDD0 /* MapFramingTests.swift */,
@@ -861,6 +867,7 @@
 				174541C286F7C1FAFD253F1A /* FriendsFeedTests.swift in Sources */,
 				147ED96EDE432F34CFA07B0F /* GeoMathTests.swift in Sources */,
 				132186CB080D804A397303E6 /* InboundSelectionTests.swift in Sources */,
+				649A69FA04C611A5E4F83A44 /* JourneyStackPagingTests.swift in Sources */,
 				57E9B84380BBA34EF0FA2060 /* LiveActivityClockTests.swift in Sources */,
 				BEE4C5661C61DDB3D277469B /* LiveActivityPushSyncTests.swift in Sources */,
 				6C0A26D4A8491567B00F93B5 /* MapFramingTests.swift in Sources */,
@@ -946,6 +953,7 @@
 				31B370AC6D89A2834BA50EE6 /* InboundSelection.swift in Sources */,
 				F8979AB2425AE951DB675711 /* JourneyCard.swift in Sources */,
 				5B6F1C22294B92638EA60956 /* JourneyRecapCard.swift in Sources */,
+				A6EAE562B5B1CCF755AAAD11 /* JourneyStackPaging.swift in Sources */,
 				F7FB1ADA70699CF04534CC8E /* LiveActivityAvatarStore.swift in Sources */,
 				86B066ECAFCF0E3B5E177C8C /* LiveActivityManager.swift in Sources */,
 				9397CBE5A1FA96AF7846AEBB /* LiveActivityPushSync.swift in Sources */,
