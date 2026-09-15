@@ -434,7 +434,7 @@ struct ArcRootView: View {
                     target = (matched.lat, matched.lon, "Gate \(gateRef)")
                 }
             }
-            guard !Task.isCancelled, detailFlight?.id == flight.id else { return }
+            guard !Task.isCancelled, groundViewStillWanted(for: flight) else { return }
             controller.showGate(lat: target.lat, lon: target.lon, label: target.label)
             lowerPanelForGroundViewAfterMapUpdate()
             if watching { startPlaneWatch(flight) }
@@ -456,7 +456,7 @@ struct ArcRootView: View {
         groundViewTask?.cancel()
         groundViewTask = Task {
             let osm = await FlightAPIClient.shared.gates(iata: iata, lat: lat, lon: lon)
-            guard !Task.isCancelled, detailFlight?.id == flight.id else { return }
+            guard !Task.isCancelled, groundViewStillWanted(for: flight) else { return }
             let matched = myGate.flatMap { FlightAPIClient.matchGate(osm, to: $0) }
             let gates = osm.map {
                 MapController.AirportGate(
@@ -471,8 +471,18 @@ struct ArcRootView: View {
         }
     }
 
+    /// A ground view's answer still has a detail to belong to: the same trip
+    /// is open and not closing. A close has already cleared the gate marker
+    /// and restored the map style; an answer landing after it would leave
+    /// satellite imagery and plane polling behind with no detail (and no
+    /// Back button any more) to leave them from.
+    private func groundViewStillWanted(for flight: Flight) -> Bool {
+        detailFlight?.id == flight.id && transition.phase != .closing
+    }
+
     /// Terminal map / My plane need the map: a panel dragged taller than
-    /// its opening height comes back down, in the spring the camera dives with.
+    /// its opening height comes back down, on the next turn after the camera
+    /// sets off (`lowerPanelForGroundViewAfterMapUpdate`).
     /// A detail in Passport's sheet drops the sheet to medium, as it always has.
     private func lowerPanelForGroundView() {
         guard detailTab == .myFlights, let layout = tripsLayout else {
@@ -490,9 +500,9 @@ struct ArcRootView: View {
     /// started on the next turn, it moves from its first frame, a beat after
     /// the camera sets off.
     private func lowerPanelForGroundViewAfterMapUpdate() {
-        let id = detailFlight?.id
+        guard let flight = detailFlight else { return }
         DispatchQueue.main.async {
-            guard detailFlight?.id == id else { return }
+            guard groundViewStillWanted(for: flight) else { return }
             lowerPanelForGroundView()
         }
     }
@@ -961,6 +971,8 @@ struct ArcRootView: View {
                                     .accessibilityIdentifier(transition.request == nil ? "trip-detail-ready" : "trip-detail-transition")
                             }
                             .modifier(SidePresence(side: .detail, progress: heroProgress))
+                            // As on My Trips: a closing detail takes no touches.
+                            .allowsHitTesting(transition.phase != .closing)
                     }
                 }
                 .overlay {
@@ -1209,6 +1221,9 @@ struct ArcRootView: View {
         }
         .frame(width: layout.size.width, height: layout.panelBottom - layout.panelHighestTop, alignment: .top)
         .offset(y: layout.panelHighestTop)
+        // A fading panel takes no touches: Terminal map or My plane tapped
+        // just after the X would start a ground view for a closing detail.
+        .allowsHitTesting(transition.phase != .closing)
         .modifier(PanelPresence(progress: heroProgress))
         .offset(y: showAdd ? 1500 : 0)
     }
