@@ -678,16 +678,28 @@ struct ArcRootView: View {
         case .friend: detailInvite = nil
         case .invite: detailFriend = nil; detailFriendGroup = nil
         }
-        let replacing = detailFlight != nil
+        // A detail still closing isn't one being replaced: the glide back to
+        // the list is running, and the new request reverses it from where it
+        // is. Settling it instead snapped the whole panel in for one frame.
+        let reversing = transition.phase == .closing && detailTab == tab
+        let replacing = detailFlight != nil && !reversing
+        let sameTrip = detailFlight?.id == flight.id
         mapFocusID = nil
         detailTab = tab
         detailFlight = flight
-        panelTop = nil
+        // Reopening the trip that is closing keeps the height it is fading at.
+        if !(reversing && sameTrip) { panelTop = nil }
         if reduceMotion || replacing {
             transition.settle(detail: true)
             heroTravelling = nil
             heroProgress = 1
             mapFocusID = flight.id
+            return
+        }
+        if reversing && sameTrip {
+            // Mid-flight between the same two frames (or the same fade, when
+            // the row was out of view): turn it round from where it is.
+            transition.open()
             return
         }
         heroProgress = 0
