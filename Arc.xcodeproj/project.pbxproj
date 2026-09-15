@@ -74,6 +74,7 @@
 		702FE8D083DF0D14242F484C /* FlightExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A904E8731146A7FB8744B074 /* FlightExporter.swift */; };
 		74936AF03801B1DEC0E40739 /* AddFlightView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6B0AA5B39E6C21E26E17DE7 /* AddFlightView.swift */; };
 		74C10FB358EFB074FC86CBA5 /* PassportStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = B38DA68A6519FA66B43996E0 /* PassportStats.swift */; };
+		75346E4CE2FDD8BBA97AC228 /* JourneyStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77CDEC44E6069B617A300D3F /* JourneyStack.swift */; };
 		76727308C5C701DE0720CCF0 /* FriendAlertsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF41791DE630A7BDBA2550E7 /* FriendAlertsTests.swift */; };
 		76A42DE217B99FCC67076406 /* FlightExporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 345D5BC68228BFA3CD7DD4DB /* FlightExporterTests.swift */; };
 		7729BEA8B586AB20EAA65F0E /* DetailHeaderModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DED5DCA402481C7993E36CCA /* DetailHeaderModel.swift */; };
@@ -279,6 +280,7 @@
 		72658F05DBC27FB8C743F252 /* JourneyCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyCard.swift; sourceTree = "<group>"; };
 		734A69EC4EB99125C060E4F5 /* FlightDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightDetailView.swift; sourceTree = "<group>"; };
 		76A7ACD292B7C11B780E694F /* DepartureEvidenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DepartureEvidenceTests.swift; sourceTree = "<group>"; };
+		77CDEC44E6069B617A300D3F /* JourneyStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyStack.swift; sourceTree = "<group>"; };
 		783264D1784139B2BBFB8BD2 /* FloatingLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingLayout.swift; sourceTree = "<group>"; };
 		7896EB2693BD5C5369748A6E /* DetailHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailHeader.swift; sourceTree = "<group>"; };
 		78C36DE016E979779A485A54 /* DemoSeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoSeed.swift; sourceTree = "<group>"; };
@@ -626,6 +628,7 @@
 			children = (
 				4F7A0EB241567A257D24DFD0 /* FlightRowCard.swift */,
 				72658F05DBC27FB8C743F252 /* JourneyCard.swift */,
+				77CDEC44E6069B617A300D3F /* JourneyStack.swift */,
 				A99FE65B13FFE0D0203987D5 /* MyFlightsView.swift */,
 				30B769750EA0E60EEC3EC42F /* TripInviteCard.swift */,
 				3EBD3AA871F0E5B1559FDF42 /* TripJourney.swift */,
@@ -953,6 +956,7 @@
 				31B370AC6D89A2834BA50EE6 /* InboundSelection.swift in Sources */,
 				F8979AB2425AE951DB675711 /* JourneyCard.swift in Sources */,
 				5B6F1C22294B92638EA60956 /* JourneyRecapCard.swift in Sources */,
+				75346E4CE2FDD8BBA97AC228 /* JourneyStack.swift in Sources */,
 				A6EAE562B5B1CCF755AAAD11 /* JourneyStackPaging.swift in Sources */,
 				F7FB1ADA70699CF04534CC8E /* LiveActivityAvatarStore.swift in Sources */,
 				86B066ECAFCF0E3B5E177C8C /* LiveActivityManager.swift in Sources */,
