@@ -46,6 +46,9 @@ struct JourneyStack: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.heroReports) private var heroReports
     @State private var heights: [UUID: CGFloat] = [:]
+    /// The last height published as settled: what the stack keeps while a
+    /// page it lands on hasn't been measured, rather than collapsing.
+    @State private var lastSettledHeight: CGFloat = 0
     /// Displayed translation (already rubber-banded at the ends).
     @State private var drag: CGFloat = 0
     /// The finger's translation when the swipe took over, so the card doesn't
@@ -87,7 +90,7 @@ struct JourneyStack: View {
     private var settling: Bool { settleTarget != nil }
 
     var body: some View {
-        let h0 = height(page)
+        let h0 = height(page, fallback: lastSettledHeight)
         let n = neighbours
         let o = offsets(drag: drag)
         ZStack(alignment: .top) {
@@ -104,9 +107,13 @@ struct JourneyStack: View {
                     // Neighbours parked off-frame neither report hero frames
                     // nor reach VoiceOver through their rows.
                     .environment(\.heroReports, heroReports && slot.index == page)
-                    // Reduce Motion builds only the current card, so a page
-                    // change is this crossfade and nothing slides.
-                    .transition(reduceMotion ? .opacity.animation(Self.crossfade) : .identity)
+                    // Reduce Motion still builds the neighbours, invisible, so
+                    // they are measured before they land; a page change is a
+                    // crossfade and nothing slides.
+                    .animation(reduceMotion ? Self.crossfade : nil) {
+                        $0.opacity(reduceMotion && slot.index != page ? 0 : 1)
+                    }
+                    .transition(.identity)
             }
         }
         .frame(maxWidth: .infinity)
@@ -157,8 +164,7 @@ struct JourneyStack: View {
     /// Keyed by journey, so a card keeps its identity (and measurement) as
     /// it moves from neighbour to current.
     private func slots(_ n: (next: Int, previous: Int)) -> [Slot] {
-        let indices = reduceMotion ? [page] : [n.previous, page, n.next]
-        return indices.filter(journeys.indices.contains).map { Slot(index: $0, journey: journeys[$0]) }
+        [n.previous, page, n.next].filter(journeys.indices.contains).map { Slot(index: $0, journey: journeys[$0]) }
     }
 
     private var neighbours: (next: Int, previous: Int) {
@@ -174,7 +180,7 @@ struct JourneyStack: View {
     /// The one place offsets come from: what the body draws and what
     /// `liveRise` publishes can't disagree.
     private func offsets(drag: CGFloat) -> JourneyStackPaging.Offsets {
-        let h0 = height(page)
+        let h0 = height(page, fallback: lastSettledHeight)
         let n = neighbours
         return JourneyStackPaging.offsets(drag: drag, current: h0,
                                           next: height(n.next, fallback: h0),
@@ -196,6 +202,7 @@ struct JourneyStack: View {
     }
 
     private func publishSettledHeight(_ h: CGFloat) {
+        if lastSettledHeight != h { lastSettledHeight = h }
         if motion.settledHeight != h { motion.settledHeight = h }
     }
 
@@ -235,7 +242,7 @@ struct JourneyStack: View {
             edgeBumps += 1
         }
         guard !reduceMotion else { return }
-        let h0 = height(page)
+        let h0 = height(page, fallback: lastSettledHeight)
         let next = atEnd ? JourneyStackPaging.rubberBanded(raw, dimension: h0) : raw
         drag = next
         publishLiveRise(offsets(drag: next).frameHeight - h0)
@@ -270,7 +277,7 @@ struct JourneyStack: View {
         isVertical = nil
         let moved = reduceMotion ? translation : drag
         let direction: JourneyStackPaging.Direction = (moved == 0 ? predictedEnd : moved) < 0 ? .next : .previous
-        let h0 = height(page)
+        let h0 = height(page, fallback: lastSettledHeight)
         let neighbour = direction == .next ? page + 1 : page - 1
         let travel = JourneyStackPaging.travel(direction: direction, current: h0,
                                                neighbour: height(neighbour, fallback: h0))
@@ -291,7 +298,7 @@ struct JourneyStack: View {
     /// Animate to the landing position, then swap the page in one
     /// non-animated transaction, where offsets make the swap pixel-identical.
     private func settle(to target: Int) {
-        let h0 = height(page)
+        let h0 = height(page, fallback: lastSettledHeight)
         let landing: CGFloat = if target > page {
             -(height(target, fallback: h0) + JourneyStackPaging.gap)
         } else if target < page {
