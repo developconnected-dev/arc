@@ -118,7 +118,11 @@ struct JourneyStack: View {
                         measured(slot.journey.id, height: h)
                     }
                     .scaleEffect(holding && !reduceMotion ? 0.95 : 1)
-                    .offset(y: slot.index == page ? o.current : slot.index == n.next ? o.next : o.previous)
+                    // Reduce Motion stacks every card at the frame's top, so
+                    // the one leaving fades out where it was while the new
+                    // one fades in. Parked off-frame, it vanished at once and
+                    // the empty frame blinked before the new card.
+                    .offset(y: reduceMotion ? 0 : slot.index == page ? o.current : slot.index == n.next ? o.next : o.previous)
                     .allowsHitTesting(slot.index == page && !holding && !settling)
                     .accessibilityHidden(true, isEnabled: slot.index != page)
                     // Neighbours parked off-frame neither report hero frames
