@@ -39,7 +39,8 @@ struct MyTripsLayout: Equatable {
 
     // MARK: Cards
 
-    var listBottom: CGFloat { size.height - tabBarClearance - Self.accessoryHeight - Self.gap }
+    /// So the list area is never negative.
+    var listBottom: CGFloat { max(unfoldedListTop, size.height - tabBarClearance - Self.accessoryHeight - Self.gap) }
     /// Below the top row and the Show Less / recenter row.
     var unfoldedListTop: CGFloat { topBarBottom + Self.gap + Self.control + Self.gap }
 
@@ -55,7 +56,11 @@ struct MyTripsLayout: Equatable {
         size.height - tabBarClearance - (accessoryHidesForDetail ? 0 : Self.accessoryHeight) - Self.gap
     }
     var panelHighestTop: CGFloat { topBarBottom + Self.gap }
-    var panelOpeningTop: CGFloat { max(panelHighestTop, size.height * (1 - Self.panelOpeningFraction)) }
+
+    /// 58 % of the screen, unless that would hide part of the header: the header rule wins.
+    func panelOpeningTop(headerHeight: CGFloat) -> CGFloat {
+        clampPanelTop(size.height * (1 - Self.panelOpeningFraction), headerHeight: headerHeight)
+    }
 
     /// As low as the panel goes: its strip and the whole header still showing.
     func panelLowestTop(headerHeight: CGFloat) -> CGFloat {
@@ -68,7 +73,10 @@ struct MyTripsLayout: Equatable {
 
     /// Terminal map / My plane need the map: a panel taller than the
     /// opening height comes down to it; a lower one stays where it is.
-    func panelTopForGroundView(current: CGFloat) -> CGFloat { max(current, panelOpeningTop) }
+    /// Always within the current header's clamp, never above it.
+    func panelTopForGroundView(current: CGFloat, headerHeight: CGFloat) -> CGFloat {
+        clampPanelTop(max(current, panelOpeningTop(headerHeight: headerHeight)), headerHeight: headerHeight)
+    }
 
     /// The recenter circle's top edge above the panel, or nil where it would
     /// crowd the top row.
@@ -78,9 +86,12 @@ struct MyTripsLayout: Equatable {
     }
 
     /// The map between the top row and whatever covers the screen from `coverTop` down.
+    /// A degenerate (zero-height) screen has no fractions to give, so it
+    /// falls back to the framing every other surface already assumes.
     func band(coverTop: CGFloat) -> MapBand {
-        MapBand(top: Double(topBarBottom / size.height),
-                bottom: Double(max(coverTop, topBarBottom + 1) / size.height))
+        guard size.height > 0 else { return .upperHalf }
+        return MapBand(top: Double(topBarBottom / size.height),
+                       bottom: Double(max(coverTop, topBarBottom + 1) / size.height))
     }
 }
 
@@ -89,7 +100,8 @@ struct MyTripsLayout: Equatable {
 enum TopPillPlacement {
     /// Centred on the screen when that keeps `gap` to both neighbours;
     /// otherwise slid toward the roomier side until it does; if the pill is
-    /// wider than the room itself, centred in the room (its text then shrinks).
+    /// wider than the room itself, centred in the room — shrinking the text
+    /// to fit, if any, is the caller's job, not this function's.
     static func centreX(pillWidth: CGFloat, width: CGFloat,
                         leadingEdge: CGFloat, trailingEdge: CGFloat,
                         gap: CGFloat = MyTripsLayout.gap) -> CGFloat {
@@ -106,23 +118,38 @@ enum TopPillPlacement {
 }
 
 /// Speed and altitude for the flight a detail is showing, in the units the
-/// app has always used, and only while the position is fresh.
+/// app has always used, grouped the same way for both numbers, each part
+/// dropped on its own if it isn't a sane finite reading (and, for speed,
+/// not negative), and shown only while the position is fresh — neither
+/// stale nor from more than a minute in the future.
 enum LiveReadout {
     static let freshness: TimeInterval = 15 * 60
+    /// Clock skew can put a reading a little ahead of `now`; anything
+    /// further out than this is not a real position, so it counts as stale.
+    static let futureTolerance: TimeInterval = 60
 
-    static func text(speed: Double?, altitude: Double?, updatedAt: Date?, now: Date = .now) -> String? {
-        guard let updatedAt, now.timeIntervalSince(updatedAt) < freshness else { return nil }
-        let parts = [speed.map { "\(Int($0 * 3.6)) km/h" }, altitude.map(altitudeText)].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
-    static func altitudeText(_ meters: Double) -> String {
+    private static let formatter: NumberFormatter = {
         let f = NumberFormatter()
         f.locale = Locale(identifier: "en_GB")
         f.numberStyle = .decimal
         f.usesGroupingSeparator = true
         f.groupingSeparator = "'"
         f.maximumFractionDigits = 0
-        return (f.string(from: NSNumber(value: meters)) ?? "\(Int(meters))") + " m"
+        return f
+    }()
+
+    static func text(speed: Double?, altitude: Double?, updatedAt: Date?, now: Date = .now) -> String? {
+        guard let updatedAt else { return nil }
+        let age = now.timeIntervalSince(updatedAt)
+        guard age < freshness, age >= -futureTolerance else { return nil }
+        let speedPart = speed.flatMap { $0.isFinite && $0 >= 0 ? "\(groupedText($0 * 3.6)) km/h" : nil }
+        let altitudePart = altitude.flatMap { $0.isFinite ? "\(groupedText($0)) m" : nil }
+        let parts = [speedPart, altitudePart].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private static func groupedText(_ value: Double) -> String {
+        let rounded = value.rounded()
+        return formatter.string(from: NSNumber(value: rounded)) ?? "\(Int(rounded))"
     }
 }
