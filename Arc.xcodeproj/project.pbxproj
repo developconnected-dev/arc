@@ -99,7 +99,6 @@
 		95E9EB1D6085989A0AA988BF /* FriendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 343257F6CBC830BB8386C5BA /* FriendsView.swift */; };
 		971EC6990D98EC46BEC7C50D /* TripMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DDFB16C2832C0B19003EA0D /* TripMode.swift */; };
 		9804DBD568E519C659E7EF98 /* TakeoffWakePlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D6A8161E48E0795CCD97AA8 /* TakeoffWakePlannerTests.swift */; };
-		983B4AFEF51BEFD05BB0B9C3 /* ClipboardFlightCodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C489E29357F66E23EFC0D7B /* ClipboardFlightCodeTests.swift */; };
 		9A74B2D6E44F84C536E4BD1F /* ManageFriendsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 858108E79DAC8F038B9E97E4 /* ManageFriendsSheet.swift */; };
 		9A778312A6938772C45A9838 /* TripInviteCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30B769750EA0E60EEC3EC42F /* TripInviteCard.swift */; };
 		9B2EABE20799CFF960C725EA /* DelayRiskCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F6756FA9C3BDABF5E95114C /* DelayRiskCard.swift */; };
@@ -249,7 +248,6 @@
 		4B59DFF600FEDEB5C44BEED7 /* FlightActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightActivityAttributes.swift; sourceTree = "<group>"; };
 		4BF091F8AD4F106B45E03DCE /* TakeoffDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeoffDetectorTests.swift; sourceTree = "<group>"; };
 		4C1301041A06C6716593057B /* ConnectionPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionPlanner.swift; sourceTree = "<group>"; };
-		4C489E29357F66E23EFC0D7B /* ClipboardFlightCodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardFlightCodeTests.swift; sourceTree = "<group>"; };
 		4CDBA155BE116022B7E2F90F /* MapControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapControls.swift; sourceTree = "<group>"; };
 		4D6A8161E48E0795CCD97AA8 /* TakeoffWakePlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeoffWakePlannerTests.swift; sourceTree = "<group>"; };
 		4F45EC7B8D2BEC6A79A78C9B /* DelayRisk.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelayRisk.swift; sourceTree = "<group>"; };
@@ -642,7 +640,6 @@
 				E0DA1605596C9C30A7CEC40C /* BoardingPassTests.swift */,
 				C966E39F13C47E5E918B92FA /* BookingExtractorTests.swift */,
 				8296407C7B6624104AE2703D /* BrandingTests.swift */,
-				4C489E29357F66E23EFC0D7B /* ClipboardFlightCodeTests.swift */,
 				C1450F4FF4653A6D0BF449CA /* ConnectionPlannerTests.swift */,
 				0D81203FA2864B636065691E /* DeadReckoningTests.swift */,
 				F70B4249290027FDAFA9D021 /* DelayRiskTests.swift */,
@@ -851,7 +848,6 @@
 				924DB162E900325F8772FA91 /* BoardingPassTests.swift in Sources */,
 				A1BE988BFF2DE33864EE4EDA /* BookingExtractorTests.swift in Sources */,
 				91538C97272ECB2B1CE14434 /* BrandingTests.swift in Sources */,
-				983B4AFEF51BEFD05BB0B9C3 /* ClipboardFlightCodeTests.swift in Sources */,
 				698CBD586ABAF42BA0EED43B /* ConnectionPlannerTests.swift in Sources */,
 				4FD88C15CD2DFD4314F019FA /* DeadReckoningTests.swift in Sources */,
 				C1A749BDDC82ED06F27F8715 /* DelayRiskTests.swift in Sources */,

@@ -64,6 +64,22 @@ final class FloatingTripsTests: XCTestCase {
         XCTAssertTrue(next.isHittable)
     }
 
+    /// The + bubble beside the tab bar opens Add a trip, and leaves the
+    /// selection on the tab the user was already on.
+    func testThePlusBubbleOpensAddAndKeepsTheCurrentTab() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["trip-row-LX14"].waitForExistence(timeout: 5))
+
+        let bubble = app.buttons["Add a trip"]
+        XCTAssertTrue(bubble.waitForExistence(timeout: 3))
+        bubble.tap()
+        XCTAssertTrue(app.staticTexts["Add Trip"].waitForExistence(timeout: 5),
+                      "the + bubble should present the Add screen")
+
+        // Still My Trips underneath: the selection never moved to the bubble.
+        XCTAssertTrue(app.buttons["My Trips"].isSelected)
+    }
+
     func testTopRowTitleIsMyTripsOnTheList() {
         let app = launch()
         let title = app.descendants(matching: .any)["map-top-title"].firstMatch

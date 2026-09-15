@@ -11,3 +11,15 @@ enum ArcTab: CaseIterable {
     var title: String { switch self { case .myFlights: "My Trips"; case .friends: "Friends"; case .passport: "Passport" } }
     var icon: String { switch self { case .myFlights: "airplane"; case .friends: "person.2.fill"; case .passport: "book.pages.fill" } }
 }
+
+/// What the native `TabView` selects between: the three tabs, plus the round
+/// **+** bubble iOS draws beside the bar for a search-role tab. `add` is never
+/// held as the selection — picking it opens the Add sheet and leaves the user
+/// on the tab they were on (docs/superpowers/specs/2026-09-15-floating-trips-design.md).
+enum TabSelection: Hashable {
+    case tab(ArcTab)
+    case add
+
+    static let addTitle = "Add a trip"
+    static let addIcon = "plus"
+}

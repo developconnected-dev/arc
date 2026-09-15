@@ -17,9 +17,6 @@ struct MyTripsLayout: Equatable {
     static let panelMargin: CGFloat = 12
     static let gap: CGFloat = 8
     static let control: CGFloat = 44
-    /// The "Add a trip" accessory above the tab bar, measured on the simulator
-    /// (bottom inset 139 with it, 83 without).
-    static let accessoryHeight: CGFloat = 56
     static let panelOpeningFraction: CGFloat = 0.58
     /// The panel's drag strip as laid out: `BottomSheet`'s 50 pt zone less the
     /// 12 pt the content overlaps, so the detail's menu and X line up as before.
@@ -28,13 +25,10 @@ struct MyTripsLayout: Equatable {
     /// The whole screen, safe areas included.
     let size: CGSize
     let safeTop: CGFloat
-    /// How far the tab bar reaches up from the bottom edge, without the accessory.
+    /// How far the tab bar reaches up from the bottom edge — the bottom safe
+    /// area inset. With the add button a bubble beside the bar rather than an
+    /// accessory above it, nothing else stands between the cards and the bar.
     let tabBarClearance: CGFloat
-    /// iOS 26.1 can switch the accessory off while a detail is open; 26.0 cannot.
-    var accessoryHidesForDetail: Bool = true
-    /// Whether the accessory is on screen under the cards. With no trips,
-    /// iOS 26.1 hides it, and the list sits on the tab bar instead.
-    var listClearsAccessory: Bool = true
 
     // MARK: Top row
 
@@ -45,7 +39,7 @@ struct MyTripsLayout: Equatable {
 
     /// So the list area is never negative.
     var listBottom: CGFloat {
-        max(unfoldedListTop, size.height - tabBarClearance - (listClearsAccessory ? Self.accessoryHeight : 0) - Self.gap)
+        max(unfoldedListTop, size.height - tabBarClearance - Self.gap)
     }
     /// Below the top row and the Show Less / recenter row.
     var unfoldedListTop: CGFloat { topBarBottom + Self.gap + Self.control + Self.gap }
@@ -70,9 +64,7 @@ struct MyTripsLayout: Equatable {
 
     // MARK: Detail panel
 
-    var panelBottom: CGFloat {
-        size.height - tabBarClearance - (accessoryHidesForDetail ? 0 : Self.accessoryHeight) - Self.gap
-    }
+    var panelBottom: CGFloat { size.height - tabBarClearance - Self.gap }
     var panelHighestTop: CGFloat { topBarBottom + Self.gap }
 
     /// 58 % of the screen, unless that would hide part of the header: the header rule wins.

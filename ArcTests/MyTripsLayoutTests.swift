@@ -10,7 +10,13 @@ final class MyTripsLayoutTests: XCTestCase {
         XCTAssertEqual(layout.topBarY, 66)
         XCTAssertEqual(layout.topBarBottom, 110)
         XCTAssertEqual(layout.unfoldedListTop, 170)
-        XCTAssertEqual(layout.listBottom, 874 - 83 - MyTripsLayout.accessoryHeight - 8)
+        XCTAssertEqual(layout.listBottom, 874 - 83 - 8)
+    }
+
+    /// Nothing stands between the cards and the tab bar: the list sits exactly
+    /// where the detail panel does (the add button is a bubble beside the bar).
+    func testListAndPanelShareTheSameBottom() {
+        XCTAssertEqual(layout.listBottom, layout.panelBottom)
     }
 
     func testFoldedStackSitsOnTheBottomAndNeverClimbsPastUnfolded() {
@@ -19,7 +25,7 @@ final class MyTripsLayoutTests: XCTestCase {
     }
 
     /// A few journeys unfold on the folded stack's bottom edge and grow up
-    /// only as far as they need: no band of empty map above "Add a trip".
+    /// only as far as they need: no band of empty map above the tab bar.
     func testShortUnfoldedStackSitsOnTheBottom() {
         XCTAssertEqual(layout.listTop(folded: false, foldedHeight: 250, contentHeight: 400), layout.listBottom - 400)
     }
@@ -85,23 +91,6 @@ final class MyTripsLayoutTests: XCTestCase {
         XCTAssertEqual(layout.clampPanelTop(400, headerHeight: 200), 400)
     }
 
-    /// iOS 26.0 cannot switch the accessory off, so a detail clears it there.
-    func testPanelClearsTheAccessoryWhenItCannotHide() {
-        let old = MyTripsLayout(size: CGSize(width: 402, height: 874), safeTop: 62, tabBarClearance: 83,
-                                accessoryHidesForDetail: false)
-        XCTAssertEqual(old.panelBottom, old.listBottom)
-    }
-
-    /// With no trips, iOS 26.1 hides the accessory: the empty-state card sits
-    /// on the tab bar instead of floating 56 pt above an empty slot.
-    func testListReservesTheAccessoryOnlyWhileItShows() {
-        let empty = MyTripsLayout(size: CGSize(width: 402, height: 874), safeTop: 62, tabBarClearance: 83,
-                                  listClearsAccessory: false)
-        XCTAssertEqual(empty.listBottom, 874 - 83 - 8)
-        XCTAssertEqual(empty.listBottom, layout.listBottom + MyTripsLayout.accessoryHeight)
-        XCTAssertEqual(empty.panelBottom, layout.panelBottom)
-    }
-
     func testGroundViewsOnlyEverLowerThePanel() {
         XCTAssertEqual(layout.panelTopForGroundView(current: 200, headerHeight: 200),
                        layout.panelOpeningTop(headerHeight: 200))
@@ -133,14 +122,14 @@ final class MyTripsLayoutTests: XCTestCase {
     /// On a screen too short for the whole top row and Show Less row, the
     /// list area holds at zero height instead of going negative.
     func testListBottomNeverClimbsAboveTheUnfoldedTop() {
-        let tiny = MyTripsLayout(size: CGSize(width: 300, height: 300), safeTop: 59, tabBarClearance: 83)
+        let tiny = MyTripsLayout(size: CGSize(width: 300, height: 240), safeTop: 59, tabBarClearance: 83)
+        XCTAssertGreaterThan(tiny.unfoldedListTop, 240 - 83 - MyTripsLayout.gap)
         XCTAssertEqual(tiny.listBottom, tiny.unfoldedListTop)
     }
 
     /// The single test that stands in for eyeballing the layout on every
-    /// device: the no-overlap rules from every test above, swept across
-    /// screen sizes, accessory-hides modes, header heights and drag
-    /// positions Arc actually has to support.
+    /// device: the no-overlap rules from every test above, swept across the
+    /// screen sizes, header heights and drag positions Arc has to support.
     func testLayoutInvariantsHoldOnEveryScreenAndHeader() {
         let screens: [(size: CGSize, safeTop: CGFloat, clearance: CGFloat)] = [
             (CGSize(width: 375, height: 667), 20, 49),
@@ -150,55 +139,55 @@ final class MyTripsLayoutTests: XCTestCase {
         ]
 
         for screen in screens {
-            for hidesForDetail in [true, false] {
-                let layout = MyTripsLayout(size: screen.size, safeTop: screen.safeTop,
-                                           tabBarClearance: screen.clearance,
-                                           accessoryHidesForDetail: hidesForDetail)
-                let tag = "size=\(screen.size) hides=\(hidesForDetail)"
+            let layout = MyTripsLayout(size: screen.size, safeTop: screen.safeTop,
+                                       tabBarClearance: screen.clearance)
+            let tag = "size=\(screen.size)"
 
-                for h in stride(from: 150.0, through: 500.0, by: 10.0) {
-                    let highest = layout.panelHighestTop
-                    let lowest = layout.panelLowestTop(headerHeight: h)
-                    let opening = layout.panelOpeningTop(headerHeight: h)
-                    XCTAssertLessThanOrEqual(highest, opening, "\(tag) h=\(h)")
-                    XCTAssertLessThanOrEqual(opening, lowest, "\(tag) h=\(h)")
+            // Cards and panel end at the same line above the tab bar.
+            XCTAssertEqual(layout.listBottom, layout.panelBottom, tag)
 
-                    for current in stride(from: highest, through: layout.panelBottom, by: 7.0) {
-                        let groundTop = layout.panelTopForGroundView(current: current, headerHeight: h)
-                        XCTAssertGreaterThanOrEqual(groundTop, highest - 1e-9, "\(tag) h=\(h) current=\(current)")
-                        XCTAssertLessThanOrEqual(groundTop, lowest + 1e-9, "\(tag) h=\(h) current=\(current)")
-                        let clampedCurrent = layout.clampPanelTop(current, headerHeight: h)
-                        XCTAssertGreaterThanOrEqual(groundTop, clampedCurrent - 1e-9,
-                                                    "\(tag) h=\(h) current=\(current)")
-                    }
+            for h in stride(from: 150.0, through: 500.0, by: 10.0) {
+                let highest = layout.panelHighestTop
+                let lowest = layout.panelLowestTop(headerHeight: h)
+                let opening = layout.panelOpeningTop(headerHeight: h)
+                XCTAssertLessThanOrEqual(highest, opening, "\(tag) h=\(h)")
+                XCTAssertLessThanOrEqual(opening, lowest, "\(tag) h=\(h)")
+
+                for current in stride(from: highest, through: layout.panelBottom, by: 7.0) {
+                    let groundTop = layout.panelTopForGroundView(current: current, headerHeight: h)
+                    XCTAssertGreaterThanOrEqual(groundTop, highest - 1e-9, "\(tag) h=\(h) current=\(current)")
+                    XCTAssertLessThanOrEqual(groundTop, lowest + 1e-9, "\(tag) h=\(h) current=\(current)")
+                    let clampedCurrent = layout.clampPanelTop(current, headerHeight: h)
+                    XCTAssertGreaterThanOrEqual(groundTop, clampedCurrent - 1e-9,
+                                                "\(tag) h=\(h) current=\(current)")
                 }
+            }
 
-                for current in stride(from: layout.panelHighestTop, through: layout.panelBottom, by: 7.0) {
-                    if let y = layout.recenterYAbovePanel(panelTop: current) {
+            for current in stride(from: layout.panelHighestTop, through: layout.panelBottom, by: 7.0) {
+                if let y = layout.recenterYAbovePanel(panelTop: current) {
+                    XCTAssertGreaterThanOrEqual(y, layout.topBarBottom + MyTripsLayout.gap - 1e-9,
+                                                "\(tag) current=\(current)")
+                }
+            }
+
+            for h in stride(from: 0.0, through: 1500.0, by: 25.0) {
+                for content in stride(from: 0.0, through: 2500.0, by: 100.0) {
+                    for folded in [true, false] {
+                        let top = layout.listTop(folded: folded, foldedHeight: h, contentHeight: content)
+                        let y = layout.pillRowY(listTop: top)
                         XCTAssertGreaterThanOrEqual(y, layout.topBarBottom + MyTripsLayout.gap - 1e-9,
-                                                    "\(tag) current=\(current)")
+                                                    "\(tag) foldedHeight=\(h) content=\(content) folded=\(folded)")
+                        XCTAssertLessThanOrEqual(top, layout.listBottom + 1e-9,
+                                                 "\(tag) foldedHeight=\(h) content=\(content) folded=\(folded)")
                     }
                 }
+            }
 
-                for h in stride(from: 0.0, through: 1500.0, by: 25.0) {
-                    for content in stride(from: 0.0, through: 2500.0, by: 100.0) {
-                        for folded in [true, false] {
-                            let top = layout.listTop(folded: folded, foldedHeight: h, contentHeight: content)
-                            let y = layout.pillRowY(listTop: top)
-                            XCTAssertGreaterThanOrEqual(y, layout.topBarBottom + MyTripsLayout.gap - 1e-9,
-                                                        "\(tag) foldedHeight=\(h) content=\(content) folded=\(folded)")
-                            XCTAssertLessThanOrEqual(top, layout.listBottom + 1e-9,
-                                                     "\(tag) foldedHeight=\(h) content=\(content) folded=\(folded)")
-                        }
-                    }
-                }
-
-                for coverTop in stride(from: 0.0, through: Double(screen.size.height), by: 25.0) {
-                    let band = layout.band(coverTop: CGFloat(coverTop))
-                    XCTAssertGreaterThanOrEqual(band.top, 0, "\(tag) coverTop=\(coverTop)")
-                    XCTAssertLessThan(band.top, band.bottom, "\(tag) coverTop=\(coverTop)")
-                    XCTAssertLessThanOrEqual(band.bottom, 1, "\(tag) coverTop=\(coverTop)")
-                }
+            for coverTop in stride(from: 0.0, through: Double(screen.size.height), by: 25.0) {
+                let band = layout.band(coverTop: CGFloat(coverTop))
+                XCTAssertGreaterThanOrEqual(band.top, 0, "\(tag) coverTop=\(coverTop)")
+                XCTAssertLessThan(band.top, band.bottom, "\(tag) coverTop=\(coverTop)")
+                XCTAssertLessThanOrEqual(band.bottom, 1, "\(tag) coverTop=\(coverTop)")
             }
         }
     }

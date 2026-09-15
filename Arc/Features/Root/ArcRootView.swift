@@ -35,8 +35,6 @@ struct ArcRootView: View {
     /// The detail panel's settled top edge; nil opens at 58 %.
     @State private var panelTop: CGFloat?
     @State private var panelHeaderHeight: CGFloat = 260
-    /// How far the tab bar reaches up without the accessory, learnt once.
-    @State private var tabBarReach: (width: CGFloat, reach: CGFloat)?
     @State private var detailFlight: Flight?
     @State private var heroFrames = HeroFrames()
     @State private var heroTravelling: HeroSource?
@@ -59,13 +57,6 @@ struct ArcRootView: View {
     /// arrived seconds after dismissal and hijacked the map with a gate view
     /// for a flight that was no longer open.
     @State private var groundViewTask: Task<Void, Never>?
-    /// The sheet height before a friend-route zoom shrank it to .small.
-    @State private var clipboardQuery: String? = nil
-    /// Pasteboard `changeCount` currently being offered, and the last one the
-    /// user waved away — tracking the count rather than the content is what
-    /// keeps this permission-free.
-    @State private var offeredPasteChange: Int?
-    @State private var dismissedPasteChange: Int?
     /// A detail screen waiting for the sheet in front of it to go away.
     /// Presenting a second sheet while one is still up is a no-op in SwiftUI,
     /// and swapping a presented sheet's item can drop the replacement on the
@@ -85,19 +76,18 @@ struct ArcRootView: View {
 
     private var sheetTabs: some View {
         tabs
-        // (tab content, map background and accessory live in `tabs` — split out
-        // so the modifier chain below stays inside the type checker's budget.)
+        // (tab content, map background and the + bubble live in `tabs` — split
+        // out so the modifier chain below stays inside the type checker's budget.)
 
         .sheet(isPresented: $showAdd) {
             // The moment is claimed at the save — the map is visible behind
             // this sheet as it slides away, and must already be hiding the
             // settled line and framing the route — and the draw starts once
             // the sheet is out of the way.
-            AddFlightView(initialQuery: clipboardQuery ?? addInitialQuery,
+            AddFlightView(initialQuery: addInitialQuery,
                           onAdded: { added in holdTrips([added]) })
             .presentationDetents([.large])
             .onDisappear {
-                clipboardQuery = nil
                 // The map is fully in view now, so this is where the route
                 // draws itself on. Unless a widget, notification or `arc://`
                 // tap arrived while the sheet was up and queued a specific
@@ -223,10 +213,7 @@ struct ArcRootView: View {
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
-                refreshClipboardOffer()
-                drainPendingOpen()
-            }
+            if newPhase == .active { drainPendingOpen() }
         }
         // Fetch advisories only once the layer is actually switched on, and only
         // when the cached set is stale.
@@ -251,7 +238,6 @@ struct ArcRootView: View {
             refitMapForCurrentData()
             openDetailIfPending()
             bootstrapTrackingAndWidgets()
-            refreshClipboardOffer()
             if ProcessInfo.processInfo.arguments.contains("-openAdd") { showAdd = true }
             drainPendingOpen()
         }
@@ -896,24 +882,40 @@ struct ArcRootView: View {
     /// switch. Split out of `body` because the modifier chain there is long
     /// enough to defeat the type checker on its own.
     private var tabs: some View {
-        TabView(selection: $tab) {
-                Tab(ArcTab.myFlights.title, systemImage: ArcTab.myFlights.icon, value: ArcTab.myFlights) {
+        TabView(selection: tabSelection) {
+                Tab(ArcTab.myFlights.title, systemImage: ArcTab.myFlights.icon, value: TabSelection.tab(.myFlights)) {
                     myTripsSurface
                 }
                 // Trips friends added for the two of you, waiting on an answer.
                 .badge(friendsStore.tripInvites.count)
-                Tab(ArcTab.friends.title, systemImage: ArcTab.friends.icon, value: ArcTab.friends) {
+                Tab(ArcTab.friends.title, systemImage: ArcTab.friends.icon, value: TabSelection.tab(.friends)) {
                     tabSurface(.friends) { FriendsScreen(onSelect: { item in openFriendFlight(item) }) }
                 }
-                Tab(ArcTab.passport.title, systemImage: ArcTab.passport.icon, value: ArcTab.passport) {
+                Tab(ArcTab.passport.title, systemImage: ArcTab.passport.icon, value: TabSelection.tab(.passport)) {
                     tabSurface(.passport) { PassportView { openDetail($0) } }
                 }
+                // iOS 26's separated tab: a round glass bubble beside the bar,
+                // the native home for a persistent primary action (the
+                // accessory bar above the bar is gone). Its content is never
+                // shown — choosing it opens the Add sheet and leaves the
+                // selection where it was (`tabSelection`).
+                Tab(TabSelection.addTitle, systemImage: TabSelection.addIcon, value: TabSelection.add, role: .search) {
+                    EmptyView()
+                }
             }
+    }
 
-        // The old circular search button competed with the tab bar for the same
-        // corner. The accessory is the native slot for a persistent primary
-        // action, and it doubles as the home for the paste offer.
-        .modifier(JourneyAccessory(isEnabled: tripsAccessoryEnabled, accessory: bottomAccessory))
+    /// What the TabView is actually driven by. Selecting the + never moves the
+    /// selection: the user stays on the tab they were on and the Add sheet
+    /// comes up over it.
+    private var tabSelection: Binding<TabSelection> {
+        Binding(get: { .tab(tab) },
+                set: { selected in
+                    switch selected {
+                    case .tab(let picked): tab = picked
+                    case .add: showAdd = true
+                    }
+                })
     }
 
     /// Everything that belongs to the map, built once behind the tabs.
@@ -969,9 +971,6 @@ struct ArcRootView: View {
             // and every layer are driven by the shared MapController, so
             // switching tabs keeps the same view of the world.
             mapLayer
-            // The accessory sits above the tab bar and adds height the custom
-            // sheet knows nothing about, so its content needs the clearance —
-            // otherwise the last control on a screen hides behind it.
             BottomSheet(detent: $detent) {
                 // The detail lives IN the sheet, over the tab content, which
                 // stays in the tree (so its rows keep reporting where they
@@ -1012,7 +1011,6 @@ struct ArcRootView: View {
                         heroOverlay(glass: false) { size, rowHeight in Morph.target(in: size, rowHeight: rowHeight) }
                     }
                 }
-                .padding(.bottom, 56)
                 .modifier(TripTransitionDriver(request: active ? transition.request : nil,
                                                progress: $heroProgress,
                                                prepare: prepareTransition,
@@ -1027,16 +1025,6 @@ struct ArcRootView: View {
 
     // MARK: - My Trips, floating
 
-    private var tripsAccessoryEnabled: Bool {
-        guard tab == .myFlights else { return true }
-        return !allFlights.isEmpty && !(detailTab == .myFlights && detailFlight != nil)
-    }
-
-    /// iOS 26.1 can switch the accessory slot off; 26.0 keeps it on screen.
-    private static var accessoryCanHide: Bool {
-        if #available(iOS 26.1, *) { return true } else { return false }
-    }
-
     /// The folded overlay's height: what sits above the stack plus the
     /// current journey's card at rest. Changes once per settle, not per frame.
     private var tripsFoldedHeight: CGFloat { tripsChromeHeight + tripsStackMotion.settledHeight }
@@ -1050,23 +1038,15 @@ struct ArcRootView: View {
             let insets = geo.safeAreaInsets
             let full = CGSize(width: geo.size.width + insets.leading + insets.trailing,
                               height: geo.size.height + insets.top + insets.bottom)
-            let learnt = tabBarReach.flatMap { $0.width == full.width ? $0.reach : nil }
-            let layout = MyTripsLayout(size: full, safeTop: insets.top,
-                                       tabBarClearance: learnt ?? guessTabBarReach(bottomInset: insets.bottom),
-                                       accessoryHidesForDetail: Self.accessoryCanHide,
-                                       listClearsAccessory: !allFlights.isEmpty || !Self.accessoryCanHide)
+            // Nothing sits between the cards and the tab bar any more, so the
+            // bottom inset IS the bar's reach — no guessing, nothing to learn.
+            let layout = MyTripsLayout(size: full, safeTop: insets.top, tabBarClearance: insets.bottom)
             myTripsLayers(layout, journeyCount: journeyCount)
                 .frame(width: full.width, height: full.height, alignment: .topLeading)
                 .offset(x: -insets.leading, y: -insets.top)
                 .onChange(of: layout, initial: true) { _, new in tripsLayout = new }
                 .onChange(of: panelHeaderHeight) { _, header in
                     if let top = panelTop { panelTop = layout.clampPanelTop(top, headerHeight: header) }
-                }
-                .onChange(of: insets.bottom, initial: true) { _, bottom in
-                    learnTabBarReach(bottomInset: bottom, width: full.width)
-                }
-                .onChange(of: full.width) { _, width in
-                    learnTabBarReach(bottomInset: insets.bottom, width: width)
                 }
         }
         .modifier(MyTripsSurfaceHooks(journeyCount: journeyCount,
@@ -1078,34 +1058,6 @@ struct ArcRootView: View {
                                       },
                                       onDetailSettled: learnHeaderWithoutGlide,
                                       onFirstFrame: refitTripsForFirstFrame))
-    }
-
-    /// The tab bar's reach without the accessory, from an inset that
-    /// includes the accessory while it shows (bottom inset 139 with it, 83
-    /// without, on the simulator).
-    private func guessTabBarReach(bottomInset: CGFloat) -> CGFloat {
-        let accessoryOnScreen = !Self.accessoryCanHide || tripsAccessoryEnabled
-        return bottomInset - (accessoryOnScreen ? MyTripsLayout.accessoryHeight : 0)
-    }
-
-    /// Learnt per screen width, never re-guessed from the flag while that
-    /// width holds: the inset follows the accessory a frame or more after the
-    /// flag, and re-guessing moved the cards 56 pt on close and the panel's
-    /// height mid-glide. Only two insets can ever be observed, the reach and
-    /// the reach plus the accessory, so an inset 56 below the learnt reach, or
-    /// 112 above it, proves a first guess made while the two disagreed wrong.
-    private func learnTabBarReach(bottomInset bottom: CGFloat, width: CGFloat) {
-        guard bottom > 0 else { return }
-        guard let learnt = tabBarReach, learnt.width == width else {
-            tabBarReach = (width, guessTabBarReach(bottomInset: bottom))
-            return
-        }
-        guard Self.accessoryCanHide else { return }
-        if abs((learnt.reach - bottom) - MyTripsLayout.accessoryHeight) < 1 {
-            tabBarReach = (width, bottom)
-        } else if abs((bottom - learnt.reach) - 2 * MyTripsLayout.accessoryHeight) < 1 {
-            tabBarReach = (width, bottom - MyTripsLayout.accessoryHeight)
-        }
     }
 
     /// An opening with no glide (Reduce Motion, one detail replacing another)
@@ -1354,116 +1306,6 @@ struct ArcRootView: View {
     /// number folds in BESIDE it rather than replacing it. Making the paste
     /// offer take over the slot meant that whenever something was on the
     /// clipboard there was no way to add a flight at all.
-    private var bottomAccessory: some View {
-        HStack(spacing: 12) {
-            Button { showAdd = true } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass").font(.system(size: 15, weight: .semibold))
-                    Text("Add a trip").font(.system(size: 15, weight: .semibold))
-                }
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if offeredPasteChange != nil, !showAdd, detailFlight == nil {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(ArcTheme.brand)
-                Text("Add from clipboard")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(ArcTheme.brand)
-                    .lineLimit(1)
-                PasteButton(payloadType: String.self) { strings in
-                    handlePasted(strings.first ?? "")
-                }
-                .labelStyle(.iconOnly)
-                .buttonBorderShape(.capsule)
-                .tint(ArcTheme.brand)
-
-                Button {
-                    dismissedPasteChange = UIPasteboard.general.changeCount
-                    withAnimation(.easeOut) { offeredPasteChange = nil }
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 24, height: 24)
-                        .background(Color(.tertiarySystemFill), in: Circle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 16).padding(.vertical, 10)
-    }
-
-
-
-    // MARK: - Liquid Glass Clipboard Pill
-    /// Decides whether to OFFER a paste, without reading the clipboard.
-    ///
-    /// Reading `UIPasteboard.general.string` raises iOS's paste-consent alert —
-    /// whose default button is "Don't Allow Paste" — on every single foreground,
-    /// and returns nil when declined, so the pill never appeared. `hasStrings`
-    /// and `changeCount` are metadata and need no permission; the content is
-    /// read inside a `PasteButton`, where the tap itself is the consent and no
-    /// alert is shown at all.
-    private func refreshClipboardOffer() {
-        let pasteboard = UIPasteboard.general
-        guard pasteboard.hasStrings else {
-            offeredPasteChange = nil
-            return
-        }
-        // One offer per copy: dismissing it shouldn't bring it straight back.
-        guard pasteboard.changeCount != dismissedPasteChange else { return }
-        withAnimation(.spring(duration: 0.4)) { offeredPasteChange = pasteboard.changeCount }
-    }
-
-    /// A bare flight number, if that's all the text is. Anything longer (a whole
-    /// booking email) is handed to Add Flight's parser instead of being rejected.
-    ///
-    /// The designator is two alphanumerics (IATA) or three letters (ICAO), not
-    /// `[A-Z]{2,3}` — plenty of airlines have a digit in their code, including
-    /// A3 Aegean, 4U, U2 and 6E, and matching letters only silently excluded
-    /// every one of them.
-    static func flightCode(in text: String) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // The lookahead keeps a bare number like "1413" from reading as a
-        // designator plus digits.
-        guard trimmed.count < 15,
-              trimmed.range(of: "^(?=.*[A-Z])([A-Z]{3}|[A-Z0-9]{2})\\s?\\d{1,4}$",
-                            options: [.regularExpression, .caseInsensitive]) != nil
-        else { return nil }
-        return trimmed.uppercased().replacingOccurrences(of: " ", with: "")
-    }
-
-    private func handlePasted(_ raw: String) {
-        dismissedPasteChange = UIPasteboard.general.changeCount
-        withAnimation(.easeOut) { offeredPasteChange = nil }
-
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-
-        if let code = Self.flightCode(in: text) {
-            // Already tracked: the useful answer to "paste LX1413" is that
-            // flight, not a button that silently vanishes.
-            if let existing = allFlights.first(where: {
-                $0.flightNumber.replacingOccurrences(of: " ", with: "").uppercased() == code
-            }) {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                _ = show(existing)
-                return
-            }
-            clipboardQuery = code
-        } else {
-            // Not a bare number — let the Add screen's parser take the whole thing.
-            clipboardQuery = text
-        }
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        showAdd = true
-    }
-
 }
 
 /// The floating My Trips surface's hooks, kept out of the root's builders
@@ -1499,7 +1341,7 @@ private struct MyTripsSurfaceHooks: ViewModifier {
 /// at `listTop` plus whatever the stack's live rise adds mid-swipe, with the
 /// rim's slack above and below. Reads `liveRise` here, in a leaf, so a swipe
 /// never re-evaluates the root. The shape keeps the map above pannable and
-/// the accessory and tab bar below tappable.
+/// the tab bar below tappable.
 private struct TripsListReveal: ViewModifier {
     let motion: JourneyStackMotion
     /// `listBottom - listTop`, at rest.
@@ -1518,7 +1360,7 @@ private struct TripsListReveal: ViewModifier {
 }
 
 /// Hidden until the folded stack has reported its height: before that the
-/// pill row sits on the accessory for a frame. Appears at once, never fades.
+/// pill row sits in the wrong place for a frame. Appears at once, never fades.
 private struct UntilMeasured: ViewModifier {
     let measured: Bool
     func body(content: Content) -> some View {
@@ -1528,17 +1370,3 @@ private struct UntilMeasured: ViewModifier {
     }
 }
 
-/// Empty accessory content still reserves a glass capsule. Disable the native
-/// slot itself on supported systems; iOS 26.0 retains the working add action.
-private struct JourneyAccessory<Accessory: View>: ViewModifier {
-    let isEnabled: Bool
-    let accessory: Accessory
-
-    func body(content: Content) -> some View {
-        if #available(iOS 26.1, *) {
-            content.tabViewBottomAccessory(isEnabled: isEnabled) { accessory }
-        } else {
-            content.tabViewBottomAccessory { accessory }
-        }
-    }
-}
