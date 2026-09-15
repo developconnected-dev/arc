@@ -55,12 +55,13 @@ enum JourneyStackPaging {
     /// One page at most per release, never past either end.
     static func target(page: Int, count: Int, drag: CGFloat, predictedEnd: CGFloat, travel: CGFloat) -> Int {
         guard count > 1, travel > 0 else { return min(max(page, 0), max(count - 1, 0)) }
-        let committed = abs(drag) > travel * commitShare || abs(predictedEnd) > travel * flickShare
-        // If the flick's velocity at release points the opposite way from where
-        // the drag built up, trust the flick: it is the last word on intent,
-        // even when it isn't strong enough to also dominate by magnitude.
+        // A flick back before release cancels: the neighbour in the opposite
+        // direction was never in view during the drag, so there's nowhere for
+        // the reversal to land. (Smart Stack behaves this way.)
         let reversed = drag != 0 && predictedEnd != 0 && (drag < 0) != (predictedEnd < 0)
-        let moving = reversed || abs(predictedEnd) > abs(drag) * 0.5 ? predictedEnd : drag
+        guard !reversed else { return page }
+        let committed = abs(drag) > travel * commitShare || abs(predictedEnd) > travel * flickShare
+        let moving = abs(predictedEnd) > abs(drag) * 0.5 ? predictedEnd : drag
         guard committed, moving != 0 else { return page }
         let step = moving < 0 ? 1 : -1
         return min(max(page + step, 0), count - 1)

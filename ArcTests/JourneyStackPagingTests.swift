@@ -59,12 +59,15 @@ final class JourneyStackPagingTests: XCTestCase {
     }
 
     /// A drag built up past the commit share toward `next`, but the velocity at
-    /// release has reversed toward `previous`: the flick's direction at the
-    /// moment of release wins, not the bulk of the drag that came before it.
-    func testReleaseTargetFollowsAFlickThatReversesDirection() {
-        XCTAssertEqual(P.target(page: 1, count: 4, drag: -180, predictedEnd: 20, travel: 270), 0)
+    /// release has reversed toward `previous`: the neighbour in that direction
+    /// was never in view during the drag, so the flip cancels rather than
+    /// landing on it.
+    func testAFlickBackBeforeReleaseCancels() {
+        XCTAssertEqual(P.target(page: 1, count: 4, drag: -180, predictedEnd: 20, travel: 270), 1)
         // Symmetric case, reversed toward next instead.
-        XCTAssertEqual(P.target(page: 1, count: 4, drag: 180, predictedEnd: -20, travel: 270), 2)
+        XCTAssertEqual(P.target(page: 1, count: 4, drag: 180, predictedEnd: -20, travel: 270), 1)
+        // A strong reverse flick still just cancels: there is no third page to land on.
+        XCTAssertEqual(P.target(page: 1, count: 4, drag: -180, predictedEnd: 400, travel: 270), 1)
     }
 
     func testRubberBandDampsAndKeepsSign() {
