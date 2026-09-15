@@ -1127,7 +1127,15 @@ struct ArcRootView: View {
     private func tripsPillRow(_ layout: MyTripsLayout, listTop: CGFloat, journeyCount: Int, detailOpen: Bool) -> some View {
         HStack {
             if journeyCount > 1 {
-                Button { setTripsFolded(!tripsFolded) } label: {
+                Button {
+                    // A turn later, not inside the tap: the button's press
+                    // release animates its label in the tap's own update, so a
+                    // fold started there slid the pill on that animation, over
+                    // the first card and past the stack's edge, even with
+                    // Reduce Motion on. Out of it, the pill rides the fold.
+                    let target = !tripsFolded
+                    DispatchQueue.main.async { setTripsFolded(target) }
+                } label: {
                     Text(tripsFolded ? "Show More" : "Show Less")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.primary)
