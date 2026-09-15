@@ -757,6 +757,13 @@ struct ArcRootView: View {
             }
             return
         }
+        // A request that turns a running glide round (a reopen mid-close, a
+        // close mid-open) keeps the aim the glide already has; only a fresh
+        // opening clears it. Re-aimed here, the header is measured on a panel
+        // part-way through its rise while the stored progress already holds
+        // the old target, so `settledFrame` corrected by the wrong amount: a
+        // reopened card aimed up to 28 pt high and snapped onto the header.
+        guard heroDestination == nil else { return }
         guard detailTab == .myFlights, let measured = heroFrames.details[source.key] else {
             heroDestination = heroFrames.details[source.key]
             return
