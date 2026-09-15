@@ -37,13 +37,25 @@ final class TripJourneyTests: XCTestCase {
         XCTAssertEqual(journeys[0].legs.map(\.flightNumber), ["A1", "B2", "C3"])
     }
 
-    /// The list pins an active leg above everything; a connection whose legs
-    /// the list does not draw next to each other stays two cards, exactly as
-    /// the old spine only joined adjacent rows.
+    /// A connection whose legs the list does not draw next to each other
+    /// (another trip sits between them) stays apart: three cards, not two.
     func testConnectedLegsThatAreNotAdjacentStaySeparate() {
         let inbound = leg("GQ21", departsIn: 70), other = leg("LX8", departsIn: 71), outbound = leg("LH1751", departsIn: 72)
         let journeys = TripJourney.group([inbound, other, outbound],
                                          connections: [(inbound: inbound, outbound: outbound)])
         XCTAssertEqual(journeys.count, 3)
+    }
+
+    func testNoFlightsNoJourneys() {
+        XCTAssertTrue(TripJourney.group([], connections: []).isEmpty)
+    }
+
+    /// The list pins an active outbound above its landed inbound, and the old
+    /// spine never joined that order either.
+    func testAnOutboundDrawnAboveItsInboundStaysApart() {
+        let inbound = leg("GQ21", departsIn: 70), outbound = leg("LH1751", departsIn: 72)
+        let journeys = TripJourney.group([outbound, inbound],
+                                         connections: [(inbound: inbound, outbound: outbound)])
+        XCTAssertEqual(journeys.count, 2)
     }
 }

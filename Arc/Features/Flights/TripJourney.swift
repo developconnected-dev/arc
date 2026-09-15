@@ -3,15 +3,13 @@ import Foundation
 /// What My Trips draws one glass card for: a leg on its own, or the legs a
 /// connection binds (`ConnectionPlanner.detectConnections`). Built in the
 /// list's own order, so the first journey is the one the folded stack shows.
-struct TripJourney: Identifiable, Equatable {
+struct TripJourney: Identifiable {
     let legs: [Flight]
 
     /// The first leg's id: stable for as long as the journey starts there.
     var id: UUID { legs[0].id }
 
-    static func == (a: TripJourney, b: TripJourney) -> Bool {
-        a.legs.map(\.id) == b.legs.map(\.id)
-    }
+    private init(legs: [Flight]) { self.legs = legs }
 
     /// Folds each connection's outbound into the journey of the inbound drawn
     /// directly above it. A chain (A→B→C) is one journey; legs the list does
