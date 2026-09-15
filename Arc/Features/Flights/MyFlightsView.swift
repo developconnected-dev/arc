@@ -177,7 +177,6 @@ struct MyFlightsView: View {
     private func list(_ journeys: [TripJourney]) -> some View {
         ScrollView {
             VStack(spacing: 0) {
-                Color.clear.frame(height: topSpacer)
                 VStack(spacing: 10) {
                     chromeItems
                     if journeys.isEmpty {
@@ -208,6 +207,11 @@ struct MyFlightsView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listGeometry.content = $0 }
             .padding(.horizontal, MyTripsLayout.margin)
         }
+        // Short content sits on the bottom edge through a content margin, not
+        // a spacer inside the content: the refresh control sits just above
+        // the content, so it shows inside the visible slice rather than at
+        // the frame's top, masked away.
+        .contentMargins(.top, topSpacer, for: .scrollContent)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listGeometry.viewport = $0 }
         .scrollDisabled(folded)
         .scrollIndicators(.hidden)
@@ -319,12 +323,14 @@ struct MyFlightsView: View {
         guard journeys.indices.contains(index) else { return }
         let id = journeys[index].id
         let g = listGeometry
-        guard let bottom = g.cardBottoms[id], g.viewport > 0 else {
+        guard let measured = g.cardBottoms[id], g.viewport > 0 else {
             instantly { proxy.scrollTo(id, anchor: .bottom); unfoldShift = 0 }
             return
         }
+        // Content coordinates start below the top margin.
+        let bottom = measured + topSpacer
         let desired = bottom - g.viewport
-        let reach = max(0, g.content - g.viewport)
+        let reach = max(0, g.content + topSpacer - g.viewport)
         let actual = min(max(desired, 0), reach)
         instantly {
             if desired <= 0 {
