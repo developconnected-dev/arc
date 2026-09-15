@@ -5,17 +5,11 @@ import SwiftUI
 /// joined by the live layover line where Soar draws a hairline.
 struct JourneyCard: View {
     let journey: TripJourney
-    /// The first journey carries the brief above its first leg.
-    var showsBrief = false
     var onSelect: (Flight) -> Void
     var onDelete: (Flight) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if showsBrief, let first = journey.legs.first {
-                JourneyBriefView(flight: first)
-                    .padding(.horizontal, 14).padding(.top, 16)
-            }
             ForEach(Array(journey.legs.enumerated()), id: \.element.id) { index, leg in
                 if index > 0 {
                     LayoverConnector(plan: ConnectionPlanner.plan(inbound: journey.legs[index - 1], outbound: leg))

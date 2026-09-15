@@ -196,7 +196,7 @@ struct MyFlightsView: View {
                     .glassEffect(ArcTheme.tripGlass, in: .rect(cornerRadius: ArcTheme.cardCorner))
             }
             if let next {
-                JourneyCard(journey: next, showsBrief: true, onSelect: onSelect, onDelete: delete)
+                JourneyCard(journey: next, onSelect: onSelect, onDelete: delete)
             } else {
                 Button(action: onAdd) { emptyState }
                     .buttonStyle(.plain)
