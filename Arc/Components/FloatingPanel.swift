@@ -192,13 +192,22 @@ final class PanelScrollLink {
     var scrollTo: ((CGFloat) -> Void)?
     private var start: (offset: CGFloat, insetInView: CGFloat)?
     private var shift: CGFloat = 0
+    /// The lowest offset the scroll view rests at: its top inset, negated.
+    private var topLimit: CGFloat = 0
 
     func beginDrag(settledInset: CGFloat) {
         shift = 0
         guard let g = geometry else { start = nil; return }
+        // Only a detail that overflows its viewport without the panel's inset
+        // has a last row to keep on the edge. A short one (an invite
+        // preview) always shows empty viewport below its content, and pinning
+        // it scrolled the content up past its top.
+        let overflows = g.contentSize.height + g.contentInsets.top
+            + max(0, g.contentInsets.bottom - settledInset) > g.containerSize.height
         // How much of the bottom inset the viewport shows right now.
         let inView = min(max(0, g.visibleRect.maxY - g.contentSize.height), settledInset)
-        start = inView > 0 ? (g.contentOffset.y, inView) : nil
+        start = overflows && inView > 0 ? (g.contentOffset.y, inView) : nil
+        topLimit = -g.contentInsets.top
     }
 
     /// `liveInset` is how much of the viewport hangs below the panel's edge.
@@ -207,7 +216,7 @@ final class PanelScrollLink {
         let next = max(0, start.insetInView - liveInset)
         guard next != shift else { return }
         shift = next
-        scrollTo?(start.offset - next)
+        scrollTo?(max(topLimit, start.offset - next))
     }
 }
 
