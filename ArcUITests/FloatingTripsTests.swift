@@ -174,6 +174,11 @@ final class FloatingTripsTests: XCTestCase {
     /// From a journey with enough earlier journeys to fill the list's height,
     /// Show More holds the current card exactly where it is (spec:
     /// 2026-09-15-journey-stack-design.md).
+    ///
+    /// Journey 5, not 4: with the accessory bar gone the list is 56 pt taller,
+    /// so it takes one more journey above the current one to fill it. From
+    /// journey 4 the list now falls a dozen points short and rises into place
+    /// instead — the amendment's rule, the same one journey 2 exercises below.
     func testShowMoreFromALaterJourneyKeepsItsCardInPlace() {
         let app = launch()
         let stack = app.descendants(matching: .any)["trips-stack"].firstMatch
@@ -181,7 +186,7 @@ final class FloatingTripsTests: XCTestCase {
 
         var info = pageAndCount(stackValue(stack))
         XCTAssertNotNil(info, "stack label didn't parse: \(stackValue(stack))")
-        while let current = info, current.page < 4, current.page < current.count {
+        while let current = info, current.page < 5, current.page < current.count {
             stack.swipeUp()
             XCTAssertTrue(waitUntil { pageAndCount(stackValue(stack))?.page != current.page })
             info = pageAndCount(stackValue(stack))
