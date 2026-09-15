@@ -36,9 +36,14 @@ private struct FloatingPanelChrome<Content: View>: View {
     /// The finger's top edge while a drag is live; nil otherwise.
     @State private var liveTop: CGFloat?
     @State private var dragStart: CGFloat?
+    /// True for the lifetime of the gesture, including a system cancellation
+    /// that skips `onEnded` — the only reliable way to notice one.
+    @GestureState private var dragging = false
 
     var body: some View {
-        let current = liveTop ?? top
+        // A stale settled `top` (from a layout change while the panel was
+        // off-screen) can never hide the header, even for one frame.
+        let current = layout.clampPanelTop(liveTop ?? top, headerHeight: headerHeight)
         let tallest = layout.panelBottom - layout.panelHighestTop
         let visible = max(0, layout.panelBottom - current)
         // The detail keeps the tallest height; what hangs below the panel's
@@ -57,7 +62,7 @@ private struct FloatingPanelChrome<Content: View>: View {
                     // (offset onto the strip) land exactly where they did.
                     .padding(.bottom, -12)
                 content
-                    .safeAreaInset(edge: .bottom, spacing: 0) { Color.clear.frame(height: hiddenBelow) }
+                    .contentMargins(.bottom, hiddenBelow, for: .scrollContent)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
             .frame(height: tallest, alignment: .top)
@@ -73,6 +78,15 @@ private struct FloatingPanelChrome<Content: View>: View {
         .padding(.horizontal, MyTripsLayout.panelMargin)
         .overlay(alignment: .topTrailing) { recenter(current) }
         .offset(y: current - layout.panelHighestTop)
+        // A cancelled gesture (a system alert, a scroll steal) never calls
+        // `onEnded`; without this the panel would freeze at `liveTop` forever.
+        .onChange(of: dragging) { _, isDragging in
+            if !isDragging, let live = liveTop {
+                top = live
+                liveTop = nil
+                dragStart = nil
+            }
+        }
     }
 
     private var strip: some View {
@@ -98,12 +112,15 @@ private struct FloatingPanelChrome<Content: View>: View {
     /// next translation and jitter at the clamps.
     private var drag: some Gesture {
         DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .updating($dragging) { _, state, _ in state = true }
             .onChanged { value in
                 let start = dragStart ?? (liveTop ?? top)
                 if dragStart == nil { dragStart = start }
                 liveTop = layout.clampPanelTop(start + value.translation.height, headerHeight: headerHeight)
             }
             .onEnded { _ in
+                // Usually a no-op: `dragging` already flipped false and the
+                // `onChange` above already settled `top` and cleared this.
                 if let liveTop { top = liveTop }
                 liveTop = nil
                 dragStart = nil
@@ -112,11 +129,15 @@ private struct FloatingPanelChrome<Content: View>: View {
 
     @ViewBuilder
     private func recenter(_ current: CGFloat) -> some View {
-        if let onRecenter, layout.recenterYAbovePanel(panelTop: current) != nil {
+        if let onRecenter {
+            let fits = layout.recenterYAbovePanel(panelTop: current) != nil
             RecenterButton(action: onRecenter)
                 .padding(.trailing, MyTripsLayout.margin)
                 .offset(y: -(MyTripsLayout.gap + MyTripsLayout.control))
-                .transition(.opacity)
+                .opacity(fits ? 1 : 0)
+                .allowsHitTesting(fits)
+                .accessibilityHidden(!fits)
+                .animation(.easeOut(duration: 0.15), value: fits)
         }
     }
 }

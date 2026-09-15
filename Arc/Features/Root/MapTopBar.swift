@@ -50,6 +50,7 @@ struct MapTopBar: View {
                             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pillIdeal = $0 }
                     }
                     .offset(x: centreX - width / 2, y: layout.topBarY + 4)
+                    .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("map-top-title")
                 trailingCapsule
                     .offset(x: layout.size.width - MyTripsLayout.margin - capsuleWidth, y: layout.topBarY)
@@ -77,7 +78,7 @@ struct MapTopBar: View {
 
     @ViewBuilder
     private func pill(_ readout: String?) -> some View {
-        Group {
+        ZStack {
             if let readout {
                 HStack(spacing: 6) {
                     Circle().fill(ArcTheme.onTime).frame(width: 8, height: 8)
