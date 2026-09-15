@@ -26,6 +26,8 @@ struct ArcRootView: View {
     @State private var tripsFlipRequest: Int?
     /// The invites (and error) above the stack, with the gap under them.
     @State private var tripsChromeHeight: CGFloat = 0
+    /// The camera's pending move onto the journey the stack last settled on.
+    @State private var tripsFocusTask: Task<Void, Never>?
     /// The whole stack's height, every journey included: an unfolded stack
     /// grows up from the bottom only this far.
     @State private var tripsContentHeight: CGFloat = 0
@@ -1060,10 +1062,8 @@ struct ArcRootView: View {
                                           // Only the pill folds, and it is gone with one journey left.
                                           if count <= 1, !tripsFolded { setTripsFolded(true) }
                                       },
-                                      page: tripsPage,
                                       onDetailSettled: learnHeaderWithoutGlide,
-                                      onFirstFrame: refitTripsForFirstFrame,
-                                      onPageSettled: focusTripsJourney))
+                                      onFirstFrame: refitTripsForFirstFrame))
     }
 
     /// The tab bar's reach without the accessory, from an inset that
@@ -1163,7 +1163,8 @@ struct ArcRootView: View {
                       onFlipRequestHandled: { tripsFlipRequest = nil },
                       onChromeHeight: { tripsChromeHeight = $0 },
                       topSpacer: layout.contentTopSpacer(contentHeight: tripsContentHeight),
-                      onRevealJourney: { tripsFlipRequest = $0 })
+                      onRevealJourney: { tripsFlipRequest = $0 },
+                      onStackSettled: { stackSettled(on: $0) })
             // The rim's slack below the bottom edge, inside the frame, so the
             // bottom card's glass is never clipped.
             .frame(width: layout.size.width, height: layout.listBottom - layout.unfoldedListTop + MyFlightsView.rim, alignment: .top)
@@ -1270,15 +1271,27 @@ struct ArcRootView: View {
         }
     }
 
-    /// The map follows the stack: once a flip has settled (debounced across
-    /// quick flips by the hook), frame the current journey's routes in the
-    /// band above the folded stack. Recenter and a fold still fit every trip.
-    private func focusTripsJourney() {
+    /// The map follows the stack, and only the stack's own flips: a page
+    /// index that moved because the list changed (a delete, a flight going
+    /// active) keeps the list change's refit. Quick flips move the camera
+    /// once, onto the journey the last one settled on.
+    private func stackSettled(on journeyID: UUID) {
+        tripsFocusTask?.cancel()
+        tripsFocusTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            focusTripsJourney(journeyID)
+        }
+    }
+
+    /// Frames a journey's routes in the band above the folded stack.
+    /// Recenter and a fold still fit every trip.
+    private func focusTripsJourney(_ journeyID: UUID) {
         guard tab == .myFlights, tripsFolded, detailFlight == nil, !controller.isRevealingRoutes,
-              let layout = tripsLayout else { return }
-        let journeys = MyFlightsView.journeys(Array(allFlights))
-        guard journeys.indices.contains(tripsPage) else { return }
-        let coords = journeys[tripsPage].legs.flatMap { RouteReveal.geometry(for: $0) }
+              let layout = tripsLayout,
+              let journey = MyFlightsView.journeys(Array(allFlights)).first(where: { $0.id == journeyID })
+        else { return }
+        let coords = journey.legs.flatMap { RouteReveal.geometry(for: $0) }
         guard !coords.isEmpty else { return }
         let coverTop = layout.listTop(folded: true, foldedHeight: tripsFoldedHeight, contentHeight: tripsContentHeight)
         controller.frame(coords, band: layout.band(coverTop: coverTop), padding: 1.3, animated: !reduceMotion)
@@ -1439,14 +1452,10 @@ private struct MyTripsSurfaceHooks: ViewModifier {
     /// The layout exists and the folded stack has reported its height.
     let firstFrameReady: Bool
     let onJourneyCount: (Int) -> Void
-    /// The folded stack's journey.
-    let page: Int
     let onDetailSettled: () async -> Void
     let onFirstFrame: () -> Void
-    let onPageSettled: () -> Void
 
     @State private var framed = false
-    @State private var pageFocus: Task<Void, Never>?
 
     func body(content: Content) -> some View {
         content
@@ -1459,17 +1468,6 @@ private struct MyTripsSurfaceHooks: ViewModifier {
                 guard ready, !framed else { return }
                 framed = true
                 onFirstFrame()
-            }
-            // A change, not a `.task(id:)`: that would also run on launch and
-            // whenever the tab reappears, pulling the camera off the fit.
-            .onChange(of: page) { _, _ in
-                pageFocus?.cancel()
-                pageFocus = Task { @MainActor in
-                    // Quick flips move the camera once, after the last.
-                    try? await Task.sleep(for: .milliseconds(350))
-                    guard !Task.isCancelled else { return }
-                    onPageSettled()
-                }
             }
     }
 }

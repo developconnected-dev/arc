@@ -40,6 +40,9 @@ struct JourneyStack: View {
     /// A flip asked for by the app (a trip just added) rather than a finger.
     var flipRequest: Int?
     var onFlipRequestHandled: () -> Void = {}
+    /// The stack itself landed on another journey (a swipe, a flip the app
+    /// asked for, VoiceOver's adjust) — not a clamp after the list changed.
+    var onSettled: (UUID) -> Void = { _ in }
     var onSelect: (Flight) -> Void
     var onDelete: (Flight) -> Void
 
@@ -333,6 +336,7 @@ struct JourneyStack: View {
             committedPage = target
             page = target
             pageTicks += 1
+            if journeys.indices.contains(target) { onSettled(journeys[target].id) }
         }
         drag = 0
         settleTarget = nil

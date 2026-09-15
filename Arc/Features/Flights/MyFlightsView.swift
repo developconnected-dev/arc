@@ -43,6 +43,8 @@ struct MyFlightsView: View {
     /// A trip that landed on a journey the folded stack isn't on, once its
     /// route has drawn: the root flips the stack to that index.
     var onRevealJourney: (Int) -> Void = { _ in }
+    /// The stack settled on another journey by its own motion; the map follows.
+    var onStackSettled: (UUID) -> Void = { _ in }
 
     @State private var friendsStore = FriendsStore.shared
     /// Landed ids `reveal` couldn't place yet — the save that produced them
@@ -264,6 +266,7 @@ struct MyFlightsView: View {
             } else {
                 JourneyStack(journeys: journeys, page: page, motion: stackMotion,
                              flipRequest: flipRequest, onFlipRequestHandled: onFlipRequestHandled,
+                             onSettled: onStackSettled,
                              onSelect: onSelect, onDelete: delete)
             }
         }
