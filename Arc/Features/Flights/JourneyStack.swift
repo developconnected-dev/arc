@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// What the folded journey stack is doing right now, for the two small
-/// modifiers that must move with it (the list's mask and the Show More row).
-/// Split by frequency so observation keeps per-frame work out of the root:
-/// the root reads `settledHeight` (once per settle), never `liveRise`.
+/// What the folded journey stack is doing right now, for the leaf modifiers
+/// that must move with it (the list's mask, the Show More row, the invites
+/// above the stack). Split by frequency so observation keeps per-frame work
+/// out of the root: the root reads `settledHeight` (once per settle), never
+/// `liveRise`.
 @MainActor @Observable
 final class JourneyStackMotion {
     /// The current journey's card height: the stack at rest.
@@ -82,6 +83,9 @@ struct JourneyStack: View {
     @State private var flipTarget: Int?
     /// The flip's target card was just built and hasn't been measured yet.
     @State private var flipAwaitsMeasure = false
+    /// Bumped when that card's measurement arrives; the flip starts in the
+    /// update that applies it, once the card is parked at its real height.
+    @State private var flipMeasured = 0
     /// A flip asked for while the finger is down runs once the swipe lands.
     @State private var queuedFlip: Int?
     /// Counts journeys this stack settled on; changes from outside (a clamp
@@ -168,6 +172,11 @@ struct JourneyStack: View {
             motion.restHandler = nil
             publishLiveRise(0)
         }
+        // Runs after the update that laid the card out at its measured
+        // height, so the settle starts from where that height parks it.
+        .onChange(of: flipMeasured) { _, _ in
+            if let flipTarget { startFlip(to: flipTarget) }
+        }
         .onChange(of: flipRequest, initial: true) { _, request in
             guard let request else { return }
             onFlipRequestHandled()
@@ -217,9 +226,7 @@ struct JourneyStack: View {
         if isCurrent, !holding, !settling { publishSettledHeight(h) }
         if flipAwaitsMeasure, let flipTarget, journeys.indices.contains(flipTarget), journeys[flipTarget].id == id {
             flipAwaitsMeasure = false
-            // A turn after the measurement has been drawn, so the card starts
-            // from where its real height parks it, not from a fallback.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { startFlip(to: flipTarget) }
+            flipMeasured += 1
         }
     }
 
@@ -410,6 +417,9 @@ struct JourneyStack: View {
             }
             scheduleChromeHide()
         }
+        // A flip queued behind the finger meant an index that may now name
+        // another journey.
+        queuedFlip = nil
         if journeys.indices.contains(page), let h = heights[journeys[page].id] {
             publishSettledHeight(h)
         }
@@ -477,11 +487,17 @@ struct JourneyStack: View {
         }
     }
 
+    /// At most this many dots, so they never spill past a short card.
+    private static let maxDots = 8
+
     @ViewBuilder
     private var dots: some View {
         if journeys.count > 1 {
+            // A window of dots that keeps the current one in view.
+            let shown = min(journeys.count, Self.maxDots)
+            let first = min(max(page - shown / 2, 0), journeys.count - shown)
             VStack(spacing: 5) {
-                ForEach(journeys.indices, id: \.self) { index in
+                ForEach(first..<(first + shown), id: \.self) { index in
                     Circle()
                         .fill(.white.opacity(index == page ? 1 : 0.4))
                         .frame(width: 6, height: 6)

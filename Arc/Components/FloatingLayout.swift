@@ -50,10 +50,11 @@ struct MyTripsLayout: Equatable {
     /// Below the top row and the Show Less / recenter row.
     var unfoldedListTop: CGFloat { topBarBottom + Self.gap + Self.control + Self.gap }
 
-    /// Both states sit on `listBottom`. Folded, the stack is as tall as its
-    /// first block; unfolded, as tall as every card (`contentHeight`), never
-    /// shorter than the folded block and never above `unfoldedListTop`,
-    /// where a taller stack stops and scrolls.
+    /// Both states sit on `listBottom`. Folded, the stack is as tall as the
+    /// invites plus the current journey's card (`foldedHeight`); unfolded, as
+    /// tall as every card (`contentHeight`), never shorter than the folded
+    /// stack and never above `unfoldedListTop`, where a taller list stops and
+    /// scrolls.
     func listTop(folded: Bool, foldedHeight: CGFloat, contentHeight: CGFloat) -> CGFloat {
         let height = folded ? foldedHeight : max(foldedHeight, contentHeight)
         return max(unfoldedListTop, listBottom - height)

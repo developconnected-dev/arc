@@ -225,6 +225,4 @@ final class FloatingTripsTests: XCTestCase {
         XCTAssertTrue(stack.waitForExistence(timeout: 3))
         XCTAssertTrue(waitUntil { stackValue(stack).hasPrefix("Journey 2 of") })
     }
-
-
 }

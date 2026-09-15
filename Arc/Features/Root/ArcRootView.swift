@@ -331,8 +331,8 @@ struct ArcRootView: View {
         guard !flights.isEmpty else { return }
         // The row lands in My Trips, so that's the list the map draws behind.
         tab = .myFlights
-        // And the list brings that row to the top: the reveal is the route
-        // drawing on AND the row appearing, whatever the list was scrolled to.
+        // And My Trips brings that row into view once the route has drawn:
+        // a folded stack flips to its journey, an unfolded list scrolls to it.
         landedTrips = flights.map(\.id)
         // The reveal owns the camera for the next second. Claiming the tab
         // here is what stops the tab-change hook from refitting to every
@@ -772,7 +772,8 @@ struct ArcRootView: View {
             guard onPage || friendsStore.tripInvites.contains(where: { $0.id == key }) else { return nil }
         }
         // The live top: mid-swipe the stack's edge is off its resting place.
-        // (Opening mid-swipe can't happen — taps are off while holding.)
+        // A tap can't open mid-swipe (taps are off while holding), but a
+        // widget, notification or link can.
         let top = layout.listTop(folded: tripsFolded, foldedHeight: tripsFoldedHeight, contentHeight: tripsContentHeight)
             - tripsStackMotion.liveRise
         let shown = (min(top, layout.listBottom) - 1)...(layout.listBottom + 1)

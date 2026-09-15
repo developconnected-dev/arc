@@ -1,9 +1,9 @@
 import SwiftUI
 import SwiftData
 
-/// My Trips' cards, floating over the map: trip invites and the next journey
-/// first (all a folded stack shows), then every later journey. The root
-/// places, masks and fades this view; it only lays the cards out. A flight
+/// My Trips' cards, floating over the map. Folded: the invites over the
+/// journey stack, one journey at a time. Unfolded: a list of every journey,
+/// invites first, in a fixed frame the root reveals with a mask. A flight
 /// stays here for 30 minutes after landing (arrival gate, belt) before it
 /// lives only in Passport.
 struct MyFlightsView: View {
@@ -58,6 +58,11 @@ struct MyFlightsView: View {
     /// How far below its scrolled place the list starts an unfold, when
     /// the scroll can't put the current card where the stack showed it.
     @State private var unfoldShift: CGFloat = 0
+    /// When the last unfold started: a fold that interrupts it keeps the
+    /// shift, so the list turns round from where it is instead of snapping.
+    @State private var unfoldStartedAt = Date.distantPast
+    /// Roughly how long `ArcTheme.fold` takes to settle.
+    private static let foldSettle: TimeInterval = 0.6
 
     /// Slack under the cards inside the list's frame, so a glass rim on the
     /// bottom edge is never clipped. The root extends the frame by as much.
@@ -129,8 +134,11 @@ struct MyFlightsView: View {
             .onChange(of: folded) { _, nowFolded in
                 if nowFolded {
                     // Nothing to scroll: the stack fades in on its page while
-                    // the mask closes over the list.
-                    instantly { unfoldShift = 0 }
+                    // the mask closes over the list. An unfold still rising
+                    // keeps its shift and reverses from where it is.
+                    if Date.now.timeIntervalSince(unfoldStartedAt) > Self.foldSettle {
+                        instantly { unfoldShift = 0 }
+                    }
                 } else {
                     alignListToPage(journeys, proxy: proxy)
                 }
@@ -332,6 +340,7 @@ struct MyFlightsView: View {
         let desired = bottom - g.viewport
         let reach = max(0, g.content + topSpacer - g.viewport)
         let actual = min(max(desired, 0), reach)
+        unfoldStartedAt = .now
         instantly {
             if desired <= 0 {
                 proxy.scrollTo(Self.topID, anchor: .top)
