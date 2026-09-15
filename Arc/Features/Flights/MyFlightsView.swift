@@ -61,6 +61,8 @@ struct MyFlightsView: View {
     /// When the last unfold started: a fold that interrupts it keeps the
     /// shift, so the list turns round from where it is instead of snapping.
     @State private var unfoldStartedAt = Date.distantPast
+    /// When the last fold started, for the same turn-round the other way.
+    @State private var foldStartedAt = Date.distantPast
     /// Roughly how long `ArcTheme.fold` takes to settle.
     private static let foldSettle: TimeInterval = 0.6
 
@@ -69,6 +71,7 @@ struct MyFlightsView: View {
     static let rim: CGFloat = 6
     private static let bottomID = "trips-bottom"
     nonisolated private static let contentSpace = "trips-list-content"
+    nonisolated private static let viewportSpace = "trips-list-viewport"
 
     static let topID = "trips-top"
 
@@ -133,14 +136,19 @@ struct MyFlightsView: View {
             }
             .onChange(of: folded) { _, nowFolded in
                 if nowFolded {
-                    // Nothing to scroll: the stack fades in on its page while
-                    // the mask closes over the list. An unfold still rising
-                    // keeps its shift and reverses from where it is.
+                    // The list's card for the page glides down onto the
+                    // stack as the mask closes, and the stack fades in riding
+                    // with it, so the two copies cross in register. An unfold
+                    // still rising keeps its shift and reverses from where it is.
+                    foldStartedAt = .now
                     if Date.now.timeIntervalSince(unfoldStartedAt) > Self.foldSettle {
-                        instantly { unfoldShift = 0 }
+                        instantly { unfoldShift = reduceMotion ? 0 : foldShift(journeys) }
                     }
-                } else {
+                } else if Date.now.timeIntervalSince(foldStartedAt) > Self.foldSettle {
                     alignListToPage(journeys, proxy: proxy)
+                } else {
+                    // A fold still closing turns round the same way.
+                    unfoldStartedAt = .now
                 }
             }
             // The stack stays on its journey when the list changes under it.
@@ -203,6 +211,9 @@ struct MyFlightsView: View {
                                     .onGeometryChange(for: CGFloat.self) {
                                         $0.frame(in: .named(Self.contentSpace)).maxY
                                     } action: { listGeometry.cardBottoms[journey.id] = $0 }
+                                    .onGeometryChange(for: CGFloat.self) {
+                                        $0.frame(in: .named(Self.viewportSpace)).maxY
+                                    } action: { listGeometry.shownBottoms[journey.id] = $0 }
                             }
                         }
                     }
@@ -219,6 +230,7 @@ struct MyFlightsView: View {
         // a spacer inside the content: the refresh control sits just above
         // the content, so it shows inside the visible slice rather than at
         // the frame's top, masked away.
+        .coordinateSpace(.named(Self.viewportSpace))
         .contentMargins(.top, topSpacer, for: .scrollContent)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listGeometry.viewport = $0 }
         .scrollDisabled(folded)
@@ -255,6 +267,9 @@ struct MyFlightsView: View {
         .scrollIndicators(.hidden)
         .scrollBounceBehavior(.basedOnSize)
         .defaultScrollAnchor(.bottom, for: .alignment)
+        // Travels with the list's rise, so its card and the list's cross
+        // in register instead of fading in two places.
+        .modifier(UnfoldRise(progress: folded ? 0 : 1, shift: unfoldShift, overlay: true))
         .animation(fade) { $0.opacity(folded ? 1 : 0) }
         .allowsHitTesting(folded)
         .accessibilityHidden(true, isEnabled: !folded)
@@ -351,6 +366,17 @@ struct MyFlightsView: View {
             }
             unfoldShift = reduceMotion ? 0 : actual - desired
         }
+    }
+
+    /// How far the list must move for its card of the current page to land
+    /// where the stack shows it, as the fold closes. Clamped to one
+    /// viewport, for a page scrolled far out of view.
+    private func foldShift(_ journeys: [TripJourney]) -> CGFloat {
+        let index = page.wrappedValue
+        let g = listGeometry
+        guard journeys.indices.contains(index), g.viewport > 0,
+              let bottom = g.shownBottoms[journeys[index].id] else { return 0 }
+        return min(max(g.viewport - bottom, -g.viewport), g.viewport)
     }
 
     /// A card opened from the unfolded list becomes the stack's page, so
@@ -466,21 +492,27 @@ struct MyFlightsView: View {
 private final class ListGeometry {
     /// Each journey card's bottom (rim included), in content coordinates.
     var cardBottoms: [UUID: CGFloat] = [:]
+    /// The same bottoms as the list shows them, scroll included.
+    var shownBottoms: [UUID: CGFloat] = [:]
     var content: CGFloat = 0
     var viewport: CGFloat = 0
 }
 
 /// The list's rise on unfold when its scroll can't hold the current card in
 /// place: `shift` below at the fold's start, home when it ends, on the same
-/// spring as the mask.
+/// spring as the mask. Folding runs it backwards, the list sinking by the
+/// shift that lands its card on the stack. The folded overlay (`overlay`)
+/// rides the same travel from the other end: home while folded.
 private struct UnfoldRise: ViewModifier, Animatable {
     var progress: CGFloat
     let shift: CGFloat
+    var overlay = false
     nonisolated var animatableData: CGFloat {
         get { progress }
         set { progress = newValue }
     }
     func body(content: Content) -> some View {
-        content.offset(y: shift * (1 - min(max(progress, 0), 1)))
+        let p = min(max(progress, 0), 1)
+        content.offset(y: overlay ? -shift * p : shift * (1 - p))
     }
 }
