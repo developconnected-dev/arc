@@ -18,33 +18,50 @@ struct MyFlightsView: View {
     var onImported: (Flight) -> Void = { _ in }
     /// A tap on an invited trip's card: the root opens its read-only preview.
     var onPreview: (FriendsStore.TripInviteItem, Flight) -> Void = { _, _ in }
-    /// Trips that just became the user's, by id: the stack brings the
-    /// journey holding the topmost one into view.
+    /// Trips that just became the user's, by id: once the route has drawn,
+    /// the stack flips to the journey holding the topmost one.
     var landed: [UUID] = []
-    /// Folded, only the first block shows and nothing scrolls.
+    /// Folded, the journey stack shows over the hidden list; unfolded, the
+    /// list shows and scrolls (docs/superpowers/specs/2026-09-15-journey-stack-design.md).
     var folded = true
-    /// Whether the journeys after the first take touches and VoiceOver: from
-    /// the start of an unfold until a fold has finished closing over them.
-    /// They are laid out either way, masked below the folded block, so the
-    /// whole stack's height is known before an unfold starts: measured only
-    /// once they appeared, the unfold's spring would aim for the folded
-    /// block's top and then jump.
-    var showsRest = false
-    /// The add moment is drawing a route. A trip that landed below the fold
-    /// waits for the line to finish before the stack unfolds over the map.
+    /// The add moment is drawing a route. A trip that landed on another
+    /// journey waits for the line to finish before the stack flips to it.
     var revealing = false
-    var onFoldedHeight: (CGFloat) -> Void = { _ in }
-    /// Every card's height together, reported like the folded block's.
+    /// Every card's height together (invites included, the room above short
+    /// content not): how tall an unfolded list grows.
     var onContentHeight: (CGFloat) -> Void = { _ in }
-    /// Asks the root to unfold, then runs the closure once the stack is open.
-    var onUnfold: (@escaping () -> Void) -> Void = { $0() }
+    /// The journey the folded stack is on.
+    var page: Binding<Int> = .constant(0)
+    var motion: JourneyStackMotion? = nil
+    var flipRequest: Int? = nil
+    var onFlipRequestHandled: () -> Void = {}
+    /// Height of everything above the stack in the folded overlay (the
+    /// error, the invites and the gap under them); 0 when there is none.
+    var onChromeHeight: (CGFloat) -> Void = { _ in }
+    /// Room above short unfolded content (`MyTripsLayout.contentTopSpacer`).
+    var topSpacer: CGFloat = 0
+    /// A trip that landed on a journey the folded stack isn't on, once its
+    /// route has drawn: the root flips the stack to that index.
+    var onRevealJourney: (Int) -> Void = { _ in }
 
     @State private var friendsStore = FriendsStore.shared
-    @State private var pendingJourney: UUID?
     /// Landed ids `reveal` couldn't place yet — the save that produced them
     /// hasn't reached `allFlights` through the query. Retried on every
     /// change to the query until they resolve or drop out of the list.
     @State private var unresolvedLanded: Set<UUID> = []
+    /// The journey a landed trip belongs to, held until its route has drawn.
+    @State private var pendingRevealJourney: UUID?
+    @State private var fallbackMotion = JourneyStackMotion()
+    @State private var listGeometry = ListGeometry()
+    /// How far below its scrolled place the list starts an unfold, when
+    /// the scroll can't put the current card where the stack showed it.
+    @State private var unfoldShift: CGFloat = 0
+
+    /// Slack under the cards inside the list's frame, so a glass rim on the
+    /// bottom edge is never clipped. The root extends the frame by as much.
+    static let rim: CGFloat = 6
+    private static let bottomID = "trips-bottom"
+    nonisolated private static let contentSpace = "trips-list-content"
 
     static let topID = "trips-top"
 
@@ -84,28 +101,9 @@ struct MyFlightsView: View {
     var body: some View {
         let journeys = Self.journeys(Array(allFlights))
         ScrollViewReader { proxy in
-            ScrollView {
-                VStack(spacing: 10) {
-                    foldedBlock(journeys.first)
-                        .id(Self.topID)
-                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onFoldedHeight($0) }
-                    ForEach(journeys.dropFirst()) { journey in
-                        JourneyCard(journey: journey, onSelect: onSelect, onDelete: delete)
-                            .id(journey.id)
-                            .allowsHitTesting(showsRest)
-                            .accessibilityHidden(!showsRest)
-                    }
-                }
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onContentHeight($0) }
-                .padding(.horizontal, MyTripsLayout.margin)
-                .padding(.bottom, 12)
-            }
-            .scrollDisabled(folded)
-            .scrollIndicators(.hidden)
-            .refreshable {
-                await FlightTracker.shared.burstUpdate(flights: Array(allFlights), modelContext: modelContext)
-                // Pull-to-refresh is also "did anyone add a trip for me?"
-                await friendsStore.refresh(force: true)
+            ZStack(alignment: .bottom) {
+                list(journeys)
+                foldedOverlay(journeys)
             }
             // `-autoAcceptInvites`: press Accept on each seeded invite, a few
             // seconds apart, through the very handler the button uses — so
@@ -124,13 +122,21 @@ struct MyFlightsView: View {
                 if !reveal(ids, journeys: journeys, proxy: proxy) { unresolvedLanded.formUnion(ids) }
             }
             .onChange(of: revealing) { _, isRevealing in
-                if !isRevealing { unfoldToPending(proxy) }
+                if !isRevealing { landReveal(proxy) }
             }
-            // Folding scrolls home in the same spring the stack closes with,
-            // so the first block is what the fold settles on.
             .onChange(of: folded) { _, nowFolded in
-                guard nowFolded else { return }
-                withAnimation(reduceMotion ? nil : ArcTheme.fold) { proxy.scrollTo(Self.topID, anchor: .top) }
+                if nowFolded {
+                    // Nothing to scroll: the stack fades in on its page while
+                    // the mask closes over the list.
+                    instantly { unfoldShift = 0 }
+                } else {
+                    alignListToPage(journeys, proxy: proxy)
+                }
+            }
+            // The stack stays on its journey when the list changes under it.
+            .onChange(of: journeys.map(\.id)) { old, now in
+                let followed = JourneyStackPaging.page(after: old, now: now, was: page.wrappedValue)
+                if followed != page.wrappedValue { page.wrappedValue = followed }
             }
             .onChange(of: allFlights.map(\.id)) { _, _ in
                 friendsStore.updateAirportOverlaps(with: Array(allFlights))
@@ -158,67 +164,207 @@ struct MyFlightsView: View {
         }
     }
 
-    /// Scrolls to the journey holding one of `ids`' topmost row, when the
-    /// query has already caught up with the save that produced them. False
-    /// means the caller should retry once `allFlights` changes again.
+    private var stackMotion: JourneyStackMotion { motion ?? fallbackMotion }
+
+    private var fade: Animation? { reduceMotion ? nil : .easeOut(duration: 0.2) }
+
+    // MARK: The list (unfolded)
+
+    /// Every journey in a fixed frame that scrolls; shows, takes touches and
+    /// speaks only while unfolded. Short content sits on the bottom edge.
+    private func list(_ journeys: [TripJourney]) -> some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                Color.clear.frame(height: topSpacer)
+                VStack(spacing: 10) {
+                    chromeItems
+                    if journeys.isEmpty {
+                        emptyButton.padding(.bottom, Self.rim)
+                    } else {
+                        // Each card carries the rim under it, so scrolling a
+                        // card's bottom to the frame's puts the card itself
+                        // where the folded stack shows it.
+                        VStack(spacing: 10 - Self.rim) {
+                            ForEach(Array(journeys.enumerated()), id: \.element.id) { index, journey in
+                                JourneyCard(journey: journey,
+                                            onSelect: { leg in select(leg, journeyAt: index) },
+                                            onDelete: delete)
+                                    .padding(.bottom, Self.rim)
+                                    .id(journey.id)
+                                    .onGeometryChange(for: CGFloat.self) {
+                                        $0.frame(in: .named(Self.contentSpace)).maxY
+                                    } action: { listGeometry.cardBottoms[journey.id] = $0 }
+                            }
+                        }
+                    }
+                }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onContentHeight(max(0, $0 - Self.rim)) }
+                Color.clear.frame(height: 0).id(Self.bottomID)
+            }
+            .id(Self.topID)
+            .coordinateSpace(.named(Self.contentSpace))
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listGeometry.content = $0 }
+            .padding(.horizontal, MyTripsLayout.margin)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listGeometry.viewport = $0 }
+        .scrollDisabled(folded)
+        .scrollIndicators(.hidden)
+        .refreshable {
+            await FlightTracker.shared.burstUpdate(flights: Array(allFlights), modelContext: modelContext)
+            // Pull-to-refresh is also "did anyone add a trip for me?"
+            await friendsStore.refresh(force: true)
+        }
+        .animation(fade) { $0.opacity(folded ? 0 : 1) }
+        .modifier(UnfoldRise(progress: folded ? 0 : 1, shift: unfoldShift))
+        .allowsHitTesting(!folded)
+        .accessibilityHidden(folded)
+        .environment(\.heroReports, !folded)
+    }
+
+    // MARK: The folded overlay
+
+    /// Invites (they need an answer) over the journey stack, or the empty
+    /// state, sitting on the bottom edge. Shows only while folded.
+    private func foldedOverlay(_ journeys: [TripJourney]) -> some View {
+        VStack(spacing: 0) {
+            if hasChrome {
+                VStack(spacing: 10) { chromeItems }
+                    .padding(.bottom, 10)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onChromeHeight($0) }
+                    // Mid-swipe the stack's top edge moves; what sits on it moves too.
+                    .modifier(RidesStackEdge(motion: stackMotion))
+            }
+            if journeys.isEmpty {
+                emptyButton
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
+                        if stackMotion.settledHeight != h { stackMotion.settledHeight = h }
+                    }
+            } else {
+                JourneyStack(journeys: journeys, page: page, motion: stackMotion,
+                             flipRequest: flipRequest, onFlipRequestHandled: onFlipRequestHandled,
+                             onSelect: onSelect, onDelete: delete)
+            }
+        }
+        .padding(.horizontal, MyTripsLayout.margin)
+        .padding(.bottom, Self.rim)
+        .onChange(of: hasChrome, initial: true) { _, has in
+            if !has { onChromeHeight(0) }
+        }
+        .animation(fade) { $0.opacity(folded ? 1 : 0) }
+        .allowsHitTesting(folded)
+        .accessibilityHidden(!folded)
+        .environment(\.heroReports, folded)
+    }
+
+    private var hasChrome: Bool {
+        !friendsStore.tripInvites.isEmpty
+    }
+
+    /// What sits above the journeys: a failed Accept's error and the invites.
+    @ViewBuilder
+    private var chromeItems: some View {
+        // A failed Accept sets lastError and leaves the card.
+        if let error = friendsStore.lastError, !friendsStore.tripInvites.isEmpty {
+            Text(error)
+                .font(.system(size: 13)).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .glassEffect(ArcTheme.tripGlass, in: .rect(cornerRadius: 16))
+        }
+        ForEach(friendsStore.tripInvites) { item in
+            TripInviteCard(item: item,
+                           onOpen: { onPreview(item, $0) },
+                           onAccept: { accept(item) },
+                           onDecline: { friendsStore.decline(item) },
+                           drawsBackground: false)
+                .heroCopy(key: item.id, side: .list)
+                .glassEffect(ArcTheme.tripGlass, in: .rect(cornerRadius: ArcTheme.cardCorner))
+        }
+    }
+
+    private var emptyButton: some View {
+        Button(action: onAdd) { emptyState }
+            .buttonStyle(.plain)
+    }
+
+    // MARK: Hand-offs
+
+    /// Unfolding: scroll the still-hidden list, before the mask moves, so the
+    /// current journey's card sits where the stack shows it. Where the scroll
+    /// can't reach that far (too little above it, or below it), the list
+    /// starts shifted by the rest and rises into place with the fold.
+    private func alignListToPage(_ journeys: [TripJourney], proxy: ScrollViewProxy) {
+        let index = page.wrappedValue
+        guard journeys.indices.contains(index) else { return }
+        let id = journeys[index].id
+        let g = listGeometry
+        guard let bottom = g.cardBottoms[id], g.viewport > 0 else {
+            instantly { proxy.scrollTo(id, anchor: .bottom); unfoldShift = 0 }
+            return
+        }
+        let desired = bottom - g.viewport
+        let reach = max(0, g.content - g.viewport)
+        let actual = min(max(desired, 0), reach)
+        instantly {
+            if desired <= 0 {
+                proxy.scrollTo(Self.topID, anchor: .top)
+            } else if desired >= reach {
+                proxy.scrollTo(Self.bottomID, anchor: .bottom)
+            } else {
+                proxy.scrollTo(id, anchor: .bottom)
+            }
+            unfoldShift = reduceMotion ? 0 : actual - desired
+        }
+    }
+
+    /// A card opened from the unfolded list becomes the stack's page, so
+    /// Show Less folds onto it.
+    private func select(_ leg: Flight, journeyAt index: Int) {
+        if page.wrappedValue != index { page.wrappedValue = index }
+        onSelect(leg)
+    }
+
+    /// Notes the journey holding the topmost of `ids`, when the query has
+    /// already caught up with the save that produced them. False means the
+    /// caller should retry once `allFlights` changes again.
     private func reveal(_ ids: Set<UUID>, journeys: [TripJourney], proxy: ScrollViewProxy) -> Bool {
         guard let row = Self.rowToReveal(ids: ids, among: Array(allFlights)),
-              let index = journeys.firstIndex(where: { $0.legs.contains { $0.id == row } })
+              let journey = journeys.first(where: { $0.legs.contains { $0.id == row } })
         else { return false }
-        if index == 0 {
-            // The folded card already shows it — but an unfolded stack may
-            // have scrolled past it, so bring it back to the top.
-            if !folded {
-                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) {
-                    proxy.scrollTo(Self.topID, anchor: .top)
-                }
-            }
-        } else {
-            pendingJourney = journeys[index].id
-            if !revealing { unfoldToPending(proxy) }
+        pendingRevealJourney = journey.id
+        // Nothing to draw, so nothing to wait for — but a turn later, once
+        // the stack has taken in the list change that brought the trip.
+        if !revealing {
+            DispatchQueue.main.async { if !revealing { landReveal(proxy) } }
         }
         return true
     }
 
-    /// Everything a folded stack shows: invites (they need an answer) and the
-    /// next journey, or the empty state.
-    @ViewBuilder
-    private func foldedBlock(_ next: TripJourney?) -> some View {
-        VStack(spacing: 10) {
-            // A failed Accept sets lastError and leaves the card.
-            if let error = friendsStore.lastError, !friendsStore.tripInvites.isEmpty {
-                Text(error)
-                    .font(.system(size: 13)).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .glassEffect(ArcTheme.tripGlass, in: .rect(cornerRadius: 16))
-            }
-            ForEach(friendsStore.tripInvites) { item in
-                TripInviteCard(item: item,
-                               onOpen: { onPreview(item, $0) },
-                               onAccept: { accept(item) },
-                               onDecline: { friendsStore.decline(item) },
-                               drawsBackground: false)
-                    .heroCopy(key: item.id, side: .list)
-                    .glassEffect(ArcTheme.tripGlass, in: .rect(cornerRadius: ArcTheme.cardCorner))
-            }
-            if let next {
-                JourneyCard(journey: next, onSelect: onSelect, onDelete: delete)
-            } else {
-                Button(action: onAdd) { emptyState }
-                    .buttonStyle(.plain)
+    /// The route has drawn: a folded stack flips to the landed journey; an
+    /// unfolded list scrolls to it and makes it the page.
+    private func landReveal(_ proxy: ScrollViewProxy) {
+        guard let target = pendingRevealJourney else { return }
+        pendingRevealJourney = nil
+        let journeys = Self.journeys(Array(allFlights))
+        guard let index = journeys.firstIndex(where: { $0.id == target }) else { return }
+        if folded {
+            if index != page.wrappedValue { onRevealJourney(index) }
+        } else {
+            if page.wrappedValue != index { page.wrappedValue = index }
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) {
+                if index == 0 {
+                    proxy.scrollTo(Self.topID, anchor: .top)
+                } else {
+                    proxy.scrollTo(target, anchor: .top)
+                }
             }
         }
     }
 
-    private func unfoldToPending(_ proxy: ScrollViewProxy) {
-        guard let target = pendingJourney else { return }
-        pendingJourney = nil
-        onUnfold {
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) {
-                proxy.scrollTo(target, anchor: .top)
-            }
-        }
+    private func instantly(_ body: () -> Void) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction, body)
     }
 
     private func accept(_ item: FriendsStore.TripInviteItem) {
@@ -274,5 +420,31 @@ struct MyFlightsView: View {
         .glassEffect(ArcTheme.tripGlass, in: .rect(cornerRadius: ArcTheme.cardCorner))
         .accessibilityElement(children: .combine)
         .accessibilityHint("Opens trip search, booking import and boarding pass scanning")
+    }
+}
+
+/// Where the unfolded list's cards sit in its content, for the unfold's
+/// scroll. Written by layout, read by one action: not observed, so no
+/// measurement re-evaluates the view.
+@MainActor
+private final class ListGeometry {
+    /// Each journey card's bottom (rim included), in content coordinates.
+    var cardBottoms: [UUID: CGFloat] = [:]
+    var content: CGFloat = 0
+    var viewport: CGFloat = 0
+}
+
+/// The list's rise on unfold when its scroll can't hold the current card in
+/// place: `shift` below at the fold's start, home when it ends, on the same
+/// spring as the mask.
+private struct UnfoldRise: ViewModifier, Animatable {
+    var progress: CGFloat
+    let shift: CGFloat
+    nonisolated var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+    func body(content: Content) -> some View {
+        content.offset(y: shift * (1 - min(max(progress, 0), 1)))
     }
 }

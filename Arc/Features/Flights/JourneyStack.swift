@@ -13,6 +13,16 @@ final class JourneyStackMotion {
     var liveRise: CGFloat = 0
 }
 
+/// What sits on the stack's top edge (the invites above it, the Show More
+/// row) moves with it mid-swipe. Reads `liveRise` in this leaf only, so a
+/// swipe never re-evaluates the views around it.
+struct RidesStackEdge: ViewModifier {
+    let motion: JourneyStackMotion
+    func body(content: Content) -> some View {
+        content.offset(y: -motion.liveRise)
+    }
+}
+
 /// My Trips' folded journeys as a Smart Stack: one card at a time, swipe up
 /// for the next journey and down for the previous, the frame's height
 /// following the cards, a light tick when a new journey settles

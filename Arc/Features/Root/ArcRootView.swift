@@ -1139,11 +1139,8 @@ struct ArcRootView: View {
                       onPreview: { item, flight in openInvitePreview(item, flight) },
                       landed: landedTrips,
                       folded: tripsFolded,
-                      showsRest: tripsRestShown,
                       revealing: controller.isRevealingRoutes,
-                      onFoldedHeight: { tripsFoldedHeight = $0 },
-                      onContentHeight: { tripsContentHeight = $0 },
-                      onUnfold: { then in setTripsFolded(false, then: then) })
+                      onContentHeight: { tripsContentHeight = $0 })
             .frame(width: layout.size.width, height: layout.listBottom - layout.unfoldedListTop, alignment: .top)
             // 6 pt of slack so the folded card's glass rim is never clipped;
             // less than the 10 pt gap, so the next card never peeks.

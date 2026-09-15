@@ -138,6 +138,9 @@ private struct HeroFramesKey: EnvironmentKey {
 private struct HeroTravellingKey: EnvironmentKey {
     static let defaultValue: String? = nil
 }
+private struct HeroReportsKey: EnvironmentKey {
+    static let defaultValue = true
+}
 
 extension EnvironmentValues {
     /// Set once at the tab sheet; nil (previews, tests, friend sheets)
@@ -152,15 +155,24 @@ extension EnvironmentValues {
         get { self[HeroTravellingKey.self] }
         set { self[HeroTravellingKey.self] = newValue }
     }
+    /// False on a copy of the rows that is laid out but not the one showing
+    /// (My Trips' folded stack and its unfolded list hold the same cards):
+    /// a key reports its frame from one place at a time.
+    var heroReports: Bool {
+        get { self[HeroReportsKey.self] }
+        set { self[HeroReportsKey.self] = newValue }
+    }
 }
 
 private struct HeroReporter: ViewModifier {
     @Environment(\.heroFrames) private var frames
     @Environment(\.heroTravelling) private var travelling
+    @Environment(\.heroReports) private var reports
     let key: String
     let side: MorphSide
     func body(content: Content) -> some View {
-        content
+        let reports = reports
+        return content
             // Keep the same view identity when handing off to the overlay.
             // A conditional hidden() replaced the subtree twice per trip,
             // restarting layout and appearance callbacks during the glide.
@@ -168,7 +180,10 @@ private struct HeroReporter: ViewModifier {
             .opacity(travelling == key ? 0 : 1)
             .animation(nil, value: travelling == key)
             .accessibilityHidden(travelling == key)
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+            // nil while this copy isn't the one showing; turning it back on
+            // changes the value, so it reports again at once.
+            .onGeometryChange(for: CGRect?.self) { reports ? $0.frame(in: .global) : nil } action: { rect in
+                guard let rect else { return }
                 switch side {
                 case .list: frames?.rows[key] = rect
                 case .detail: frames?.details[key] = rect
