@@ -91,7 +91,7 @@ struct MapTopBar: View {
             .pillText()
             .opacity(shows ? 1 : 0)
         }
-        .onChange(of: readout) { _, new in if let new { lastReadout = new } }
+        .onChange(of: readout, initial: true) { _, new in if let new { lastReadout = new } }
     }
 
     private var trailingCapsule: some View {
