@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// The Friends sheet content: intro takeover on first visit, then title +
 /// share/avatar row and either the one-time profile setup or the live
@@ -8,7 +9,7 @@ import SwiftUI
 struct FriendsScreen: View {
     /// A friend's flight was tapped: the root opens it in the tab sheet,
     /// gliding from the row like one of the user's own.
-    var onSelect: (FriendsStore.FeedItem) -> Void = { _ in }
+    var onSelect: (FriendFlightGroup) -> Void = { _ in }
     @ObservedObject private var supabase = ArcSupabase.shared
     @AppStorage("hasSeenFriendsIntro") private var hasSeenIntro = false
     @State private var showSettings = false
@@ -333,7 +334,8 @@ enum FeedFilter: Equatable {
 }
 
 struct FriendsListView: View {
-    var onSelect: (FriendsStore.FeedItem) -> Void = { _ in }
+    @Query private var myFlights: [Flight]
+    var onSelect: (FriendFlightGroup) -> Void = { _ in }
     @ObservedObject private var supabase = ArcSupabase.shared
     @State private var store = FriendsStore.shared
     @State private var showingAddFriend = false
@@ -547,14 +549,17 @@ struct FriendsListView: View {
 
     // MARK: Feed
 
-    private var filteredFeed: [FriendsStore.FeedItem] {
-        guard let ids = filterIds else { return store.feed }
-        return store.feed.filter { ids.contains($0.user.id) }
-    }
+    private var filteredFeed: [FriendFlightGroup] { journeyGroups(past: false) }
+    private var filteredPast: [FriendFlightGroup] { journeyGroups(past: true) }
 
-    private var filteredPast: [FriendsStore.FeedItem] {
-        guard let ids = filterIds else { return store.pastFeed }
-        return store.pastFeed.filter { ids.contains($0.user.id) }
+    private func journeyGroups(past: Bool) -> [FriendFlightGroup] {
+        let current = store.feed
+        let activeIDs = Set(current.map(\.id))
+        return FriendFlightGroup.group(current + store.pastFeed, myFlights: myFlights).filter { group in
+            let isPast = !activeIDs.contains(group.representative.id)
+            let matchesFilter = filterIds.map { ids in group.users.contains { ids.contains($0.id) } } ?? true
+            return isPast == past && matchesFilter
+        }
     }
 
     @ViewBuilder private var content: some View {
@@ -656,19 +661,19 @@ struct FriendsListView: View {
             return
         }
         store.pendingFlightId = nil
-        onSelect(item)
+        if let group = FriendFlightGroup.group(everything, myFlights: myFlights).first(where: { $0.items.contains { $0.id == item.id } }) { onSelect(group) }
     }
 
-    private func feedRow(_ item: FriendsStore.FeedItem) -> some View {
+    private func feedRow(_ item: FriendFlightGroup) -> some View {
         // The root opens it in the tab sheet, gliding from this row, and
         // refreshes it live once open (see `ArcRootView.openFriendFlight`).
         Button { onSelect(item) } label: {
-            FriendFlightRow(item: item)
+            FriendFlightRow(group: item)
                 // The card the detail opens from and closes back into.
                 .heroCopy(key: item.id, side: .list)
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("friend-trip-\(item.id)")
+        .accessibilityIdentifier("friend-trip-\(item.representative.id)")
     }
 
     private var pastSection: some View {
@@ -759,7 +764,8 @@ struct FriendsListView: View {
 /// One friend-flight in the feed, styled like a My Flights row with the
 /// friend's identity on the left: avatar + a tiny live-status caption.
 struct FriendFlightRow: View {
-    let item: FriendsStore.FeedItem
+    let group: FriendFlightGroup
+    private var item: FriendsStore.FeedItem { group.representative }
 
     private var flight: ArcSupabase.SharedFlight { item.flight }
     private var airborne: Bool { FriendFlightMath.isAirborne(flight) }
@@ -776,7 +782,11 @@ struct FriendFlightRow: View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
         HStack(alignment: .center, spacing: 14) {
             VStack(spacing: 4) {
-                FriendAvatar(name: item.user.display_name, size: 46, avatarURL: item.user.avatar_url)
+                Image(systemName: flight.tripMode.symbol)
+                    .font(.system(size: 25, weight: .semibold))
+                    .foregroundStyle(ArcTheme.brand)
+                    .frame(width: 46, height: 46)
+                    .background(ArcTheme.brand.opacity(0.1), in: Circle())
                     .overlay {
                         // Airborne friends wear their flight's progress as a
                         // thin ring around the avatar.
@@ -808,6 +818,8 @@ struct FriendFlightRow: View {
                                  logoURL: flight.operator_logo_url, size: 18)
                     Text(flight.flight_number)
                         .font(.system(size: 14)).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    TravellerAvatarStack(users: group.users, includesMe: group.myFlightID != nil)
                     Spacer(minLength: 8)
                     Text(contextLine(at: context.date))
                         .font(.system(size: 13, weight: .semibold))

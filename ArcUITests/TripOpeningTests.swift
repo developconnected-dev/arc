@@ -53,4 +53,19 @@ final class TripOpeningTests: XCTestCase {
         app.tabBars.buttons["Friends"].tap()
         cycle(app, rows: ["friend-trip-demo-feed-2"])
     }
+    func testSharedFlightShowsOneRowAndEveryTravellerIncludingYou() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-seedDemo", "-uiNoPrompt", "-sheetLarge", "-seedFriendsDemo",
+            "-seedGroupedFriendsDemo", "-tabFriends", "-apiEndpoint", "http://127.0.0.1:9"]
+        app.launch()
+        let row = app.buttons["friend-trip-demo-feed-1"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "friend-trip-")).count, 1)
+        row.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["trip-detail-ready"].firstMatch.waitForExistence(timeout: 3))
+        for index in 1...4 { XCTAssertTrue(app.staticTexts["Friend \(index)"].exists) }
+        XCTAssertTrue(app.staticTexts["You’re on this flight"].exists)
+        app.buttons["Close trip details"].tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+    }
 }

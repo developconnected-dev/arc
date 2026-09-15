@@ -21,6 +21,7 @@ struct FlightDetailView: View {
     var friend: ArcSupabase.ArcUser? = nil
     /// What the friend row says on the right: how this flight reached you.
     var heroKey: String? = nil
+    var travelGroup: FriendFlightGroup? = nil
     var transitionActive = false
     var friendNote: String = "Shared with you"
     @Environment(\.dismiss) private var dismiss
@@ -59,7 +60,9 @@ struct FlightDetailView: View {
                                  onAirport: flight.mode == .air ? { airportSheet = AirportSheetTarget(id: $0) } : nil)
                         .heroCopy(key: heroKey ?? flight.id.uuidString, side: .detail)
                     Group {
-                        if let friend { friendSection(friend) }
+                        if let travelGroup {
+                            travellersSection(travelGroup)
+                        } else if let friend { friendSection(friend) }
                         statusSection
                         if isOwnFlight, flight.status == .landed {
                             JourneyRecapCard(flight: flight)
@@ -187,6 +190,29 @@ struct FlightDetailView: View {
     }
 
     // MARK: Whose flight
+
+    private func travellersSection(_ group: FriendFlightGroup) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Travelling together").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+            DetailGroup {
+                if group.myFlightID != nil {
+                    Label("You’re on this flight", systemImage: "person.crop.circle.fill")
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(ArcTheme.brand)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                }
+                ForEach(group.users.sorted { $0.id < $1.id }, id: \.id) { user in
+                    HStack(spacing: 12) {
+                        FriendAvatar(name: user.display_name, size: 28, avatarURL: user.avatar_url)
+                        Text(user.display_name).font(.subheadline)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                }
+            }
+        }
+        .accessibilityIdentifier("trip-travellers")
+    }
 
     private func friendSection(_ user: ArcSupabase.ArcUser) -> some View {
         DetailGroup {

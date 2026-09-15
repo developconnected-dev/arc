@@ -17,17 +17,36 @@ enum DemoSeed {
         #endif
     }
 
+    static var isGroupedFriendsRequested: Bool {
+        isFriendsRequested && ProcessInfo.processInfo.arguments.contains("-seedGroupedFriendsDemo")
+    }
+    private static let groupedDeparture = Date.now.addingTimeInterval(2 * 3600)
+
+    @MainActor
+    static func seedGroupedOwnTripIfRequested(into context: ModelContext) {
+        guard isGroupedFriendsRequested else { return }
+        let saved = (try? context.fetch(FetchDescriptor<Flight>())) ?? []
+        let flight = saved.first { $0.flightNumber == "LX101" }
+            ?? Flight(flightNumber: "LX101", date: groupedDeparture)
+        flight.scheduledDeparture = groupedDeparture
+        flight.scheduledArrival = groupedDeparture.addingTimeInterval(3600)
+        flight.departureIATA = "ZRH"; flight.arrivalIATA = "VIE"
+        flight.departureCity = "Zurich"; flight.arrivalCity = "Vienna"
+        if !saved.contains(where: { $0.id == flight.id }) { context.insert(flight) }
+        try? context.save()
+    }
+
     @MainActor
     static func seedFriendsIfRequested() {
         guard isFriendsRequested else { return }
         let iso = ISO8601DateFormatter()
         let user = ArcSupabase.ArcUser(id: "demo-friend", display_name: "Demo Friend",
             handle: "demo", avatar_url: nil, home_airport: "ZRH", nationality: "CH")
-        let flights = (1...2).compactMap { index -> ArcSupabase.SharedFlight? in
-            let dep = Date.now.addingTimeInterval(Double(index + 1) * 3600)
+        let flights = (1...(isGroupedFriendsRequested ? 4 : 2)).compactMap { index -> ArcSupabase.SharedFlight? in
+            let dep = isGroupedFriendsRequested ? groupedDeparture : Date.now.addingTimeInterval(Double(index + 1) * 3600)
             let json: [String: Any] = [
-                "id": "demo-feed-\(index)", "user_id": user.id,
-                "flight_number": "LX\(100 + index)", "airline": "Swiss",
+                "id": "demo-feed-\(index)", "user_id": isGroupedFriendsRequested ? "demo-friend-\(index)" : user.id,
+                "flight_number": isGroupedFriendsRequested ? "LX101" : "LX\(100 + index)", "airline": "Swiss",
                 "departure_iata": "ZRH", "arrival_iata": "VIE",
                 "departure_city": "Zurich", "arrival_city": "Vienna",
                 "departure_lat": 47.458, "departure_lon": 8.555,
@@ -39,7 +58,15 @@ enum DemoSeed {
             guard let data = try? JSONSerialization.data(withJSONObject: json) else { return nil }
             return try? JSONDecoder().decode(ArcSupabase.SharedFlight.self, from: data)
         }
-        FriendsStore.shared.friends = [.init(friendshipId: "demo-friendship", user: user, flights: flights)]
+        if isGroupedFriendsRequested {
+            FriendsStore.shared.friends = flights.enumerated().map { index, flight in
+                let person = ArcSupabase.ArcUser(id: flight.user_id, display_name: "Friend \(index + 1)",
+                    handle: "friend\(index + 1)", avatar_url: nil, home_airport: "ZRH", nationality: "CH")
+                return .init(friendshipId: person.id, user: person, flights: [flight])
+            }
+        } else {
+            FriendsStore.shared.friends = [.init(friendshipId: "demo-friendship", user: user, flights: flights)]
+        }
         FriendsStore.shared.hasLoadedOnce = true
     }
 

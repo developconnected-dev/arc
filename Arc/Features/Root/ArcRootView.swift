@@ -28,6 +28,7 @@ struct ArcRootView: View {
     @State private var mapFocusID: UUID?
     /// Set while the open detail is a friend's flight: the row's feed item.
     @State private var detailFriend: FriendsStore.FeedItem?
+    @State private var detailFriendGroup: FriendFlightGroup?
     /// Set while the open detail is a trip invite's preview.
     @State private var detailInvite: FriendsStore.TripInviteItem?
     @State private var pendingOpenDetail = ProcessInfo.processInfo.arguments.contains("-openDetail")
@@ -220,6 +221,7 @@ struct ArcRootView: View {
             // build or a relaunch race, once per app start.
             Task { await LiveActivityManager.shared.reapDuplicateActivities() }
             DemoSeed.seedTripInviteIfRequested()
+            DemoSeed.seedGroupedOwnTripIfRequested(into: modelContext)
             DemoSeed.seedFriendsIfRequested()
             refitMapForCurrentData()
             openDetailIfPending()
@@ -643,7 +645,9 @@ struct ArcRootView: View {
     /// A friend's flight from the feed: a transient Flight built from the
     /// shared row, refreshed live once open, with their route focused on
     /// the map for as long as the detail is up.
-    private func openFriendFlight(_ item: FriendsStore.FeedItem) {
+    private func openFriendFlight(_ group: FriendFlightGroup) {
+        let item = group.representative
+        detailFriendGroup = group
         let store = FriendsStore.shared
         let flight = store.transientFlight(for: item)
         detailFriend = item
@@ -655,7 +659,7 @@ struct ArcRootView: View {
                 arr: .init(latitude: alat, longitude: alon),
                 mode: item.flight.tripMode)
         }
-        open(.friend(item, flight))
+        open(.friend(group, flight))
     }
 
     /// An invited trip's preview, from its card in My Trips: read-only, the
@@ -668,9 +672,9 @@ struct ArcRootView: View {
     private func open(_ source: HeroSource) {
         let flight = source.flight
         switch source {
-        case .own: detailFriend = nil; detailInvite = nil
+        case .own: detailFriend = nil; detailFriendGroup = nil; detailInvite = nil
         case .friend: detailInvite = nil
-        case .invite: detailFriend = nil
+        case .invite: detailFriend = nil; detailFriendGroup = nil
         }
         let replacing = detailFlight != nil
         mapFocusID = nil
@@ -720,7 +724,7 @@ struct ArcRootView: View {
         groundViewTask = nil
         controller.clearGateMarker()
         mapFocusID = nil
-        let source: HeroSource = detailFriend.map { .friend($0, flight) }
+        let source: HeroSource = detailFriendGroup.map { .friend($0, flight) }
             ?? detailInvite.map { .invite($0, flight) }
             ?? .own(flight)
         if reduceMotion {
@@ -890,7 +894,8 @@ struct ArcRootView: View {
                                          onOpenFlight: own ? { other in _ = show(other) } : nil,
                                          onClose: { closeDetail() },
                                          friend: detailFriend?.user ?? detailInvite?.sender,
-                                         heroKey: detailFriend?.id ?? detailInvite?.id,
+                                         heroKey: detailFriendGroup?.id ?? detailInvite?.id,
+                                         travelGroup: detailFriendGroup,
                                          transitionActive: transition.request != nil,
                                          friendNote: detailInvite != nil ? "Invited you" : "Shared with you")
                             .id(flight.id)
