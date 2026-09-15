@@ -25,6 +25,8 @@ struct ArcRootView: View {
     /// The detail panel's settled top edge; nil opens at 58 %.
     @State private var panelTop: CGFloat?
     @State private var panelHeaderHeight: CGFloat = 260
+    /// How far the tab bar reaches up without the accessory, learnt once.
+    @State private var tabBarReach: CGFloat?
     @State private var detailFlight: Flight?
     @State private var heroFrames = HeroFrames()
     @State private var heroTravelling: HeroSource?
@@ -133,6 +135,12 @@ struct ArcRootView: View {
         .modifier(NotificationPrimerAlert(isPresented: $showNotificationPrimer))
         .onChange(of: tab) { _, newTab in
             if let detailTab, detailTab != newTab {
+                // As `closeDetail` does: a Terminal map or My plane left open
+                // would otherwise keep diving the map for a detail that's gone.
+                groundViewTask?.cancel()
+                groundViewTask = nil
+                controller.clearGateMarker()
+                mapFocusID = nil
                 transition.close()
                 finishTransition(transition.request!.id)
             }
@@ -320,13 +328,6 @@ struct ArcRootView: View {
         // here is what stops the tab-change hook from refitting to every
         // route the user has and fighting it.
         lastCameraTab = .myFlights
-        // The route is framed in the map's upper half, which a sheet dragged
-        // to full height covers entirely — an invite accepted from a
-        // full-height list, or a trip added with the sheet left large, would
-        // draw itself on behind it and leave the map on a camera nobody saw
-        // move. Medium is the height the moment was built for: the row that
-        // just landed and the route both on screen.
-        if detent == .large { detent = .medium }
         // Only what THIS tab's map will actually draw (`mapFlights` shows
         // upcoming and active legs). A hand-logged past trip must not get a
         // reveal: its line would draw itself on and then vanish at the
@@ -408,7 +409,8 @@ struct ArcRootView: View {
     }
 
     /// "Plane at gate": zoom the shared map onto the relevant gate (OSM
-    /// coordinates) and shrink the detail sheet to medium so the map shows.
+    /// coordinates) and lower the detail panel (or the sheet on Passport) so
+    /// the map shows.
     ///
     /// Landed flight → the ARRIVAL gate, static parked-plane marker.
     /// Upcoming flight → the DEPARTURE gate (where the user boards), plus a
@@ -442,7 +444,8 @@ struct ArcRootView: View {
     /// "Terminal Map": the in-app airport view. Dives the shared map onto the
     /// contextually relevant airport (departure before the trip, arrival
     /// after) in satellite imagery, renders every OSM gate, highlights the
-    /// user's own, and shrinks the detail sheet so the map is the star.
+    /// user's own, and lowers the detail panel (or the sheet on Passport) so
+    /// the map is the star.
     private func showAirportView(_ flight: Flight) {
         let upcoming = flight.isUpcoming
         let iata = upcoming ? flight.departureIATA : flight.arrivalIATA
@@ -470,8 +473,12 @@ struct ArcRootView: View {
 
     /// Terminal map / My plane need the map: a panel dragged taller than
     /// its opening height comes back down, in the spring the camera dives with.
+    /// A detail in Passport's sheet drops the sheet to medium, as it always has.
     private func lowerPanelForGroundView() {
-        guard let layout = tripsLayout else { return }
+        guard detailTab == .myFlights, let layout = tripsLayout else {
+            withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.88)) { detent = .medium }
+            return
+        }
         let lowered = layout.panelTopForGroundView(current: panelTop ?? layout.panelOpeningTop(headerHeight: panelHeaderHeight),
                                                    headerHeight: panelHeaderHeight)
         withAnimation(reduceMotion ? nil : ArcTheme.panelSettle) { panelTop = lowered }
@@ -684,26 +691,50 @@ struct ArcRootView: View {
             return
         }
         heroProgress = 0
-        heroOrigin = heroFrames.rows[source.key]
+        heroOrigin = heroRowOrigin(source.key, onTrips: tab == .myFlights)
         heroDestination = nil
         heroTravelling = heroOrigin == nil ? nil : source
         transition.open()
     }
 
+    /// Where the row to glide from is — but only if it's on screen. The
+    /// frames outlive the rows: a card folded away still has one, and a glide
+    /// from it would start out of nowhere, below the stack.
+    private func heroRowOrigin(_ key: String, onTrips: Bool) -> CGRect? {
+        guard let rect = heroFrames.rows[key] else { return nil }
+        guard onTrips, let layout = tripsLayout else { return rect }
+        let shown = (layout.listTop(folded: tripsFolded, foldedHeight: tripsFoldedHeight) - 1)...(layout.listBottom + 1)
+        return shown.contains(rect.minY) && shown.contains(rect.maxY) ? rect : nil
+    }
+
+    /// Records the header's height and returns how far that moved the
+    /// panel's opening top — non-zero only where the header rule binds
+    /// (a short screen, large type) and the panel hasn't been dragged.
+    @discardableResult
+    private func learnPanelHeader(_ measured: CGRect) -> CGFloat {
+        guard panelTop == nil, let layout = tripsLayout else {
+            panelHeaderHeight = measured.height
+            return 0
+        }
+        let before = layout.panelOpeningTop(headerHeight: panelHeaderHeight)
+        panelHeaderHeight = measured.height
+        return layout.panelOpeningTop(headerHeight: measured.height) - before
+    }
+
     private func prepareTransition(_ id: UUID) {
         guard transition.request?.id == id else { return }
-        if let source = heroTravelling {
-            let measured = heroFrames.details[source.key]
-            // The opening height depends on the header, so learn it BEFORE the
-            // glide aims — learnt at the landing, the panel would re-clamp
-            // and jump just as the card arrives.
-            if detailTab == .myFlights, let measured { panelHeaderHeight = measured.height }
-            // The floating panel is still risen by the rest of its rise when
-            // the header reports; aim for where it will settle.
-            heroDestination = detailTab == .myFlights
-                ? measured.map { Morph.settledFrame($0, progress: heroProgress) }
-                : measured
+        guard let source = heroTravelling else { return }
+        guard detailTab == .myFlights, let measured = heroFrames.details[source.key] else {
+            heroDestination = heroFrames.details[source.key]
+            return
         }
+        // The opening height depends on the header, so learn it BEFORE the
+        // glide aims — learnt at the landing, the panel would re-clamp and
+        // jump just as the card arrives. The header was measured on a panel
+        // still risen by the rest of its rise, at the old opening top; aim
+        // for where it will settle, at the new one.
+        let shift = learnPanelHeader(measured)
+        heroDestination = Morph.settledFrame(measured, progress: heroProgress).offsetBy(dx: 0, dy: shift)
     }
 
     private func finishTransition(_ id: UUID) {
@@ -740,7 +771,7 @@ struct ArcRootView: View {
             return
         }
         if heroTravelling == nil {
-            heroOrigin = heroFrames.rows[source.key]
+            heroOrigin = heroRowOrigin(source.key, onTrips: detailTab == .myFlights)
             heroDestination = heroFrames.details[source.key]
             heroTravelling = heroOrigin == nil ? nil : source
         }
@@ -919,8 +950,9 @@ struct ArcRootView: View {
             let full = CGSize(width: geo.size.width + insets.leading + insets.trailing,
                               height: geo.size.height + insets.top + insets.bottom)
             let layout = MyTripsLayout(size: full, safeTop: insets.top,
-                                       tabBarClearance: tabBarClearance(bottomInset: insets.bottom),
-                                       accessoryHidesForDetail: Self.accessoryCanHide)
+                                       tabBarClearance: tabBarReach ?? guessTabBarReach(bottomInset: insets.bottom),
+                                       accessoryHidesForDetail: Self.accessoryCanHide,
+                                       listClearsAccessory: !allFlights.isEmpty || !Self.accessoryCanHide)
             myTripsLayers(layout)
                 .frame(width: full.width, height: full.height, alignment: .topLeading)
                 .offset(x: -insets.leading, y: -insets.top)
@@ -928,13 +960,50 @@ struct ArcRootView: View {
                 .onChange(of: panelHeaderHeight) { _, header in
                     if let top = panelTop { panelTop = layout.clampPanelTop(top, headerHeight: header) }
                 }
+                .onChange(of: insets.bottom, initial: true) { _, bottom in
+                    // Learnt once, at launch, when no open or close is under
+                    // way and the accessory flag and the inset agree. Never
+                    // re-derived: the inset follows the accessory a frame or
+                    // more after the flag, and re-deriving it moved the cards
+                    // 56 pt on close and the panel's height mid-glide.
+                    guard tabBarReach == nil, bottom > 0 else { return }
+                    tabBarReach = guessTabBarReach(bottomInset: bottom)                }
         }
+        .modifier(MyTripsSurfaceHooks(journeyCount: MyFlightsView.journeys(Array(allFlights)).count,
+                                      detailID: detailFlight?.id,
+                                      layoutReady: tripsLayout != nil,
+                                      foldedHeightKnown: tripsFoldedHeight > 0,
+                                      onJourneyCount: { count in
+                                          // Only the pill folds, and it is gone with one journey left.
+                                          if count <= 1, !tripsFolded { setTripsFolded(true) }
+                                      },
+                                      onDetailSettled: learnHeaderWithoutGlide,
+                                      onFirstFrame: refitTripsForFirstFrame))
     }
 
-    /// The tab bar's reach without the accessory.
-    private func tabBarClearance(bottomInset: CGFloat) -> CGFloat {
-        // The inset includes the accessory while it shows (measured: see plan Task 9).
-        tripsAccessoryEnabled ? bottomInset - MyTripsLayout.accessoryHeight : bottomInset
+    /// The tab bar's reach without the accessory, from an inset that
+    /// includes the accessory while it shows (bottom inset 139 with it, 83
+    /// without, on the simulator).
+    private func guessTabBarReach(bottomInset: CGFloat) -> CGFloat {
+        let accessoryOnScreen = !Self.accessoryCanHide || tripsAccessoryEnabled
+        return bottomInset - (accessoryOnScreen ? MyTripsLayout.accessoryHeight : 0)
+    }
+
+    /// An opening with no glide (Reduce Motion, one detail replacing another)
+    /// never runs `prepareTransition`: learn the new header once it has laid out.
+    private func learnHeaderWithoutGlide() async {
+        try? await Task.sleep(for: .milliseconds(16))
+        guard !Task.isCancelled, transition.request == nil, detailTab == .myFlights,
+              let flight = detailFlight else { return }
+        let key = detailFriendGroup?.id ?? detailInvite?.id ?? flight.id.uuidString
+        if let header = heroFrames.details[key] { learnPanelHeader(header) }
+    }
+
+    /// The launch fit runs before the surface has measured itself; frame
+    /// again for the real layout, and again for the real folded stack.
+    private func refitTripsForFirstFrame() {
+        guard tab == .myFlights, detailFlight == nil, !controller.isRevealingRoutes else { return }
+        applyCameraForCurrentTab()
     }
 
     @ViewBuilder
@@ -989,6 +1058,7 @@ struct ArcRootView: View {
             .contentShape(.interaction, TopSlice(height: layout.listBottom - listTop + 6))
             .offset(y: listTop)
             .modifier(SidePresence(side: .list, progress: detailTab == .myFlights && tab == .myFlights ? heroProgress : 0))
+            .modifier(UntilMeasured(measured: tripsFoldedHeight > 0))
             .allowsHitTesting(!detailOpen)
             .accessibilityHidden(detailOpen)
             .offset(y: showAdd ? 1500 : 0)
@@ -1020,6 +1090,7 @@ struct ArcRootView: View {
         .frame(width: layout.size.width, height: MyTripsLayout.control)
         .offset(y: layout.pillRowY(listTop: listTop))
         .modifier(SidePresence(side: .list, progress: detailTab == .myFlights && tab == .myFlights ? heroProgress : 0))
+        .modifier(UntilMeasured(measured: tripsFoldedHeight > 0))
         .allowsHitTesting(!detailOpen)
         .accessibilityHidden(detailOpen)
         .offset(y: showAdd ? 1500 : 0)
@@ -1095,8 +1166,11 @@ struct ArcRootView: View {
     }
 
     private var tripsShareFlight: Flight? {
-        if detailTab == .myFlights, detailFriend == nil, detailInvite == nil, let open = detailFlight {
-            return open
+        if detailTab == .myFlights, let open = detailFlight {
+            // An invite preview isn't the user's trip yet, and sharing some
+            // other trip from over it would be the wrong one.
+            if detailInvite != nil { return nil }
+            if detailFriend == nil { return open }
         }
         // The trip you're ON if there is one, else the NEXT one — never a leg
         // that already landed.
@@ -1218,6 +1292,51 @@ struct ArcRootView: View {
         showAdd = true
     }
 
+}
+
+/// The floating My Trips surface's hooks, kept out of the root's builders
+/// (they sit at the type checker's limit). The "first" hooks each fire once.
+private struct MyTripsSurfaceHooks: ViewModifier {
+    let journeyCount: Int
+    let detailID: UUID?
+    let layoutReady: Bool
+    let foldedHeightKnown: Bool
+    let onJourneyCount: (Int) -> Void
+    let onDetailSettled: () async -> Void
+    let onFirstFrame: () -> Void
+
+    @State private var framedLayout = false
+    @State private var framedFoldedHeight = false
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: journeyCount) { _, count in onJourneyCount(count) }
+            .task(id: detailID) {
+                guard detailID != nil else { return }
+                await onDetailSettled()
+            }
+            .onChange(of: layoutReady, initial: true) { _, ready in
+                guard ready, !framedLayout else { return }
+                framedLayout = true
+                onFirstFrame()
+            }
+            .onChange(of: foldedHeightKnown, initial: true) { _, known in
+                guard known, !framedFoldedHeight else { return }
+                framedFoldedHeight = true
+                onFirstFrame()
+            }
+    }
+}
+
+/// Hidden until the folded stack has reported its height: before that the
+/// pill row sits on the accessory for a frame. Appears at once, never fades.
+private struct UntilMeasured: ViewModifier {
+    let measured: Bool
+    func body(content: Content) -> some View {
+        content
+            .opacity(measured ? 1 : 0)
+            .animation(nil, value: measured)
+    }
 }
 
 /// Empty accessory content still reserves a glass capsule. Disable the native
