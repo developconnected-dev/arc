@@ -22,6 +22,12 @@ final class JourneyStackMotion {
     /// it unfolds, so the list aligns to the page the stack really shows and
     /// nothing is still rising under the mask.
     func comeToRest() { restHandler?() }
+
+    @ObservationIgnored fileprivate var restProbe: (() -> Bool)?
+
+    /// No finger on the stack, no settle running, no flip waiting for its
+    /// card. Read once, by the map's debounce, never in a body.
+    var isAtRest: Bool { restProbe?() ?? true }
 }
 
 /// What sits on the stack's top edge (the invites above it, the Show More
@@ -170,10 +176,15 @@ struct JourneyStack: View {
             stateChangedOutside()
             // The handler holds this view's values; keep its journeys current.
             motion.restHandler = { comeToRest() }
+            motion.restProbe = { !holding && !settling && flipTarget == nil }
         }
-        .onAppear { motion.restHandler = { comeToRest() } }
+        .onAppear {
+            motion.restHandler = { comeToRest() }
+            motion.restProbe = { !holding && !settling && flipTarget == nil }
+        }
         .onDisappear {
             motion.restHandler = nil
+            motion.restProbe = nil
             publishLiveRise(0)
         }
         // Runs after the update that laid the card out at its measured

@@ -1290,12 +1290,16 @@ struct ArcRootView: View {
     /// The map follows the stack, and only the stack's own flips: a page
     /// index that moved because the list changed (a delete, a flight going
     /// active) keeps the list change's refit. Quick flips move the camera
-    /// once, onto the journey the last one settled on.
+    /// once, onto the journey the last one settled on: the wait restarts
+    /// while the stack is moving again, since a flip that begins inside it
+    /// would otherwise land under a camera already on its way.
     private func stackSettled(on journeyID: UUID) {
         tripsFocusTask?.cancel()
         tripsFocusTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled else { return }
+            repeat {
+                try? await Task.sleep(for: .milliseconds(350))
+                guard !Task.isCancelled else { return }
+            } while !tripsStackMotion.isAtRest
             focusTripsJourney(journeyID)
         }
     }
