@@ -199,7 +199,7 @@ struct DetailHeader: View {
 /// travelling copy fades out of.
 enum HeroSource {
     case own(Flight)
-    case friend(FriendsStore.FeedItem, Flight)
+    case friend(FriendFlightGroup, Flight)
     /// A trip a friend invited the user on, previewed from its card in My
     /// Trips before it is accepted.
     case invite(FriendsStore.TripInviteItem, Flight)
@@ -230,7 +230,7 @@ struct HeroCard: View {
             Group {
                 switch source {
                 case .own(let flight): FlightRowCard(flight: flight)
-                case .friend(let item, _): FriendFlightRow(item: item)
+                case .friend(let item, _): FriendFlightRow(group: item)
                 case .invite(let item, _):
                     TripInviteCard(item: item, onOpen: { _ in }, onAccept: {}, onDecline: {})
                 }
