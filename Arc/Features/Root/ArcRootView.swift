@@ -919,6 +919,10 @@ struct ArcRootView: View {
                                             to: heroDestination.map(local) ?? fallback(geo.size, from.height)))
             }
             .allowsHitTesting(false)
+            // A picture of the card in motion, not a second copy of its
+            // buttons and labels: VoiceOver and UI queries see the real row
+            // and header only.
+            .accessibilityHidden(true)
         }
     }
 
