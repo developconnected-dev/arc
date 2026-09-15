@@ -159,7 +159,7 @@ final class MapController {
 
     /// Frame the camera to fit all given flights' routes — in the visible
     /// upper half, since a sheet always owns the bottom of every page.
-    func fitAll(_ flights: [Flight], padding: Double = 1.25) {
+    func fitAll(_ flights: [Flight], padding: Double = 1.25, band: MapBand = .upperHalf) {
         var coords: [CLLocationCoordinate2D] = []
         for f in flights where f.departureLat != 0 && f.arrivalLat != 0 {
             coords.append(.init(latitude: f.departureLat, longitude: f.departureLon))
@@ -168,13 +168,13 @@ final class MapController {
         if coords.isEmpty {
             position = .automatic
         } else {
-            frameInUpperHalf(coords, padding: padding)
+            frame(coords, band: band, padding: padding)
         }
     }
 
     /// Frame the camera on a single flight's route (detail sheet at medium
     /// covers the lower half — the arc goes above it).
-    func focus(on flight: Flight, animated: Bool = true) {
+    func focus(on flight: Flight, band: MapBand = .upperHalf, animated: Bool = true) {
         // Frame what will actually be DRAWN. A routed leg can bulge far outside
         // the arc between its endpoints — an ICE from München to Hamburg reaches
         // Berlin, 2° east of either — so framing the arc would crop the very
@@ -184,16 +184,28 @@ final class MapController {
         // a flight's arc, but a train's or a sailing's straight ground line —
         // the arc between two stations peaks degrees north of a long
         // east–west leg, and framing it put the real line low in the frame.
-        frameInUpperHalf(RouteReveal.geometry(for: flight), padding: 1.3, animated: animated)
+        frame(RouteReveal.geometry(for: flight), band: band, padding: 1.3, animated: animated)
     }
 
     /// Frame `coords` in the UPPER half of the screen — for content shown
-    /// above a half-screen sheet. In portrait the LONGITUDE span usually
-    /// decides the zoom MapKit actually shows, so the vertical shift must be
-    /// computed from the EFFECTIVE displayed latitude span, not the fitted
-    /// one — a plain latitude offset gets swallowed whole.
+    /// above a half-screen sheet.
     func frameInUpperHalf(_ coords: [CLLocationCoordinate2D], padding: Double = 1.25, animated: Bool = true) {
-        guard var region = GeoMath.region(fitting: coords, paddingFactor: padding) else { return }
+        frame(coords, band: .upperHalf, padding: padding, animated: animated)
+    }
+
+    /// Frame `coords` inside `band`, the part of the screen nothing covers.
+    func frame(_ coords: [CLLocationCoordinate2D], band: MapBand, padding: Double = 1.25, animated: Bool = true) {
+        guard let region = Self.region(fitting: coords, band: band, padding: padding) else { return }
+        withAnimation(animated ? .easeInOut(duration: 0.8) : nil) { position = .region(region) }
+    }
+
+    /// In portrait the LONGITUDE span usually decides the zoom MapKit
+    /// actually shows, so the vertical placement is computed from the
+    /// EFFECTIVE displayed latitude span, not the fitted one — a plain
+    /// latitude offset gets swallowed whole.
+    nonisolated static func region(fitting coords: [CLLocationCoordinate2D], band: MapBand,
+                                   padding: Double) -> MKCoordinateRegion? {
+        guard var region = GeoMath.region(fitting: coords, paddingFactor: padding) else { return nil }
         let portraitAspect = 2.16   // full-screen map height / width
         let latScale = max(0.2, cos(region.center.latitude * .pi / 180))
         // Capped: a transatlantic longitude span would otherwise demand an
@@ -201,9 +213,12 @@ final class MapController {
         // routes get best-effort placement instead.
         let effectiveLat = min(70, max(region.span.latitudeDelta,
                                        region.span.longitudeDelta * portraitAspect * latScale))
-        region.span.latitudeDelta = min(160, effectiveLat * 2.0)
-        region.center.latitude = max(-75, min(75, region.center.latitude - effectiveLat / 2))
-        withAnimation(animated ? .easeInOut(duration: 0.8) : nil) { position = .region(region) }
+        let visible = max(0.2, band.bottom - band.top)
+        let span = min(160, effectiveLat / visible)
+        let bandCentre = (band.top + band.bottom) / 2
+        region.span.latitudeDelta = span
+        region.center.latitude = max(-75, min(75, region.center.latitude - (0.5 - bandCentre) * span))
+        return region
     }
 
     // MARK: - The add / import moment
