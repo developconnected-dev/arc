@@ -47,6 +47,16 @@ final class MyTripsLayoutTests: XCTestCase {
         XCTAssertEqual(old.panelBottom, old.listBottom)
     }
 
+    /// With no trips, iOS 26.1 hides the accessory: the empty-state card sits
+    /// on the tab bar instead of floating 56 pt above an empty slot.
+    func testListReservesTheAccessoryOnlyWhileItShows() {
+        let empty = MyTripsLayout(size: CGSize(width: 402, height: 874), safeTop: 62, tabBarClearance: 83,
+                                  listClearsAccessory: false)
+        XCTAssertEqual(empty.listBottom, 874 - 83 - 8)
+        XCTAssertEqual(empty.listBottom, layout.listBottom + MyTripsLayout.accessoryHeight)
+        XCTAssertEqual(empty.panelBottom, layout.panelBottom)
+    }
+
     func testGroundViewsOnlyEverLowerThePanel() {
         XCTAssertEqual(layout.panelTopForGroundView(current: 200, headerHeight: 200),
                        layout.panelOpeningTop(headerHeight: 200))

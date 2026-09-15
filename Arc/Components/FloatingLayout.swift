@@ -17,7 +17,8 @@ struct MyTripsLayout: Equatable {
     static let panelMargin: CGFloat = 12
     static let gap: CGFloat = 8
     static let control: CGFloat = 44
-    /// The "Add a trip" accessory above the tab bar, measured on device (Task 9).
+    /// The "Add a trip" accessory above the tab bar, measured on the simulator
+    /// (bottom inset 139 with it, 83 without).
     static let accessoryHeight: CGFloat = 56
     static let panelOpeningFraction: CGFloat = 0.58
     /// The panel's drag strip as laid out: `BottomSheet`'s 50 pt zone less the
@@ -31,6 +32,9 @@ struct MyTripsLayout: Equatable {
     let tabBarClearance: CGFloat
     /// iOS 26.1 can switch the accessory off while a detail is open; 26.0 cannot.
     var accessoryHidesForDetail: Bool = true
+    /// Whether the accessory is on screen under the cards. With no trips,
+    /// iOS 26.1 hides it, and the list sits on the tab bar instead.
+    var listClearsAccessory: Bool = true
 
     // MARK: Top row
 
@@ -40,7 +44,9 @@ struct MyTripsLayout: Equatable {
     // MARK: Cards
 
     /// So the list area is never negative.
-    var listBottom: CGFloat { max(unfoldedListTop, size.height - tabBarClearance - Self.accessoryHeight - Self.gap) }
+    var listBottom: CGFloat {
+        max(unfoldedListTop, size.height - tabBarClearance - (listClearsAccessory ? Self.accessoryHeight : 0) - Self.gap)
+    }
     /// Below the top row and the Show Less / recenter row.
     var unfoldedListTop: CGFloat { topBarBottom + Self.gap + Self.control + Self.gap }
 
