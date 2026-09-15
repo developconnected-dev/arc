@@ -19,8 +19,13 @@ struct ArcRootView: View {
     /// My Trips floats over the map (docs/superpowers/specs/2026-09-15-floating-trips-design.md).
     /// `-sheetLarge` still means "show everything": UI tests start unfolded.
     @State private var tripsFolded = !ProcessInfo.processInfo.arguments.contains("-sheetLarge")
-    @State private var tripsRestShown = ProcessInfo.processInfo.arguments.contains("-sheetLarge")
-    @State private var tripsFoldedHeight: CGFloat = 0
+    /// The journey the folded stack is on (docs/superpowers/specs/2026-09-15-journey-stack-design.md).
+    @State private var tripsPage = 0
+    /// The root reads its `settledHeight` only; `liveRise` belongs to leaves.
+    @State private var tripsStackMotion = JourneyStackMotion()
+    @State private var tripsFlipRequest: Int?
+    /// The invites (and error) above the stack, with the gap under them.
+    @State private var tripsChromeHeight: CGFloat = 0
     /// The whole stack's height, every journey included: an unfolded stack
     /// grows up from the bottom only this far.
     @State private var tripsContentHeight: CGFloat = 0
@@ -752,7 +757,11 @@ struct ArcRootView: View {
     private func heroRowOrigin(_ key: String, onTrips: Bool) -> CGRect? {
         guard let rect = heroFrames.rows[key] else { return nil }
         guard onTrips, let layout = tripsLayout else { return rect }
-        let shown = (layout.listTop(folded: tripsFolded, foldedHeight: tripsFoldedHeight, contentHeight: tripsContentHeight) - 1)...(layout.listBottom + 1)
+        // The live top: mid-swipe the stack's edge is off its resting place.
+        // (Opening mid-swipe can't happen — taps are off while holding.)
+        let top = layout.listTop(folded: tripsFolded, foldedHeight: tripsFoldedHeight, contentHeight: tripsContentHeight)
+            - tripsStackMotion.liveRise
+        let shown = (min(top, layout.listBottom) - 1)...(layout.listBottom + 1)
         return shown.contains(rect.minY) && shown.contains(rect.maxY) ? rect : nil
     }
 
@@ -1012,6 +1021,10 @@ struct ArcRootView: View {
         if #available(iOS 26.1, *) { return true } else { return false }
     }
 
+    /// The folded overlay's height: what sits above the stack plus the
+    /// current journey's card at rest. Changes once per settle, not per frame.
+    private var tripsFoldedHeight: CGFloat { tripsChromeHeight + tripsStackMotion.settledHeight }
+
     /// My Trips: no sheet. The map fills the screen, the trips float over it
     /// as glass cards, and a trip opens in a glass panel the row glides into.
     private var myTripsSurface: some View {
@@ -1047,8 +1060,10 @@ struct ArcRootView: View {
                                           // Only the pill folds, and it is gone with one journey left.
                                           if count <= 1, !tripsFolded { setTripsFolded(true) }
                                       },
+                                      page: tripsPage,
                                       onDetailSettled: learnHeaderWithoutGlide,
-                                      onFirstFrame: refitTripsForFirstFrame))
+                                      onFirstFrame: refitTripsForFirstFrame,
+                                      onPageSettled: focusTripsJourney))
     }
 
     /// The tab bar's reach without the accessory, from an inset that
@@ -1130,8 +1145,9 @@ struct ArcRootView: View {
                                        finish: finishTransition))
     }
 
-    /// Placed by offset and revealed by a mask, never resized: a fold
-    /// animates two render properties, not the scroll view's layout.
+    /// A fixed frame from the unfolded top to the bottom edge, revealed by a
+    /// mask whose top edge is the only thing a fold or a swipe moves: render
+    /// properties, never the scroll view's layout.
     private func tripsList(_ layout: MyTripsLayout, listTop: CGFloat, detailOpen: Bool) -> some View {
         MyFlightsView(onSelect: { openDetail($0) },
                       onAdd: { showAdd = true },
@@ -1140,21 +1156,25 @@ struct ArcRootView: View {
                       landed: landedTrips,
                       folded: tripsFolded,
                       revealing: controller.isRevealingRoutes,
-                      onContentHeight: { tripsContentHeight = $0 })
-            .frame(width: layout.size.width, height: layout.listBottom - layout.unfoldedListTop, alignment: .top)
-            // 6 pt of slack so the folded card's glass rim is never clipped;
-            // less than the 10 pt gap, so the next card never peeks.
-            .mask(alignment: .top) {
-                Rectangle().frame(height: max(0, layout.listBottom - listTop + 6))
-            }
-            // Masked cards still hit-test: only what shows may take a touch,
-            // so the accessory and tab bar below a folded stack stay tappable.
-            .contentShape(.interaction, TopSlice(height: layout.listBottom - listTop + 6))
-            .offset(y: listTop)
+                      onContentHeight: { tripsContentHeight = $0 },
+                      page: $tripsPage,
+                      motion: tripsStackMotion,
+                      flipRequest: tripsFlipRequest,
+                      onFlipRequestHandled: { tripsFlipRequest = nil },
+                      onChromeHeight: { tripsChromeHeight = $0 },
+                      topSpacer: layout.contentTopSpacer(contentHeight: tripsContentHeight),
+                      onRevealJourney: { tripsFlipRequest = $0 })
+            // The rim's slack below the bottom edge, inside the frame, so the
+            // bottom card's glass is never clipped.
+            .frame(width: layout.size.width, height: layout.listBottom - layout.unfoldedListTop + MyFlightsView.rim, alignment: .top)
+            .modifier(TripsListReveal(motion: tripsStackMotion, visibleHeight: layout.listBottom - listTop))
+            .offset(y: layout.unfoldedListTop)
             .modifier(SidePresence(side: .list, progress: detailTab == .myFlights && tab == .myFlights ? heroProgress : 0))
-            .modifier(UntilMeasured(measured: tripsFoldedHeight > 0 && tripsContentHeight > 0))
+            .modifier(UntilMeasured(measured: tripsStackMotion.settledHeight > 0 && tripsContentHeight > 0))
             .allowsHitTesting(!detailOpen)
-            .accessibilityHidden(detailOpen)
+            // Hides, never un-hides: an explicit `false` out here would
+            // outrank the list's and the stack's own hides.
+            .accessibilityHidden(true, isEnabled: detailOpen)
             .offset(y: showAdd ? 1500 : 0)
             .animation(reduceMotion ? nil : .spring(duration: 0.45), value: showAdd)
     }
@@ -1190,8 +1210,9 @@ struct ArcRootView: View {
         .padding(.horizontal, MyTripsLayout.margin)
         .frame(width: layout.size.width, height: MyTripsLayout.control)
         .offset(y: layout.pillRowY(listTop: listTop))
+        .modifier(RidesStackEdge(motion: tripsStackMotion))
         .modifier(SidePresence(side: .list, progress: detailTab == .myFlights && tab == .myFlights ? heroProgress : 0))
-        .modifier(UntilMeasured(measured: tripsFoldedHeight > 0 && tripsContentHeight > 0))
+        .modifier(UntilMeasured(measured: tripsStackMotion.settledHeight > 0 && tripsContentHeight > 0))
         .allowsHitTesting(!detailOpen)
         .accessibilityHidden(detailOpen)
         .offset(y: showAdd ? 1500 : 0)
@@ -1233,26 +1254,34 @@ struct ArcRootView: View {
         .offset(y: showAdd ? 1500 : 0)
     }
 
-    /// Folding and unfolding ride one spring. Cards past the next journey
-    /// are always laid out (so the unfolded height is known before any
-    /// unfold), and take touches and VoiceOver from the moment an unfold
-    /// starts until a fold has closed over them. The camera reframes only
-    /// once a fold has settled — never two movements at once.
-    private func setTripsFolded(_ folded: Bool, then: (() -> Void)? = nil) {
-        guard folded != tripsFolded else { then?(); return }
-        if !folded { tripsRestShown = true }
+    /// Folding and unfolding ride one spring; only the list's mask and the
+    /// pill row move (the list scrolls itself around the current journey
+    /// first). The camera reframes only once a fold has settled — never two
+    /// movements at once.
+    private func setTripsFolded(_ folded: Bool) {
+        guard folded != tripsFolded else { return }
         withAnimation(reduceMotion ? nil : ArcTheme.fold, completionCriteria: .logicallyComplete) {
             tripsFolded = folded
         } completion: {
-            guard tripsFolded == folded else { return }
-            if folded {
-                tripsRestShown = false
-                // The one-journey fold can run under an open detail, whose
-                // trip owns the camera.
-                if detailFlight == nil { applyCameraForCurrentTab() }
-            }
-            then?()
+            guard tripsFolded == folded, folded else { return }
+            // The one-journey fold can run under an open detail, whose
+            // trip owns the camera.
+            if detailFlight == nil { applyCameraForCurrentTab() }
         }
+    }
+
+    /// The map follows the stack: once a flip has settled (debounced across
+    /// quick flips by the hook), frame the current journey's routes in the
+    /// band above the folded stack. Recenter and a fold still fit every trip.
+    private func focusTripsJourney() {
+        guard tab == .myFlights, tripsFolded, detailFlight == nil, !controller.isRevealingRoutes,
+              let layout = tripsLayout else { return }
+        let journeys = MyFlightsView.journeys(Array(allFlights))
+        guard journeys.indices.contains(tripsPage) else { return }
+        let coords = journeys[tripsPage].legs.flatMap { RouteReveal.geometry(for: $0) }
+        guard !coords.isEmpty else { return }
+        let coverTop = layout.listTop(folded: true, foldedHeight: tripsFoldedHeight, contentHeight: tripsContentHeight)
+        controller.frame(coords, band: layout.band(coverTop: coverTop), padding: 1.3, animated: !reduceMotion)
     }
 
     private func recenterOnDetail() {
@@ -1410,10 +1439,14 @@ private struct MyTripsSurfaceHooks: ViewModifier {
     /// The layout exists and the folded stack has reported its height.
     let firstFrameReady: Bool
     let onJourneyCount: (Int) -> Void
+    /// The folded stack's journey.
+    let page: Int
     let onDetailSettled: () async -> Void
     let onFirstFrame: () -> Void
+    let onPageSettled: () -> Void
 
     @State private var framed = false
+    @State private var pageFocus: Task<Void, Never>?
 
     func body(content: Content) -> some View {
         content
@@ -1427,6 +1460,34 @@ private struct MyTripsSurfaceHooks: ViewModifier {
                 framed = true
                 onFirstFrame()
             }
+            // A change, not a `.task(id:)`: that would also run on launch and
+            // whenever the tab reappears, pulling the camera off the fit.
+            .onChange(of: page) { _, _ in
+                pageFocus?.cancel()
+                pageFocus = Task { @MainActor in
+                    // Quick flips move the camera once, after the last.
+                    try? await Task.sleep(for: .milliseconds(350))
+                    guard !Task.isCancelled else { return }
+                    onPageSettled()
+                }
+            }
+    }
+}
+
+/// The list's mask and hit area, opening from the bottom: its top edge sits
+/// at `listTop` plus whatever the stack's live rise adds mid-swipe, with the
+/// rim's slack above and below. Reads `liveRise` here, in a leaf, so a swipe
+/// never re-evaluates the root. The shape keeps the map above pannable and
+/// the accessory and tab bar below tappable.
+private struct TripsListReveal: ViewModifier {
+    let motion: JourneyStackMotion
+    /// `listBottom - listTop`, at rest.
+    let visibleHeight: CGFloat
+    func body(content: Content) -> some View {
+        let h = max(0, visibleHeight + motion.liveRise + 2 * MyFlightsView.rim)
+        content
+            .mask(alignment: .bottom) { Rectangle().frame(height: h) }
+            .contentShape(.interaction, BottomSlice(height: h))
     }
 }
 

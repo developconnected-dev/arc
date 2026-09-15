@@ -156,8 +156,9 @@ extension EnvironmentValues {
         set { self[HeroTravellingKey.self] = newValue }
     }
     /// False on a copy of the rows that is laid out but not the one showing
-    /// (My Trips' folded stack and its unfolded list hold the same cards):
-    /// a key reports its frame from one place at a time.
+    /// (My Trips' folded stack and its unfolded list hold the same cards, the
+    /// stack parks its neighbours off-frame): a key reports its frame from
+    /// one place at a time, and the hidden copy leaves VoiceOver.
     var heroReports: Bool {
         get { self[HeroReportsKey.self] }
         set { self[HeroReportsKey.self] = newValue }
@@ -179,7 +180,9 @@ private struct HeroReporter: ViewModifier {
             .compositingGroup()
             .opacity(travelling == key ? 0 : 1)
             .animation(nil, value: travelling == key)
-            .accessibilityHidden(travelling == key)
+            // Also hidden on a copy that isn't the one showing. `isEnabled`,
+            // not `hidden: false`: an explicit false outranks a hide further out.
+            .accessibilityHidden(true, isEnabled: travelling == key || !reports)
             // nil while this copy isn't the one showing; turning it back on
             // changes the value, so it reports again at once.
             .onGeometryChange(for: CGRect?.self) { reports ? $0.frame(in: .global) : nil } action: { rect in

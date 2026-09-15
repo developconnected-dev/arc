@@ -217,7 +217,9 @@ struct MyFlightsView: View {
         .animation(fade) { $0.opacity(folded ? 0 : 1) }
         .modifier(UnfoldRise(progress: folded ? 0 : 1, shift: unfoldShift))
         .allowsHitTesting(!folded)
-        .accessibilityHidden(folded)
+        // `isEnabled`: an explicit `hidden: false` would outrank the hides
+        // inside (the stack's parked neighbours).
+        .accessibilityHidden(true, isEnabled: folded)
         .environment(\.heroReports, !folded)
     }
 
@@ -225,7 +227,27 @@ struct MyFlightsView: View {
 
     /// Invites (they need an answer) over the journey stack, or the empty
     /// state, sitting on the bottom edge. Shows only while folded.
+    ///
+    /// In a ScrollView that never scrolls or clips: a hide on a plain SwiftUI
+    /// container here still left its buttons queryable (UI tests found the
+    /// stack's rows twice once unfolded); a hide on a scroll view takes its
+    /// whole content out, as it does for the list.
     private func foldedOverlay(_ journeys: [TripJourney]) -> some View {
+        ScrollView {
+            overlayContent(journeys)
+        }
+        .scrollDisabled(true)
+        .scrollClipDisabled()
+        .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
+        .defaultScrollAnchor(.bottom, for: .alignment)
+        .animation(fade) { $0.opacity(folded ? 1 : 0) }
+        .allowsHitTesting(folded)
+        .accessibilityHidden(true, isEnabled: !folded)
+        .environment(\.heroReports, folded)
+    }
+
+    private func overlayContent(_ journeys: [TripJourney]) -> some View {
         VStack(spacing: 0) {
             if hasChrome {
                 VStack(spacing: 10) { chromeItems }
@@ -250,10 +272,6 @@ struct MyFlightsView: View {
         .onChange(of: hasChrome, initial: true) { _, has in
             if !has { onChromeHeight(0) }
         }
-        .animation(fade) { $0.opacity(folded ? 1 : 0) }
-        .allowsHitTesting(folded)
-        .accessibilityHidden(!folded)
-        .environment(\.heroReports, folded)
     }
 
     private var hasChrome: Bool {
