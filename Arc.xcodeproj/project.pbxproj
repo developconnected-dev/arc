@@ -147,7 +147,9 @@
 		F08E95C26CD44564F9355085 /* FlightClockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C765B4C7F004CEE0999A88B /* FlightClockTests.swift */; };
 		F426D81F00E9F6FAF3A09D17 /* BackgroundFlightUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = D055CC753814BAE54C3C7094 /* BackgroundFlightUpdater.swift */; };
 		F4EF39911CBB7F824BE309E4 /* FriendAvatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B473AA396AFB87F8FA33DBD /* FriendAvatar.swift */; };
+		F7B358F50A654FDD7B6C8809 /* TripJourneyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4C9490502E6959A58D724AD /* TripJourneyTests.swift */; };
 		F7FB1ADA70699CF04534CC8E /* LiveActivityAvatarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DED11A1E25ADE83A8C977857 /* LiveActivityAvatarStore.swift */; };
+		FA8E75916E0F5EBE5D6ACFFB /* TripJourney.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EBD3AA871F0E5B1559FDF42 /* TripJourney.swift */; };
 		FD48EDF02229BF53B07CF93B /* NextFlightWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888B0D037817C14E4AF0BAB7 /* NextFlightWidget.swift */; };
 		FD537E7E31AD3CED3486E4D2 /* FlightTrackerRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC56B047A7FA3AF25847CCF /* FlightTrackerRefreshTests.swift */; };
 		FF28A915F2E461B6A44D4F3A /* FlightDisplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64047F33627992F4D8030E71 /* FlightDisplayTests.swift */; };
@@ -231,6 +233,7 @@
 		3982B16A2E83D23E09279400 /* InboundSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboundSelectionTests.swift; sourceTree = "<group>"; };
 		3B473AA396AFB87F8FA33DBD /* FriendAvatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendAvatar.swift; sourceTree = "<group>"; };
 		3BF7D3153A1277104EAE2B7C /* TaxiCameraTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaxiCameraTests.swift; sourceTree = "<group>"; };
+		3EBD3AA871F0E5B1559FDF42 /* TripJourney.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripJourney.swift; sourceTree = "<group>"; };
 		45CDEF12D33E504034C15720 /* Airport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Airport.swift; sourceTree = "<group>"; };
 		4864581CF99C026C4AB5136F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		4B59DFF600FEDEB5C44BEED7 /* FlightActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightActivityAttributes.swift; sourceTree = "<group>"; };
@@ -306,6 +309,7 @@
 		C3B41C8E240118941DEB4492 /* TakeoffSensor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeoffSensor.swift; sourceTree = "<group>"; };
 		C3BA60104125C5743ECF86F8 /* InboundMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboundMonitor.swift; sourceTree = "<group>"; };
 		C433BF55903F358E2E698EA5 /* TripOpeningTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripOpeningTests.swift; sourceTree = "<group>"; };
+		C4C9490502E6959A58D724AD /* TripJourneyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripJourneyTests.swift; sourceTree = "<group>"; };
 		C6B0AA5B39E6C21E26E17DE7 /* AddFlightView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddFlightView.swift; sourceTree = "<group>"; };
 		C8B050595CEBC559BB3F8B48 /* FlightQueryParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightQueryParserTests.swift; sourceTree = "<group>"; };
 		C966E39F13C47E5E918B92FA /* BookingExtractorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookingExtractorTests.swift; sourceTree = "<group>"; };
@@ -603,6 +607,7 @@
 				BE81C439079799A2214E528E /* JourneyBriefView.swift */,
 				A99FE65B13FFE0D0203987D5 /* MyFlightsView.swift */,
 				30B769750EA0E60EEC3EC42F /* TripInviteCard.swift */,
+				3EBD3AA871F0E5B1559FDF42 /* TripJourney.swift */,
 			);
 			path = Flights;
 			sourceTree = "<group>";
@@ -649,6 +654,7 @@
 				4D6A8161E48E0795CCD97AA8 /* TakeoffWakePlannerTests.swift */,
 				3BF7D3153A1277104EAE2B7C /* TaxiCameraTests.swift */,
 				2AAA85683251E0048E5FBC31 /* TripInviteTests.swift */,
+				C4C9490502E6959A58D724AD /* TripJourneyTests.swift */,
 				99C658BC80584432FD6E1A9E /* TripModeTests.swift */,
 				F45D27D7E0071E6FF887F273 /* TripTransitionTests.swift */,
 			);
@@ -854,6 +860,7 @@
 				9804DBD568E519C659E7EF98 /* TakeoffWakePlannerTests.swift in Sources */,
 				8F71B31BFA1A05112FD005B3 /* TaxiCameraTests.swift in Sources */,
 				E2AC5D165AA0A0A30D638EB2 /* TripInviteTests.swift in Sources */,
+				F7B358F50A654FDD7B6C8809 /* TripJourneyTests.swift in Sources */,
 				08856F19B11FB2609AFA1106 /* TripModeTests.swift in Sources */,
 				04DD829801E63E78529FE037 /* TripTransitionTests.swift in Sources */,
 			);
@@ -945,6 +952,7 @@
 				CF6320F47EB82BD75EA23A56 /* TravelCompanionsSheet.swift in Sources */,
 				9A778312A6938772C45A9838 /* TripInviteCard.swift in Sources */,
 				3ECCF6ABE970433007FAB23D /* TripInvites.swift in Sources */,
+				FA8E75916E0F5EBE5D6ACFFB /* TripJourney.swift in Sources */,
 				C0DE555A6BBA8CA7E40648A8 /* TripLogoView.swift in Sources */,
 				B898832B7AC151BC27E0C6FD /* TripMode.swift in Sources */,
 				1C559836F01ABDAEE24BF010 /* TripTransition.swift in Sources */,
