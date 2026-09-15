@@ -16,7 +16,15 @@ struct ArcRootView: View {
         : ProcessInfo.processInfo.arguments.contains("-tabFriends") ? .friends : .myFlights
     @State private var detent: SheetDetent = ProcessInfo.processInfo.arguments.contains("-sheetLarge") ? .large : .medium
     @State private var showAdd = false
-    @State private var didSetInitialDetent = false
+    /// My Trips floats over the map (docs/superpowers/specs/2026-09-15-floating-trips-design.md).
+    /// `-sheetLarge` still means "show everything": UI tests start unfolded.
+    @State private var tripsFolded = !ProcessInfo.processInfo.arguments.contains("-sheetLarge")
+    @State private var tripsRestShown = ProcessInfo.processInfo.arguments.contains("-sheetLarge")
+    @State private var tripsFoldedHeight: CGFloat = 0
+    @State private var tripsLayout: MyTripsLayout?
+    /// The detail panel's settled top edge; nil opens at 58 %.
+    @State private var panelTop: CGFloat?
+    @State private var panelHeaderHeight: CGFloat = 260
     @State private var detailFlight: Flight?
     @State private var heroFrames = HeroFrames()
     @State private var heroTravelling: HeroSource?
@@ -213,7 +221,6 @@ struct ArcRootView: View {
             // either side of this view's construction, so drain here as well as
             // on `.arcOpenFlight`: whichever happens second finds it.
             drainPendingOpen()
-            prepareInitialSheet()
             DemoSeed.seedIfRequested(into: modelContext, existing: allFlights)
             DemoSeed.seedStuckFlightIfRequested(into: modelContext, existing: allFlights)
             DemoSeed.startDemoLiveActivityIfRequested()
@@ -237,17 +244,14 @@ struct ArcRootView: View {
         // Start on the next turn after the card handoff, never during its travel.
         await Task.yield()
         guard !Task.isCancelled, mapFocusID == id, detailFlight?.id == id else { return }
-        controller.focus(on: flight, animated: !reduceMotion)
+        if detailTab == .myFlights, let layout = tripsLayout {
+            controller.focus(on: flight, band: layout.band(coverTop: panelTop ?? layout.panelOpeningTop(headerHeight: panelHeaderHeight)),
+                             animated: !reduceMotion)
+        } else {
+            controller.focus(on: flight, animated: !reduceMotion)
+        }
         if let friend = detailFriend {
             await FriendsStore.shared.refreshLive(friend, updating: flight)
-        }
-    }
-
-    private func prepareInitialSheet() {
-        guard !didSetInitialDetent else { return }
-        didSetInitialDetent = true
-        if allFlights.isEmpty, !DemoSeed.isRequested, tab == .myFlights {
-            detent = .large
         }
     }
 
@@ -338,6 +342,13 @@ struct ArcRootView: View {
             if !coords.isEmpty { controller.frameInUpperHalf(coords) }
             return
         }
+        if tab == .myFlights, let layout = tripsLayout {
+            // Framed for the folded stack: unfolded, the cards cover the map
+            // anyway, and the fold refits once it has settled.
+            let coverTop = layout.listTop(folded: true, foldedHeight: tripsFoldedHeight)
+            controller.fitAll(mapFlights, padding: 1.25, band: layout.band(coverTop: coverTop))
+            return
+        }
         controller.fitAll(mapFlights, padding: tab == .passport ? 1.5 : 1.25)
     }
 
@@ -423,7 +434,7 @@ struct ArcRootView: View {
             }
             guard !Task.isCancelled, detailFlight?.id == flight.id else { return }
             controller.showGate(lat: target.lat, lon: target.lon, label: target.label)
-            withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.88)) { detent = .medium }
+            lowerPanelForGroundView()
             if watching { startPlaneWatch(flight) }
         }
     }
@@ -450,11 +461,20 @@ struct ArcRootView: View {
                     highlighted: $0.ref == matched?.ref)
             }
             controller.showAirport(iata: iata, name: name, lat: lat, lon: lon, gates: gates)
-            withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.88)) { detent = .medium }
+            lowerPanelForGroundView()
             // The terminal map used to draw the gates and then sit there. The
             // aircraft is the reason you opened it.
             startPlaneWatch(flight)
         }
+    }
+
+    /// Terminal map / My plane need the map: a panel dragged taller than
+    /// its opening height comes back down, in the spring the camera dives with.
+    private func lowerPanelForGroundView() {
+        guard let layout = tripsLayout else { return }
+        let lowered = layout.panelTopForGroundView(current: panelTop ?? layout.panelOpeningTop(headerHeight: panelHeaderHeight),
+                                                   headerHeight: panelHeaderHeight)
+        withAnimation(reduceMotion ? nil : ArcTheme.panelSettle) { panelTop = lowered }
     }
 
     /// Follows the aircraft while either ground view is open.
@@ -515,31 +535,6 @@ struct ArcRootView: View {
                 try? await Task.sleep(for: .seconds(8))
             }
         }
-    }
-
-    private var activeFlight: Flight? { allFlights.first { $0.isActive } }
-
-    private func speedAltPill(_ f: Flight) -> some View {
-        HStack(spacing: 14) {
-            if let s = f.liveSpeed {
-                Label("\(Int(s * 3.6)) km/h", systemImage: "speedometer")
-                    .labelStyle(.titleAndIcon)
-            }
-            if let a = f.liveAltitude {
-                Label(altString(a), systemImage: "arrow.up.to.line")
-                    .labelStyle(.titleAndIcon)
-            }
-        }
-        .font(.system(size: 14, weight: .semibold))
-        .foregroundStyle(.primary)
-        .padding(.horizontal, 14).padding(.vertical, 8)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().stroke(Color(.separator).opacity(0.4), lineWidth: 0.5))
-    }
-
-    private func altString(_ meters: Double) -> String {
-        let f = NumberFormatter(); f.groupingSeparator = "'"; f.numberStyle = .decimal; f.maximumFractionDigits = 0
-        return (f.string(from: NSNumber(value: meters)) ?? "\(Int(meters))") + " m"
     }
 
     /// A tap that arrived while SwiftData was still loading is retried rather
@@ -680,6 +675,7 @@ struct ArcRootView: View {
         mapFocusID = nil
         detailTab = tab
         detailFlight = flight
+        panelTop = nil
         if reduceMotion || replacing {
             transition.settle(detail: true)
             heroTravelling = nil
@@ -697,7 +693,16 @@ struct ArcRootView: View {
     private func prepareTransition(_ id: UUID) {
         guard transition.request?.id == id else { return }
         if let source = heroTravelling {
-            heroDestination = heroFrames.details[source.key]
+            let measured = heroFrames.details[source.key]
+            // The opening height depends on the header, so learn it BEFORE the
+            // glide aims — learnt at the landing, the panel would re-clamp
+            // and jump just as the card arrives.
+            if detailTab == .myFlights, let measured { panelHeaderHeight = measured.height }
+            // The floating panel is still risen by the rest of its rise when
+            // the header reports; aim for where it will settle.
+            heroDestination = detailTab == .myFlights
+                ? measured.map { Morph.settledFrame($0, progress: heroProgress) }
+                : measured
         }
     }
 
@@ -713,6 +718,8 @@ struct ArcRootView: View {
             detailTab = nil
             presentQueuedDetail()
         } else {
+            let key = detailFriendGroup?.id ?? detailInvite?.id ?? detailFlight?.id.uuidString
+            if let key, let header = heroFrames.details[key] { panelHeaderHeight = header.height }
             heroProgress = 1
             mapFocusID = detailFlight?.id
         }
@@ -771,13 +778,7 @@ struct ArcRootView: View {
     private var tabs: some View {
         TabView(selection: $tab) {
                 Tab(ArcTab.myFlights.title, systemImage: ArcTab.myFlights.icon, value: ArcTab.myFlights) {
-                    tabSurface(.myFlights) {
-                        MyFlightsView(onSelect: { openDetail($0) },
-                                      onAdd: { showAdd = true },
-                                      onImported: { imported in revealTrips([imported]) },
-                                      onPreview: { item, flight in openInvitePreview(item, flight) },
-                                      landed: landedTrips)
-                    }
+                    myTripsSurface
                 }
                 // Trips friends added for the two of you, waiting on an answer.
                 .badge(friendsStore.tripInvites.count)
@@ -792,8 +793,7 @@ struct ArcRootView: View {
         // The old circular search button competed with the tab bar for the same
         // corner. The accessory is the native slot for a persistent primary
         // action, and it doubles as the home for the paste offer.
-        .modifier(JourneyAccessory(isEnabled: tab != .myFlights || !allFlights.isEmpty,
-                                   accessory: bottomAccessory))
+        .modifier(JourneyAccessory(isEnabled: tripsAccessoryEnabled, accessory: bottomAccessory))
     }
 
     /// Everything that belongs to the map, built once behind the tabs.
@@ -803,63 +803,37 @@ struct ArcRootView: View {
                        friendOverlays: tab == .friends ? friendsStore.mapOverlays : [])
                 .ignoresSafeArea()
 
-            // Hidden in the ground views: it collided with the Back button, and
-            // at the gate the interesting thing is where the aircraft is on the
-            // apron, not its cruise speed.
-            // …and only while the fix is fresh: a speed from a position hours
-            // old is not the plane's speed now.
-            if tab != .friends, controller.airportView == nil, controller.gateMarker == nil,
-               let active = activeFlight,
-               active.liveSpeed != nil || active.liveAltitude != nil,
-               let at = active.liveUpdatedAt, Date.now.timeIntervalSince(at) < 15 * 60 {
-                speedAltPill(active).padding(.top, 6)
-            }
-
-            MapControls(controller: controller) { controller.fitAll(mapFlights) }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.trailing, 12).padding(.top, 8)
-
-            // Lives here rather than as an overlay on the Map: the map ignores
-            // the safe area, so a top-aligned overlay on it landed under the
-            // notch, unreachable — which also meant it could never be tapped
-            // away. Here it sits inside the safe area, like the map controls.
-            if controller.gateMarker != nil || controller.airportView != nil {
-                Button { controller.clearGateMarker() } label: {
-                    Label(controller.airportView.map { "Back · \($0.iata)" } ?? "Back",
-                          systemImage: "chevron.left")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 14).padding(.vertical, 9)
-                        .glassEffect(.regular.interactive(), in: .capsule)
-                }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 12).padding(.top, 8)
+            // My Trips carries map style and weather in its top row's menu and
+            // recenter above its cards (MapTopBar); the sheet tabs keep the column.
+            if tab != .myFlights {
+                MapControls(controller: controller) { controller.fitAll(mapFlights) }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.trailing, 12).padding(.top, 8)
             }
         }
     }
 
-    /// Each tab shows the same draggable sheet over the shared map — the detent
-    /// is shared state, so the height carries across tabs exactly as before.
-    /// The sheet still slides away while a detail or add sheet is up, so two
-    /// sheets are never stacked.
     /// The travelling copy of the tapped row, placed between where the list
     /// row is and where the detail's card is. Nothing while nothing travels.
-    @ViewBuilder private var heroOverlay: some View {
+    @ViewBuilder
+    private func heroOverlay(glass: Bool, fallback: @escaping (CGSize, CGFloat) -> CGRect) -> some View {
         if let source = heroTravelling, let from = heroOrigin {
             GeometryReader { geo in
                 let origin = geo.frame(in: .global).origin
                 let local = { (r: CGRect) in r.offsetBy(dx: -origin.x, dy: -origin.y) }
-                HeroCard(source: source, progress: heroProgress)
+                HeroCard(source: source, progress: heroProgress, glass: glass)
                     .modifier(HeroPlacement(progress: heroProgress,
                                             from: local(from),
-                                            to: heroDestination.map(local)
-                                                ?? Morph.target(in: geo.size, rowHeight: from.height)))
+                                            to: heroDestination.map(local) ?? fallback(geo.size, from.height)))
             }
             .allowsHitTesting(false)
         }
     }
 
+    /// Friends and Passport show the same draggable sheet over the shared map —
+    /// the detent is shared state, so the height carries across them exactly as
+    /// before. The sheet still slides away while a detail or add sheet is up, so
+    /// two sheets are never stacked. My Trips floats instead (`myTripsSurface`).
     private func tabSurface<Content: View>(_ surfaceTab: ArcTab, @ViewBuilder _ content: () -> Content) -> some View {
         // Built here rather than passed along, so the closure needn't escape.
         let built = content()
@@ -907,7 +881,11 @@ struct ArcRootView: View {
                             .modifier(SidePresence(side: .detail, progress: heroProgress))
                     }
                 }
-                .overlay { if active { heroOverlay } }
+                .overlay {
+                    if active {
+                        heroOverlay(glass: false) { size, rowHeight in Morph.target(in: size, rowHeight: rowHeight) }
+                    }
+                }
                 .padding(.bottom, 56)
                 .modifier(TripTransitionDriver(request: active ? transition.request : nil,
                                                progress: $heroProgress,
@@ -919,6 +897,211 @@ struct ArcRootView: View {
             .offset(y: showAdd ? 1500 : 0)
             .animation(.spring(duration: 0.45), value: showAdd)
         }
+    }
+
+    // MARK: - My Trips, floating
+
+    private var tripsAccessoryEnabled: Bool {
+        guard tab == .myFlights else { return true }
+        return !allFlights.isEmpty && !(detailTab == .myFlights && detailFlight != nil)
+    }
+
+    /// iOS 26.1 can switch the accessory slot off; 26.0 keeps it on screen.
+    private static var accessoryCanHide: Bool {
+        if #available(iOS 26.1, *) { return true } else { return false }
+    }
+
+    /// My Trips: no sheet. The map fills the screen, the trips float over it
+    /// as glass cards, and a trip opens in a glass panel the row glides into.
+    private var myTripsSurface: some View {
+        GeometryReader { geo in
+            let insets = geo.safeAreaInsets
+            let full = CGSize(width: geo.size.width + insets.leading + insets.trailing,
+                              height: geo.size.height + insets.top + insets.bottom)
+            let layout = MyTripsLayout(size: full, safeTop: insets.top,
+                                       tabBarClearance: tabBarClearance(bottomInset: insets.bottom),
+                                       accessoryHidesForDetail: Self.accessoryCanHide)
+            myTripsLayers(layout)
+                .frame(width: full.width, height: full.height, alignment: .topLeading)
+                .offset(x: -insets.leading, y: -insets.top)
+                .onChange(of: layout, initial: true) { _, new in tripsLayout = new }
+                .onChange(of: panelHeaderHeight) { _, header in
+                    if let top = panelTop { panelTop = layout.clampPanelTop(top, headerHeight: header) }
+                }
+        }
+    }
+
+    /// The tab bar's reach without the accessory.
+    private func tabBarClearance(bottomInset: CGFloat) -> CGFloat {
+        // The inset includes the accessory while it shows (measured: see plan Task 9).
+        tripsAccessoryEnabled ? bottomInset - MyTripsLayout.accessoryHeight : bottomInset
+    }
+
+    @ViewBuilder
+    private func myTripsLayers(_ layout: MyTripsLayout) -> some View {
+        let onTrips = detailTab == .myFlights && tab == .myFlights
+        let listTop = layout.listTop(folded: tripsFolded, foldedHeight: tripsFoldedHeight)
+        ZStack(alignment: .topLeading) {
+            mapLayer
+            tripsList(layout, listTop: listTop, detailOpen: onTrips && detailFlight != nil)
+            tripsPillRow(layout, listTop: listTop, detailOpen: onTrips && detailFlight != nil)
+            if onTrips, let flight = detailFlight {
+                tripsPanel(layout, flight: flight)
+            }
+            if onTrips {
+                heroOverlay(glass: true) { size, rowHeight in
+                    Morph.panelTarget(panelTop: panelTop ?? layout.panelOpeningTop(headerHeight: panelHeaderHeight),
+                                      width: size.width, rowHeight: rowHeight)
+                }
+            }
+            MapTopBar(layout: layout, controller: controller,
+                      liveFlight: tripsLiveFlight, shareFlight: tripsShareFlight)
+        }
+        .environment(\.heroFrames, heroFrames)
+        .environment(\.heroTravelling, onTrips ? heroTravelling?.key : nil)
+        .modifier(TripTransitionDriver(request: onTrips ? transition.request : nil,
+                                       progress: $heroProgress,
+                                       prepare: prepareTransition,
+                                       finish: finishTransition))
+    }
+
+    /// Placed by offset and revealed by a mask, never resized: a fold
+    /// animates two render properties, not the scroll view's layout.
+    private func tripsList(_ layout: MyTripsLayout, listTop: CGFloat, detailOpen: Bool) -> some View {
+        MyFlightsView(onSelect: { openDetail($0) },
+                      onAdd: { showAdd = true },
+                      onImported: { imported in revealTrips([imported]) },
+                      onPreview: { item, flight in openInvitePreview(item, flight) },
+                      landed: landedTrips,
+                      folded: tripsFolded,
+                      showsRest: tripsRestShown,
+                      revealing: controller.isRevealingRoutes,
+                      onFoldedHeight: { tripsFoldedHeight = $0 },
+                      onUnfold: { then in setTripsFolded(false, then: then) })
+            .frame(width: layout.size.width, height: layout.listBottom - layout.unfoldedListTop, alignment: .top)
+            // 6 pt of slack so the folded card's glass rim is never clipped;
+            // less than the 10 pt gap, so the next card never peeks.
+            .mask(alignment: .top) {
+                Rectangle().frame(height: max(0, layout.listBottom - listTop + 6))
+            }
+            // Masked cards still hit-test: only what shows may take a touch,
+            // so the accessory and tab bar below a folded stack stay tappable.
+            .contentShape(.interaction, TopSlice(height: layout.listBottom - listTop + 6))
+            .offset(y: listTop)
+            .modifier(SidePresence(side: .list, progress: detailTab == .myFlights && tab == .myFlights ? heroProgress : 0))
+            .allowsHitTesting(!detailOpen)
+            .accessibilityHidden(detailOpen)
+            .offset(y: showAdd ? 1500 : 0)
+            .animation(reduceMotion ? nil : .spring(duration: 0.45), value: showAdd)
+    }
+
+    private func tripsPillRow(_ layout: MyTripsLayout, listTop: CGFloat, detailOpen: Bool) -> some View {
+        let journeys = MyFlightsView.journeys(Array(allFlights)).count
+        return HStack {
+            if journeys > 1 {
+                Button { setTripsFolded(!tripsFolded) } label: {
+                    Text(tripsFolded ? "Show More" : "Show Less")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .contentTransition(.interpolate)
+                        .padding(.horizontal, 16)
+                        .frame(height: 36)
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("trips-fold-toggle")
+            }
+            Spacer()
+            if !mapFlights.isEmpty {
+                RecenterButton { applyCameraForCurrentTab() }
+            }
+        }
+        .padding(.horizontal, MyTripsLayout.margin)
+        .frame(width: layout.size.width, height: MyTripsLayout.control)
+        .offset(y: layout.pillRowY(listTop: listTop))
+        .modifier(SidePresence(side: .list, progress: detailTab == .myFlights && tab == .myFlights ? heroProgress : 0))
+        .allowsHitTesting(!detailOpen)
+        .accessibilityHidden(detailOpen)
+        .offset(y: showAdd ? 1500 : 0)
+        .animation(reduceMotion ? nil : .spring(duration: 0.45), value: showAdd)
+    }
+
+    private func tripsPanel(_ layout: MyTripsLayout, flight: Flight) -> some View {
+        let own = detailFriend == nil && detailInvite == nil
+        let settled = Binding<CGFloat>(get: { panelTop ?? layout.panelOpeningTop(headerHeight: panelHeaderHeight) },
+                                       set: { panelTop = $0 })
+        return FloatingPanel(layout: layout, headerHeight: panelHeaderHeight, top: settled,
+                             onRecenter: { recenterOnDetail() }) {
+            FlightDetailView(flight: flight,
+                             isOwnFlight: own,
+                             onShowAtGate: own ? { f in showPlaneAtGate(f) } : nil,
+                             onShowAirport: own ? { f in showAirportView(f) } : nil,
+                             onOpenFlight: own ? { other in _ = show(other) } : nil,
+                             onClose: { closeDetail() },
+                             friend: detailFriend?.user ?? detailInvite?.sender,
+                             heroKey: detailFriendGroup?.id ?? detailInvite?.id,
+                             travelGroup: detailFriendGroup,
+                             transitionActive: transition.request != nil,
+                             friendNote: detailInvite != nil ? "Invited you" : "Shared with you")
+                .id(flight.id)
+                // Its own tiny element: set on the detail, the identifier spread
+                // to the X in its offset overlay and UI tests tapped the detail's centre.
+                .background {
+                    Color.clear.frame(width: 1, height: 1)
+                        .accessibilityElement()
+                        .accessibilityIdentifier(transition.request == nil ? "trip-detail-ready" : "trip-detail-transition")
+                }
+        }
+        .frame(width: layout.size.width, height: layout.panelBottom - layout.panelHighestTop, alignment: .top)
+        .offset(y: layout.panelHighestTop)
+        .modifier(PanelPresence(progress: heroProgress))
+        .offset(y: showAdd ? 1500 : 0)
+    }
+
+    /// Folding and unfolding ride one spring. Cards past the next journey
+    /// exist from the moment an unfold starts until a fold has closed over
+    /// them, and the camera reframes only once a fold has settled — never
+    /// two movements at once.
+    private func setTripsFolded(_ folded: Bool, then: (() -> Void)? = nil) {
+        guard folded != tripsFolded else { then?(); return }
+        if !folded { tripsRestShown = true }
+        withAnimation(reduceMotion ? nil : ArcTheme.fold, completionCriteria: .logicallyComplete) {
+            tripsFolded = folded
+        } completion: {
+            guard tripsFolded == folded else { return }
+            if folded {
+                tripsRestShown = false
+                applyCameraForCurrentTab()
+            }
+            then?()
+        }
+    }
+
+    private func recenterOnDetail() {
+        guard let flight = detailFlight, let layout = tripsLayout else { return }
+        groundViewTask?.cancel()
+        groundViewTask = nil
+        controller.clearGateMarker()
+        controller.focus(on: flight, band: layout.band(coverTop: panelTop ?? layout.panelOpeningTop(headerHeight: panelHeaderHeight)),
+                         animated: !reduceMotion)
+    }
+
+    /// The centre pill speaks for a flight only once its glide has landed,
+    /// and goes back to "My Trips" the moment a close begins.
+    private var tripsLiveFlight: Flight? {
+        guard detailTab == .myFlights, transition.phase == .detail,
+              detailFriend == nil, detailInvite == nil else { return nil }
+        return detailFlight
+    }
+
+    private var tripsShareFlight: Flight? {
+        if detailTab == .myFlights, detailFriend == nil, detailInvite == nil, let open = detailFlight {
+            return open
+        }
+        // The trip you're ON if there is one, else the NEXT one — never a leg
+        // that already landed.
+        let listed = MyFlightsView.listed(Array(allFlights))
+        return listed.first(where: \.isActive) ?? listed.first(where: \.isUpcoming)
     }
 
     /// The accessory: adding a flight is always available, and a copied flight

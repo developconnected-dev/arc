@@ -49,6 +49,7 @@ enum Morph {
     static let panelRise: CGFloat = 28
 
     /// A frame measured on the still-rising panel, moved to where it settles.
+    /// Pass the progress the header was measured under — `prepare` runs before the glide's animation begins.
     static func settledFrame(_ measured: CGRect, progress: Double) -> CGRect {
         measured.offsetBy(dx: 0, dy: -panelRise * (1 - min(max(progress, 0), 1)))
     }
