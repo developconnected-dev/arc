@@ -37,6 +37,29 @@ enum Morph {
     static func target(in size: CGSize, rowHeight: CGFloat) -> CGRect {
         CGRect(x: 2, y: detailTopInset, width: size.width - 4, height: rowHeight)
     }
+
+    /// The travelling copy's own glass on the floating surface: none at
+    /// either end, whole in between, so the card never crosses bare map as
+    /// text alone.
+    static func travelGlass(_ progress: Double) -> Double {
+        min(ramp(progress, from: 0, to: 0.2), 1 - ramp(progress, from: 0.8, to: 1))
+    }
+
+    /// How far the floating panel rises while it fades in.
+    static let panelRise: CGFloat = 28
+
+    /// A frame measured on the still-rising panel, moved to where it settles.
+    static func settledFrame(_ measured: CGRect, progress: Double) -> CGRect {
+        measured.offsetBy(dx: 0, dy: -panelRise * (1 - min(max(progress, 0), 1)))
+    }
+
+    /// Where the header lands in the floating panel, for when it has not
+    /// reported its frame yet.
+    static func panelTarget(panelTop: CGFloat, width: CGFloat, rowHeight: CGFloat) -> CGRect {
+        let inset = MyTripsLayout.panelMargin + 16
+        return CGRect(x: inset, y: panelTop + MyTripsLayout.panelStrip + detailTopInset,
+                      width: width - 2 * inset, height: rowHeight)
+    }
 }
 
 enum MorphSide { case list, detail }
@@ -67,6 +90,21 @@ struct SidePresence: ViewModifier, Animatable {
     }
     func body(content: Content) -> some View {
         content.opacity(Morph.presence(side == .list ? 1 - progress : progress))
+    }
+}
+
+/// The floating panel arriving: it fades in with the detail's side and rises
+/// the last few points, the grammar Arc's transitions keep.
+struct PanelPresence: ViewModifier, Animatable {
+    var progress: Double
+    nonisolated var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+    func body(content: Content) -> some View {
+        content
+            .opacity(Morph.presence(progress))
+            .offset(y: Morph.panelRise * (1 - min(max(progress, 0), 1)))
     }
 }
 

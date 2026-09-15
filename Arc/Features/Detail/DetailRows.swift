@@ -77,7 +77,7 @@ struct DetailGroup<Content: View>: View {
     var body: some View {
         _VariadicView.Tree(GroupLayout()) { content() }
             .background(Color(.secondarySystemBackground),
-                        in: RoundedRectangle(cornerRadius: ArcTheme.cardCorner))
+                        in: RoundedRectangle(cornerRadius: ArcTheme.detailBoxCorner))
     }
 
     private struct GroupLayout: _VariadicView_MultiViewRoot {

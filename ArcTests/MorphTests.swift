@@ -17,4 +17,24 @@ final class MorphTests: XCTestCase {
         XCTAssertEqual(Morph.presence(-0.1), 0)
         XCTAssertEqual(Morph.presence(1.1), 1)
     }
+
+    /// The travelling copy carries its own glass only mid-flight: at either
+    /// end the card or the panel already draws glass beneath it.
+    func testTravelGlassIsAbsentAtBothEndsAndWholeMidway() {
+        XCTAssertEqual(Morph.travelGlass(0), 0)
+        XCTAssertEqual(Morph.travelGlass(1), 0)
+        XCTAssertEqual(Morph.travelGlass(0.5), 1)
+        for p in stride(from: -0.1, through: 1.1, by: 0.01) {
+            XCTAssertTrue((0...1).contains(Morph.travelGlass(p)), "p=\(p)")
+        }
+    }
+
+    /// The header is measured while the panel is still risen by the rest of
+    /// its rise; the glide must aim where the header will settle.
+    func testSettledFrameRemovesTheRemainingRise() {
+        let r = CGRect(x: 10, y: 400, width: 300, height: 120)
+        XCTAssertEqual(Morph.settledFrame(r, progress: 0).minY, 400 - Morph.panelRise)
+        XCTAssertEqual(Morph.settledFrame(r, progress: 0.5).minY, 400 - Morph.panelRise / 2)
+        XCTAssertEqual(Morph.settledFrame(r, progress: 1), r)
+    }
 }

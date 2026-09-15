@@ -156,7 +156,7 @@ struct DetailHeader: View {
         }
         .frame(maxWidth: .infinity, alignment: isArrival ? .trailing : .leading)
         .padding(12)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: ArcTheme.cardCorner))
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: ArcTheme.detailBoxCorner))
     }
 
     private var departureGlyph: String { flight.mode == .air ? "airplane.departure" : flight.mode.symbol }
@@ -224,6 +224,9 @@ enum HeroSource {
 struct HeroCard: View {
     let source: HeroSource
     let progress: Double
+    /// My Trips' floating surface: between the card and the panel the copy
+    /// crosses bare map, so it carries glass of its own mid-flight.
+    var glass = false
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -238,6 +241,13 @@ struct HeroCard: View {
             .opacity(1 - progress)
             DetailHeader(flight: source.flight, isOwnFlight: source.isOwn)
                 .opacity(progress)
+        }
+        .background {
+            if glass {
+                Color.clear
+                    .glassEffect(ArcTheme.tripGlass, in: .rect(cornerRadius: ArcTheme.cardCorner))
+                    .opacity(Morph.travelGlass(progress))
+            }
         }
     }
 }

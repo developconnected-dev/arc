@@ -47,7 +47,20 @@ enum ArcTheme {
 
     // Metrics
     static let sheetCorner: CGFloat = 22
-    static let cardCorner: CGFloat = 14
+    /// My Trips floats: the glass its cards and detail panel are made of.
+    /// If grey row text reads weakly over bright terrain on the device, frost
+    /// it here (e.g. `.regular.tint(Color(.systemBackground).opacity(0.35))`),
+    /// never in the rows.
+    static let tripGlass: Glass = .regular
+    static let cardCorner: CGFloat = 24
+    static let panelCorner: CGFloat = 30
+    /// Folding and unfolding the trip stack.
+    static let fold: Animation = .spring(response: 0.45, dampingFraction: 0.86)
+    /// The panel moving on its own: Terminal map / My plane lowering it.
+    static let panelSettle: Animation = .spring(response: 0.38, dampingFraction: 0.88)
+    /// Small info boxes inside the detail sheet (row groups, time chips) —
+    /// distinct from the floating surface's larger `cardCorner`/`panelCorner`.
+    static let detailBoxCorner: CGFloat = 14
     static let gatePillCorner: CGFloat = 8
     static let screenPad: CGFloat = 20
 }
