@@ -1041,8 +1041,13 @@ struct ArcRootView: View {
         ZStack(alignment: .topLeading) {
             mapLayer
             tripsList(layout, listTop: listTop, detailOpen: onTrips && detailFlight != nil)
-            tripsPillRow(layout, listTop: listTop, journeyCount: journeyCount,
-                         detailOpen: onTrips && detailFlight != nil)
+            // Gone while a detail is settled open: hidden and faded, its
+            // buttons were still VoiceOver stops. Rebuilt as a close begins,
+            // at the list's ~0 presence, so it still fades back in.
+            if !(onTrips && detailFlight != nil && transition.phase == .detail) {
+                tripsPillRow(layout, listTop: listTop, journeyCount: journeyCount,
+                             detailOpen: onTrips && detailFlight != nil)
+            }
             if onTrips, let flight = detailFlight {
                 tripsPanel(layout, flight: flight)
             }
