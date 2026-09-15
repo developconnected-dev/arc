@@ -761,8 +761,8 @@ struct FriendsListView: View {
     }
 }
 
-/// One friend-flight in the feed, styled like a My Flights row with the
-/// friend's identity on the left: avatar + a tiny live-status caption.
+/// One friend-flight in the feed, styled like a My Flights row: the same
+/// countdown column on the left, the travellers beside the number.
 struct FriendFlightRow: View {
     let group: FriendFlightGroup
     private var item: FriendsStore.FeedItem { group.representative }
@@ -781,35 +781,10 @@ struct FriendFlightRow: View {
         // the tab sits open — same rhythm as the map bubbles.
         TimelineView(.periodic(from: .now, by: 60)) { context in
         HStack(alignment: .center, spacing: 14) {
-            VStack(spacing: 4) {
-                Image(systemName: flight.tripMode.symbol)
-                    .font(.system(size: 25, weight: .semibold))
-                    .foregroundStyle(ArcTheme.brand)
-                    .frame(width: 46, height: 46)
-                    .background(ArcTheme.brand.opacity(0.1), in: Circle())
-                    .overlay {
-                        // Airborne friends wear their flight's progress as a
-                        // thin ring around the avatar.
-                        if airborne {
-                            Circle()
-                                .trim(from: 0, to: max(0.04, FriendFlightMath.progress(flight)))
-                                .stroke(ArcTheme.onTime, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                                .rotationEffect(.degrees(-90))
-                                .padding(-3)
-                        }
-                    }
-                Text(statusMini(at: context.date))
-                    .font(.system(size: 9, weight: .heavy)).tracking(0.5)
-                    .foregroundStyle(airborne ? ArcTheme.action : .secondary)
-                    .lineLimit(1)
-                    // "DEPARTING" and "TAXIING" are longer than the "IN AIR"
-                    // this column was sized for, and a truncated status word
-                    // is worse than a slightly smaller one.
-                    .minimumScaleFactor(0.7)
-                    .contentTransition(.numericText())
-                    .animation(.default, value: statusMini(at: context.date))
-            }
-            .frame(width: 56)
+            // The travellers are named in the avatar stack beside the number,
+            // so this column is the same countdown as your own trips.
+            TripCountdownBlock(state: TripCountdown(flight, at: context.date), mode: flight.tripMode)
+                .frame(width: 56)
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
@@ -842,27 +817,6 @@ struct FriendFlightRow: View {
         .padding(.horizontal, 20).padding(.vertical, 12)
         .contentShape(Rectangle())
         }
-    }
-
-    private func statusMini(at now: Date) -> String {
-        let mode = flight.tripMode
-        if flight.status == "cancelled" { return "CANCELLED" }
-        // Name what the aircraft is doing before claiming it is flying: past
-        // the gate time is not the same fact as off the ground.
-        switch FriendFlightMath.departurePhase(flight, at: now) {
-        case .taxiing: return mode == .air ? "TAXIING" : "DEPARTING"
-        case .departing: return "DEPARTING"
-        case .beforeDeparture, .presumedAirborne, .airborne: break
-        }
-        if airborne { return mode.inTransitShort }
-        if flight.status == "landed" { return mode.arrivedShort }
-        if let dep = FriendFlightMath.departure(flight), dep > now {
-            let mins = Int(dep.timeIntervalSince(now) / 60)
-            if mins >= 1440 { return "IN \(mins / 1440)D" }
-            return mins >= 60 ? "IN \(mins / 60)H" : "IN \(mins)M"
-        }
-        // Past the schedule with no confirmation from the source: not "LANDED".
-        return "DUE"
     }
 
     /// Only facts we actually have. The old line invented a "True Curb ETA

@@ -112,67 +112,9 @@ struct FlightRowCard: View {
         // Minute heartbeat + rolling digits: the countdown ticks live like the
         // widget's, instead of waiting for an unrelated re-render.
         TimelineView(.periodic(from: .now, by: 60)) { _ in
-        VStack(spacing: 0) {
-            if let cd = flight.countdown {
-                Text(cd.value)
-                    // Monospaced digits: "24", "34" and "46" render the same
-                    // width, so the centered numbers form a true column.
-                    .font(.system(size: cd.value.count > 2 ? 24 : 30, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.primary)
-                    .contentTransition(.numericText(countsDown: true))
-                    .animation(.default, value: cd.value)
-                Text(cd.unit)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .tracking(0.5)
-            } else if let cd = flight.landingCountdown {
-                // In the air: the number counts to landing, in the same
-                // grammar as the departure countdown above. Confirmed off
-                // the ground it wears the live colour; presumed, it stays
-                // muted like every other hedge in Arc.
-                let tint: Color = flight.departurePhase.isHedged ? Color(.secondaryLabel) : ArcTheme.action
-                Text(cd.value)
-                    .font(.system(size: cd.value.count > 2 ? 24 : 30, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(tint)
-                    .contentTransition(.numericText(countsDown: true))
-                    .animation(.default, value: cd.value)
-                Text(cd.unit)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(tint)
-                    .tracking(0.5)
-            } else if flight.isActive {
-                // Off the gate but not up, or past the ETA and not yet
-                // reported down: a state with no number, so a glyph and a
-                // word — the landed card's grammar, without the pulse.
-                let landing = !flight.departurePhase.isHedged && flight.departurePhase == .airborne
-                    && flight.effectiveArrival <= .now
-                let tint: Color = flight.departurePhase.isHedged ? Color(.secondaryLabel) : ArcTheme.action
-                Image(systemName: landing ? arrivalGlyph : departureGlyph)
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(tint)
-                Text(landing ? "LANDING" : (flight.departurePhase == .departing ? "DEPARTING" : "TAXIING"))
-                    .font(.system(size: 9.5, weight: .semibold))
-                    .foregroundStyle(tint)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            } else if flight.isRecentlyLanded {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(ArcTheme.onTime)
-                Text("LANDED")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(ArcTheme.onTime)
-            } else {
-                Text("—").font(.system(size: 24, weight: .semibold)).foregroundStyle(.tertiary)
-            }
-        }
+            TripCountdownBlock(state: TripCountdown(flight), mode: flight.mode)
         }
     }
-
-    /// "airplane.departure" / "airplane.arrival" have no tram or ferry
-    /// variants, so non-air legs wear their plain vehicle symbol.
-    private var departureGlyph: String { flight.mode == .air ? "airplane.departure" : flight.mode.symbol }
-    private var arrivalGlyph: String { flight.mode == .air ? "airplane.arrival" : flight.mode.symbol }
 
     private var cityPair: some View {
         TextHelpers.cityPair(flight.departureCity, flight.arrivalCity, size: 18, weight: .medium)
@@ -252,4 +194,119 @@ struct FlightRowCard: View {
         .padding(.leading, 2)
     }
 
+}
+
+/// What the left column of a trip row says. Your own rows and a friend's
+/// read the same, so each list derives this from its own model.
+enum TripCountdown: Equatable {
+    /// Before departure: days, hours or minutes to go.
+    case departure(value: String, unit: String)
+    /// Off the ground: the count to landing. Presumed, it stays muted.
+    case landing(value: String, unit: String, hedged: Bool)
+    /// Off the gate but not up, or past the ETA and not yet reported down.
+    case underway(word: String, arriving: Bool, hedged: Bool)
+    case landed
+    case none
+
+    init(_ flight: Flight) {
+        let phase = flight.departurePhase
+        if let cd = flight.countdown {
+            self = .departure(value: cd.value, unit: cd.unit)
+        } else if let cd = flight.landingCountdown {
+            self = .landing(value: cd.value, unit: cd.unit, hedged: phase.isHedged)
+        } else if flight.isActive {
+            self = Self.underway(phase: phase, pastArrival: flight.effectiveArrival <= .now)
+        } else if flight.isRecentlyLanded {
+            self = .landed
+        } else {
+            self = .none
+        }
+    }
+
+    /// A friend's row has no SwiftData flight, only the shared row — the
+    /// same questions, answered by `FriendFlightMath`'s clock healing.
+    init(_ f: ArcSupabase.SharedFlight, at now: Date = .now) {
+        // A friend's finished trips stay listed under Past, so a landing
+        // keeps its check rather than the 30-minute grace of your own list.
+        if f.status == "landed" { self = .landed; return }
+        let phase = FriendFlightMath.departurePhase(f, at: now)
+        let arrival = FriendFlightMath.arrival(f)
+        guard f.status == "active" || FriendFlightMath.isUnderway(f, at: now) else {
+            let cd = FriendFlightMath.departure(f).flatMap { Flight.countdown(to: $0, now: now) }
+            self = cd.map { .departure(value: $0.value, unit: $0.unit) } ?? .none
+            return
+        }
+        if phase.isOffTheGround, let arrival, let cd = Flight.countdown(to: arrival, now: now) {
+            self = .landing(value: cd.value, unit: cd.unit, hedged: phase.isHedged)
+        } else {
+            self = Self.underway(phase: phase, pastArrival: arrival.map { $0 <= now } ?? false)
+        }
+    }
+
+    private static func underway(phase: DeparturePhase, pastArrival: Bool) -> Self {
+        let arriving = phase == .airborne && pastArrival
+        return .underway(word: arriving ? "LANDING" : (phase == .departing ? "DEPARTING" : "TAXIING"),
+                         arriving: arriving, hedged: phase.isHedged)
+    }
+}
+
+struct TripCountdownBlock: View {
+    let state: TripCountdown
+    let mode: TripMode
+
+    var body: some View {
+        VStack(spacing: 0) {
+            switch state {
+            case .departure(let value, let unit):
+                number(value, unit: unit, tint: .primary, unitTint: .secondary)
+            case .landing(let value, let unit, let hedged):
+                // In the air: the number counts to landing, in the same
+                // grammar as the departure countdown. Confirmed off the
+                // ground it wears the live colour; presumed, it stays muted
+                // like every other hedge in Arc.
+                let tint: Color = hedged ? Color(.secondaryLabel) : ArcTheme.action
+                number(value, unit: unit, tint: tint, unitTint: tint)
+            case .underway(let word, let arriving, let hedged):
+                // A state with no number, so a glyph and a word — the landed
+                // card's grammar, without the pulse.
+                let tint: Color = hedged ? Color(.secondaryLabel) : ArcTheme.action
+                Image(systemName: arriving ? arrivalGlyph : departureGlyph)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(tint)
+                Text(word)
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            case .landed:
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(ArcTheme.onTime)
+                Text("LANDED")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(ArcTheme.onTime)
+            case .none:
+                Text("—").font(.system(size: 24, weight: .semibold)).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    @ViewBuilder private func number(_ value: String, unit: String, tint: Color, unitTint: Color) -> some View {
+        Text(value)
+            // Monospaced digits: "24", "34" and "46" render the same
+            // width, so the centered numbers form a true column.
+            .font(.system(size: value.count > 2 ? 24 : 30, weight: .semibold).monospacedDigit())
+            .foregroundStyle(tint)
+            .contentTransition(.numericText(countsDown: true))
+            .animation(.default, value: value)
+        Text(unit)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(unitTint)
+            .tracking(0.5)
+    }
+
+    /// "airplane.departure" / "airplane.arrival" have no tram or ferry
+    /// variants, so non-air legs wear their plain vehicle symbol.
+    private var departureGlyph: String { mode == .air ? "airplane.departure" : mode.symbol }
+    private var arrivalGlyph: String { mode == .air ? "airplane.arrival" : mode.symbol }
 }

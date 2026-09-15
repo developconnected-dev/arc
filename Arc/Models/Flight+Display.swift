@@ -106,14 +106,15 @@ extension Flight {
         }
     }
 
-    private static func countdown(to target: Date) -> (value: String, unit: String)? {
-        let interval = target.timeIntervalSince(.now)
+    /// Also counts a friend's row, so both lists speak the same units.
+    static func countdown(to target: Date, now: Date = .now) -> (value: String, unit: String)? {
+        let interval = target.timeIntervalSince(now)
         guard interval > 0 else { return nil }
         // Calendar days, not seconds/86400 — two flights on the same date
         // must show the same count regardless of departure hour.
         let cal = Calendar.current
         let days = cal.dateComponents(
-            [.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: target)
+            [.day], from: cal.startOfDay(for: now), to: cal.startOfDay(for: target)
         ).day ?? 0
         let hours = Int(interval) / 3600
         let minutes = Int(interval) / 60

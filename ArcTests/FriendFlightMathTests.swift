@@ -119,6 +119,46 @@ final class FriendFlightMathTests: XCTestCase {
         XCTAssertEqual(FriendFlightMath.chip(for: landed, at: now).text, "LANDED")
     }
 
+    // MARK: - Row countdown column (same grammar as your own trips)
+
+    func testRowCountsDownToDeparture() {
+        let f = flight("LX14", depScheduled: "2026-07-24T20:55:00.000Z",
+                       arrScheduled: "2026-07-25T02:00:00.000Z")
+        XCTAssertEqual(TripCountdown(f, at: now), .departure(value: "8", unit: "HOURS"))
+    }
+
+    func testRowCountsDownToLandingInTheAir() {
+        let f = flight("LX14", depScheduled: "2026-07-24T10:00:00.000Z",
+                       arrScheduled: "2026-07-24T14:30:00.000Z", status: "active")
+        guard case .landing(let value, let unit, _) = TripCountdown(f, at: now) else {
+            return XCTFail("an airborne friend counts down to landing")
+        }
+        XCTAssertEqual(value, "2")
+        XCTAssertEqual(unit, "HOURS")
+    }
+
+    /// Past the gate time with nobody confirming a takeoff: a glyph and a
+    /// word, muted — never a landing countdown on the clock alone.
+    func testRowJustPastGateTimeIsUnderwayAndHedged() {
+        let f = flight("LX14", depScheduled: "2026-07-24T11:55:00.000Z",
+                       arrScheduled: "2026-07-24T16:00:00.000Z")
+        guard case .underway(_, let arriving, let hedged) = TripCountdown(f, at: now) else {
+            return XCTFail("five minutes past the gate is not yet in the air")
+        }
+        XCTAssertFalse(arriving)
+        XCTAssertTrue(hedged)
+    }
+
+    func testRowLandedAndUnconfirmed() {
+        let landed = flight("LX9", depScheduled: "2026-07-24T02:00:00.000Z",
+                            arrScheduled: "2026-07-24T08:00:00.000Z", status: "landed")
+        XCTAssertEqual(TripCountdown(landed, at: now), .landed)
+        // Past the arrival with the source silent: not "LANDED".
+        let silent = flight("LX9", depScheduled: "2026-07-24T02:00:00.000Z",
+                            arrScheduled: "2026-07-24T08:00:00.000Z")
+        XCTAssertEqual(TripCountdown(silent, at: now), .none)
+    }
+
     /// The estimated arrival (when the friend's device synced one) beats
     /// scheduled+delay for both progress and lands-in.
     func testEstimatedArrivalWins() {
