@@ -686,22 +686,31 @@ struct ArcRootView: View {
 
     private func open(_ source: HeroSource) {
         let flight = source.flight
+        let closing = transition.phase == .closing && detailTab == tab && detailFlight != nil
+        // Another of the user's trips asked for while one is closing (a
+        // widget, notification or link tap): let the close land, then open
+        // it. Swapped in mid-close, the new trip's content showed in a
+        // half-faded panel over the list while the old card flew home.
+        // (Friends' and invites' rows can't be tapped while a detail closes.)
+        if closing, detailFlight?.id != flight.id, case .own = source {
+            queuedDetail = flight
+            return
+        }
         switch source {
         case .own: detailFriend = nil; detailFriendGroup = nil; detailInvite = nil
         case .friend: detailInvite = nil
         case .invite: detailFriend = nil; detailFriendGroup = nil
         }
-        // A detail still closing isn't one being replaced: the glide back to
-        // the list is running, and the new request reverses it from where it
-        // is. Settling it instead snapped the whole panel in for one frame.
-        let reversing = transition.phase == .closing && detailTab == tab
+        // The same trip asked for again while it closes isn't one being
+        // replaced: the new request reverses the glide from where it is.
+        // Settling it instead snapped the whole panel in for one frame.
+        let reversing = closing && detailFlight?.id == flight.id
         let replacing = detailFlight != nil && !reversing
-        let sameTrip = detailFlight?.id == flight.id
         mapFocusID = nil
         detailTab = tab
         detailFlight = flight
         // Reopening the trip that is closing keeps the height it is fading at.
-        if !(reversing && sameTrip) { panelTop = nil }
+        if !reversing { panelTop = nil }
         if reduceMotion || replacing {
             transition.settle(detail: true)
             heroTravelling = nil
@@ -709,7 +718,9 @@ struct ArcRootView: View {
             mapFocusID = flight.id
             return
         }
-        if reversing && sameTrip {
+        if reversing {
+            // The latest ask wins over one queued earlier in this close.
+            queuedDetail = nil
             // Mid-flight between the same two frames (or the same fade, when
             // the row was out of view): turn it round from where it is.
             transition.open()
