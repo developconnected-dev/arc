@@ -17,7 +17,9 @@ struct MapTopBar: View {
 
     @State private var showSettings = false
     @State private var sharing: Flight?
-    @State private var pillIdeal: CGFloat = 96
+    /// The last readout shown, so a closing detail's numbers can fade out
+    /// in place instead of vanishing with the text they measured.
+    @State private var lastReadout: String?
 
     var body: some View {
         // The readout expires by the clock, not only when data changes.
@@ -31,27 +33,13 @@ struct MapTopBar: View {
             let capsuleWidth: CGFloat = (shareFlight == nil ? 1 : 2) * Self.iconWidth + 2 * Self.capsuleInset
             let leadingEdge = MyTripsLayout.margin + MyTripsLayout.control
             let trailingEdge = layout.size.width - MyTripsLayout.margin - capsuleWidth
-            let maxWidth = TopPillPlacement.maxWidth(leadingEdge: leadingEdge, trailingEdge: trailingEdge)
-            let width = min(pillIdeal, maxWidth)
-            let centreX = TopPillPlacement.centreX(pillWidth: width, width: layout.size.width,
-                                                   leadingEdge: leadingEdge, trailingEdge: trailingEdge)
 
             ZStack(alignment: .topLeading) {
                 avatar
                     .offset(x: MyTripsLayout.margin, y: layout.topBarY)
-                pill(readout)
-                    .minimumScaleFactor(0.8)
-                    .frame(width: width, height: 36)
-                    .glassEffect(.regular, in: .capsule)
-                    .background {
-                        // The pill's natural width, measured off-screen so
-                        // the visible copy can be capped without feeding back.
-                        pill(readout).fixedSize().hidden()
-                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pillIdeal = $0 }
-                    }
-                    .offset(x: centreX - width / 2, y: layout.topBarY + 4)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("map-top-title")
+                pill(readout, leadingEdge: leadingEdge, trailingEdge: trailingEdge)
+                    .frame(width: layout.size.width, height: 36)
+                    .offset(y: layout.topBarY + 4)
                 trailingCapsule
                     .offset(x: layout.size.width - MyTripsLayout.margin - capsuleWidth, y: layout.topBarY)
             }
@@ -76,27 +64,34 @@ struct MapTopBar: View {
         .accessibilityLabel("Settings")
     }
 
-    @ViewBuilder
-    private func pill(_ readout: String?) -> some View {
-        ZStack {
-            if let readout {
-                HStack(spacing: 6) {
-                    Circle().fill(ArcTheme.onTime).frame(width: 8, height: 8)
-                    Text(readout)
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                }
-                .font(.system(size: 15, weight: .semibold))
-                .transition(.opacity)
-            } else {
-                Text("My Trips")
-                    .font(.system(size: 17, weight: .semibold))
-                    .transition(.opacity)
+    /// Both titles stay in the tree and crossfade; the layout sizes the
+    /// capsule from the one showing in the same pass the text changes, so
+    /// the glass widens or narrows with the crossfade, never a frame after
+    /// it, and neither title is squeezed by the other's width mid-change.
+    private func pill(_ readout: String?, leadingEdge: CGFloat, trailingEdge: CGFloat) -> some View {
+        let shows = readout != nil
+        return TopPillLayout(showsReadout: shows, leadingEdge: leadingEdge, trailingEdge: trailingEdge) {
+            Color.clear
+                .glassEffect(.regular, in: .capsule)
+                .accessibilityElement()
+                .accessibilityLabel(readout ?? "My Trips")
+                .accessibilityAddTraits(.isStaticText)
+                .accessibilityIdentifier("map-top-title")
+            Text("My Trips")
+                .font(.system(size: 17, weight: .semibold))
+                .pillText()
+                .opacity(shows ? 0 : 1)
+            HStack(spacing: 6) {
+                Circle().fill(ArcTheme.onTime).frame(width: 8, height: 8)
+                Text(readout ?? lastReadout ?? "")
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
             }
+            .font(.system(size: 15, weight: .semibold))
+            .pillText()
+            .opacity(shows ? 1 : 0)
         }
-        .foregroundStyle(.primary)
-        .lineLimit(1)
-        .padding(.horizontal, 16)
+        .onChange(of: readout) { _, new in if let new { lastReadout = new } }
     }
 
     private var trailingCapsule: some View {
@@ -141,6 +136,46 @@ struct MapTopBar: View {
             .foregroundStyle(.primary)
             .frame(width: Self.iconWidth, height: MyTripsLayout.control)
             .contentShape(Rectangle())
+    }
+}
+
+/// The centre pill's capsule and its two titles, sized and placed in one
+/// pass: the capsule takes the natural width of the title showing, capped
+/// to the room between the corner controls, at the x `TopPillPlacement`
+/// gives it. Each title keeps its own capped width, so the one fading out
+/// is never squeezed into the other's capsule.
+private struct TopPillLayout: Layout {
+    var showsReadout: Bool
+    var leadingEdge: CGFloat
+    var trailingEdge: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions(by: CGSize(width: trailingEdge, height: 36))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 3 else { return }
+        let room = TopPillPlacement.maxWidth(leadingEdge: leadingEdge, trailingEdge: trailingEdge)
+        let title = min(subviews[1].sizeThatFits(.unspecified).width, room)
+        let readout = min(subviews[2].sizeThatFits(.unspecified).width, room)
+        let width = showsReadout ? readout : title
+        let centre = CGPoint(x: bounds.minX + TopPillPlacement.centreX(pillWidth: width, width: bounds.width,
+                                                                        leadingEdge: leadingEdge, trailingEdge: trailingEdge),
+                             y: bounds.midY)
+        subviews[0].place(at: centre, anchor: .center, proposal: ProposedViewSize(width: width, height: bounds.height))
+        subviews[1].place(at: centre, anchor: .center, proposal: ProposedViewSize(width: title, height: bounds.height))
+        subviews[2].place(at: centre, anchor: .center, proposal: ProposedViewSize(width: readout, height: bounds.height))
+    }
+}
+
+private extension View {
+    func pillText() -> some View {
+        foregroundStyle(.primary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .padding(.horizontal, 16)
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
     }
 }
 
