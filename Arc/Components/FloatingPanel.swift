@@ -39,6 +39,9 @@ private struct FloatingPanelChrome<Content: View>: View {
     /// True for the lifetime of the gesture, including a system cancellation
     /// that skips `onEnded` — the only reliable way to notice one.
     @GestureState private var dragging = false
+    /// The detail's scroll view, for keeping a bottom-scrolled detail pinned
+    /// to the panel's edge while it rises (see `pinToBottomEdge`).
+    @State private var scrollLink = PanelScrollLink()
 
     var body: some View {
         // A stale settled `top` (from a layout change while the panel was
@@ -63,6 +66,7 @@ private struct FloatingPanelChrome<Content: View>: View {
                     .padding(.bottom, -12)
                 content
                     .contentMargins(.bottom, hiddenBelow, for: .scrollContent)
+                    .environment(\.panelScroll, scrollLink)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
             .frame(height: tallest, alignment: .top)
@@ -115,8 +119,13 @@ private struct FloatingPanelChrome<Content: View>: View {
             .updating($dragging) { _, state, _ in state = true }
             .onChanged { value in
                 let start = dragStart ?? (liveTop ?? top)
-                if dragStart == nil { dragStart = start }
-                liveTop = layout.clampPanelTop(start + value.translation.height, headerHeight: headerHeight)
+                if dragStart == nil {
+                    dragStart = start
+                    scrollLink.beginDrag(settledInset: max(0, top - layout.panelHighestTop))
+                }
+                let live = layout.clampPanelTop(start + value.translation.height, headerHeight: headerHeight)
+                liveTop = live
+                scrollLink.pinToBottomEdge(liveInset: max(0, live - layout.panelHighestTop))
             }
             .onEnded { _ in
                 // Usually a no-op: `dragging` already flipped false and the
@@ -138,6 +147,78 @@ private struct FloatingPanelChrome<Content: View>: View {
                 .allowsHitTesting(fits)
                 .accessibilityHidden(!fits)
                 .animation(.easeOut(duration: 0.15), value: fits)
+        }
+    }
+}
+
+/// The panel's handle on the detail's scroll view.
+///
+/// The detail keeps the tallest height, and what hangs below a lowered
+/// panel stays reachable through a bottom inset that follows the settled
+/// top. Scrolled to the bottom, that inset is in view below the panel's
+/// edge; raising the panel lifted it into sight as empty glass, and the
+/// release then shrank it and the content fell by the whole drag. A
+/// resizing sheet would instead reveal rows above while the last one stays
+/// on the edge — so while the panel rises, the detail scrolls up by exactly
+/// the inset that would show, in the same update. On release the offset is
+/// already the new maximum, so shrinking the inset moves nothing.
+@MainActor
+final class PanelScrollLink {
+    /// Written by the detail's scroll view as it scrolls; never observed.
+    var geometry: ScrollGeometry?
+    var scrollTo: ((CGFloat) -> Void)?
+    private var start: (offset: CGFloat, insetInView: CGFloat)?
+    private var shift: CGFloat = 0
+
+    func beginDrag(settledInset: CGFloat) {
+        shift = 0
+        guard let g = geometry else { start = nil; return }
+        // How much of the bottom inset the viewport shows right now.
+        let inView = min(max(0, g.visibleRect.maxY - g.contentSize.height), settledInset)
+        start = inView > 0 ? (g.contentOffset.y, inView) : nil
+    }
+
+    /// `liveInset` is how much of the viewport hangs below the panel's edge.
+    func pinToBottomEdge(liveInset: CGFloat) {
+        guard let start else { return }
+        let next = max(0, start.insetInView - liveInset)
+        guard next != shift else { return }
+        shift = next
+        scrollTo?(start.offset - next)
+    }
+}
+
+private struct PanelScrollKey: EnvironmentKey {
+    static let defaultValue: PanelScrollLink? = nil
+}
+
+extension EnvironmentValues {
+    /// Set by `FloatingPanel` on its content; nil everywhere else.
+    var panelScroll: PanelScrollLink? {
+        get { self[PanelScrollKey.self] }
+        set { self[PanelScrollKey.self] = newValue }
+    }
+}
+
+/// Applied to a scroll view that may sit in a `FloatingPanel`: reports its
+/// geometry to the panel and lets the panel set its offset. A no-op outside one.
+struct PanelScrollReader: ViewModifier {
+    @Environment(\.panelScroll) private var link
+    @State private var position = ScrollPosition()
+
+    func body(content: Content) -> some View {
+        if let link {
+            content
+                .scrollPosition($position)
+                .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, geometry in
+                    link.geometry = geometry
+                }
+                .onAppear {
+                    let position = $position
+                    link.scrollTo = { y in DispatchQueue.main.async { position.wrappedValue.scrollTo(y: y) } }
+                }
+        } else {
+            content
         }
     }
 }

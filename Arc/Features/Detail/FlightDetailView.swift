@@ -86,6 +86,7 @@ struct FlightDetailView: View {
                 .padding(.top, onClose == nil ? 26 : 12)
                 .padding(.bottom, 40)
             }
+            .modifier(PanelScrollReader())
             .onAppear {
                 let args = ProcessInfo.processInfo.arguments
                 if args.contains("-detailPlane") { aircraftExpanded = true }
