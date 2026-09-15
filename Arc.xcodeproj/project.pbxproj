@@ -111,6 +111,7 @@
 		A1BE988BFF2DE33864EE4EDA /* BookingExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C966E39F13C47E5E918B92FA /* BookingExtractorTests.swift */; };
 		A32EE9AAFF04496627E9FB54 /* Flight+Evidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B99C1400F0C14E02C6DFB4E /* Flight+Evidence.swift */; };
 		A83E77612126873053655DD1 /* ScheduleBackfillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 283EE3258EC82F97B3FD8892 /* ScheduleBackfillTests.swift */; };
+		A91DD38C05B6874B3C4B21B6 /* FloatingTripsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF727275593DAE9658AC4912 /* FloatingTripsTests.swift */; };
 		A9BD4EA4BA0EB46F87F971B3 /* DepartureEvidenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76A7ACD292B7C11B780E694F /* DepartureEvidenceTests.swift */; };
 		AA02B411577D86CF6E20DF8E /* FriendFlightMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB93B4F2DC11B6653725A2C8 /* FriendFlightMathTests.swift */; };
 		AC72B4ED862C05DA412F6850 /* SupabaseSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E21CAF83A7006D3DEE031E7A /* SupabaseSyncTests.swift */; };
@@ -307,6 +308,7 @@
 		AA75C28DED456E478FA10CC8 /* MyTripsLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyTripsLayoutTests.swift; sourceTree = "<group>"; };
 		AB9E02444B3605EDE0393741 /* FriendFlightGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendFlightGroup.swift; sourceTree = "<group>"; };
 		AEC9695158002B9A459B301E /* SunSide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SunSide.swift; sourceTree = "<group>"; };
+		AF727275593DAE9658AC4912 /* FloatingTripsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingTripsTests.swift; sourceTree = "<group>"; };
 		B2ED974C878C66DFB8E89AFE /* DateHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateHelpers.swift; sourceTree = "<group>"; };
 		B30B1695E898672BA030B089 /* LiveActivityPushSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityPushSyncTests.swift; sourceTree = "<group>"; };
 		B38DA68A6519FA66B43996E0 /* PassportStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassportStats.swift; sourceTree = "<group>"; };
@@ -430,6 +432,7 @@
 		47D3A4121C2C677CCBE62AF0 /* ArcUITests */ = {
 			isa = PBXGroup;
 			children = (
+				AF727275593DAE9658AC4912 /* FloatingTripsTests.swift */,
 				C433BF55903F358E2E698EA5 /* TripOpeningTests.swift */,
 			);
 			path = ArcUITests;
@@ -989,6 +992,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A91DD38C05B6874B3C4B21B6 /* FloatingTripsTests.swift in Sources */,
 				5AE5E5E643E8FD759F55C6D3 /* TripOpeningTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
