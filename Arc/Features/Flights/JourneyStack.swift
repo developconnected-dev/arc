@@ -11,6 +11,16 @@ final class JourneyStackMotion {
     /// How far the stack's top edge is above its resting position (negative:
     /// below). Zero at rest.
     var liveRise: CGFloat = 0
+
+    /// Set by the stack while it is on screen.
+    @ObservationIgnored fileprivate var restHandler: (() -> Void)?
+
+    /// Brings the stack to rest in this very turn: a settle lands where it
+    /// was heading, a held swipe is dropped with nothing committed, a flip
+    /// still waiting for its card is abandoned. Show More calls this before
+    /// it unfolds, so the list aligns to the page the stack really shows and
+    /// nothing is still rising under the mask.
+    func comeToRest() { restHandler?() }
 }
 
 /// What sits on the stack's top edge (the invites above it, the Show More
@@ -148,7 +158,16 @@ struct JourneyStack: View {
                 stateChangedOutside()
             }
         }
-        .onChange(of: journeys.map(\.id)) { _, _ in stateChangedOutside() }
+        .onChange(of: journeys.map(\.id)) { _, _ in
+            stateChangedOutside()
+            // The handler holds this view's values; keep its journeys current.
+            motion.restHandler = { comeToRest() }
+        }
+        .onAppear { motion.restHandler = { comeToRest() } }
+        .onDisappear {
+            motion.restHandler = nil
+            publishLiveRise(0)
+        }
         .onChange(of: flipRequest, initial: true) { _, request in
             guard let request else { return }
             onFlipRequestHandled()
@@ -351,6 +370,30 @@ struct JourneyStack: View {
     /// The page or the journeys changed under the stack (a clamp after a
     /// delete, Show Less landing on another card): a swipe or flip heading
     /// for an index that now means something else is dropped where it stands.
+    private func comeToRest() {
+        queuedFlip = nil
+        if holding {
+            // The finger may still be down; this gesture is ignored until it lifts.
+            settleGeneration += 1
+            instantly {
+                holding = false
+                isVertical = false
+                drag = 0
+                publishLiveRise(0)
+            }
+            scheduleChromeHide()
+        }
+        if settling { land(runQueued: false) }
+        if flipTarget != nil || drag != 0 {
+            instantly {
+                flipTarget = nil
+                flipAwaitsMeasure = false
+                drag = 0
+                publishLiveRise(0)
+            }
+        }
+    }
+
     private func stateChangedOutside() {
         if holding || settling || flipTarget != nil || drag != 0 {
             settleGeneration += 1

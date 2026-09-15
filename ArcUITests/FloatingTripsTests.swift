@@ -226,4 +226,5 @@ final class FloatingTripsTests: XCTestCase {
         XCTAssertTrue(waitUntil { stackValue(stack).hasPrefix("Journey 2 of") })
     }
 
+
 }

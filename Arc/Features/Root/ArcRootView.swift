@@ -1261,6 +1261,9 @@ struct ArcRootView: View {
     /// movements at once.
     private func setTripsFolded(_ folded: Bool) {
         guard folded != tripsFolded else { return }
+        // Mid-settle or mid-swipe, the page and the stack's height are still
+        // the old ones: land first, so the list aligns to what's showing.
+        tripsStackMotion.comeToRest()
         withAnimation(reduceMotion ? nil : ArcTheme.fold, completionCriteria: .logicallyComplete) {
             tripsFolded = folded
         } completion: {
