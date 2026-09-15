@@ -21,10 +21,10 @@ struct ArcRootView: View {
     @State private var heroFrames = HeroFrames()
     @State private var heroTravelling: HeroSource?
     @State private var heroProgress: Double = 0
-    @State private var heroTarget: Double = 0
     @State private var heroOrigin: CGRect?
     @State private var heroDestination: CGRect?
-    @State private var transitionID = UUID()
+    @State private var transition = TripTransition()
+    @State private var detailTab: ArcTab?
     @State private var mapFocusID: UUID?
     /// Set while the open detail is a friend's flight: the row's feed item.
     @State private var detailFriend: FriendsStore.FeedItem?
@@ -123,19 +123,23 @@ struct ArcRootView: View {
         // the same way.
         .modifier(NotificationPrimerAlert(isPresented: $showNotificationPrimer))
         .onChange(of: tab) { _, newTab in
+            if let detailTab, detailTab != newTab {
+                transition.close()
+                finishTransition(transition.request!.id)
+            }
             updateCameraForTab(newTab)
             if newTab == .friends {
                 Task {
                     await FriendsStore.shared.refresh()
                     // Overlays may have just loaded — frame them.
-                    if tab == .friends { applyCameraForCurrentTab() }
+                    if tab == .friends, detailFlight == nil { applyCameraForCurrentTab() }
                 }
             }
         }
         // Cold launch straight into the Friends tab: the store fills AFTER
         // the first camera pass — refit when the friend list materializes.
         .onChange(of: friendsStore.friends.count) { _, _ in
-            if tab == .friends { applyCameraForCurrentTab() }
+            if tab == .friends, detailFlight == nil { applyCameraForCurrentTab() }
         }
         .onChange(of: friendsStore.focusedRoute) { _, route in
             if tab == .friends, route == nil { applyCameraForCurrentTab() }
@@ -216,6 +220,7 @@ struct ArcRootView: View {
             // build or a relaunch race, once per app start.
             Task { await LiveActivityManager.shared.reapDuplicateActivities() }
             DemoSeed.seedTripInviteIfRequested()
+            DemoSeed.seedFriendsIfRequested()
             refitMapForCurrentData()
             openDetailIfPending()
             bootstrapTrackingAndWidgets()
@@ -231,6 +236,9 @@ struct ArcRootView: View {
         await Task.yield()
         guard !Task.isCancelled, mapFocusID == id, detailFlight?.id == id else { return }
         controller.focus(on: flight, animated: !reduceMotion)
+        if let friend = detailFriend {
+            await FriendsStore.shared.refreshLive(friend, updating: flight)
+        }
     }
 
     private func prepareInitialSheet() {
@@ -639,7 +647,6 @@ struct ArcRootView: View {
         let store = FriendsStore.shared
         let flight = store.transientFlight(for: item)
         detailFriend = item
-        Task { await store.refreshLive(item, updating: flight) }
         if let dlat = item.flight.departure_lat, let dlon = item.flight.departure_lon,
            let alat = item.flight.arrival_lat, let alon = item.flight.arrival_lon {
             store.focusedRoute = .init(
@@ -666,64 +673,44 @@ struct ArcRootView: View {
         case .invite: detailFriend = nil
         }
         let replacing = detailFlight != nil
-        beginTransition(target: 1)
+        mapFocusID = nil
+        detailTab = tab
         detailFlight = flight
         if reduceMotion || replacing {
+            transition.settle(detail: true)
             heroTravelling = nil
             heroProgress = 1
             mapFocusID = flight.id
             return
         }
         heroProgress = 0
-        heroFrames.detail = nil
         heroOrigin = heroFrames.rows[source.key]
         heroDestination = nil
-        if heroOrigin != nil {
-            heroTravelling = source
+        heroTravelling = heroOrigin == nil ? nil : source
+        transition.open()
+    }
+
+    private func prepareTransition(_ id: UUID) {
+        guard transition.request?.id == id else { return }
+        if let source = heroTravelling {
+            heroDestination = heroFrames.details[source.key]
+        }
+    }
+
+    private func finishTransition(_ id: UUID) {
+        guard transition.finish(id) else { return }
+        heroTravelling = nil
+        heroOrigin = nil
+        heroDestination = nil
+        if transition.phase == .list {
+            heroProgress = 0
+            if detailFriend != nil { FriendsStore.shared.focusedRoute = nil }
+            detailFlight = nil
+            detailTab = nil
+            presentQueuedDetail()
         } else {
-            animateTransition(id: transitionID)
-        }
-    }
-
-    private func beginTransition(target: Double) {
-        transitionID = UUID()
-        mapFocusID = nil
-        heroFrames.onDetail = nil
-        heroTarget = target
-    }
-
-    /// Wait for the destination's first layout, then animate with fixed
-    /// endpoints. Row geometry changes never redraw the root during travel.
-    private func heroDidAppear() {
-        let id = transitionID
-        let start = {
-            DispatchQueue.main.async {
-                guard transitionID == id else { return }
-                heroDestination = heroFrames.detail
-                animateTransition(id: id)
-            }
-        }
-        if heroTarget == 1, heroFrames.detail == nil {
-            heroFrames.onDetail = start
-        } else {
-            start()
-        }
-    }
-
-    private func animateTransition(id: UUID) {
-        let target = heroTarget
-        withAnimation(ArcTheme.morph, completionCriteria: .removed) {
-            heroProgress = target
-        } completion: {
-            guard transitionID == id else { return }
-            heroTravelling = nil
-            if target == 0 {
-                if detailFriend != nil { FriendsStore.shared.focusedRoute = nil }
-                detailFlight = nil
-                presentQueuedDetail()
-            } else {
-                mapFocusID = detailFlight?.id
-            }
+            heroProgress = 1
+            mapFocusID = detailFlight?.id
         }
     }
 
@@ -732,29 +719,23 @@ struct ArcRootView: View {
         groundViewTask?.cancel()
         groundViewTask = nil
         controller.clearGateMarker()
+        mapFocusID = nil
         let source: HeroSource = detailFriend.map { .friend($0, flight) }
             ?? detailInvite.map { .invite($0, flight) }
             ?? .own(flight)
-        beginTransition(target: 0)
         if reduceMotion {
-            if detailFriend != nil { FriendsStore.shared.focusedRoute = nil }
-            heroTravelling = nil
-            heroProgress = 0
-            detailFlight = nil
-            presentQueuedDetail()
+            transition.close()
+            finishTransition(transition.request!.id)
             return
         }
-        // If closing mid-travel, reverse from the current presentation rather
-        // than resetting progress to one and snapping the card to its target.
-        if heroTravelling != nil {
-            animateTransition(id: transitionID)
-        } else if let origin = heroFrames.rows[source.key] {
-            heroOrigin = origin
-            heroDestination = heroFrames.detail
-            heroTravelling = source
-        } else {
-            animateTransition(id: transitionID)
+        if heroTravelling == nil {
+            heroOrigin = heroFrames.rows[source.key]
+            heroDestination = heroFrames.details[source.key]
+            heroTravelling = heroOrigin == nil ? nil : source
         }
+        // A new request reverses a running animation in the SAME host. No
+        // overlay appearance event or fresh geometry report is required.
+        transition.close()
     }
 
     private func presentQueuedDetail() {
@@ -786,7 +767,7 @@ struct ArcRootView: View {
     private var tabs: some View {
         TabView(selection: $tab) {
                 Tab(ArcTab.myFlights.title, systemImage: ArcTab.myFlights.icon, value: ArcTab.myFlights) {
-                    tabSurface {
+                    tabSurface(.myFlights) {
                         MyFlightsView(onSelect: { openDetail($0) },
                                       onAdd: { showAdd = true },
                                       onImported: { imported in revealTrips([imported]) },
@@ -797,10 +778,10 @@ struct ArcRootView: View {
                 // Trips friends added for the two of you, waiting on an answer.
                 .badge(friendsStore.tripInvites.count)
                 Tab(ArcTab.friends.title, systemImage: ArcTab.friends.icon, value: ArcTab.friends) {
-                    tabSurface { FriendsScreen(onSelect: { item in openFriendFlight(item) }) }
+                    tabSurface(.friends) { FriendsScreen(onSelect: { item in openFriendFlight(item) }) }
                 }
                 Tab(ArcTab.passport.title, systemImage: ArcTab.passport.icon, value: ArcTab.passport) {
-                    tabSurface { PassportView { openDetail($0) } }
+                    tabSurface(.passport) { PassportView { openDetail($0) } }
                 }
             }
 
@@ -870,15 +851,15 @@ struct ArcRootView: View {
                                             from: local(from),
                                             to: heroDestination.map(local)
                                                 ?? Morph.target(in: geo.size, rowHeight: from.height)))
-                    .onAppear { DispatchQueue.main.async { heroDidAppear() } }
             }
             .allowsHitTesting(false)
         }
     }
 
-    private func tabSurface<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+    private func tabSurface<Content: View>(_ surfaceTab: ArcTab, @ViewBuilder _ content: () -> Content) -> some View {
         // Built here rather than passed along, so the closure needn't escape.
         let built = content()
+        let active = detailTab == surfaceTab && tab == surfaceTab
         return ZStack {
             // iOS gives no way to clear a TabView's container background
             // (`.containerBackground(for: .tabView)` is unavailable here), so the
@@ -897,9 +878,10 @@ struct ArcRootView: View {
                 // the overlay below (see `Morph`).
                 ZStack {
                     built
-                        .modifier(SidePresence(side: .list, progress: heroProgress))
-                        .allowsHitTesting(detailFlight == nil)
-                    if let flight = detailFlight {
+                        .modifier(SidePresence(side: .list, progress: active ? heroProgress : 0))
+                        .accessibilityHidden(active && detailFlight != nil)
+                        .allowsHitTesting(!active || detailFlight == nil)
+                    if active, let flight = detailFlight {
                         let own = detailFriend == nil && detailInvite == nil
                         FlightDetailView(flight: flight,
                                          isOwnFlight: own,
@@ -909,23 +891,21 @@ struct ArcRootView: View {
                                          onClose: { closeDetail() },
                                          friend: detailFriend?.user ?? detailInvite?.sender,
                                          heroKey: detailFriend?.id ?? detailInvite?.id,
-                                         transitionActive: heroTravelling != nil || heroProgress < 1,
+                                         transitionActive: transition.request != nil,
                                          friendNote: detailInvite != nil ? "Invited you" : "Shared with you")
                             .id(flight.id)
+                            .accessibilityIdentifier(transition.request == nil ? "trip-detail-ready" : "trip-detail-transition")
                             .modifier(SidePresence(side: .detail, progress: heroProgress))
                     }
                 }
-                .overlay { heroOverlay }
+                .overlay { if active { heroOverlay } }
                 .padding(.bottom, 56)
-                // Declared HERE, not in the root: the tab content is hosted
-                // by UIKit's tab controller, and a transaction opened outside
-                // it never reaches this tree.
-                // Declared HERE, not only in a withAnimation from the root:
-                // the tab content is hosted by UIKit's tab controller, and a
-                // transaction opened outside it never reaches this tree.
-                .animation(reduceMotion ? nil : ArcTheme.morph, value: heroProgress)
+                .modifier(TripTransitionDriver(request: active ? transition.request : nil,
+                                               progress: $heroProgress,
+                                               prepare: prepareTransition,
+                                               finish: finishTransition))
                 .environment(\.heroFrames, heroFrames)
-                .environment(\.heroTravelling, heroTravelling?.key)
+                .environment(\.heroTravelling, active ? heroTravelling?.key : nil)
             }
             .offset(y: showAdd ? 1500 : 0)
             .animation(.spring(duration: 0.45), value: showAdd)

@@ -50,18 +50,10 @@ final class HeroFrames {
     /// Keyed by the hero key: a flight's id for the user's own rows, the
     /// feed item's id for a friend's — see `heroCopy(key:side:)`.
     var rows: [String: CGRect] = [:]
-    /// The detail's card. Its position is known in advance (`Morph.target`);
-    /// what matters is WHEN it reports — after the detail's first, heavy
-    /// layout — because a glide started before that has no frame to start
-    /// from and snaps. Whoever is waiting for that moment is told.
-    var detail: CGRect? {
-        didSet {
-            guard detail != nil, let waiting = onDetail else { return }
-            onDetail = nil
-            waiting()
-        }
-    }
-    var onDetail: (() -> Void)?
+    /// Keyed by the same source as the row. Hidden tabs and previous trips
+    /// cannot overwrite the destination of the currently opening card.
+    var details: [String: CGRect] = [:]
+
 }
 
 /// A side's opacity, shaped on the travel progress: the list is present
@@ -140,7 +132,7 @@ private struct HeroReporter: ViewModifier {
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
                 switch side {
                 case .list: frames?.rows[key] = rect
-                case .detail: frames?.detail = rect
+                case .detail: frames?.details[key] = rect
                 }
             }
     }

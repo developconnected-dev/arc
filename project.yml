@@ -140,12 +140,27 @@ targets:
         SWIFT_VERSION: "6.0"
         GENERATE_INFOPLIST_FILE: YES
 
+  ArcUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: ArcUITests
+    dependencies:
+      - target: Arc
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.arc.flighttracker.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Arc
+
 schemes:
   Arc:
     build:
       targets:
         Arc: all
         ArcTests: [test]
+        ArcUITests: [test]
     test:
       targets:
         - ArcTests
+        - ArcUITests

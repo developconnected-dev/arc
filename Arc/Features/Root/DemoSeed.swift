@@ -9,6 +9,40 @@ enum DemoSeed {
     static var isRequested: Bool { ProcessInfo.processInfo.arguments.contains("-seedDemo") }
     static var suppressPrompts: Bool { ProcessInfo.processInfo.arguments.contains("-uiNoPrompt") }
 
+    static var isFriendsRequested: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-seedFriendsDemo") && suppressPrompts
+        #else
+        false
+        #endif
+    }
+
+    @MainActor
+    static func seedFriendsIfRequested() {
+        guard isFriendsRequested else { return }
+        let iso = ISO8601DateFormatter()
+        let user = ArcSupabase.ArcUser(id: "demo-friend", display_name: "Demo Friend",
+            handle: "demo", avatar_url: nil, home_airport: "ZRH", nationality: "CH")
+        let flights = (1...2).compactMap { index -> ArcSupabase.SharedFlight? in
+            let dep = Date.now.addingTimeInterval(Double(index + 1) * 3600)
+            let json: [String: Any] = [
+                "id": "demo-feed-\(index)", "user_id": user.id,
+                "flight_number": "LX\(100 + index)", "airline": "Swiss",
+                "departure_iata": "ZRH", "arrival_iata": "VIE",
+                "departure_city": "Zurich", "arrival_city": "Vienna",
+                "departure_lat": 47.458, "departure_lon": 8.555,
+                "arrival_lat": 48.110, "arrival_lon": 16.570,
+                "scheduled_departure": iso.string(from: dep),
+                "scheduled_arrival": iso.string(from: dep.addingTimeInterval(3600)),
+                "status": "scheduled", "delay_minutes": 0, "progress": 0.0
+            ]
+            guard let data = try? JSONSerialization.data(withJSONObject: json) else { return nil }
+            return try? JSONDecoder().decode(ArcSupabase.SharedFlight.self, from: data)
+        }
+        FriendsStore.shared.friends = [.init(friendshipId: "demo-friendship", user: user, flights: flights)]
+        FriendsStore.shared.hasLoadedOnce = true
+    }
+
     static func seedIfRequested(into context: ModelContext, existing: [Flight]) {
         guard isRequested, existing.isEmpty else { return }
         let ref = ReferenceData.shared
