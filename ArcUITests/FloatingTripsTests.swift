@@ -27,6 +27,12 @@ final class FloatingTripsTests: XCTestCase {
             .allElementsBoundByIndex.filter { $0.isHittable }.map(\.identifier)
     }
 
+    /// The stack's accessibility value, "Journey 2 of 6, Zurich to Rome" (its
+    /// label is the constant "Journeys").
+    private func stackValue(_ stack: XCUIElement) -> String {
+        stack.value as? String ?? ""
+    }
+
     /// Parses "Journey 2 of 6, Zurich to Rome" into (2, 6).
     private func pageAndCount(_ label: String) -> (page: Int, count: Int)? {
         guard let journeyRange = label.range(of: "Journey ") else { return nil }
@@ -126,7 +132,7 @@ final class FloatingTripsTests: XCTestCase {
         let second = visibleTripRows(app)
         XCTAssertFalse(second.isEmpty)
         XCTAssertNotEqual(second, first)
-        XCTAssertTrue(stack.label.hasPrefix("Journey 2 of"))
+        XCTAssertTrue(stackValue(stack).hasPrefix("Journey 2 of"))
 
         stack.swipeDown()
         XCTAssertTrue(waitUntil { visibleTripRows(app) == first })
@@ -138,7 +144,7 @@ final class FloatingTripsTests: XCTestCase {
         let stack = app.descendants(matching: .any)["trips-stack"].firstMatch
         XCTAssertTrue(stack.waitForExistence(timeout: 5))
         stack.swipeUp()
-        XCTAssertTrue(waitUntil { stack.label.hasPrefix("Journey 2 of") })
+        XCTAssertTrue(waitUntil { stackValue(stack).hasPrefix("Journey 2 of") })
         let rows = visibleTripRows(app)
         XCTAssertFalse(rows.isEmpty)
         let row = app.buttons[rows[0]]
@@ -146,7 +152,7 @@ final class FloatingTripsTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["trip-detail-ready"].firstMatch.waitForExistence(timeout: 3))
         app.buttons["trip-detail-close"].tap()
         XCTAssertTrue(row.waitForExistence(timeout: 3))
-        XCTAssertTrue(stack.label.hasPrefix("Journey 2 of"), "closing returns to the same page")
+        XCTAssertTrue(stackValue(stack).hasPrefix("Journey 2 of"), "closing returns to the same page")
     }
 
     /// From a journey with enough earlier journeys to fill the list's height,
@@ -157,12 +163,12 @@ final class FloatingTripsTests: XCTestCase {
         let stack = app.descendants(matching: .any)["trips-stack"].firstMatch
         XCTAssertTrue(stack.waitForExistence(timeout: 5))
 
-        var info = pageAndCount(stack.label)
-        XCTAssertNotNil(info, "stack label didn't parse: \(stack.label)")
+        var info = pageAndCount(stackValue(stack))
+        XCTAssertNotNil(info, "stack label didn't parse: \(stackValue(stack))")
         while let current = info, current.page < 4, current.page < current.count {
             stack.swipeUp()
-            XCTAssertTrue(waitUntil { pageAndCount(stack.label)?.page != current.page })
-            info = pageAndCount(stack.label)
+            XCTAssertTrue(waitUntil { pageAndCount(stackValue(stack))?.page != current.page })
+            info = pageAndCount(stackValue(stack))
         }
         guard let landed = info else { XCTFail("stack lost its label"); return }
 
@@ -181,8 +187,8 @@ final class FloatingTripsTests: XCTestCase {
 
         toggle.tap()
         XCTAssertTrue(stack.waitForExistence(timeout: 3))
-        XCTAssertTrue(waitUntil { stack.label.hasPrefix("Journey \(landed.page) of") })
-        XCTAssertTrue(stack.label.hasPrefix("Journey \(landed.page) of"))
+        XCTAssertTrue(waitUntil { stackValue(stack).hasPrefix("Journey \(landed.page) of") })
+        XCTAssertTrue(stackValue(stack).hasPrefix("Journey \(landed.page) of"))
     }
 
     /// From journey 2 there's only one journey above: holding the card still
@@ -197,7 +203,7 @@ final class FloatingTripsTests: XCTestCase {
         let firstRowID = firstRows[0]
 
         stack.swipeUp()
-        XCTAssertTrue(waitUntil { stack.label.hasPrefix("Journey 2 of") })
+        XCTAssertTrue(waitUntil { stackValue(stack).hasPrefix("Journey 2 of") })
 
         let toggle = app.buttons["trips-fold-toggle"]
         toggle.tap()
@@ -217,6 +223,7 @@ final class FloatingTripsTests: XCTestCase {
 
         toggle.tap()
         XCTAssertTrue(stack.waitForExistence(timeout: 3))
-        XCTAssertTrue(waitUntil { stack.label.hasPrefix("Journey 2 of") })
+        XCTAssertTrue(waitUntil { stackValue(stack).hasPrefix("Journey 2 of") })
     }
+
 }

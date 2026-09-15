@@ -447,7 +447,9 @@ struct JourneyStack: View {
         }
     }
 
-    /// VoiceOver: one adjustable element; the current card's rows stay reachable.
+    /// VoiceOver: one adjustable element; the current card's rows stay
+    /// reachable. The label stays put and the value carries the page, so a
+    /// flip is announced as the value changing.
     @ViewBuilder
     private var accessibilityPager: some View {
         if journeys.count > 1, journeys.indices.contains(page) {
@@ -456,12 +458,23 @@ struct JourneyStack: View {
             Color.clear
                 .accessibilityElement()
                 .accessibilityIdentifier("trips-stack")
-                .accessibilityLabel("Journey \(page + 1) of \(journeys.count), \(route)")
+                .accessibilityLabel("Journeys")
+                .accessibilityValue("Journey \(page + 1) of \(journeys.count), \(route)")
                 .accessibilityAdjustableAction { direction in
-                    let target = direction == .increment ? page + 1 : page - 1
-                    guard journeys.indices.contains(target) else { return }
-                    flip(to: target)
+                    flipImmediately(to: direction == .increment ? page + 1 : page - 1)
                 }
+        }
+    }
+
+    /// An adjustable-action flip lands at once: VoiceOver reads the new value
+    /// straight after the action, and a spring would still be on the old page.
+    private func flipImmediately(to target: Int) {
+        guard journeys.indices.contains(target), !holding else { return }
+        if settling { land(runQueued: false) }
+        instantly {
+            flipTarget = nil
+            flipAwaitsMeasure = false
+            commit(target)
         }
     }
 }
