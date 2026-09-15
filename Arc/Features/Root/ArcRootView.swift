@@ -756,9 +756,21 @@ struct ArcRootView: View {
     /// Where the row to glide from is — but only if it's on screen. The
     /// frames outlive the rows: a card folded away still has one, and a glide
     /// from it would start out of nowhere, below the stack.
+    ///
+    /// Folded, only the stack's current journey and the invites above it are
+    /// on screen. A list card keeps the frame it last reported while
+    /// unfolded, which can lie inside the folded band: a trip opened from a
+    /// widget, notification or pasted number would glide from a card that
+    /// isn't there.
     private func heroRowOrigin(_ key: String, onTrips: Bool) -> CGRect? {
         guard let rect = heroFrames.rows[key] else { return nil }
         guard onTrips, let layout = tripsLayout else { return rect }
+        if tripsFolded {
+            let journeys = MyFlightsView.journeys(Array(allFlights))
+            let onPage = journeys.indices.contains(tripsPage)
+                && journeys[tripsPage].legs.contains { $0.id.uuidString == key }
+            guard onPage || friendsStore.tripInvites.contains(where: { $0.id == key }) else { return nil }
+        }
         // The live top: mid-swipe the stack's edge is off its resting place.
         // (Opening mid-swipe can't happen — taps are off while holding.)
         let top = layout.listTop(folded: tripsFolded, foldedHeight: tripsFoldedHeight, contentHeight: tripsContentHeight)
