@@ -29,19 +29,37 @@ struct DetailHeader: View {
 
     // MARK: Top line
 
+    /// The status pill is never truncated: in a narrow panel the date goes
+    /// first, and only then does the pill's text shrink (to 80 %).
     private func topLine(_ m: DetailHeaderModel) -> some View {
+        ViewThatFits(in: .horizontal) {
+            topLine(m, showsDate: true)
+            topLine(m, showsDate: false)
+        }
+    }
+
+    private func topLine(_ m: DetailHeaderModel, showsDate: Bool) -> some View {
         HStack(spacing: 8) {
             TripLogoView(mode: flight.mode, iata: flight.airlineCode,
                          logoURL: flight.operatorLogoURL, size: 20)
             Text(m.number).font(.system(size: 15, weight: .medium))
-            Text("· \(m.date)").font(.system(size: 15)).foregroundStyle(.secondary)
+            if showsDate {
+                Text("· \(m.date)").font(.system(size: 15)).foregroundStyle(.secondary)
+            }
             Spacer(minLength: 8)
-            Text(m.pill.text)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(m.pill.color)
-                .padding(.horizontal, 13).padding(.vertical, 7)
-                .background(m.pill.color.opacity(0.14), in: Capsule())
-                .lineLimit(1)
+            ZStack {
+                // Holds the row at its full height while the text shrinks.
+                Text("Ag").font(.system(size: 15, weight: .semibold))
+                    .fixedSize().frame(width: 0).hidden()
+                Text(m.pill.text)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(m.pill.color)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .padding(.horizontal, 13).padding(.vertical, 7)
+            .background(m.pill.color.opacity(0.14), in: Capsule())
+            .layoutPriority(1)
         }
     }
 
