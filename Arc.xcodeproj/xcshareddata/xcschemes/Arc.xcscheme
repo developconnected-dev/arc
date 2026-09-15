@@ -35,6 +35,20 @@
                ReferencedContainer = "container:Arc.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "84F29BC66ECDAA0E5F43B871"
+               BuildableName = "ArcUITests.xctest"
+               BlueprintName = "ArcUITests"
+               ReferencedContainer = "container:Arc.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -61,6 +75,17 @@
                BlueprintIdentifier = "5082F54593F734921624FB26"
                BuildableName = "ArcTests.xctest"
                BlueprintName = "ArcTests"
+               ReferencedContainer = "container:Arc.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "84F29BC66ECDAA0E5F43B871"
+               BuildableName = "ArcUITests.xctest"
+               BlueprintName = "ArcUITests"
                ReferencedContainer = "container:Arc.xcodeproj">
             </BuildableReference>
          </TestableReference>

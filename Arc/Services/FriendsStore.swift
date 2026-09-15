@@ -765,6 +765,7 @@ final class FriendsStore {
     /// throttle is for the tab-open/map double-fire, and it was silently
     /// swallowing "show me what I just changed".
     func refresh(force: Bool = false) async {
+        if DemoSeed.isFriendsRequested { DemoSeed.seedFriendsIfRequested(); return }
         guard ArcSupabase.shared.isSignedIn else {
             friends = []; pending = []; sentTripInvites = []
             if !DemoSeed.isTripInviteRequested { tripInvites = [] }

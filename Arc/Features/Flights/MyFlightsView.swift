@@ -130,6 +130,7 @@ struct MyFlightsView: View {
                             .padding(.bottom, idx == 0 ? 12 : 0)
                         }
                             .buttonStyle(.plain)
+                            .accessibilityIdentifier("trip-row-\(flight.flightNumber)")
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))

@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		021C5737EED7AB35B1ED3A71 /* MapControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CDBA155BE116022B7E2F90F /* MapControls.swift */; };
 		0458DAD31D437F3A54F4BD27 /* DepartureEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA61B45722DDEC3425D45B09 /* DepartureEvidence.swift */; };
+		04DD829801E63E78529FE037 /* TripTransitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F45D27D7E0071E6FF887F273 /* TripTransitionTests.swift */; };
 		055E0F22DAEA1DCEC41CEE5F /* SmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8011F1F9596F27743C731E2F /* SmokeTests.swift */; };
 		05ED885E317014CE129D89E7 /* ArcRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A54EAE7163E5314C68F828C /* ArcRootView.swift */; };
 		066B813B251042A5C7326EA9 /* ArcMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D318093F38973AB568D94123 /* ArcMapView.swift */; };
@@ -25,6 +26,7 @@
 		1654852A7E20DB386998BBE6 /* DetailHeaderModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B6726F433E4DC6595515C5E /* DetailHeaderModelTests.swift */; };
 		174541C286F7C1FAFD253F1A /* FriendsFeedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5460A62472771819DEC2B78A /* FriendsFeedTests.swift */; };
 		1BC8E88E19F9A7AD30EA6489 /* RemotePush.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9D60FB79B4585323258D954 /* RemotePush.swift */; };
+		1C559836F01ABDAEE24BF010 /* TripTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74CE06DF9691717494A71E3 /* TripTransition.swift */; };
 		1D39A49F3A94F85646D62092 /* DelayRisk.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F45EC7B8D2BEC6A79A78C9B /* DelayRisk.swift */; };
 		1EB9E39748B4D282482786CE /* FlightAudienceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FAE84C003F055E6FD5E1EC /* FlightAudienceTests.swift */; };
 		23E38F386FC1075984846921 /* FlightDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 734A69EC4EB99125C060E4F5 /* FlightDetailView.swift */; };
@@ -53,6 +55,7 @@
 		57E9B84380BBA34EF0FA2060 /* LiveActivityClockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5071EA7C352056408F298DEA /* LiveActivityClockTests.swift */; };
 		5860D96D4762878D6290576C /* FlightRowCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F7A0EB241567A257D24DFD0 /* FlightRowCard.swift */; };
 		5A687F07602155831DF39840 /* airlines.json in Resources */ = {isa = PBXBuildFile; fileRef = 85DB98F13E1308062AC4A2A9 /* airlines.json */; };
+		5AE5E5E643E8FD759F55C6D3 /* TripOpeningTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C433BF55903F358E2E698EA5 /* TripOpeningTests.swift */; };
 		5B6F1C22294B92638EA60956 /* JourneyRecapCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A46225ACB6DFB0384F0FC18E /* JourneyRecapCard.swift */; };
 		5BFC4245B668EF91BE8CF988 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4864581CF99C026C4AB5136F /* SettingsView.swift */; };
 		5FA1351EE55E4BE4797E59F1 /* FriendGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC305EC99186FF91058284B9 /* FriendGroups.swift */; };
@@ -162,6 +165,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 88B9A5180C02CFA3B6E6A35A;
 			remoteInfo = ArcWidget;
+		};
+		BBAE1407A0421293F11E9B7D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = EBAD1D3D9882D2E73DFD036C /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 670DE7EC6854CC229143633E;
+			remoteInfo = Arc;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -283,6 +293,7 @@
 		B30B1695E898672BA030B089 /* LiveActivityPushSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityPushSyncTests.swift; sourceTree = "<group>"; };
 		B38DA68A6519FA66B43996E0 /* PassportStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassportStats.swift; sourceTree = "<group>"; };
 		B48F84455243D0E4149FB369 /* PlanePositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanePositionTests.swift; sourceTree = "<group>"; };
+		B74CE06DF9691717494A71E3 /* TripTransition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripTransition.swift; sourceTree = "<group>"; };
 		B7F9371C57F0DE1D1A4B88E3 /* AirportStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirportStatusView.swift; sourceTree = "<group>"; };
 		BB93B4F2DC11B6653725A2C8 /* FriendFlightMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendFlightMathTests.swift; sourceTree = "<group>"; };
 		BE81C439079799A2214E528E /* JourneyBriefView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyBriefView.swift; sourceTree = "<group>"; };
@@ -290,6 +301,7 @@
 		C1450F4FF4653A6D0BF449CA /* ConnectionPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionPlannerTests.swift; sourceTree = "<group>"; };
 		C3B41C8E240118941DEB4492 /* TakeoffSensor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeoffSensor.swift; sourceTree = "<group>"; };
 		C3BA60104125C5743ECF86F8 /* InboundMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboundMonitor.swift; sourceTree = "<group>"; };
+		C433BF55903F358E2E698EA5 /* TripOpeningTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripOpeningTests.swift; sourceTree = "<group>"; };
 		C6B0AA5B39E6C21E26E17DE7 /* AddFlightView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddFlightView.swift; sourceTree = "<group>"; };
 		C8B050595CEBC559BB3F8B48 /* FlightQueryParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightQueryParserTests.swift; sourceTree = "<group>"; };
 		C966E39F13C47E5E918B92FA /* BookingExtractorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookingExtractorTests.swift; sourceTree = "<group>"; };
@@ -306,10 +318,12 @@
 		DED5DCA402481C7993E36CCA /* DetailHeaderModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailHeaderModel.swift; sourceTree = "<group>"; };
 		E0DA1605596C9C30A7CEC40C /* BoardingPassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardingPassTests.swift; sourceTree = "<group>"; };
 		E21CAF83A7006D3DEE031E7A /* SupabaseSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseSyncTests.swift; sourceTree = "<group>"; };
+		E50385EF34A0E1AA96504ADD /* ArcUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ArcUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E541D2FFAAC64594CCFDC7CE /* FlightClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightClock.swift; sourceTree = "<group>"; };
 		E909886CA15B1B79B6D631A0 /* WidgetSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSync.swift; sourceTree = "<group>"; };
 		ED3BBC117AA0A74224DAF8AB /* WidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetData.swift; sourceTree = "<group>"; };
 		F1A6E858F2D653D54302F578 /* Morph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Morph.swift; sourceTree = "<group>"; };
+		F45D27D7E0071E6FF887F273 /* TripTransitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripTransitionTests.swift; sourceTree = "<group>"; };
 		F70B4249290027FDAFA9D021 /* DelayRiskTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelayRiskTests.swift; sourceTree = "<group>"; };
 		F9D60FB79B4585323258D954 /* RemotePush.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePush.swift; sourceTree = "<group>"; };
 		FA61B45722DDEC3425D45B09 /* DepartureEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DepartureEvidence.swift; sourceTree = "<group>"; };
@@ -392,6 +406,14 @@
 			path = Friends;
 			sourceTree = "<group>";
 		};
+		47D3A4121C2C677CCBE62AF0 /* ArcUITests */ = {
+			isa = PBXGroup;
+			children = (
+				C433BF55903F358E2E698EA5 /* TripOpeningTests.swift */,
+			);
+			path = ArcUITests;
+			sourceTree = "<group>";
+		};
 		4F2534B1CB451EE570B34F3F /* ArcWidget */ = {
 			isa = PBXGroup;
 			children = (
@@ -410,6 +432,7 @@
 			children = (
 				5DFE5890F673E6E56FF7EAEF /* Arc.app */,
 				7EC116B53681F7234E0DDDC9 /* ArcTests.xctest */,
+				E50385EF34A0E1AA96504ADD /* ArcUITests.xctest */,
 				A680FB4FD944A5EFEB911BFE /* ArcWidget.appex */,
 			);
 			name = Products;
@@ -521,6 +544,7 @@
 			children = (
 				62463CF3932253BA671AEE54 /* Arc */,
 				F217BA22EB7CDEAB4A10C314 /* ArcTests */,
+				47D3A4121C2C677CCBE62AF0 /* ArcUITests */,
 				4F2534B1CB451EE570B34F3F /* ArcWidget */,
 				A2CA152829D97FB89330C0BC /* Shared */,
 				56BD32AAEBF832991570B246 /* Products */,
@@ -547,6 +571,7 @@
 				4CDBA155BE116022B7E2F90F /* MapControls.swift */,
 				F1A6E858F2D653D54302F578 /* Morph.swift */,
 				81A83E908E4D238FB3AB6A45 /* TripLogoView.swift */,
+				B74CE06DF9691717494A71E3 /* TripTransition.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -619,6 +644,7 @@
 				3BF7D3153A1277104EAE2B7C /* TaxiCameraTests.swift */,
 				2AAA85683251E0048E5FBC31 /* TripInviteTests.swift */,
 				99C658BC80584432FD6E1A9E /* TripModeTests.swift */,
+				F45D27D7E0071E6FF887F273 /* TripTransitionTests.swift */,
 			);
 			path = ArcTests;
 			sourceTree = "<group>";
@@ -664,6 +690,24 @@
 			productReference = 5DFE5890F673E6E56FF7EAEF /* Arc.app */;
 			productType = "com.apple.product-type.application";
 		};
+		84F29BC66ECDAA0E5F43B871 /* ArcUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FC1E80E3ABF6910DB4202FFF /* Build configuration list for PBXNativeTarget "ArcUITests" */;
+			buildPhases = (
+				E757A434B4237DEE3C4442EE /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9805385A5FA5EAD8A720FB98 /* PBXTargetDependency */,
+			);
+			name = ArcUITests;
+			packageProductDependencies = (
+			);
+			productName = ArcUITests;
+			productReference = E50385EF34A0E1AA96504ADD /* ArcUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		88B9A5180C02CFA3B6E6A35A /* ArcWidget */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 2E3326D08A1752FD513C6E77 /* Build configuration list for PBXNativeTarget "ArcWidget" */;
@@ -697,6 +741,10 @@
 						DevelopmentTeam = GQZHJ59F4R;
 						ProvisioningStyle = Automatic;
 					};
+					84F29BC66ECDAA0E5F43B871 = {
+						DevelopmentTeam = GQZHJ59F4R;
+						TestTargetID = 670DE7EC6854CC229143633E;
+					};
 					88B9A5180C02CFA3B6E6A35A = {
 						DevelopmentTeam = GQZHJ59F4R;
 						ProvisioningStyle = Automatic;
@@ -720,6 +768,7 @@
 				670DE7EC6854CC229143633E /* Arc */,
 				88B9A5180C02CFA3B6E6A35A /* ArcWidget */,
 				5082F54593F734921624FB26 /* ArcTests */,
+				84F29BC66ECDAA0E5F43B871 /* ArcUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -799,6 +848,7 @@
 				8F71B31BFA1A05112FD005B3 /* TaxiCameraTests.swift in Sources */,
 				E2AC5D165AA0A0A30D638EB2 /* TripInviteTests.swift in Sources */,
 				08856F19B11FB2609AFA1106 /* TripModeTests.swift in Sources */,
+				04DD829801E63E78529FE037 /* TripTransitionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -889,8 +939,17 @@
 				3ECCF6ABE970433007FAB23D /* TripInvites.swift in Sources */,
 				C0DE555A6BBA8CA7E40648A8 /* TripLogoView.swift in Sources */,
 				B898832B7AC151BC27E0C6FD /* TripMode.swift in Sources */,
+				1C559836F01ABDAEE24BF010 /* TripTransition.swift in Sources */,
 				9C4509B5E588A11B545D2021 /* WidgetData.swift in Sources */,
 				E64226C8F2F29728DFB84855 /* WidgetSync.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E757A434B4237DEE3C4442EE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5AE5E5E643E8FD759F55C6D3 /* TripOpeningTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -901,6 +960,11 @@
 			isa = PBXTargetDependency;
 			target = 88B9A5180C02CFA3B6E6A35A /* ArcWidget */;
 			targetProxy = 8F96802FBD8F9E0E76E693E2 /* PBXContainerItemProxy */;
+		};
+		9805385A5FA5EAD8A720FB98 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 670DE7EC6854CC229143633E /* Arc */;
+			targetProxy = BBAE1407A0421293F11E9B7D /* PBXContainerItemProxy */;
 		};
 		FC475DA5AEEDB802F386697C /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -1062,6 +1126,23 @@
 			};
 			name = Release;
 		};
+		B8DB7C951D31EB1248D3C204 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.arc.flighttracker.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Arc;
+			};
+			name = Release;
+		};
 		D4129F2D6EB9463B0256E23E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1147,6 +1228,23 @@
 			};
 			name = Debug;
 		};
+		E497CA36C66AC26CA0CCCAC0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.arc.flighttracker.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Arc;
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1182,6 +1280,15 @@
 			buildConfigurations = (
 				6008FF0970A7892157048ADD /* Debug */,
 				9EA9C44AF6DB3F483FD23083 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FC1E80E3ABF6910DB4202FFF /* Build configuration list for PBXNativeTarget "ArcUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E497CA36C66AC26CA0CCCAC0 /* Debug */,
+				B8DB7C951D31EB1248D3C204 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

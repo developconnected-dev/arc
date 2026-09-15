@@ -18,7 +18,9 @@ struct FriendsScreen: View {
             // The intro pitches a feature you haven't set up yet, so an already
             // signed-in user skips it — `hasSeenIntro` lives in UserDefaults,
             // which a reinstall wipes even though the session (Keychain) survives.
-            if !hasSeenIntro && !supabase.isSignedIn {
+            if DemoSeed.isFriendsRequested {
+                FriendsListView(onSelect: onSelect)
+            } else if !hasSeenIntro && !supabase.isSignedIn {
                 FriendsIntroView { hasSeenIntro = true }
             } else if !supabase.isSignedIn {
                 VStack(alignment: .leading, spacing: 0) {
@@ -666,6 +668,7 @@ struct FriendsListView: View {
                 .heroCopy(key: item.id, side: .list)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("friend-trip-\(item.id)")
     }
 
     private var pastSection: some View {
