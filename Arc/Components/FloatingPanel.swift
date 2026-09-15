@@ -190,6 +190,10 @@ final class PanelScrollLink {
     /// Written by the detail's scroll view as it scrolls; never observed.
     var geometry: ScrollGeometry?
     var scrollTo: ((CGFloat) -> Void)?
+    /// The scroll view that owns `geometry` and `scrollTo`. A detail replaced
+    /// by another (`.id(flight.id)`) can disappear after its successor
+    /// appeared, so only the current owner may write or clear them.
+    var owner: UUID?
     private var start: (offset: CGFloat, insetInView: CGFloat)?
     private var shift: CGFloat = 0
     /// The lowest offset the scroll view rests at: its top inset, negated.
@@ -237,17 +241,28 @@ extension EnvironmentValues {
 struct PanelScrollReader: ViewModifier {
     @Environment(\.panelScroll) private var link
     @State private var position = ScrollPosition()
+    @State private var id = UUID()
 
     func body(content: Content) -> some View {
         if let link {
             content
                 .scrollPosition($position)
                 .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, geometry in
-                    link.geometry = geometry
+                    if link.owner == id { link.geometry = geometry }
                 }
                 .onAppear {
                     let position = $position
+                    link.owner = id
+                    link.geometry = nil
                     link.scrollTo = { y in DispatchQueue.main.async { position.wrappedValue.scrollTo(y: y) } }
+                }
+                // A detail that has gone must not lend its offset to the next:
+                // a drag would scroll the new detail to the old one's bottom.
+                .onDisappear {
+                    guard link.owner == id else { return }
+                    link.owner = nil
+                    link.geometry = nil
+                    link.scrollTo = nil
                 }
         } else {
             content
