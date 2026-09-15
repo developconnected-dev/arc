@@ -1,12 +1,14 @@
 import SwiftUI
 import SwiftData
 
-/// The My Flights sheet content: title + share/avatar, then active & upcoming
-/// flights as countdown cards. A flight stays here for 30 minutes after
-/// landing too (arrival gate, baggage claim still visible) before moving
-/// exclusively to Passport history.
+/// My Trips' cards, floating over the map: trip invites and the next journey
+/// first (all a folded stack shows), then every later journey. The root
+/// places, masks and fades this view; it only lays the cards out. A flight
+/// stays here for 30 minutes after landing (arrival gate, belt) before it
+/// lives only in Passport.
 struct MyFlightsView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query(sort: \Flight.scheduledDeparture) private var allFlights: [Flight]
     var onSelect: (Flight) -> Void
     var onAdd: () -> Void = {}
@@ -14,18 +16,27 @@ struct MyFlightsView: View {
     /// and gets the same beat an add does: the row appears and the map draws
     /// the route on.
     var onImported: (Flight) -> Void = { _ in }
-    /// A tap on an invited trip's card: the root opens its read-only preview
-    /// in the tab sheet, gliding from the card.
+    /// A tap on an invited trip's card: the root opens its read-only preview.
     var onPreview: (FriendsStore.TripInviteItem, Flight) -> Void = { _, _ in }
-    /// Trips that just became the user's, by id. The row appearing is the
-    /// confirmation of an add — but a list scrolled even one row down keeps
-    /// its place when a row is inserted above it, and the confirmation plays
-    /// out of view. Each new batch brings its topmost row to the top.
+    /// Trips that just became the user's, by id: the stack brings the
+    /// journey holding the topmost one into view.
     var landed: [UUID] = []
+    /// Folded, only the first block shows and nothing scrolls.
+    var folded = true
+    /// Whether the journeys after the first are built at all: from the start
+    /// of an unfold until a fold has finished closing over them.
+    var showsRest = false
+    /// The add moment is drawing a route. A trip that landed below the fold
+    /// waits for the line to finish before the stack unfolds over the map.
+    var revealing = false
+    var onFoldedHeight: (CGFloat) -> Void = { _ in }
+    /// Asks the root to unfold, then runs the closure once the stack is open.
+    var onUnfold: (@escaping () -> Void) -> Void = { $0() }
 
-    @State private var showSettings = false
-    @State private var shareFlight: Flight?
     @State private var friendsStore = FriendsStore.shared
+    @State private var pendingJourney: UUID?
+
+    static let topID = "trips-top"
 
     private var flights: [Flight] { Self.listed(Array(allFlights)) }
 
@@ -47,6 +58,10 @@ struct MyFlightsView: View {
             }
     }
 
+    static func journeys(_ all: [Flight]) -> [TripJourney] {
+        TripJourney.group(listed(all), connections: ConnectionPlanner.detectConnections(from: all))
+    }
+
     /// The row to bring into view for trips that just landed: the first of
     /// them in list order, or nothing when the list shows none of them (a
     /// hand-logged past trip has no row here, so nothing should jump).
@@ -59,107 +74,26 @@ struct MyFlightsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-                .padding(.horizontal, 20)
-                .padding(.top, 4)
-                .padding(.bottom, 10)
-
-            ScrollViewReader { proxy in
-            List {
-                // Trips a friend added for the two of you, waiting on an
-                // answer. Pinned above everything rather than slotted into
-                // the timeline: an invite for a trip six weeks out would
-                // otherwise sit below the fold and never be seen.
-                // A failed Accept sets lastError and leaves the card — but
-                // the error used to render only on the Friends tab, so here
-                // the tap just visibly did nothing.
-                if let error = friendsStore.lastError, !friendsStore.tripInvites.isEmpty {
-                    Text(error)
-                        .font(.system(size: 13)).foregroundStyle(.secondary)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 0, trailing: 16))
-                }
-                ForEach(friendsStore.tripInvites) { item in
-                    TripInviteCard(item: item,
-                                   onOpen: { onPreview(item, $0) },
-                                   onAccept: { accept(item) },
-                                   onDecline: { friendsStore.decline(item) })
-                        .heroCopy(key: item.id, side: .list)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
-                }
-                if flights.isEmpty {
-                    Button(action: onAdd) {
-                        emptyState.padding(.top, 12).padding(.bottom, 20)
-                    }
-                    .buttonStyle(.plain)
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
-                } else {
-                    // Flat list, one smooth surface. A connection is bound by
-                    // omission and a spine: no divider between its legs, and a
-                    // continuous vertical line through the layover row linking
-                    // the two countdown blocks — transit-map grammar instead
-                    // of a container that breaks the surface.
-                    ForEach(Array(flights.enumerated()), id: \.element.id) { idx, flight in
-                        Button { onSelect(flight) } label: {
-                            VStack(alignment: .leading, spacing: 0) {
-                                if idx == 0 {
-                                    JourneyBriefView(flight: flight)
-                                        .padding(.horizontal, 14).padding(.top, 16)
-                                }
-                                FlightRowCard(flight: flight)
-                                    .heroCopy(for: flight, side: .list)
-                            }
-                            .background {
-                                if idx == 0 {
-                                    RoundedRectangle(cornerRadius: 22)
-                                        .fill(Color(.secondarySystemGroupedBackground))
-                                }
-                            }
-                            .overlay {
-                                if idx == 0 {
-                                    RoundedRectangle(cornerRadius: 22)
-                                        .strokeBorder(ArcTheme.brand.opacity(0.16), lineWidth: 1)
-                                }
-                            }
-                            .padding(.bottom, idx == 0 ? 12 : 0)
-                        }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("trip-row-\(flight.flightNumber)")
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                Button(role: .destructive) { delete(flight) } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
-                            .overlay(alignment: .bottom) {
-                                if idx < flights.count - 1, !isConnectionGap(after: idx) {
-                                    Divider().padding(.leading, 20)
-                                }
-                            }
-                        if let plan = connectionPlan(after: idx) {
-                            layoverConnector(plan)
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.clear)
-                                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+        let journeys = Self.journeys(Array(allFlights))
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 10) {
+                    foldedBlock(journeys.first)
+                        .id(Self.topID)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onFoldedHeight($0) }
+                    if showsRest {
+                        ForEach(journeys.dropFirst()) { journey in
+                            JourneyCard(journey: journey, onSelect: onSelect, onDelete: delete)
+                                .id(journey.id)
                         }
                     }
                 }
-                Color.clear.frame(height: 140)   // clear the floating pill
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
+                .padding(.horizontal, MyTripsLayout.margin)
+                .padding(.bottom, 12)
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
+            .scrollDisabled(folded)
             .scrollIndicators(.hidden)
+            .scrollBounceBehavior(.basedOnSize)
             .refreshable {
                 await FlightTracker.shared.burstUpdate(flights: Array(allFlights), modelContext: modelContext)
                 // Pull-to-refresh is also "did anyone add a trip for me?"
@@ -178,26 +112,26 @@ struct MyFlightsView: View {
                 }
             }
             .onChange(of: landed) { _, ids in
-                guard let row = Self.rowToReveal(ids: Set(ids), among: Array(allFlights)) else { return }
-                // The save that produced the batch is already in the query;
-                // one turn of the loop lets the List lay the row out before
-                // it is asked to show it.
-                Task { @MainActor in
-                    withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(row, anchor: .top) }
-                }
+                guard let row = Self.rowToReveal(ids: Set(ids), among: Array(allFlights)),
+                      let index = journeys.firstIndex(where: { $0.legs.contains { $0.id == row } })
+                else { return }
+                guard index > 0 else { return }   // the folded card already shows it
+                pendingJourney = journeys[index].id
+                if !revealing { unfoldToPending(proxy) }
             }
+            .onChange(of: revealing) { _, isRevealing in
+                if !isRevealing { unfoldToPending(proxy) }
             }
-        }
-        .sheet(isPresented: $showSettings) {
-            SettingsView()
-        }
-        .sheet(item: $shareFlight) { flight in
-            ShareFlightSheet(flight: flight)
+            // Folding scrolls home in the same spring the stack closes with,
+            // so the first block is what the fold settles on.
+            .onChange(of: folded) { _, nowFolded in
+                guard nowFolded else { return }
+                withAnimation(reduceMotion ? nil : ArcTheme.fold) { proxy.scrollTo(Self.topID, anchor: .top) }
+            }
         }
         .onAppear {
             friendsStore.updateAirportOverlaps(with: Array(allFlights))
             friendsStore.reconcileTripInvites(with: Array(allFlights))
-            if ProcessInfo.processInfo.arguments.contains("-openSettings") { showSettings = true }
         }
         .onChange(of: allFlights.map(\.id)) { _, _ in
             friendsStore.updateAirportOverlaps(with: Array(allFlights))
@@ -206,6 +140,47 @@ struct MyFlightsView: View {
         // Invites for a journey the user already has answer themselves.
         .onChange(of: friendsStore.tripInvites.map(\.id)) { _, _ in
             friendsStore.reconcileTripInvites(with: Array(allFlights))
+        }
+    }
+
+    /// Everything a folded stack shows: invites (they need an answer) and the
+    /// next journey, or the empty state.
+    @ViewBuilder
+    private func foldedBlock(_ next: TripJourney?) -> some View {
+        VStack(spacing: 10) {
+            // A failed Accept sets lastError and leaves the card.
+            if let error = friendsStore.lastError, !friendsStore.tripInvites.isEmpty {
+                Text(error)
+                    .font(.system(size: 13)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .glassEffect(ArcTheme.tripGlass, in: .rect(cornerRadius: 16))
+            }
+            ForEach(friendsStore.tripInvites) { item in
+                TripInviteCard(item: item,
+                               onOpen: { onPreview(item, $0) },
+                               onAccept: { accept(item) },
+                               onDecline: { friendsStore.decline(item) },
+                               drawsBackground: false)
+                    .heroCopy(key: item.id, side: .list)
+                    .glassEffect(ArcTheme.tripGlass, in: .rect(cornerRadius: ArcTheme.cardCorner))
+            }
+            if let next {
+                JourneyCard(journey: next, showsBrief: true, onSelect: onSelect, onDelete: delete)
+            } else {
+                Button(action: onAdd) { emptyState }
+                    .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func unfoldToPending(_ proxy: ScrollViewProxy) {
+        guard let target = pendingJourney else { return }
+        pendingJourney = nil
+        onUnfold {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) {
+                proxy.scrollTo(target, anchor: .top)
+            }
         }
     }
 
@@ -221,96 +196,6 @@ struct MyFlightsView: View {
 
     private func delete(_ flight: Flight) {
         Task { await Flight.delete(flight, from: modelContext) }
-    }
-
-    // MARK: Connection grouping
-
-    /// Every connection among the listed flights — computed from the same
-    /// planner the detail screen uses, so both agree on what a journey is.
-    /// All of them, not the first: a trip's outbound and return legs are
-    /// two connections, and each gets its spine.
-    private var connectionPairs: [(inbound: Flight, outbound: Flight)] {
-        ConnectionPlanner.detectConnections(from: allFlights)
-    }
-
-    /// True when the row at `idx` is the inbound leg and the next row is its
-    /// outbound — the gap between them is a layover, not a separator.
-    private func isConnectionGap(after idx: Int) -> Bool {
-        connectionPair(after: idx) != nil
-    }
-
-    private func connectionPair(after idx: Int) -> (inbound: Flight, outbound: Flight)? {
-        guard idx + 1 < flights.count else { return nil }
-        return connectionPairs.first {
-            flights[idx].id == $0.inbound.id && flights[idx + 1].id == $0.outbound.id
-        }
-    }
-
-    private func connectionPlan(after idx: Int) -> ConnectionPlanner.Plan? {
-        connectionPair(after: idx).map { ConnectionPlanner.plan(inbound: $0.inbound, outbound: $0.outbound) }
-    }
-
-    /// The live layover line between two connected legs: a continuous spine
-    /// through the countdown column linking the two legs (no divider between
-    /// them), clock, and the planner's verdict — refreshed each minute so
-    /// "1h 12m layover" is never yesterday's number.
-    private func layoverConnector(_ plan: ConnectionPlanner.Plan) -> some View {
-        TimelineView(.periodic(from: .now, by: 60)) { _ in
-            let layover = Int(plan.outbound.effectiveDeparture
-                .timeIntervalSince(plan.inbound.effectiveArrival) / 60)
-            let risk = ConnectionPlanner.risk(neededMinutes: plan.neededMinutes, layoverMinutes: layover)
-            let tint: Color = switch risk {
-            case .relaxed, .normal: ArcTheme.onTime
-            case .tight: .orange
-            case .risky: ArcTheme.late
-            }
-            HStack(spacing: 14) {
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(tint.opacity(0.45))
-                    .frame(width: 2)
-                    .frame(width: 52)   // centered under the countdown blocks
-                Image(systemName: "clock")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(tint)
-                Text("\(FriendFlightMath.hmLower(layover)) layover in \(plan.inbound.arrivalIATA) • \(risk.rawValue)")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(tint)
-                    .contentTransition(.numericText())
-                Spacer()
-            }
-            .frame(height: 34)
-            // Match FlightRowCard's inner padding so the spine sits exactly
-            // under the countdown numbers.
-            .padding(.horizontal, 14)
-        }
-    }
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            Text("My Trips").font(ArcTheme.screenTitle)
-            Spacer()
-            // Shares the trip you're ON if there is one, else the NEXT one —
-            // never a leg that already landed, which is what "first" was.
-            if let next = flights.first(where: \.isActive) ?? flights.first(where: \.isUpcoming) {
-                Button { shareFlight = next } label: {
-                    circleIcon("square.and.arrow.up")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Share \(next.flightNumberSpaced)")
-            }
-            Button { showSettings = true } label: {
-                ProfileButtonIcon(size: 34)
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private func circleIcon(_ name: String) -> some View {
-        Image(systemName: name)
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(.primary)
-            .frame(width: 36, height: 36)
-            .background(Color(.secondarySystemFill), in: Circle())
     }
 
     private var emptyState: some View {
@@ -349,8 +234,7 @@ struct MyFlightsView: View {
         }
         .padding(22)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
-        .padding(.horizontal, 16)
+        .glassEffect(ArcTheme.tripGlass, in: .rect(cornerRadius: ArcTheme.cardCorner))
         .accessibilityElement(children: .combine)
         .accessibilityHint("Opens trip search, booking import and boarding pass scanning")
     }
