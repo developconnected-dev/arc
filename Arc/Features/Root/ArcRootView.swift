@@ -54,6 +54,9 @@ struct ArcRootView: View {
     @State private var friendsContentHeight: CGFloat = 0
     @State private var friendsFocusTask: Task<Void, Never>?
     @State private var friendsLayout: MyTripsLayout?
+    /// The flights the stack pages, by id and in its order — the feed itself
+    /// is `FriendsListView`'s; the root keeps only this, for the glide.
+    @State private var friendsStackIDs: [String] = []
     /// The intro / profile setup panel's settled top edge, apart from the
     /// detail's: signing in must not leave the detail opening where the
     /// intro was dragged to.
@@ -1436,6 +1439,8 @@ struct ArcRootView: View {
         FriendsListView(onSelect: { openFriendFlight($0) }) { feed in
             friendsFloating(feed)
                 .onChange(of: feed.flights.map(\.id), initial: true) { _, ids in friendsStackIDs = ids }
+                // The globe mirrors the chips: frame what they admit.
+                .onChange(of: friendsStore.mapFilterIds) { _, _ in friendsFilterChanged() }
         }
     }
 
@@ -1459,7 +1464,7 @@ struct ArcRootView: View {
             motion: friendsMotion,
             chromeHeight: friendsChromeHeight,
             contentHeight: friendsContentHeight,
-            stackCount: friendsMode == .requests ? requests.count : feed.flights.count,
+            stackCount: friendsMode == .requests ? requests.count : Self.friendsUnfoldable(feed),
             foldIdentifier: "friends-fold-toggle",
             onFold: { folded in setFriendsFolded(folded) },
             content: { layout in friendsList(feed, layout: layout) },
@@ -1490,7 +1495,7 @@ struct ArcRootView: View {
     }
 
     private func friendsHooks(_ feed: FriendsFeed, requests: [FriendRequest]) -> FloatingSurfaceHooks {
-        FloatingSurfaceHooks(itemCount: feed.flights.count,
+        FloatingSurfaceHooks(itemCount: Self.friendsUnfoldable(feed),
                              onItemCount: { count in friendsCountChanged(count) },
                              bellItems: requests.map(\.id),
                              onBellItems: { ids in friendRequestsChanged(ids) },
@@ -1567,12 +1572,33 @@ struct ArcRootView: View {
         }
     }
 
-    /// The filter or the feed changed how many flights there are: one left
-    /// folds the list (the pill is gone with it), and the globe, which
-    /// mirrors the filter, is framed again.
-    private func friendsCountChanged(_ count: Int) {
-        if count <= 1, !friendsFolded, friendsMode == .flights { setFriendsFolded(true) }
-        if tab == .friends, detailFlight == nil, friendsFolded { applyCameraForCurrentTab() }
+    /// What the fold has to show on Friends: every flight, and the Past
+    /// Flights row as one thing more — past flights live only in the list,
+    /// so a single current flight with some behind it still unfolds.
+    private static func friendsUnfoldable(_ feed: FriendsFeed) -> Int {
+        feed.flights.count + (feed.past.isEmpty ? 0 : 1)
+    }
+
+    /// Nothing left to unfold to folds the list (the pill is gone with it);
+    /// the fold's own completion frames the map.
+    private func friendsCountChanged(_ unfoldable: Int) {
+        if unfoldable <= 1, !friendsFolded, friendsMode == .flights { setFriendsFolded(true) }
+    }
+
+    /// A chip changed what the globe shows: once the stack has taken in the
+    /// new flights and is still, frame what the filter admits — one
+    /// movement at a time, and never under an open detail or mid-fold (a
+    /// fold's completion frames it).
+    private func friendsFilterChanged() {
+        friendsFocusTask?.cancel()
+        friendsFocusTask = Task { @MainActor in
+            repeat {
+                try? await Task.sleep(for: .milliseconds(350))
+                guard !Task.isCancelled else { return }
+            } while !friendsMotion.isAtRest
+            guard tab == .friends, friendsFolded, detailFlight == nil else { return }
+            applyCameraForCurrentTab()
+        }
     }
 
     private func setFriendsFolded(_ folded: Bool) {
@@ -1596,9 +1622,6 @@ struct ArcRootView: View {
         friendsStackIDs.indices.contains(friendsPage) ? friendsStackIDs[friendsPage] : nil
     }
 
-    /// The flights the stack pages, by id and in its order — the feed itself
-    /// is `FriendsListView`'s; the root keeps only this, for the glide.
-    @State private var friendsStackIDs: [String] = []
 
     /// The map follows the stack's own flips, once it is still: the same
     /// debounce as My Trips (`stackSettled`).
@@ -1630,7 +1653,7 @@ struct ArcRootView: View {
                                ?? layout.panelOpeningTop(headerHeight: FriendsSignInPanel.headerHeight))
         }
         let listTop = layout.listTop(folded: true, foldedHeight: friendsFoldedHeight, contentHeight: friendsContentHeight)
-        return layout.band(coverTop: listTop - MyTripsLayout.gap - FriendFilterChips.height)
+        return layout.band(coverTop: layout.extraRowY(listTop: listTop))
     }
 
     /// The centre pill speaks for a friend's flight once its glide has landed.

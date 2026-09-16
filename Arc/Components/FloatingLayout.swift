@@ -33,6 +33,9 @@ struct MyTripsLayout: Equatable {
     /// area inset. With the add button a bubble beside the bar rather than an
     /// accessory above it, nothing else stands between the cards and the bar.
     let tabBarClearance: CGFloat
+    /// A row between the cards and the buttons above them (Friends' chips);
+    /// 0 on My Trips, where the buttons sit directly on the cards.
+    var extraRowHeight: CGFloat = 0
 
     // MARK: Top row
 
@@ -45,8 +48,11 @@ struct MyTripsLayout: Equatable {
     var listBottom: CGFloat {
         max(unfoldedListTop, size.height - tabBarClearance - Self.gap)
     }
-    /// Below the top row and the Show Less / recenter row.
-    var unfoldedListTop: CGFloat { topBarBottom + Self.gap + Self.control + Self.gap }
+    /// Below the top row, the Show Less / recenter row and the extra row.
+    var unfoldedListTop: CGFloat { topBarBottom + Self.gap + Self.control + Self.gap + extraRowBand }
+
+    /// The extra row with its gap, or nothing where there is none.
+    private var extraRowBand: CGFloat { extraRowHeight > 0 ? extraRowHeight + Self.gap : 0 }
 
     /// Both states sit on `listBottom`. Folded, the stack is as tall as the
     /// invites plus the current journey's card (`foldedHeight`); unfolded, as
@@ -64,7 +70,11 @@ struct MyTripsLayout: Equatable {
         max(0, (listBottom - unfoldedListTop) - contentHeight)
     }
 
-    func pillRowY(listTop: CGFloat) -> CGFloat { listTop - Self.gap - Self.control }
+    /// The buttons: a gap above the cards — or above the extra row.
+    func pillRowY(listTop: CGFloat) -> CGFloat { listTop - extraRowBand - Self.gap - Self.control }
+
+    /// The extra row, a gap above the cards.
+    func extraRowY(listTop: CGFloat) -> CGFloat { listTop - Self.gap - extraRowHeight }
 
     // MARK: Detail panel
 

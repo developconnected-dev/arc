@@ -47,6 +47,29 @@ final class MyTripsLayoutTests: XCTestCase {
         }
     }
 
+    /// Friends keeps its chips between the cards and the buttons: fully
+    /// unfolded, the chips and the buttons both still clear the top row, and
+    /// the buttons never sit on the chips. My Trips (no extra row) keeps its
+    /// old numbers.
+    func testTheExtraRowAndTheButtonsClearTheTopRowWhenUnfolded() {
+        let friends = MyTripsLayout(size: layout.size, safeTop: 62, tabBarClearance: 83, extraRowHeight: 34)
+        XCTAssertEqual(friends.unfoldedListTop, layout.unfoldedListTop + 34 + MyTripsLayout.gap)
+        XCTAssertEqual(layout.pillRowY(listTop: 500), 500 - MyTripsLayout.gap - MyTripsLayout.control)
+        for h in stride(from: 0.0, through: 2000.0, by: 25.0) {
+            for content in stride(from: 0.0, through: 2500.0, by: 50.0) {
+                for folded in [true, false] {
+                    let top = friends.listTop(folded: folded, foldedHeight: h, contentHeight: content)
+                    let buttons = friends.pillRowY(listTop: top)
+                    let chips = friends.extraRowY(listTop: top)
+                    XCTAssertGreaterThanOrEqual(buttons, friends.topBarBottom + MyTripsLayout.gap,
+                                                "h=\(h) content=\(content) folded=\(folded)")
+                    XCTAssertEqual(chips - (buttons + MyTripsLayout.control), MyTripsLayout.gap)
+                    XCTAssertEqual(top - (chips + 34), MyTripsLayout.gap)
+                }
+            }
+        }
+    }
+
     /// The Show More / recenter row never reaches into the top row,
     /// whatever the folded block and the whole stack measure.
     func testPillRowNeverOverlapsTheTopRow() {

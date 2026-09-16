@@ -118,7 +118,8 @@ struct FloatingSurface<Map: View, Content: View, ExtraRow: View, Panel: View, He
                               height: geo.size.height + insets.top + insets.bottom)
             // Nothing sits between the cards and the tab bar any more, so the
             // bottom inset IS the bar's reach — no guessing, nothing to learn.
-            let live = MyTripsLayout(size: full, safeTop: insets.top, tabBarClearance: insets.bottom)
+            let live = MyTripsLayout(size: full, safeTop: insets.top, tabBarClearance: insets.bottom,
+                                     extraRowHeight: extraRowHeight)
             layers(live)
                 .frame(width: full.width, height: full.height, alignment: .topLeading)
                 .offset(x: -insets.leading, y: -insets.top)
@@ -189,21 +190,17 @@ struct FloatingSurface<Map: View, Content: View, ExtraRow: View, Panel: View, He
     /// tab keeps directly above its cards. Both ride the stack's edge
     /// together, so a swipe moves them as one.
     private func buttonRow(_ layout: MyTripsLayout, listTop: CGFloat) -> some View {
-        let extraTop = listTop - MyTripsLayout.gap - extraRowHeight
-        // With no extra row this IS `pillRowY`: the buttons sit a gap above
-        // the cards, exactly where My Trips has always had them.
-        let buttonsY = extraRowHeight > 0
-            ? extraTop - MyTripsLayout.gap - MyTripsLayout.control
-            : layout.pillRowY(listTop: listTop)
-        return ZStack(alignment: .topLeading) {
+        // The layout leaves room for the extra row, above the cards and
+        // below the top row, however far the list unfolds.
+        ZStack(alignment: .topLeading) {
             if extraRowHeight > 0 {
                 extraRow()
                     .frame(width: layout.size.width, height: extraRowHeight)
-                    .offset(y: extraTop)
+                    .offset(y: layout.extraRowY(listTop: listTop))
             }
             buttons
                 .frame(width: layout.size.width, height: MyTripsLayout.control)
-                .offset(y: buttonsY)
+                .offset(y: layout.pillRowY(listTop: listTop))
         }
         .frame(width: layout.size.width, height: layout.size.height, alignment: .topLeading)
         .modifier(RidesStackEdge(motion: motion,

@@ -398,6 +398,9 @@ struct FriendsListView<Content: View>: View {
             }
             // The globe mirrors the list's filter, friend or group.
             .onChange(of: filter) { _, _ in store.mapFilterIds = filterIds }
+            // Leaving clears the globe's filter; coming back puts the chip's
+            // back, so the two never disagree.
+            .onAppear { store.mapFilterIds = filterIds }
             .onDisappear { store.mapFilterIds = nil }
             .task {
                 groups = FriendGroups.all()

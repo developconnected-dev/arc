@@ -101,9 +101,17 @@ enum DemoSeed {
                 handle: "second", avatar_url: nil, home_airport: "ZRH", nationality: "CH")
             let later = shared("demo-feed-3", owner: second.id, number: "LX103",
                                departs: demoSecondDeparture)
+            // `-seedManyFriendFlights`: a list taller than the screen, for
+            // checking what a fully unfolded Friends list leaves clear.
+            let many = ProcessInfo.processInfo.arguments.contains("-seedManyFriendFlights")
+                ? (1...8).compactMap { index in
+                    shared("demo-many-\(index)", owner: second.id, number: "LX\(200 + index)",
+                           departs: demoSecondDeparture.addingTimeInterval(Double(index) * 3600))
+                }
+                : []
             FriendsStore.shared.friends = [
                 .init(friendshipId: "demo-friendship", user: user, flights: flights + [yesterday].compactMap { $0 }),
-                .init(friendshipId: "demo-friendship-2", user: second, flights: [later].compactMap { $0 }),
+                .init(friendshipId: "demo-friendship-2", user: second, flights: [later].compactMap { $0 } + many),
             ]
         }
         if isFriendRequestsRequested, !requestsSeeded {
