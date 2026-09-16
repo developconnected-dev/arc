@@ -67,6 +67,8 @@ struct FriendsFloatingList: View {
     @State private var fallbackMotion = JourneyStackMotion()
     /// The mode whose stack is still dissolving on top of the new one.
     @State private var swapGhost: FriendsMode?
+    /// The folded overlay's own height, for its content's minimum.
+    @State private var overlayViewport: CGFloat = 0
     @State private var ghostOpacity: Double = 1
     /// The ghost draws and nothing else (see `MyFlightsView.ghostMotion`).
     @State private var ghostMotion = JourneyStackMotion()
@@ -250,15 +252,18 @@ struct FriendsFloatingList: View {
     private func foldedOverlay(_ flights: [FriendFlightGroup]) -> some View {
         ScrollView {
             overlayContent(flights)
-                // Exactly the viewport's height, the cards on its bottom
+                // At least the viewport's height, the cards on its bottom
                 // edge: nothing for the scroll view to re-anchor. Left to
                 // `defaultScrollAnchor` alone, the bell's swap (a height
                 // change inside an animated update) threw the content to the
                 // viewport's top, under the mask, for a few frames and slid
                 // it back down (caught frame by frame). Taller content still
-                // overflows upward, under the mask.
-                .containerRelativeFrame(.vertical, alignment: .bottom)
+                // overflows upward, under the mask. The viewport is measured
+                // rather than read with `containerRelativeFrame`, which loops
+                // layout on iOS 27.
+                .frame(minHeight: overlayViewport, alignment: .bottom)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { overlayViewport = $0 }
         .scrollDisabled(true)
         .scrollClipDisabled()
         .scrollIndicators(.hidden)
