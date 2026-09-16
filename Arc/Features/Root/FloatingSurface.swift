@@ -77,8 +77,13 @@ struct FloatingSurface<Map: View, Content: View, ExtraRow: View, Panel: View, He
     @Binding var panelTop: CGFloat?
     let panelHeaderHeight: CGFloat
     let onPanelRecenter: (() -> Void)?
-    /// The open detail. Built only while one is open (`transition.detailOpen`).
+    /// The open detail. Built only while one is open (`transition.detailOpen`)
+    /// — or always, for a standing panel.
     @ViewBuilder var panel: () -> Panel
+    /// The panel stands on its own, with no cards and no buttons under it:
+    /// Friends' intro and profile setup before signing in. It is simply
+    /// there, draggable, never gliding in or out.
+    var standingPanel = false
 
     // MARK: The glide
 
@@ -131,14 +136,16 @@ struct FloatingSurface<Map: View, Content: View, ExtraRow: View, Panel: View, He
         let listTop = layout.listTop(folded: folded, foldedHeight: foldedHeight, contentHeight: contentHeight)
         ZStack(alignment: .topLeading) {
             map
-            list(layout, listTop: listTop)
-            // Gone while a detail is settled open: hidden and faded, its
-            // buttons were still VoiceOver stops. Rebuilt as a close begins,
-            // at the list's ~0 presence, so it still fades back in.
-            if !(transition.detailOpen && transition.phase == .detail) {
-                buttonRow(layout, listTop: listTop)
+            if !standingPanel {
+                list(layout, listTop: listTop)
+                // Gone while a detail is settled open: hidden and faded, its
+                // buttons were still VoiceOver stops. Rebuilt as a close
+                // begins, at the list's ~0 presence, so it still fades back in.
+                if !(transition.detailOpen && transition.phase == .detail) {
+                    buttonRow(layout, listTop: listTop)
+                }
             }
-            if transition.detailOpen {
+            if transition.detailOpen || standingPanel {
                 panelLayer(layout)
             }
             if transition.active {
@@ -291,8 +298,8 @@ struct FloatingSurface<Map: View, Content: View, ExtraRow: View, Panel: View, He
             .offset(y: layout.panelHighestTop)
             // A fading panel takes no touches: Terminal map or My plane tapped
             // just after the X would start a ground view for a closing detail.
-            .allowsHitTesting(transition.phase != .closing)
-            .modifier(PanelPresence(progress: transition.progress.wrappedValue))
+            .allowsHitTesting(standingPanel || transition.phase != .closing)
+            .modifier(PanelPresence(progress: standingPanel ? 1 : transition.progress.wrappedValue))
             .offset(y: coveredBySheet ? 1500 : 0)
     }
 }
@@ -450,8 +457,8 @@ final class FloatingListGeometry {
 struct FloatingListRow: ViewModifier {
     let key: String
     let geometry: FloatingListGeometry
-    nonisolated static let contentSpace = "trips-list-content"
-    nonisolated static let viewportSpace = "trips-list-viewport"
+    nonisolated static let contentSpace = "floating-list-content"
+    nonisolated static let viewportSpace = "floating-list-viewport"
 
     func body(content: Content) -> some View {
         content

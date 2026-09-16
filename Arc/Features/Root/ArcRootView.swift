@@ -40,6 +40,24 @@ struct ArcRootView: View {
     /// grows up from the bottom only this far.
     @State private var tripsContentHeight: CGFloat = 0
     @State private var tripsLayout: MyTripsLayout?
+    /// Friends floats the same way (docs/superpowers/specs/2026-09-16-friends-floating-design.md),
+    /// with the same state for its own stack: flights, or the friend
+    /// requests behind its bell.
+    @State private var friendsFolded = !ProcessInfo.processInfo.arguments.contains("-sheetLarge")
+    @State private var friendsPage = 0
+    @State private var friendsMode: FriendsMode = .flights
+    @State private var friendsRequestPage = 0
+    @State private var requestReads = InviteReadStore.friendRequests
+    @State private var friendsMotion = JourneyStackMotion()
+    @State private var friendsFlipRequest: Int?
+    @State private var friendsChromeHeight: CGFloat = 0
+    @State private var friendsContentHeight: CGFloat = 0
+    @State private var friendsFocusTask: Task<Void, Never>?
+    @State private var friendsLayout: MyTripsLayout?
+    /// The intro / profile setup panel's settled top edge, apart from the
+    /// detail's: signing in must not leave the detail opening where the
+    /// intro was dragged to.
+    @State private var friendsIntroPanelTop: CGFloat?
     /// The detail panel's settled top edge; nil opens at 58 %.
     @State private var panelTop: CGFloat?
     @State private var panelHeaderHeight: CGFloat = 260
@@ -264,7 +282,7 @@ struct ArcRootView: View {
         // Start on the next turn after the card handoff, never during its travel.
         await Task.yield()
         guard !Task.isCancelled, mapFocusID == id, detailFlight?.id == id else { return }
-        if detailTab == .myFlights, let layout = tripsLayout {
+        if let layout = floatingLayout(detailTab) {
             controller.focus(on: flight, band: layout.band(coverTop: panelTop ?? layout.panelOpeningTop(headerHeight: panelHeaderHeight)),
                              animated: !reduceMotion)
         } else {
@@ -350,9 +368,15 @@ struct ArcRootView: View {
     private func applyCameraForCurrentTab() {
         if tab == .friends {
             // Frame the friends' routes (own flights are hidden here) in the
-            // upper half — the sheet covers the rest.
+            // band above what covers the map: the folded stack, or the
+            // intro's panel before signing in.
             let coords = friendsStore.mapOverlays.flatMap { [$0.dep, $0.arr] }
-            if !coords.isEmpty { controller.frameInUpperHalf(coords) }
+            guard !coords.isEmpty else { return }
+            if let band = friendsBand {
+                controller.frame(coords, band: band)
+            } else {
+                controller.frameInUpperHalf(coords)
+            }
             return
         }
         if tab == .myFlights, let layout = tripsLayout {
@@ -497,7 +521,7 @@ struct ArcRootView: View {
     /// sets off (`lowerPanelForGroundViewAfterMapUpdate`).
     /// A detail in Passport's sheet drops the sheet to medium, as it always has.
     private func lowerPanelForGroundView() {
-        guard detailTab == .myFlights, let layout = tripsLayout else {
+        guard let layout = floatingLayout(detailTab) else {
             withAnimation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.88)) { detent = .medium }
             return
         }
@@ -749,7 +773,7 @@ struct ArcRootView: View {
             return
         }
         heroProgress = 0
-        heroOrigin = heroRowOrigin(source.key, onTrips: tab == .myFlights)
+        heroOrigin = heroRowOrigin(source.key, on: tab)
         heroDestination = nil
         heroTravelling = heroOrigin == nil ? nil : source
         transition.open()
@@ -765,9 +789,17 @@ struct ArcRootView: View {
     /// up. A list card also keeps the frame it last reported while unfolded,
     /// which can lie inside the folded band: a trip opened from a widget,
     /// notification or pasted number would glide from a card that isn't there.
-    private func heroRowOrigin(_ key: String, onTrips: Bool) -> CGRect? {
+    private func heroRowOrigin(_ key: String, on surface: ArcTab?) -> CGRect? {
         guard let rect = heroFrames.rows[key] else { return nil }
-        guard onTrips, let layout = tripsLayout else { return rect }
+        switch surface {
+        case .myFlights: return tripsRowOrigin(key, rect: rect)
+        case .friends: return friendsRowOrigin(key, rect: rect)
+        default: return rect
+        }
+    }
+
+    private func tripsRowOrigin(_ key: String, rect: CGRect) -> CGRect? {
+        guard let layout = tripsLayout else { return rect }
         let isInvite = friendsStore.tripInvites.contains { $0.id == key }
         guard isInvite == (tripsMode == .invites) else { return nil }
         if tripsFolded {
@@ -782,14 +814,41 @@ struct ArcRootView: View {
                       invites[tripsInvitePage].id == key else { return nil }
             }
         }
-        // The live top: mid-swipe the stack's edge is off its resting place.
-        // A tap can't open mid-swipe (taps are off while holding), but a
-        // widget, notification or link can.
-        let top = layout.listTop(folded: tripsFolded, foldedHeight: tripsFoldedHeight, contentHeight: tripsContentHeight)
-            - JourneyStackPaging.edgeRise(liveRise: tripsStackMotion.liveRise, restHeight: tripsFoldedHeight,
+        return Self.visibleSlice(rect, layout: layout, folded: tripsFolded, foldedHeight: tripsFoldedHeight,
+                                 contentHeight: tripsContentHeight, motion: tripsStackMotion)
+    }
+
+    /// The same rule on Friends: only friends' flights have a detail, only
+    /// while they are the cards showing, and folded only the current one.
+    private func friendsRowOrigin(_ key: String, rect: CGRect) -> CGRect? {
+        guard let layout = friendsLayout else { return rect }
+        guard friendsMode == .flights else { return nil }
+        if friendsFolded, friendsStackKey != key { return nil }
+        return Self.visibleSlice(rect, layout: layout, folded: friendsFolded, foldedHeight: friendsFoldedHeight,
+                                 contentHeight: friendsContentHeight, motion: friendsMotion)
+    }
+
+    /// `rect` if it lies inside the list's visible slice. The live top:
+    /// mid-swipe the stack's edge is off its resting place. A tap can't open
+    /// mid-swipe (taps are off while holding), but a widget, notification or
+    /// link can.
+    private static func visibleSlice(_ rect: CGRect, layout: MyTripsLayout, folded: Bool, foldedHeight: CGFloat,
+                                     contentHeight: CGFloat, motion: JourneyStackMotion) -> CGRect? {
+        let top = layout.listTop(folded: folded, foldedHeight: foldedHeight, contentHeight: contentHeight)
+            - JourneyStackPaging.edgeRise(liveRise: motion.liveRise, restHeight: foldedHeight,
                                           room: layout.listBottom - layout.unfoldedListTop)
         let shown = (min(top, layout.listBottom) - 1)...(layout.listBottom + 1)
         return shown.contains(rect.minY) && shown.contains(rect.maxY) ? rect : nil
+    }
+
+    /// The floating surface a detail on `surface` opens in, once measured.
+    /// Nil for Passport, whose detail lives in the sheet.
+    private func floatingLayout(_ surface: ArcTab?) -> MyTripsLayout? {
+        switch surface {
+        case .myFlights: tripsLayout
+        case .friends: friendsLayout
+        default: nil
+        }
     }
 
     /// Records the header's height and returns how far that moved the
@@ -797,7 +856,7 @@ struct ArcRootView: View {
     /// (a short screen, large type) and the panel hasn't been dragged.
     @discardableResult
     private func learnPanelHeader(_ measured: CGRect) -> CGFloat {
-        guard panelTop == nil, let layout = tripsLayout else {
+        guard panelTop == nil, let layout = floatingLayout(detailTab) else {
             panelHeaderHeight = measured.height
             return 0
         }
@@ -812,7 +871,7 @@ struct ArcRootView: View {
             // No glide (the row was half out of view), but the panel still
             // fades in: learn the header now, or it re-clamps once it shows.
             let key = detailFriendGroup?.id ?? detailInvite?.id ?? detailFlight?.id.uuidString
-            if detailTab == .myFlights, let key, let header = heroFrames.details[key] {
+            if floatingLayout(detailTab) != nil, let key, let header = heroFrames.details[key] {
                 learnPanelHeader(header)
             }
             return
@@ -824,7 +883,7 @@ struct ArcRootView: View {
         // the old target, so `settledFrame` corrected by the wrong amount: a
         // reopened card aimed up to 28 pt high and snapped onto the header.
         guard heroDestination == nil else { return }
-        guard detailTab == .myFlights, let measured = heroFrames.details[source.key] else {
+        guard floatingLayout(detailTab) != nil, let measured = heroFrames.details[source.key] else {
             heroDestination = heroFrames.details[source.key]
             return
         }
@@ -871,7 +930,7 @@ struct ArcRootView: View {
             return
         }
         if heroTravelling == nil {
-            heroOrigin = heroRowOrigin(source.key, onTrips: detailTab == .myFlights)
+            heroOrigin = heroRowOrigin(source.key, on: detailTab)
             heroDestination = heroFrames.details[source.key]
             heroTravelling = heroOrigin == nil ? nil : source
         }
@@ -914,7 +973,7 @@ struct ArcRootView: View {
                     myTripsSurface
                 }
                 Tab(ArcTab.friends.title, systemImage: ArcTab.friends.icon, value: TabSelection.tab(.friends)) {
-                    tabSurface(.friends) { FriendsScreen(onSelect: { item in openFriendFlight(item) }) }
+                    friendsSurface
                 }
                 Tab(ArcTab.passport.title, systemImage: ArcTab.passport.icon, value: TabSelection.tab(.passport)) {
                     tabSurface(.passport) { PassportView { openDetail($0) } }
@@ -950,9 +1009,10 @@ struct ArcRootView: View {
                        friendOverlays: tab == .friends ? friendsStore.mapOverlays : [])
                 .ignoresSafeArea()
 
-            // My Trips carries map style and weather in its top row's menu and
-            // recenter above its cards (MapTopBar); the sheet tabs keep the column.
-            if tab != .myFlights {
+            // The floating tabs carry map style and weather in their top row's
+            // menu and recenter above their cards (MapTopBar); Passport's
+            // sheet keeps the column.
+            if tab == .passport {
                 MapControls(controller: controller) { controller.fitAll(mapFlights) }
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .padding(.trailing, 12).padding(.top, 8)
@@ -981,10 +1041,10 @@ struct ArcRootView: View {
         }
     }
 
-    /// Friends and Passport show the same draggable sheet over the shared map —
-    /// the detent is shared state, so the height carries across them exactly as
-    /// before. The sheet still slides away while a detail or add sheet is up, so
-    /// two sheets are never stacked. My Trips floats instead (`myTripsSurface`).
+    /// Passport shows a draggable sheet over the shared map. The sheet still
+    /// slides away while a detail or add sheet is up, so two sheets are never
+    /// stacked. My Trips and Friends float instead (`myTripsSurface`,
+    /// `friendsSurface`).
     private func tabSurface<Content: View>(_ surfaceTab: ArcTab, @ViewBuilder _ content: () -> Content) -> some View {
         // Built here rather than passed along, so the closure needn't escape.
         let built = content()
@@ -1085,8 +1145,8 @@ struct ArcRootView: View {
             panelTop: $panelTop,
             panelHeaderHeight: panelHeaderHeight,
             onPanelRecenter: { recenterOnDetail() },
-            panel: { tripsPanelContent },
-            transition: tripsTransition,
+            panel: { detailPanelContent },
+            transition: surfaceTransition(.myFlights),
             heroOverlay: { top in
                 heroOverlay(glass: true) { size, rowHeight in
                     Morph.panelTarget(panelTop: top, width: size.width, rowHeight: rowHeight)
@@ -1098,10 +1158,10 @@ struct ArcRootView: View {
     }
 
     /// The root's share of the glide: one transition, whichever tab it is on.
-    private var tripsTransition: FloatingSurfaceTransition {
-        let onTrips = detailTab == .myFlights && tab == .myFlights
-        return FloatingSurfaceTransition(active: onTrips,
-                                         detailOpen: onTrips && detailFlight != nil,
+    private func surfaceTransition(_ surface: ArcTab) -> FloatingSurfaceTransition {
+        let onSurface = detailTab == surface && tab == surface
+        return FloatingSurfaceTransition(active: onSurface,
+                                         detailOpen: onSurface && detailFlight != nil,
                                          phase: transition.phase,
                                          request: transition.request,
                                          progress: $heroProgress,
@@ -1119,7 +1179,7 @@ struct ArcRootView: View {
                              },
                              bellItems: friendsStore.tripInvites.map(\.id),
                              onBellItems: { ids in tripInvitesChanged(ids) },
-                             detailID: detailFlight?.id,
+                             detailID: detailTab == .myFlights ? detailFlight?.id : nil,
                              onDetailSettled: learnHeaderWithoutGlide,
                              onFirstFrame: refitTripsForFirstFrame)
     }
@@ -1128,7 +1188,7 @@ struct ArcRootView: View {
     /// never runs `prepareTransition`: learn the new header once it has laid out.
     private func learnHeaderWithoutGlide() async {
         try? await Task.sleep(for: .milliseconds(16))
-        guard !Task.isCancelled, transition.request == nil, detailTab == .myFlights,
+        guard !Task.isCancelled, transition.request == nil, floatingLayout(detailTab) != nil,
               let flight = detailFlight else { return }
         let key = detailFriendGroup?.id ?? detailInvite?.id ?? flight.id.uuidString
         if let header = heroFrames.details[key] { learnPanelHeader(header) }
@@ -1246,10 +1306,12 @@ struct ArcRootView: View {
         }
     }
 
-    /// What My Trips puts in the floating panel. The panel itself — its drag,
-    /// its glass, its recenter circle and its placement — is the surface's.
+    /// What My Trips and Friends put in the floating panel: the open detail,
+    /// the user's own trip, an invite's preview or a friend's flight. The
+    /// panel itself — its drag, its glass, its recenter circle and its
+    /// placement — is the surface's.
     @ViewBuilder
-    private var tripsPanelContent: some View {
+    private var detailPanelContent: some View {
         if let flight = detailFlight {
             let own = detailFriend == nil && detailInvite == nil
             FlightDetailView(flight: flight,
@@ -1324,7 +1386,7 @@ struct ArcRootView: View {
     }
 
     private func recenterOnDetail() {
-        guard let flight = detailFlight, let layout = tripsLayout else { return }
+        guard let flight = detailFlight, let layout = floatingLayout(detailTab) else { return }
         groundViewTask?.cancel()
         groundViewTask = nil
         controller.clearGateMarker()
@@ -1351,6 +1413,230 @@ struct ArcRootView: View {
         // that already landed.
         let listed = MyFlightsView.listed(Array(allFlights))
         return listed.first(where: \.isActive) ?? listed.first(where: \.isUpcoming)
+    }
+
+    // MARK: - Friends, floating
+
+    /// Signed in, or a demo feed standing in for it: the cards, the chips and
+    /// the bell. Before that, the intro and the profile setup stand in the
+    /// panel instead.
+    private var friendsSignedIn: Bool {
+        guard !DemoSeed.isFriendsSignedOutRequested else { return false }
+        return DemoSeed.isFriendsRequested || supabase.isSignedIn
+    }
+
+    private var friendsFoldedHeight: CGFloat { friendsChromeHeight + friendsMotion.settledHeight }
+
+    /// Friends: no sheet. Friends' flights float over the globe in the same
+    /// grammar as My Trips — one card at a time, the chips directly above,
+    /// requests behind the bell (docs/superpowers/specs/2026-09-16-friends-floating-design.md).
+    /// `FriendsListView` keeps the feed, the filter and the sheets; the
+    /// surface is `FloatingSurface`'s.
+    private var friendsSurface: some View {
+        FriendsListView(onSelect: { openFriendFlight($0) }) { feed in
+            friendsFloating(feed)
+                .onChange(of: feed.flights.map(\.id), initial: true) { _, ids in friendsStackIDs = ids }
+        }
+    }
+
+    private func friendsFloating(_ feed: FriendsFeed) -> some View {
+        let signedIn = friendsSignedIn
+        let requests = friendsStore.requests
+        return FloatingSurface(
+            title: "Friends",
+            liveFlight: friendsLiveFlight,
+            shareFlight: nil,
+            menuExtras: {
+                if signedIn {
+                    Button(action: feed.onManage) {
+                        Label("Manage friends and groups", systemImage: "person.2")
+                    }
+                }
+            },
+            controller: controller,
+            map: mapLayer,
+            folded: friendsFolded,
+            motion: friendsMotion,
+            chromeHeight: friendsChromeHeight,
+            contentHeight: friendsContentHeight,
+            stackCount: friendsMode == .requests ? requests.count : feed.flights.count,
+            foldIdentifier: "friends-fold-toggle",
+            onFold: { folded in setFriendsFolded(folded) },
+            content: { layout in friendsList(feed, layout: layout) },
+            extraRowHeight: signedIn ? FriendFilterChips.height : 0,
+            extraRow: {
+                FriendFilterChips(filter: feed.filter, groups: feed.groups, friends: feed.friends,
+                                  onAdd: feed.onAdd, onManage: feed.onManage)
+            },
+            bell: signedIn ? friendsBell(requests) : nil,
+            showsRecenter: !friendsStore.mapOverlays.isEmpty,
+            onRecenter: { applyCameraForCurrentTab() },
+            panelTop: signedIn ? $panelTop : $friendsIntroPanelTop,
+            panelHeaderHeight: signedIn ? panelHeaderHeight : FriendsSignInPanel.headerHeight,
+            onPanelRecenter: signedIn ? { recenterOnDetail() } : nil,
+            panel: {
+                if signedIn { detailPanelContent } else { FriendsSignInPanel() }
+            },
+            standingPanel: !signedIn,
+            transition: surfaceTransition(.friends),
+            heroOverlay: { top in
+                heroOverlay(glass: true) { size, rowHeight in
+                    Morph.panelTarget(panelTop: top, width: size.width, rowHeight: rowHeight)
+                }
+            },
+            measuredLayout: $friendsLayout,
+            coveredBySheet: showAdd,
+            hooks: friendsHooks(feed, requests: requests))
+    }
+
+    private func friendsHooks(_ feed: FriendsFeed, requests: [FriendRequest]) -> FloatingSurfaceHooks {
+        FloatingSurfaceHooks(itemCount: feed.flights.count,
+                             onItemCount: { count in friendsCountChanged(count) },
+                             bellItems: requests.map(\.id),
+                             onBellItems: { ids in friendRequestsChanged(ids) },
+                             detailID: detailTab == .friends ? detailFlight?.id : nil,
+                             onDetailSettled: learnHeaderWithoutGlide,
+                             onFirstFrame: refitFriendsForFirstFrame)
+    }
+
+    /// The cards themselves; the frame, the mask and the fades are the
+    /// surface's.
+    private func friendsList(_ feed: FriendsFeed, layout: MyTripsLayout) -> some View {
+        FriendsFloatingList(feed: feed,
+                            onSelect: { openFriendFlight($0) },
+                            folded: friendsFolded,
+                            onContentHeight: { friendsContentHeight = $0 },
+                            page: $friendsPage,
+                            motion: friendsMotion,
+                            flipRequest: friendsFlipRequest,
+                            onFlipRequestHandled: { friendsFlipRequest = nil },
+                            onChromeHeight: { friendsChromeHeight = $0 },
+                            topSpacer: layout.contentTopSpacer(contentHeight: friendsContentHeight),
+                            onFlightSettled: { id in
+                                if let group = feed.flights.first(where: { $0.id == id }) { friendsStackSettled(on: group) }
+                            },
+                            hintsEnabled: tab == .friends && detailFlight == nil && !showAdd && scenePhase == .active,
+                            mode: friendsMode,
+                            requestPage: $friendsRequestPage,
+                            onRequestSettled: { id in requestReads.markSeen(id) })
+    }
+
+    /// The friend-requests bell, only there while a request is open: My
+    /// Trips' invite bell, answering to friend requests.
+    private func friendsBell(_ requests: [FriendRequest]) -> FloatingSurfaceBell? {
+        guard !requests.isEmpty else { return nil }
+        let showing = friendsMode == .requests
+        return FloatingSurfaceBell(
+            showing: showing,
+            unread: requests.filter { !requestReads.seen.contains($0.id) }.count,
+            identifier: "friends-requests-bell",
+            label: showing ? "Back to friends' flights" : "Friend requests",
+            action: {
+                let target: FriendsMode = showing ? .flights : .requests
+                setFriendsMode(target)
+            })
+    }
+
+    /// The bell's swap, as `setTripsMode` does it: the two stacks crossfade
+    /// in place while the frame's height springs; the camera stays.
+    private func setFriendsMode(_ mode: FriendsMode) {
+        guard mode != friendsMode else { return }
+        friendsMotion.comeToRest()
+        if mode == .requests {
+            // The requests always open on the first one, which counts as
+            // seen: the stack only reports the ones it flips to.
+            friendsRequestPage = 0
+            if let first = friendsStore.requests.first { requestReads.markSeen(first.id) }
+        }
+        if !reduceMotion { friendsMotion.beginSwap(ArcTheme.fold) }
+        withAnimation(reduceMotion ? nil : ArcTheme.fold) {
+            friendsMode = mode
+        }
+    }
+
+    /// The open requests changed: nothing left to answer while they are
+    /// showing brings the flights back by themselves, and the bell goes.
+    private func friendRequestsChanged(_ ids: [String]) {
+        // Pruned only against a list with something in it: a cold launch
+        // starts empty and would forget every request already seen.
+        if !ids.isEmpty { requestReads.prune(keeping: ids) }
+        if ids.isEmpty {
+            if friendsMode == .requests { setFriendsMode(.flights) }
+        } else if friendsRequestPage >= ids.count {
+            friendsRequestPage = ids.count - 1
+        }
+    }
+
+    /// The filter or the feed changed how many flights there are: one left
+    /// folds the list (the pill is gone with it), and the globe, which
+    /// mirrors the filter, is framed again.
+    private func friendsCountChanged(_ count: Int) {
+        if count <= 1, !friendsFolded, friendsMode == .flights { setFriendsFolded(true) }
+        if tab == .friends, detailFlight == nil, friendsFolded { applyCameraForCurrentTab() }
+    }
+
+    private func setFriendsFolded(_ folded: Bool) {
+        guard folded != friendsFolded else { return }
+        friendsMotion.comeToRest()
+        withAnimation(reduceMotion ? nil : ArcTheme.fold, completionCriteria: .logicallyComplete) {
+            friendsFolded = folded
+        } completion: {
+            guard friendsFolded == folded, folded else { return }
+            if detailFlight == nil { applyCameraForCurrentTab() }
+        }
+    }
+
+    private func refitFriendsForFirstFrame() {
+        guard tab == .friends, detailFlight == nil else { return }
+        applyCameraForCurrentTab()
+    }
+
+    /// The card the folded stack shows, by its hero key.
+    private var friendsStackKey: String? {
+        friendsStackIDs.indices.contains(friendsPage) ? friendsStackIDs[friendsPage] : nil
+    }
+
+    /// The flights the stack pages, by id and in its order — the feed itself
+    /// is `FriendsListView`'s; the root keeps only this, for the glide.
+    @State private var friendsStackIDs: [String] = []
+
+    /// The map follows the stack's own flips, once it is still: the same
+    /// debounce as My Trips (`stackSettled`).
+    private func friendsStackSettled(on group: FriendFlightGroup) {
+        friendsFocusTask?.cancel()
+        friendsFocusTask = Task { @MainActor in
+            repeat {
+                try? await Task.sleep(for: .milliseconds(350))
+                guard !Task.isCancelled else { return }
+            } while !friendsMotion.isAtRest
+            focusFriendsFlight(group)
+        }
+    }
+
+    /// Frames a friend's flight in the band above the folded stack.
+    private func focusFriendsFlight(_ group: FriendFlightGroup) {
+        guard tab == .friends, friendsFolded, detailFlight == nil, let band = friendsBand else { return }
+        let coords = RouteReveal.geometry(for: friendsStore.transientFlight(for: group.representative))
+        guard !coords.isEmpty else { return }
+        controller.frame(coords, band: band, padding: 1.3, animated: !reduceMotion)
+    }
+
+    /// The map above whatever covers it on Friends: the folded stack with
+    /// the chips and the buttons over it, or — signed out — the panel.
+    private var friendsBand: MapBand? {
+        guard let layout = friendsLayout else { return nil }
+        guard friendsSignedIn else {
+            return layout.band(coverTop: friendsIntroPanelTop
+                               ?? layout.panelOpeningTop(headerHeight: FriendsSignInPanel.headerHeight))
+        }
+        let listTop = layout.listTop(folded: true, foldedHeight: friendsFoldedHeight, contentHeight: friendsContentHeight)
+        return layout.band(coverTop: listTop - MyTripsLayout.gap - FriendFilterChips.height)
+    }
+
+    /// The centre pill speaks for a friend's flight once its glide has landed.
+    private var friendsLiveFlight: Flight? {
+        guard detailTab == .friends, transition.phase == .detail, detailFriend != nil else { return nil }
+        return detailFlight
     }
 
     /// The accessory: adding a flight is always available, and a copied flight

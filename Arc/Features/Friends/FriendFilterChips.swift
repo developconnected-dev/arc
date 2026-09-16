@@ -27,7 +27,7 @@ struct FriendFilterChips: View {
             HStack(spacing: 8) {
                 addChip
                 if !friends.isEmpty {
-                    filterChip("All", filter: .all)
+                    allChip
                     ForEach(groups) { group in groupChip(group) }
                     ForEach(friends) { entry in friendChip(entry) }
                 }
@@ -55,12 +55,13 @@ struct FriendFilterChips: View {
         .accessibilityIdentifier("friends-chip-add")
     }
 
-    private func filterChip(_ label: String, filter target: FeedFilter) -> some View {
-        let selected = filter == target
+    /// Everyone: the one chip that clears the filter.
+    private var allChip: some View {
+        let selected = filter == .all
         return Button {
-            withAnimation(.easeInOut(duration: 0.15)) { filter = target }
+            withAnimation(.easeInOut(duration: 0.15)) { filter = .all }
         } label: {
-            Text(label).font(.system(size: 14, weight: .semibold))
+            Text("All").font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(selected ? Color(.systemBackground) : .primary)
                 .padding(.horizontal, 14)
                 .modifier(ChipGround(selected: selected))

@@ -440,7 +440,8 @@ struct FriendsFloatingList: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("friend-request-accept")
         }
-        .padding(16)
+        // The stack's page dots sit on the card's trailing edge.
+        .padding(.vertical, 16).padding(.leading, 16).padding(.trailing, 24)
         .glassEffect(ArcTheme.tripGlass, in: .rect(cornerRadius: ArcTheme.cardCorner))
         .modifier(ShownCopyOnly())
     }
@@ -550,6 +551,7 @@ struct FriendsFloatingList: View {
     }
 
     private func accept(_ request: FriendRequest) {
+        if DemoSeed.isFriendRequestsRequested { answerDemo(request); return }
         Task {
             // On success the refresh clears the card; on failure the card
             // stays AND the error line says why — a swallowed throw here left
@@ -564,6 +566,7 @@ struct FriendsFloatingList: View {
     }
 
     private func decline(_ request: FriendRequest) {
+        if DemoSeed.isFriendRequestsRequested { answerDemo(request); return }
         Task {
             do {
                 try await ArcSupabase.shared.removeFriendship(with: request.user.id)
@@ -572,6 +575,14 @@ struct FriendsFloatingList: View {
                 store.lastError = "Couldn't decline the request — check your connection and try again."
             }
         }
+    }
+}
+
+extension FriendsFloatingList {
+    /// `-seedFriendRequestsDemo`: there is no server to answer, so the card
+    /// simply goes, as a successful refresh would take it.
+    fileprivate func answerDemo(_ request: FriendRequest) {
+        store.pending.removeAll { $0.friendship.id == request.id }
     }
 }
 

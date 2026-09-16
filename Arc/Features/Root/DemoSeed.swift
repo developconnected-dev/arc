@@ -17,9 +17,26 @@ enum DemoSeed {
         #endif
     }
 
+    /// `-friendsSignedOut`: Friends as a first visit sees it — the intro in
+    /// the panel — whatever session the simulator's Keychain still holds.
+    static var isFriendsSignedOutRequested: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-friendsSignedOut") && suppressPrompts
+        #else
+        false
+        #endif
+    }
+
     static var isGroupedFriendsRequested: Bool {
         isFriendsRequested && ProcessInfo.processInfo.arguments.contains("-seedGroupedFriendsDemo")
     }
+    /// Two open friend requests behind Friends' bell, answered locally.
+    static var isFriendRequestsRequested: Bool {
+        isFriendsRequested && ProcessInfo.processInfo.arguments.contains("-seedFriendRequestsDemo")
+    }
+    /// Once per launch: the demo refresh re-seeds the friends, and must not
+    /// bring back a request that was just answered.
+    @MainActor private static var requestsSeeded = false
     private static let groupedDeparture = Date.now.addingTimeInterval(2 * 3600)
 
     @MainActor
@@ -66,6 +83,16 @@ enum DemoSeed {
             }
         } else {
             FriendsStore.shared.friends = [.init(friendshipId: "demo-friendship", user: user, flights: flights)]
+        }
+        if isFriendRequestsRequested, !requestsSeeded {
+            requestsSeeded = true
+            FriendsStore.shared.pending = (1...2).map { index in
+                let person = ArcSupabase.ArcUser(id: "demo-requester-\(index)", display_name: "Requester \(index)",
+                    handle: "requester\(index)", avatar_url: nil, home_airport: "ZRH", nationality: "CH")
+                let friendship = ArcSupabase.Friendship(id: "demo-request-\(index)", requester_id: person.id,
+                                                        addressee_id: user.id, status: "pending")
+                return (friendship, person)
+            }
         }
         FriendsStore.shared.hasLoadedOnce = true
     }

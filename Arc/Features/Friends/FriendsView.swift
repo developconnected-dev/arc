@@ -1,96 +1,27 @@
 import SwiftUI
 import SwiftData
 
-/// The Friends sheet content: intro takeover on first visit, then title +
-/// avatar row and either the one-time profile setup or the live friends
-/// list, matching the other tabs' bottom-sheet layout (no standalone
-/// NavigationStack at the top level).
-///
-/// The feed renders the floating surface's pieces — the chip row and
-/// `FriendsFloatingList`, unfolded — until Friends floats over the globe
-/// itself (docs/superpowers/plans/2026-09-16-friends-floating.md, Task 4).
-struct FriendsScreen: View {
-    /// A friend's flight was tapped: the root opens it in the tab sheet,
-    /// gliding from the row like one of the user's own.
-    var onSelect: (FriendFlightGroup) -> Void = { _ in }
-    @ObservedObject private var supabase = ArcSupabase.shared
+/// Friends before signing in: the first-visit intro, then the one-time
+/// profile setup, in the floating surface's standing panel — tall glass,
+/// draggable, each scrolling on its own
+/// (docs/superpowers/specs/2026-09-16-friends-floating-design.md).
+struct FriendsSignInPanel: View {
     @AppStorage("hasSeenFriendsIntro") private var hasSeenIntro = false
-    @State private var showSettings = false
-    @State private var store = FriendsStore.shared
-    /// The requests swap in for the flights, as the bell will do over the globe.
-    @State private var mode: FriendsMode = .flights
+
+    /// What the panel keeps showing when dragged down: the top of the intro
+    /// or of the setup, enough to read what it is.
+    static let headerHeight: CGFloat = 160
 
     var body: some View {
-        Group {
-            // The intro pitches a feature you haven't set up yet, so an already
-            // signed-in user skips it — `hasSeenIntro` lives in UserDefaults,
-            // which a reinstall wipes even though the session (Keychain) survives.
-            if DemoSeed.isFriendsRequested {
-                FriendsListView(onSelect: onSelect) { feed in sheetFeed(feed) }
-            } else if !hasSeenIntro && !supabase.isSignedIn {
-                FriendsIntroView { hasSeenIntro = true }
-            } else if !supabase.isSignedIn {
-                VStack(alignment: .leading, spacing: 0) {
-                    header(title: "Friends", feed: nil).padding(.horizontal, 20).padding(.top, 4)
-                    ProfileSetupView()
-                }
-            } else {
-                FriendsListView(onSelect: onSelect) { feed in sheetFeed(feed) }
-            }
+        // The intro pitches a feature you haven't set up yet; `hasSeenIntro`
+        // lives in UserDefaults, which a reinstall wipes even though a
+        // session (Keychain) survives — the surface only shows this panel
+        // while signed out.
+        if !hasSeenIntro {
+            FriendsIntroView { hasSeenIntro = true }
+        } else {
+            ProfileSetupView()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .sheet(isPresented: $showSettings) { SettingsView() }
-        // Answering the last request brings the flights back by themselves.
-        .onChange(of: store.requests.isEmpty) { _, empty in
-            if empty { mode = .flights }
-        }
-    }
-
-    private func sheetFeed(_ feed: FriendsFeed) -> some View {
-        VStack(spacing: 0) {
-            header(title: "Friends' Flights", feed: feed)
-                .padding(.horizontal, 20).padding(.top, 8)
-            FriendFilterChips(filter: feed.filter, groups: feed.groups, friends: feed.friends,
-                              onAdd: feed.onAdd, onManage: feed.onManage)
-                .padding(.top, 12)
-            FriendsFloatingList(feed: feed, onSelect: onSelect, folded: false, mode: mode)
-                .safeAreaPadding(.bottom, 140)
-                .padding(.top, 4)
-        }
-    }
-
-    private func header(title: String, feed: FriendsFeed?) -> some View {
-        HStack(spacing: 10) {
-            Text(title)
-                .font(ArcTheme.screenTitle)
-                .lineLimit(1).minimumScaleFactor(0.7)
-            Spacer()
-            if feed != nil, !store.requests.isEmpty {
-                circleButton(mode == .requests ? "xmark" : "bell.fill",
-                             label: mode == .requests ? "Back to friends' flights" : "Friend requests") {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        mode = mode == .requests ? .flights : .requests
-                    }
-                }
-            }
-            if let feed, !feed.friends.isEmpty {
-                circleButton("person.2.fill", label: "Manage friends and groups", action: feed.onManage)
-            }
-            Button { showSettings = true } label: {
-                ProfileButtonIcon(size: 34)
-            }.buttonStyle(.plain)
-        }
-    }
-
-    private func circleButton(_ icon: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.primary).frame(width: 36, height: 36)
-                .background(Color(.secondarySystemFill), in: Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
     }
 }
 
@@ -138,7 +69,7 @@ struct FriendsIntroView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 24)
                 .padding(.top, 26)
-                .padding(.bottom, 120)
+                .padding(.bottom, 32)
             }
         }
         .scrollIndicators(.hidden)
@@ -386,6 +317,24 @@ struct FriendsFeed {
     let past: [FriendFlightGroup]
     let onAdd: () -> Void
     let onManage: () -> Void
+
+    /// The two halves of "can the parked flight be opened yet": WHICH flight a
+    /// tap asked for, and WHETHER the feed carries it.
+    ///
+    /// Keyed on the parked id alone, a cold launch got exactly one attempt.
+    /// The tap routes before this view exists, so `.task` fired the instant it
+    /// appeared — against a feed that had not been read yet — found nothing,
+    /// and never looked again: the app opened on the Friends tab and stopped
+    /// there. Warm, the feed was already loaded, which is why it worked every
+    /// time it was tried with the app running.
+    ///
+    /// Presence rather than contents, so that an ordinary feed refresh — which
+    /// happens on every visit to this tab — is not mistaken for a new tap.
+    static func pendingOpenKey(wanted: String?, feedIds: [String], pastIds: [String]) -> String {
+        guard let wanted, !wanted.isEmpty else { return "" }
+        let present = feedIds.contains(wanted) || pastIds.contains(wanted)
+        return "\(wanted)|\(present)"
+    }
 }
 
 /// Friends' Flights, minus everything the floating surface draws: the
@@ -477,9 +426,9 @@ struct FriendsListView<Content: View>: View {
     }
 
     private var pendingOpenKey: String {
-        FriendsListView<EmptyView>.pendingOpenKey(wanted: store.pendingFlightId,
-                                                  feedIds: store.feed.map(\.flight.id),
-                                                  pastIds: store.pastFeed.map(\.flight.id))
+        FriendsFeed.pendingOpenKey(wanted: store.pendingFlightId,
+                                   feedIds: store.feed.map(\.flight.id),
+                                   pastIds: store.pastFeed.map(\.flight.id))
     }
 
     /// Drain `pendingFlightId` — the friend flight a tapped alert asked for.
@@ -499,28 +448,6 @@ struct FriendsListView<Content: View>: View {
         }
         store.pendingFlightId = nil
         if let group = FriendFlightGroup.group(everything, myFlights: myFlights).first(where: { $0.items.contains { $0.id == item.id } }) { onSelect(group) }
-    }
-}
-
-/// Non-generic, so the key can be named without a content type
-/// (`FriendsListView.pendingOpenKey`).
-extension FriendsListView where Content == EmptyView {
-    /// The two halves of "can the parked flight be opened yet": WHICH flight a
-    /// tap asked for, and WHETHER the feed carries it.
-    ///
-    /// Keyed on the parked id alone, a cold launch got exactly one attempt.
-    /// The tap routes before this view exists, so `.task` fired the instant it
-    /// appeared — against a feed that had not been read yet — found nothing,
-    /// and never looked again: the app opened on the Friends tab and stopped
-    /// there. Warm, the feed was already loaded, which is why it worked every
-    /// time it was tried with the app running.
-    ///
-    /// Presence rather than contents, so that an ordinary feed refresh — which
-    /// happens on every visit to this tab — is not mistaken for a new tap.
-    static func pendingOpenKey(wanted: String?, feedIds: [String], pastIds: [String]) -> String {
-        guard let wanted, !wanted.isEmpty else { return "" }
-        let present = feedIds.contains(wanted) || pastIds.contains(wanted)
-        return "\(wanted)|\(present)"
     }
 }
 

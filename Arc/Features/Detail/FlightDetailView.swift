@@ -121,6 +121,10 @@ struct FlightDetailView: View {
                     closeButton
                 }
                 .padding(.trailing, 16)
+                // Its own container: in the floating panel, a friend's detail
+                // (the X alone here) scrolling past the panel's edge gave the
+                // X the whole panel's frame, and taps on its centre missed.
+                .accessibilityElement(children: .contain)
                 // Centred on the grabber's capsule, so the circles have the
                 // same 8pt to the sheet's edge as the header's top line has
                 // to them (see `BottomSheet`).
