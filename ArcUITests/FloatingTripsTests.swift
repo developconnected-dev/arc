@@ -35,7 +35,12 @@ final class FloatingTripsTests: XCTestCase {
 
     /// Parses "Journey 2 of 6, Zurich to Rome" into (2, 6).
     private func pageAndCount(_ label: String) -> (page: Int, count: Int)? {
-        guard let journeyRange = label.range(of: "Journey ") else { return nil }
+        pageAndCount(label, of: "Journey ")
+    }
+
+    /// The same for the invites behind the bell: "Invitation 1 of 4, from Peter".
+    private func pageAndCount(_ label: String, of kind: String) -> (page: Int, count: Int)? {
+        guard let journeyRange = label.range(of: kind) else { return nil }
         let rest = label[journeyRange.upperBound...]
         guard let ofRange = rest.range(of: " of ") else { return nil }
         let pageString = rest[rest.startIndex..<ofRange.lowerBound]
@@ -245,5 +250,124 @@ final class FloatingTripsTests: XCTestCase {
         toggle.tap()
         XCTAssertTrue(stack.waitForExistence(timeout: 3))
         XCTAssertTrue(waitUntil { stackValue(stack).hasPrefix("Journey 2 of") })
+    }
+
+    // MARK: The invites' bell
+
+    /// Four invites, as a companion receives a connecting trip.
+    private func launchWithInvites() -> XCUIApplication {
+        launch(["-seedConnectingInvites"])
+    }
+
+    private func stack(_ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)["trips-stack"].firstMatch
+    }
+
+    private func bell(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons["trips-invites-bell"]
+    }
+
+    func testTheBellIsThereOnlyWhileAnInviteIsOpen() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["trip-row-LX14"].waitForExistence(timeout: 5))
+        XCTAssertFalse(bell(app).exists, "no invites, no bell")
+        XCTAssertTrue(app.buttons["map-recenter"].exists,
+                      "the pill row is up — the bell's absence isn't the row missing")
+    }
+
+    func testTheBellCarriesTheUnreadInvitesAndOpensThem() {
+        let app = launchWithInvites()
+        let bell = bell(app)
+        XCTAssertTrue(bell.waitForExistence(timeout: 5))
+        XCTAssertEqual(bell.label, "Trip invitations")
+        // How many are unread depends on what this install has already seen
+        // (read state outlives a launch, by design), so it is the shape that
+        // is asserted here: the count VoiceOver reads, and at least one.
+        let unread = bell.value as? String ?? ""
+        XCTAssertTrue(unread.hasSuffix(" unread"), "the bell says what is new: \(unread)")
+        let count = Int(unread.prefix { $0.isNumber }) ?? 0
+        XCTAssertTrue((1...4).contains(count), "\(count) unread of four seeded invites")
+
+        bell.tap()
+        XCTAssertTrue(app.buttons["Accept"].waitForExistence(timeout: 3),
+                      "the bell swaps the stack to the invites")
+        XCTAssertTrue(app.buttons["Decline"].exists)
+        XCTAssertTrue(waitUntil { bell.label == "Back to your trips" },
+                      "the bell becomes the way back")
+        XCTAssertFalse(app.buttons["trip-row-LX14"].exists,
+                       "the journeys are behind the invites, not beside them")
+    }
+
+    /// The invites page like the journeys: one at a time, same swipe.
+    func testSwipingTheInvitesFlipsToTheNextOne() {
+        let app = launchWithInvites()
+        XCTAssertTrue(bell(app).waitForExistence(timeout: 5))
+        bell(app).tap()
+        let stack = stack(app)
+        XCTAssertTrue(waitUntil(timeout: 4) { stackValue(stack).hasPrefix("Invitation 1 of") })
+        let first = pageAndCount(stackValue(stack), of: "Invitation ")
+        XCTAssertEqual(first?.page, 1)
+        XCTAssertEqual(first?.count, 4, "the connecting trip arrives as four invites")
+
+        stack.swipeUp()
+        XCTAssertTrue(waitUntil { stackValue(stack).hasPrefix("Invitation 2 of") })
+        XCTAssertTrue(stackValue(stack).hasPrefix("Invitation 2 of 4"))
+
+        stack.swipeDown()
+        XCTAssertTrue(waitUntil { stackValue(stack).hasPrefix("Invitation 1 of") })
+    }
+
+    /// The trips come back on the journey the traveller left them on.
+    func testTheXReturnsToTheJourneyTheStackWasOn() {
+        let app = launchWithInvites()
+        let stack = stack(app)
+        XCTAssertTrue(stack.waitForExistence(timeout: 5))
+        stack.swipeUp()
+        XCTAssertTrue(waitUntil { stackValue(stack).hasPrefix("Journey 2 of") })
+        let journey = stackValue(stack)
+
+        let bell = bell(app)
+        XCTAssertTrue(bell.waitForExistence(timeout: 3))
+        bell.tap()
+        XCTAssertTrue(waitUntil(timeout: 4) { stackValue(stack).hasPrefix("Invitation 1 of") })
+
+        bell.tap()
+        XCTAssertTrue(waitUntil(timeout: 4) { stackValue(stack).hasPrefix("Journey ") })
+        XCTAssertEqual(stackValue(stack), journey, "the trips return where they were")
+        XCTAssertTrue(waitUntil { bell.label == "Trip invitations" })
+    }
+
+    /// One invite, answered: nothing is left to answer, so the stack comes
+    /// back by itself and the bell goes with the invites.
+    func testDecliningTheLastInviteBringsTheTripsBackAndTakesTheBellAway() {
+        let app = launch(["-seedTripInvite"])
+        let bell = bell(app)
+        XCTAssertTrue(bell.waitForExistence(timeout: 5))
+        bell.tap()
+        let decline = app.buttons["Decline"]
+        XCTAssertTrue(decline.waitForExistence(timeout: 3))
+        decline.tap()
+
+        XCTAssertTrue(waitUntil(timeout: 4) { !bell.exists }, "the bell goes with the last invite")
+        XCTAssertTrue(app.buttons["trip-row-LX14"].waitForExistence(timeout: 3),
+                      "the journeys are back without anyone asking")
+        XCTAssertFalse(app.buttons["Accept"].exists)
+    }
+
+    /// The dots are decoration: they say nothing to VoiceOver, and the page
+    /// they stand for is the pager's value. One pager, whichever it pages.
+    func testTheStackSpeaksItsPageAndTheDotsStayOutOfIt() {
+        let app = launchWithInvites()
+        let stack = stack(app)
+        XCTAssertTrue(stack.waitForExistence(timeout: 5))
+        XCTAssertEqual(stack.label, "Journeys")
+        XCTAssertNotNil(pageAndCount(stackValue(stack)), "the stack reports its page: \(stackValue(stack))")
+        let pagers = app.descendants(matching: .any).matching(identifier: "trips-stack")
+        XCTAssertEqual(pagers.count, 1, "one pager, not one per dot")
+
+        bell(app).tap()
+        XCTAssertTrue(waitUntil(timeout: 4) { stack.label == "Trip invitations" })
+        XCTAssertNotNil(pageAndCount(stackValue(stack), of: "Invitation "))
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "trips-stack").count, 1)
     }
 }
