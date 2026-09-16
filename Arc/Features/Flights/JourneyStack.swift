@@ -75,7 +75,7 @@ struct RidesStackEdge: ViewModifier {
 private enum StackStyle {
     static let snap: Animation = .spring(response: 0.34, dampingFraction: 1)
     static let crossfade: Animation = .easeInOut(duration: 0.15)
-    /// How far the current card lifts during a nudge.
+    /// How far the current card travels during a nudge.
     static let nudgeLift: CGFloat = 12
     /// How quiet the screen has to be before the stack nudges again.
     static let nudgeWait: Duration = .seconds(20)
@@ -169,9 +169,9 @@ struct JourneyStack<Item: Identifiable, Card: View>: View {
     /// True for the gesture's lifetime, including a system cancellation that
     /// skips `onEnded`.
     @GestureState private var touching = false
-    /// 0…1: how far into its lift the nudge is. Only the current card and the
-    /// neighbour below it move by it — the frame keeps its height, so the
-    /// stack's bottom edge, the mask and the Show More row stay put.
+    /// 0…1: how far into its travel the nudge is. Only the current card and
+    /// the one neighbour it uncovers move by it — the frame keeps its height,
+    /// so the stack's bottom edge, the mask and the Show More row stay put.
     @State private var nudge: CGFloat = 0
     /// The dots are bright because a nudge is playing rather than because a
     /// finger is down; the frame's bright edge belongs to the finger alone.
@@ -188,14 +188,6 @@ struct JourneyStack<Item: Identifiable, Card: View>: View {
         let h0 = height(page, fallback: lastSettledHeight)
         let n = neighbours
         let o = offsets(drag: drag)
-        // The nudge shows what a swipe would: the current card lifts 12 pt
-        // and the card waiting below comes up far enough to fill what it
-        // uncovers. The neighbour is parked `gap` BELOW the frame's bottom
-        // edge, so it has to travel the lift and the gap for its top 12 pt to
-        // show. The frame's height, `liveRise`, the mask and the Show More
-        // row are untouched — only these two offsets move.
-        let lift = nudge * StackStyle.nudgeLift
-        let neighbourLift = nudge * (StackStyle.nudgeLift + JourneyStackPaging.gap)
         ZStack(alignment: .top) {
             ForEach(slots(n)) { slot in
                 card(slot.item)
@@ -208,7 +200,7 @@ struct JourneyStack<Item: Identifiable, Card: View>: View {
                     // the one leaving fades out where it was while the new
                     // one fades in. Parked off-frame, it vanished at once and
                     // the empty frame blinked before the new card.
-                    .offset(y: reduceMotion ? 0 : slot.index == page ? o.current - lift : slot.index == n.next ? o.next - neighbourLift : o.previous)
+                    .offset(y: reduceMotion ? 0 : nudged(slot, offsets: o, neighbours: n))
                     .allowsHitTesting(slot.index == page && !holding && !settling)
                     .accessibilityHidden(true, isEnabled: slot.index != page)
                     // Neighbours parked off-frame neither report hero frames
@@ -312,6 +304,29 @@ struct JourneyStack<Item: Identifiable, Card: View>: View {
         return JourneyStackPaging.offsets(drag: drag, current: h0,
                                           next: height(n.next, fallback: h0),
                                           previous: height(n.previous, fallback: h0))
+    }
+
+    /// On the last card there is nothing below to uncover: the nudge turns
+    /// round and dips instead, showing the card before it.
+    private var nudgeDips: Bool { page >= items.count - 1 }
+
+    /// The nudge shows what a swipe would. On any page but the last, the
+    /// current card lifts 12 pt and the next card — parked `gap` BELOW the
+    /// frame's bottom edge — comes up by the lift and the gap, so its top
+    /// 12 pt fill what the lift uncovered. On the last page the current card
+    /// dips 12 pt instead and the previous card, parked `gap` above the
+    /// frame's top, rides down by as much, so its bottom 12 pt show.
+    ///
+    /// Either way the frame's height, `liveRise`, the mask and the Show More
+    /// row are untouched — only these two offsets move.
+    private func nudged(_ slot: Slot, offsets o: JourneyStackPaging.Offsets,
+                        neighbours n: (next: Int, previous: Int)) -> CGFloat {
+        let lift = nudge * StackStyle.nudgeLift
+        let travel = nudge * (StackStyle.nudgeLift + JourneyStackPaging.gap)
+        let dips = nudgeDips
+        if slot.index == page { return dips ? o.current + lift : o.current - lift }
+        if slot.index == n.next { return dips ? o.next : o.next - travel }
+        return dips ? o.previous + travel : o.previous
     }
 
     private func measured(_ id: Item.ID, height h: CGFloat) {
@@ -653,8 +668,9 @@ struct JourneyStack<Item: Identifiable, Card: View>: View {
         }
     }
 
-    /// The card lifts and settles back, uncovering the top edge of the card
-    /// behind it, while the dots brighten. No haptic: it shows the gesture
+    /// The card moves and settles back, uncovering an edge of the card behind
+    /// it (below, or above on the last page), while the dots brighten. No
+    /// haptic: it shows the gesture
     /// rather than announcing itself. A touch cancels the task, and every
     /// sleep below returns at once, so the card springs back where it is.
     @MainActor
