@@ -59,10 +59,15 @@ final class MapSlotView: UIView {
         clearAncestors()
     }
 
-    override func traitCollectionDidChange(_ previous: UITraitCollection?) {
-        super.traitCollectionDidChange(previous)
-        clearAncestors()
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        // A light/dark switch repaints the system backgrounds above.
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: MapSlotView, _) in
+            view.clearAncestors()
+        }
     }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     /// The tab's hosting view, the tab controller's containers and the app's
     /// root all paint a background; the map is behind all of them.
