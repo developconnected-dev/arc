@@ -7,6 +7,9 @@ import SwiftData
 /// (docs/superpowers/specs/2026-09-16-friends-floating-design.md).
 struct FriendsSignInPanel: View {
     @AppStorage("hasSeenFriendsIntro") private var hasSeenIntro = false
+    /// The name field took the keyboard: the panel opens all the way, so
+    /// what the scroll view keeps above the keyboard is inside the glass.
+    var onEditing: () -> Void = {}
 
     /// What the panel keeps showing when dragged down: the top of the intro
     /// or of the setup, enough to read what it is.
@@ -20,7 +23,7 @@ struct FriendsSignInPanel: View {
         if !hasSeenIntro {
             FriendsIntroView { hasSeenIntro = true }
         } else {
-            ProfileSetupView()
+            ProfileSetupView(onEditing: onEditing)
         }
     }
 }
@@ -137,6 +140,8 @@ private struct IntroArc: View {
 /// an anonymous Supabase user behind the scenes — no email, no code, no
 /// approval steps.
 struct ProfileSetupView: View {
+    var onEditing: () -> Void = {}
+    @FocusState private var nameFocused: Bool
     @State private var name = ""
     @State private var region: String = Locale.current.region?.identifier ?? "CH"
     @State private var showRegionPicker = false
@@ -174,6 +179,8 @@ struct ProfileSetupView: View {
 
                 VStack(spacing: 12) {
                     TextField("Your name", text: $name)
+                        .focused($nameFocused)
+                        .onChange(of: nameFocused) { _, focused in if focused { onEditing() } }
                         .font(.system(size: 18, weight: .semibold))
                         .multilineTextAlignment(.center)
                         .textInputAutocapitalization(.words)

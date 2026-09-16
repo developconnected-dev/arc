@@ -1516,7 +1516,7 @@ struct ArcRootView: View {
             panelHeaderHeight: signedIn ? panelHeaderHeight : FriendsSignInPanel.headerHeight,
             onPanelRecenter: signedIn ? { recenterOnDetail() } : nil,
             panel: {
-                if signedIn { detailPanelContent } else { FriendsSignInPanel() }
+                if signedIn { detailPanelContent } else { FriendsSignInPanel(onEditing: raiseFriendsIntroPanel) }
             },
             standingPanel: !signedIn,
             transition: surfaceTransition(.friends),
@@ -1647,6 +1647,13 @@ struct ArcRootView: View {
         } completion: {
             guard friendsFolded == folded, folded else { return }
             if detailFlight == nil { applyCameraForCurrentTab() }
+        }
+    }
+
+    private func raiseFriendsIntroPanel() {
+        guard let layout = friendsLayout, friendsIntroPanelTop != layout.panelHighestTop else { return }
+        withAnimation(reduceMotion ? nil : .spring(duration: 0.35)) {
+            friendsIntroPanelTop = layout.panelHighestTop
         }
     }
 
