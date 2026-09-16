@@ -297,13 +297,18 @@ struct MyFlightsView: View {
                         if stackMotion.settledHeight != h { stackMotion.settledHeight = h }
                     }
             } else {
-                JourneyStack(journeys: journeys, page: page, motion: stackMotion,
+                JourneyStack(items: journeys, page: page, motion: stackMotion,
                              flipRequest: flipRequest, onFlipRequestHandled: onFlipRequestHandled,
                              onSettled: onStackSettled,
                              // Unfolded, the overlay is still in the tree, only
                              // faded out: the list is what the user is reading.
                              hintsEnabled: hintsEnabled && folded,
-                             onSelect: onSelect, onDelete: delete)
+                             label: "Journeys",
+                             value: { journey, index, count in
+                                 "Journey \(index + 1) of \(count), \(Self.route(journey))"
+                             }) { journey in
+                    JourneyCard(journey: journey, onSelect: onSelect, onDelete: delete)
+                }
             }
         }
         .padding(.horizontal, MyTripsLayout.margin)
@@ -311,6 +316,14 @@ struct MyFlightsView: View {
         .onChange(of: hasChrome, initial: true) { _, has in
             if !has { onChromeHeight(0) }
         }
+    }
+
+    /// "Zurich to Rome": what VoiceOver adds to the stack's page count.
+    static func route(_ journey: TripJourney) -> String {
+        [journey.legs.first?.departureCity, journey.legs.last?.arrivalCity]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " to ")
     }
 
     private var hasChrome: Bool {

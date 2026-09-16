@@ -48,37 +48,66 @@ struct RidesStackEdge: ViewModifier {
     }
 }
 
-/// My Trips' folded journeys as a Smart Stack: one card at a time, swipe up
-/// for the next journey and down for the previous, the frame's height
-/// following the cards, a light tick when a new journey settles
+/// The stack's fixed values, and the one flag that belongs to the launch
+/// rather than to a view. Outside the generic type on purpose: a generic
+/// type can hold no static storage at all.
+private enum StackStyle {
+    static let snap: Animation = .spring(response: 0.34, dampingFraction: 1)
+    static let crossfade: Animation = .easeInOut(duration: 0.15)
+    /// How far the current card lifts during a nudge.
+    static let nudgeLift: CGFloat = 12
+    /// How quiet the screen has to be before the stack nudges again.
+    static let nudgeWait: Duration = .seconds(20)
+    /// The first nudge, shortly after the stack appears.
+    static let firstNudgeWait: Duration = .milliseconds(1200)
+    /// The dots when the stack is at rest with more than one card: there,
+    /// but quiet.
+    static let restingDots: Double = 0.35
+    /// At most this many dots, so they never spill past a short card.
+    static let maxDots = 8
+    /// Once per launch, not per page change or per return to the tab.
+    @MainActor static var firstNudgePlayed = false
+}
+
+/// My Trips' folded cards as a Smart Stack: one at a time, swipe up for the
+/// next and down for the previous, the frame's height following the cards, a
+/// light tick when a new one settles
 /// (docs/superpowers/specs/2026-09-15-journey-stack-design.md).
+///
+/// Generic over what it pages: the user's own journeys, or the trip invites
+/// waiting behind the bell. The stack owns the motion; the caller owns what a
+/// card looks like and what VoiceOver calls it.
 ///
 /// Every per-frame value lives here. Cards are measured once and only moved
 /// (offset, scale); the frame's live height grows from the bottom edge while
 /// the layout keeps the resting card's height. A page change and the drag's
 /// reset land in one non-animated transaction, where the offsets make the
 /// swap pixel-identical.
-struct JourneyStack: View {
-    let journeys: [TripJourney]
+struct JourneyStack<Item: Identifiable, Card: View>: View {
+    let items: [Item]
     @Binding var page: Int
     let motion: JourneyStackMotion
     /// A flip asked for by the app (a trip just added) rather than a finger.
     var flipRequest: Int?
     var onFlipRequestHandled: () -> Void = {}
-    /// The stack itself landed on another journey (a swipe, a flip the app
+    /// The stack itself landed on another item (a swipe, a flip the app
     /// asked for, VoiceOver's adjust) — not a clamp after the list changed.
-    var onSettled: (UUID) -> Void = { _ in }
+    var onSettled: (Item.ID) -> Void = { _ in }
     /// The stack is allowed to hint that it can be flipped: the My Trips tab,
     /// folded, no detail, no Add sheet, the app in the foreground. Whether
-    /// anything is moving, and whether there is a second journey to show, is
+    /// anything is moving, and whether there is a second card to show, is
     /// the stack's own business.
     var hintsEnabled = false
-    var onSelect: (Flight) -> Void
-    var onDelete: (Flight) -> Void
+    /// What VoiceOver calls the pager itself.
+    var label = "Journeys"
+    /// The pager's VoiceOver value: the item, its index and how many there
+    /// are ("Journey 2 of 4, Zurich to Rome", "Invitation 1 of 2, from Vicky").
+    var value: (Item, Int, Int) -> String
+    @ViewBuilder var card: (Item) -> Card
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.heroReports) private var heroReports
-    @State private var heights: [UUID: CGFloat] = [:]
+    @State private var heights: [Item.ID: CGFloat] = [:]
     /// The last height published as settled: what the stack keeps while a
     /// page it lands on hasn't been measured, rather than collapsing.
     @State private var lastSettledHeight: CGFloat = 0
@@ -107,7 +136,7 @@ struct JourneyStack: View {
     @State private var flipMeasured = 0
     /// A flip asked for while the finger is down runs once the swipe lands.
     @State private var queuedFlip: Int?
-    /// Counts journeys this stack settled on; changes from outside (a clamp
+    /// Counts items this stack settled on; changes from outside (a clamp
     /// after the list changed) don't tick.
     @State private var pageTicks = 0
     /// The page `commit` just wrote, so its own `onChange` isn't mistaken
@@ -128,18 +157,6 @@ struct JourneyStack: View {
     @State private var nudgeDots = false
     @State private var idle = IdleWatcher.shared
 
-    private static let snap: Animation = .spring(response: 0.34, dampingFraction: 1)
-    private static let crossfade: Animation = .easeInOut(duration: 0.15)
-    /// How far the current card lifts during a nudge.
-    private static let nudgeLift: CGFloat = 12
-    /// How quiet the screen has to be before the stack nudges again.
-    private static let nudgeWait: Duration = .seconds(20)
-    /// The first nudge, shortly after the stack appears.
-    private static let firstNudgeWait: Duration = .milliseconds(1200)
-    /// The dots when the stack is at rest with more than one journey: there,
-    /// but quiet.
-    private static let restingDots: Double = 0.35
-
     private var settling: Bool { settleTarget != nil }
 
     var body: some View {
@@ -148,13 +165,13 @@ struct JourneyStack: View {
         let o = offsets(drag: drag)
         // The nudge is a swipe of 12 pt that never commits: the card and the
         // one waiting below it rise together, as a finger would carry them.
-        let lift = nudge * Self.nudgeLift
+        let lift = nudge * StackStyle.nudgeLift
         ZStack(alignment: .top) {
             ForEach(slots(n)) { slot in
-                JourneyCard(journey: slot.journey, onSelect: onSelect, onDelete: onDelete)
+                card(slot.item)
                     .fixedSize(horizontal: false, vertical: true)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
-                        measured(slot.journey.id, height: h)
+                        measured(slot.item.id, height: h)
                     }
                     .scaleEffect(holding && !reduceMotion ? 0.95 : 1)
                     // Reduce Motion stacks every card at the frame's top, so
@@ -170,7 +187,7 @@ struct JourneyStack: View {
                     // Reduce Motion still builds the neighbours, invisible, so
                     // they are measured before they land; a page change is a
                     // crossfade and nothing slides.
-                    .animation(reduceMotion ? Self.crossfade : nil) {
+                    .animation(reduceMotion ? StackStyle.crossfade : nil) {
                         $0.opacity(reduceMotion && slot.index != page ? 0 : 1)
                     }
                     .transition(.identity)
@@ -190,7 +207,7 @@ struct JourneyStack: View {
         // shrinks from the bottom edge without re-laying out anything above.
         .frame(height: max(h0, 1), alignment: .bottom)
         .contentShape(.rect)
-        .highPriorityGesture(swipe, including: journeys.count > 1 ? .all : .subviews)
+        .highPriorityGesture(swipe, including: items.count > 1 ? .all : .subviews)
         .sensoryFeedback(.selection, trigger: pageTicks)
         .sensoryFeedback(.impact(weight: .light, intensity: 0.5), trigger: edgeBumps)
         .background { accessibilityPager }
@@ -205,9 +222,9 @@ struct JourneyStack: View {
                 stateChangedOutside()
             }
         }
-        .onChange(of: journeys.map(\.id)) { _, _ in
+        .onChange(of: items.map(\.id)) { _, _ in
             stateChangedOutside()
-            // The handler holds this view's values; keep its journeys current.
+            // The handler holds this view's values; keep its items current.
             motion.restHandler = { comeToRest() }
             motion.restProbe = { !holding && !settling && flipTarget == nil }
         }
@@ -239,14 +256,14 @@ struct JourneyStack: View {
 
     private struct Slot: Identifiable {
         let index: Int
-        let journey: TripJourney
-        var id: UUID { journey.id }
+        let item: Item
+        var id: Item.ID { item.id }
     }
 
-    /// Keyed by journey, so a card keeps its identity (and measurement) as
+    /// Keyed by item, so a card keeps its identity (and measurement) as
     /// it moves from neighbour to current.
     private func slots(_ n: (next: Int, previous: Int)) -> [Slot] {
-        [n.previous, page, n.next].filter(journeys.indices.contains).map { Slot(index: $0, journey: journeys[$0]) }
+        [n.previous, page, n.next].filter(items.indices.contains).map { Slot(index: $0, item: items[$0]) }
     }
 
     private var neighbours: (next: Int, previous: Int) {
@@ -255,8 +272,8 @@ struct JourneyStack: View {
     }
 
     private func height(_ index: Int, fallback: CGFloat = 0) -> CGFloat {
-        guard journeys.indices.contains(index) else { return fallback }
-        return heights[journeys[index].id] ?? fallback
+        guard items.indices.contains(index) else { return fallback }
+        return heights[items[index].id] ?? fallback
     }
 
     /// The one place offsets come from: what the body draws and what
@@ -269,13 +286,13 @@ struct JourneyStack: View {
                                           previous: height(n.previous, fallback: h0))
     }
 
-    private func measured(_ id: UUID, height h: CGFloat) {
+    private func measured(_ id: Item.ID, height h: CGFloat) {
         if heights[id] != h { heights[id] = h }
-        let isCurrent = journeys.indices.contains(page) && journeys[page].id == id
+        let isCurrent = items.indices.contains(page) && items[page].id == id
         // Mid-swipe or mid-settle the resting height is the one the swipe
         // started from; landing publishes the new one.
         if isCurrent, !holding, !settling { publishSettledHeight(h) }
-        if flipAwaitsMeasure, let flipTarget, journeys.indices.contains(flipTarget), journeys[flipTarget].id == id {
+        if flipAwaitsMeasure, let flipTarget, items.indices.contains(flipTarget), items[flipTarget].id == id {
             flipAwaitsMeasure = false
             flipMeasured += 1
         }
@@ -316,7 +333,7 @@ struct JourneyStack: View {
         }
         guard isVertical == true, holding else { return }
         let raw = value.translation.height - dragOrigin
-        let atEnd = (raw < 0 && page >= journeys.count - 1) || (raw > 0 && page <= 0)
+        let atEnd = (raw < 0 && page >= items.count - 1) || (raw > 0 && page <= 0)
         if atEnd, !bumpedThisDrag {
             bumpedThisDrag = true
             edgeBumps += 1
@@ -362,7 +379,7 @@ struct JourneyStack: View {
         let neighbour = direction == .next ? page + 1 : page - 1
         let travel = JourneyStackPaging.travel(direction: direction, current: h0,
                                                neighbour: height(neighbour, fallback: h0))
-        let target = JourneyStackPaging.target(page: page, count: journeys.count, drag: moved,
+        let target = JourneyStackPaging.target(page: page, count: items.count, drag: moved,
                                                predictedEnd: predictedEnd, travel: travel)
         if reduceMotion {
             holding = false
@@ -390,7 +407,7 @@ struct JourneyStack: View {
         settleTarget = target
         settleGeneration += 1
         let generation = settleGeneration
-        withAnimation(Self.snap, completionCriteria: .logicallyComplete) {
+        withAnimation(StackStyle.snap, completionCriteria: .logicallyComplete) {
             drag = landing
             holding = false
             publishLiveRise(offsets(drag: landing).frameHeight - h0)
@@ -409,24 +426,24 @@ struct JourneyStack: View {
     }
 
     private func commit(_ target: Int) {
-        let target = journeys.isEmpty ? page : min(max(target, 0), journeys.count - 1)
+        let target = items.isEmpty ? page : min(max(target, 0), items.count - 1)
         if target != page {
             committedPage = target
             page = target
             pageTicks += 1
-            if journeys.indices.contains(target) { onSettled(journeys[target].id) }
+            if items.indices.contains(target) { onSettled(items[target].id) }
         }
         drag = 0
         settleTarget = nil
         flipTarget = nil
         flipAwaitsMeasure = false
         publishLiveRise(0)
-        if journeys.indices.contains(target), let h = heights[journeys[target].id] {
+        if items.indices.contains(target), let h = heights[items[target].id] {
             publishSettledHeight(h)
         }
     }
 
-    /// The page or the journeys changed under the stack (a clamp after a
+    /// The page or the items changed under the stack (a clamp after a
     /// delete, Show Less landing on another card): a swipe or flip heading
     /// for an index that now means something else is dropped where it stands.
     private func comeToRest() {
@@ -470,9 +487,9 @@ struct JourneyStack: View {
             scheduleChromeHide()
         }
         // A flip queued behind the finger meant an index that may now name
-        // another journey.
+        // another item.
         queuedFlip = nil
-        if journeys.indices.contains(page), let h = heights[journeys[page].id] {
+        if items.indices.contains(page), let h = heights[items[page].id] {
             publishSettledHeight(h)
         }
     }
@@ -487,8 +504,8 @@ struct JourneyStack: View {
 
     /// A flip the app asked for: the same motion a swipe settles with.
     private func flip(to request: Int) {
-        guard !journeys.isEmpty else { return }
-        let target = min(max(request, 0), journeys.count - 1)
+        guard !items.isEmpty else { return }
+        let target = min(max(request, 0), items.count - 1)
         if holding {
             queuedFlip = target
             return
@@ -502,7 +519,7 @@ struct JourneyStack: View {
         showChrome()
         let built = slots(neighbours).contains { $0.index == target }
         flipTarget = target
-        if built, heights[journeys[target].id] != nil {
+        if built, heights[items[target].id] != nil {
             settle(to: target)
         } else {
             // Built by this update; `measured` starts the flip.
@@ -512,7 +529,7 @@ struct JourneyStack: View {
 
     private func startFlip(to target: Int) {
         guard flipTarget == target, !holding, !settling,
-              journeys.indices.contains(target), target != page else { return }
+              items.indices.contains(target), target != page else { return }
         settle(to: target)
     }
 
@@ -539,15 +556,12 @@ struct JourneyStack: View {
         }
     }
 
-    /// At most this many dots, so they never spill past a short card.
-    private static let maxDots = 8
-
     @ViewBuilder
     private var dots: some View {
-        if journeys.count > 1 {
+        if items.count > 1 {
             // A window of dots that keeps the current one in view.
-            let shown = min(journeys.count, Self.maxDots)
-            let first = min(max(page - shown / 2, 0), journeys.count - shown)
+            let shown = min(items.count, StackStyle.maxDots)
+            let first = min(max(page - shown / 2, 0), items.count - shown)
             VStack(spacing: 5) {
                 ForEach(first..<(first + shown), id: \.self) { index in
                     Circle()
@@ -557,9 +571,9 @@ struct JourneyStack: View {
             }
             .padding(.trailing, 5)
             // Never fully away: at rest they are the only sign that there is
-            // more than one journey to flip through. Full brightness belongs
+            // more than one card to flip through. Full brightness belongs
             // to a finger on the stack and to a nudge.
-            .opacity(chromeShown || nudgeDots ? 1 : Self.restingDots)
+            .opacity(chromeShown || nudgeDots ? 1 : StackStyle.restingDots)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
         }
@@ -569,7 +583,7 @@ struct JourneyStack: View {
 
     /// Everything that restarts the quiet stretch: a touch anywhere, the
     /// stack becoming (or ceasing to be) allowed to hint, a change in how
-    /// many journeys there are.
+    /// many cards there are.
     private struct HintTick: Equatable {
         var enabled: Bool
         var touched: Date
@@ -577,24 +591,21 @@ struct JourneyStack: View {
     }
 
     private var hintTick: HintTick {
-        HintTick(enabled: hintsEnabled, touched: idle.lastTouch, count: journeys.count)
+        HintTick(enabled: hintsEnabled, touched: idle.lastTouch, count: items.count)
     }
-
-    /// Once per launch, not per page change or per return to the tab.
-    @MainActor private static var firstNudgePlayed = false
 
     /// The first nudge shortly after the stack appears, then one after every
     /// quiet stretch, for as long as the screen stays quiet.
     @MainActor
     private func runHints() async {
-        guard hintsEnabled, journeys.count > 1 else { return }
-        if !Self.firstNudgePlayed {
-            Self.firstNudgePlayed = true
-            try? await Task.sleep(for: Self.firstNudgeWait)
+        guard hintsEnabled, items.count > 1 else { return }
+        if !StackStyle.firstNudgePlayed {
+            StackStyle.firstNudgePlayed = true
+            try? await Task.sleep(for: StackStyle.firstNudgeWait)
             await playNudge()
         }
         while !Task.isCancelled {
-            try? await Task.sleep(for: Self.nudgeWait)
+            try? await Task.sleep(for: StackStyle.nudgeWait)
             await playNudge()
         }
     }
@@ -605,7 +616,7 @@ struct JourneyStack: View {
     /// sleep below returns at once, so the card springs back where it is.
     @MainActor
     private func playNudge() async {
-        guard !Task.isCancelled, hintsEnabled, journeys.count > 1,
+        guard !Task.isCancelled, hintsEnabled, items.count > 1,
               !holding, !settling, flipTarget == nil, drag == 0 else { return }
         withAnimation(.easeOut(duration: 0.2)) { nudgeDots = true }
         if reduceMotion {
@@ -633,14 +644,12 @@ struct JourneyStack: View {
     /// flip is announced as the value changing.
     @ViewBuilder
     private var accessibilityPager: some View {
-        if journeys.count > 1, journeys.indices.contains(page) {
-            let legs = journeys[page].legs
-            let route = [legs.first?.departureCity, legs.last?.arrivalCity].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " to ")
+        if items.count > 1, items.indices.contains(page) {
             Color.clear
                 .accessibilityElement()
                 .accessibilityIdentifier("trips-stack")
-                .accessibilityLabel("Journeys")
-                .accessibilityValue("Journey \(page + 1) of \(journeys.count), \(route)")
+                .accessibilityLabel(label)
+                .accessibilityValue(value(items[page], page, items.count))
                 .accessibilityAdjustableAction { direction in
                     flipImmediately(to: direction == .increment ? page + 1 : page - 1)
                 }
@@ -650,7 +659,7 @@ struct JourneyStack: View {
     /// An adjustable-action flip lands at once: VoiceOver reads the new value
     /// straight after the action, and a spring would still be on the old page.
     private func flipImmediately(to target: Int) {
-        guard journeys.indices.contains(target), !holding else { return }
+        guard items.indices.contains(target), !holding else { return }
         if settling { land(runQueued: false) }
         instantly {
             flipTarget = nil
