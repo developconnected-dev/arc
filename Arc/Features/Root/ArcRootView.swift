@@ -213,7 +213,12 @@ struct ArcRootView: View {
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active { drainPendingOpen() }
+            if newPhase == .active {
+                drainPendingOpen()
+                // A scene can be rebuilt with a new window; the watcher
+                // re-attaches to whichever one is key now.
+                IdleWatcher.shared.start()
+            }
         }
         // Fetch advisories only once the layer is actually switched on, and only
         // when the cached set is stale.
@@ -226,6 +231,9 @@ struct ArcRootView: View {
             // either side of this view's construction, so drain here as well as
             // on `.arcOpenFlight`: whichever happens second finds it.
             drainPendingOpen()
+            // Watches the window for touches, so the stack knows when the
+            // screen has gone quiet (IdleWatcher).
+            IdleWatcher.shared.start()
             DemoSeed.seedIfRequested(into: modelContext, existing: allFlights)
             DemoSeed.seedStuckFlightIfRequested(into: modelContext, existing: allFlights)
             DemoSeed.startDemoLiveActivityIfRequested()

@@ -27,6 +27,7 @@
 		174541C286F7C1FAFD253F1A /* FriendsFeedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5460A62472771819DEC2B78A /* FriendsFeedTests.swift */; };
 		1BC8E88E19F9A7AD30EA6489 /* RemotePush.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9D60FB79B4585323258D954 /* RemotePush.swift */; };
 		1C559836F01ABDAEE24BF010 /* TripTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74CE06DF9691717494A71E3 /* TripTransition.swift */; };
+		1CC9D5B0EF5F4E6715F8F297 /* IdleWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47F4C9BBEA787AC0F1CD1042 /* IdleWatcher.swift */; };
 		1D39A49F3A94F85646D62092 /* DelayRisk.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F45EC7B8D2BEC6A79A78C9B /* DelayRisk.swift */; };
 		1EB9E39748B4D282482786CE /* FlightAudienceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14FAE84C003F055E6FD5E1EC /* FlightAudienceTests.swift */; };
 		23E38F386FC1075984846921 /* FlightDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 734A69EC4EB99125C060E4F5 /* FlightDetailView.swift */; };
@@ -244,6 +245,7 @@
 		3BF7D3153A1277104EAE2B7C /* TaxiCameraTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaxiCameraTests.swift; sourceTree = "<group>"; };
 		3EBD3AA871F0E5B1559FDF42 /* TripJourney.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripJourney.swift; sourceTree = "<group>"; };
 		45CDEF12D33E504034C15720 /* Airport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Airport.swift; sourceTree = "<group>"; };
+		47F4C9BBEA787AC0F1CD1042 /* IdleWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdleWatcher.swift; sourceTree = "<group>"; };
 		4864581CF99C026C4AB5136F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		4B59DFF600FEDEB5C44BEED7 /* FlightActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightActivityAttributes.swift; sourceTree = "<group>"; };
 		4BF091F8AD4F106B45E03DCE /* TakeoffDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TakeoffDetectorTests.swift; sourceTree = "<group>"; };
@@ -597,6 +599,7 @@
 				783264D1784139B2BBFB8BD2 /* FloatingLayout.swift */,
 				206D298764D047DA3F0C2844 /* FloatingPanel.swift */,
 				3B473AA396AFB87F8FA33DBD /* FriendAvatar.swift */,
+				47F4C9BBEA787AC0F1CD1042 /* IdleWatcher.swift */,
 				56BB6C9BCA4E160259EA1651 /* JourneyStackPaging.swift */,
 				4CDBA155BE116022B7E2F90F /* MapControls.swift */,
 				F1A6E858F2D653D54302F578 /* Morph.swift */,
@@ -948,6 +951,7 @@
 				0A1C083CFAAD25DE604695CB /* FriendsStore.swift in Sources */,
 				95E9EB1D6085989A0AA988BF /* FriendsView.swift in Sources */,
 				CAD442F2201C5E0593480795 /* GeoMath.swift in Sources */,
+				1CC9D5B0EF5F4E6715F8F297 /* IdleWatcher.swift in Sources */,
 				47733FC27C873C75889EB557 /* InboundMonitor.swift in Sources */,
 				31B370AC6D89A2834BA50EE6 /* InboundSelection.swift in Sources */,
 				F8979AB2425AE951DB675711 /* JourneyCard.swift in Sources */,
