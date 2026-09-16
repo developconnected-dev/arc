@@ -46,6 +46,7 @@
 		3E3DF80CFC36DE1D86451DDC /* FriendAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD91C1A4FD9CF312542C0F91 /* FriendAlerts.swift */; };
 		3ECCF6ABE970433007FAB23D /* TripInvites.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDD5E5B4DD8F4AFBCE5230CD /* TripInvites.swift */; };
 		3F12F7487ED91CC06762237E /* APNsEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1FF0EF36481E90431C9BF5 /* APNsEnvironment.swift */; };
+		3FAF38F0B5FFA1389EF1A4D7 /* SharedMapHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D3715D1A350A67099E3A1B /* SharedMapHost.swift */; };
 		45B0F3CA74F6ED6B7180B0E9 /* FlightAudienceSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 079E88135CF68418B0BFA49F /* FlightAudienceSheet.swift */; };
 		464703D8C8E16A16E1185BCF /* FriendsFloatingList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A9CF1FCA73A95FAE5F7A7F7 /* FriendsFloatingList.swift */; };
 		47733FC27C873C75889EB557 /* InboundMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3BA60104125C5743ECF86F8 /* InboundMonitor.swift */; };
@@ -220,6 +221,7 @@
 		0E523F671AB6E8AFA8FCF1C3 /* AirlineBranding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirlineBranding.swift; sourceTree = "<group>"; };
 		0E634408216EF7CB31B1C8FE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0E950A3B65137B3F46CF9625 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		10D3715D1A350A67099E3A1B /* SharedMapHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedMapHost.swift; sourceTree = "<group>"; };
 		11CAB1497F442E72CF11A73F /* AirlineLogoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirlineLogoView.swift; sourceTree = "<group>"; };
 		14FAE84C003F055E6FD5E1EC /* FlightAudienceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightAudienceTests.swift; sourceTree = "<group>"; };
 		178D23CC53F67645C9230260 /* ReferenceData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceData.swift; sourceTree = "<group>"; };
@@ -380,6 +382,7 @@
 				5CCB5157053AA1F3BD9AF495 /* GeoMath.swift */,
 				CD77AF2CE7584E492AA0A637 /* MapController.swift */,
 				0A3B7B8C200CF31995916A79 /* RouteReveal.swift */,
+				10D3715D1A350A67099E3A1B /* SharedMapHost.swift */,
 			);
 			path = Map;
 			sourceTree = "<group>";
@@ -1002,6 +1005,7 @@
 				C3B05E522F64F7A73BDB3F5F /* ScheduleBackfill.swift in Sources */,
 				5BFC4245B668EF91BE8CF988 /* SettingsView.swift in Sources */,
 				8D123A8F76E2E356082F43AF /* ShareFlightSheet.swift in Sources */,
+				3FAF38F0B5FFA1389EF1A4D7 /* SharedMapHost.swift in Sources */,
 				301E39861AE25DD77B097AE0 /* StatsDetailView.swift in Sources */,
 				78067EB8469F38A3B174A4DE /* SunSide.swift in Sources */,
 				8ED498F91B66740B412D0611 /* SupabaseClient.swift in Sources */,

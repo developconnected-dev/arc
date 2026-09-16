@@ -100,6 +100,15 @@ struct FloatingSurface<Map: View, Content: View, ExtraRow: View, Panel: View, He
     let coveredBySheet: Bool
     let hooks: FloatingSurfaceHooks
 
+    // MARK: The tab switch
+
+    /// This tab is the one on screen. Selected again, its cards rise into
+    /// place from below while the system fades the other tab out.
+    var selected = true
+    /// A tab first built by being switched to rises too; the tab the app
+    /// launches into is simply there.
+    var risesOnFirstAppear = false
+
     /// The folded overlay's height: what sits above the stack plus the
     /// current card at rest. Changes once per settle, not per frame.
     private var foldedHeight: CGFloat { chromeHeight + motion.settledHeight }
@@ -176,6 +185,7 @@ struct FloatingSurface<Map: View, Content: View, ExtraRow: View, Panel: View, He
                                          foldedHeight: foldedHeight,
                                          room: layout.listBottom - layout.unfoldedListTop))
             .offset(y: layout.unfoldedListTop)
+            .modifier(TabArrival(selected: selected, risesOnFirstAppear: risesOnFirstAppear, delay: 0))
             .modifier(SidePresence(side: .list, progress: listProgress))
             .modifier(UntilMeasured(measured: measured))
             .allowsHitTesting(!transition.detailOpen)
@@ -205,6 +215,7 @@ struct FloatingSurface<Map: View, Content: View, ExtraRow: View, Panel: View, He
         .frame(width: layout.size.width, height: layout.size.height, alignment: .topLeading)
         .modifier(RidesStackEdge(motion: motion,
                                  clamp: (foldedHeight, layout.listBottom - layout.unfoldedListTop)))
+        .modifier(TabArrival(selected: selected, risesOnFirstAppear: risesOnFirstAppear, delay: 0.05))
         .modifier(SidePresence(side: .list, progress: listProgress))
         .modifier(UntilMeasured(measured: measured))
         .allowsHitTesting(!transition.detailOpen)
@@ -387,6 +398,46 @@ private struct FloatingListReveal: ViewModifier {
         content
             .mask(alignment: .bottom) { Rectangle().frame(height: h) }
             .contentShape(.interaction, BottomSlice(height: h))
+    }
+}
+
+/// A tab switched to: its cards and the buttons over them rise from below
+/// with a bounce, a beat after the switch, so they never overlap the tab
+/// fading out (the system's crossfade). Leaving, nothing moves — the fade
+/// is the whole exit. Reduce Motion: a fade only.
+///
+/// The hidden state is derived in the same pass as the selection, never set
+/// a turn later: a card at rest for one frame before it sank would flash.
+private struct TabArrival: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let selected: Bool
+    let risesOnFirstAppear: Bool
+    /// The buttons follow the cards by a hair.
+    let delay: Double
+    /// Nil until the tab has been selected or left once.
+    @State private var arrived: Bool?
+
+    static let drop: CGFloat = 44
+
+    func body(content: Content) -> some View {
+        let isArrived = arrived ?? !risesOnFirstAppear
+        // A tab not on screen stays as it was: it is fading out, or hidden.
+        let shown = isArrived || !selected
+        content
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown || reduceMotion ? 0 : Self.drop)
+            .onChange(of: selected, initial: true) { _, nowSelected in
+                guard nowSelected else {
+                    // Silent: an unselected tab shows as arrived regardless.
+                    arrived = false
+                    return
+                }
+                guard !isArrived else { return }
+                let animation: Animation = reduceMotion
+                    ? .easeInOut(duration: 0.2).delay(0.1)
+                    : .spring(duration: 0.5, bounce: 0.28).delay(0.1 + delay)
+                withAnimation(animation) { arrived = true }
+            }
     }
 }
 

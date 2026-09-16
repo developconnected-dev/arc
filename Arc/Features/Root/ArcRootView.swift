@@ -12,8 +12,13 @@ struct ArcRootView: View {
 
     @State private var controller = MapController()
     @State private var friendsStore = FriendsStore.shared
-    @State private var tab: ArcTab = ProcessInfo.processInfo.arguments.contains("-tabPassport") ? .passport
-        : ProcessInfo.processInfo.arguments.contains("-tabFriends") ? .friends : .myFlights
+    @State private var tab: ArcTab = Self.launchTab
+    /// The one map every tab shows (`SharedMapHost`).
+    @State private var mapHost = SharedMapHost()
+    private static var launchTab: ArcTab {
+        ProcessInfo.processInfo.arguments.contains("-tabPassport") ? .passport
+            : ProcessInfo.processInfo.arguments.contains("-tabFriends") ? .friends : .myFlights
+    }
     @State private var detent: SheetDetent = ProcessInfo.processInfo.arguments.contains("-sheetLarge") ? .large : .medium
     @State private var showAdd = false
     /// My Trips floats over the map (docs/superpowers/specs/2026-09-15-floating-trips-design.md).
@@ -176,9 +181,11 @@ struct ArcRootView: View {
             updateCameraForTab(newTab)
             if newTab == .friends {
                 Task {
+                    let before = friendsRouteKey
                     await FriendsStore.shared.refresh()
-                    // Overlays may have just loaded — frame them.
-                    if tab == .friends, detailFlight == nil { applyCameraForCurrentTab() }
+                    // Overlays may have just loaded — frame them; the same
+                    // routes again are no reason to move a second time.
+                    if tab == .friends, detailFlight == nil, friendsRouteKey != before { applyCameraForCurrentTab() }
                 }
             }
         }
@@ -316,7 +323,27 @@ struct ArcRootView: View {
     private func updateCameraForTab(_ t: ArcTab) {
         guard lastCameraTab != t else { return }
         lastCameraTab = t
-        applyCameraForCurrentTab()
+        tabCameraTask?.cancel()
+        tabCameraTask = Task { @MainActor in
+            // One movement at a time: the incoming cards rise first
+            // (`TabArrival`), then the one shared map moves from wherever it
+            // already is.
+            if !reduceMotion { try? await Task.sleep(for: .milliseconds(450)) }
+            guard !Task.isCancelled else { return }
+            tabCameraTask = nil
+            guard tab == t, !controller.isRevealingRoutes else { return }
+            applyCameraForCurrentTab()
+        }
+    }
+
+    /// The reframe a tab switch has scheduled; a tab's first layout leaves
+    /// the camera to it rather than moving it a second time.
+    @State private var tabCameraTask: Task<Void, Never>?
+
+    /// What the Friends globe frames, to tell a refresh that changed the
+    /// routes from one that didn't.
+    private var friendsRouteKey: [Double] {
+        friendsStore.mapOverlays.flatMap { [$0.dep.latitude, $0.dep.longitude, $0.arr.latitude, $0.arr.longitude] }
     }
 
     /// Called when the underlying flight data changes, or on first appear —
@@ -1005,6 +1032,12 @@ struct ArcRootView: View {
                 })
     }
 
+    /// The shared map, in `surfaceTab`'s place for it.
+    private func sharedMap(_ surfaceTab: ArcTab) -> some View {
+        MapSlot(host: mapHost, content: mapLayer)
+            .ignoresSafeArea()
+    }
+
     /// Everything that belongs to the map, built once behind the tabs.
     private var mapLayer: some View {
         ZStack(alignment: .top) {
@@ -1055,10 +1088,10 @@ struct ArcRootView: View {
         return ZStack {
             // iOS gives no way to clear a TabView's container background
             // (`.containerBackground(for: .tabView)` is unavailable here), so the
-            // map has to live inside the tab rather than behind it. The camera
-            // and every layer are driven by the shared MapController, so
+            // map has to live inside the tab rather than behind it. The map
+            // is one view moved between the tabs (`SharedMapHost`), so
             // switching tabs keeps the same view of the world.
-            mapLayer
+            sharedMap(surfaceTab)
             BottomSheet(detent: $detent) {
                 // The detail lives IN the sheet, over the tab content, which
                 // stays in the tree (so its rows keep reporting where they
@@ -1130,7 +1163,7 @@ struct ArcRootView: View {
             shareFlight: tripsShareFlight,
             menuExtras: { EmptyView() },
             controller: controller,
-            map: mapLayer,
+            map: sharedMap(.myFlights),
             folded: tripsFolded,
             motion: tripsStackMotion,
             chromeHeight: tripsChromeHeight,
@@ -1157,7 +1190,9 @@ struct ArcRootView: View {
             },
             measuredLayout: $tripsLayout,
             coveredBySheet: showAdd,
-            hooks: tripsHooks(journeyCount: journeyCount))
+            hooks: tripsHooks(journeyCount: journeyCount),
+            selected: tab == .myFlights,
+            risesOnFirstAppear: Self.launchTab != .myFlights)
     }
 
     /// The root's share of the glide: one transition, whichever tab it is on.
@@ -1200,7 +1235,8 @@ struct ArcRootView: View {
     /// The launch fit runs before the surface has measured itself; frame
     /// again, once, for the real layout and the real folded stack.
     private func refitTripsForFirstFrame() {
-        guard tab == .myFlights, detailFlight == nil, !controller.isRevealingRoutes else { return }
+        guard tab == .myFlights, detailFlight == nil, !controller.isRevealingRoutes,
+              tabCameraTask == nil else { return }
         applyCameraForCurrentTab()
     }
 
@@ -1459,7 +1495,7 @@ struct ArcRootView: View {
                 }
             },
             controller: controller,
-            map: mapLayer,
+            map: sharedMap(.friends),
             folded: friendsFolded,
             motion: friendsMotion,
             chromeHeight: friendsChromeHeight,
@@ -1491,7 +1527,9 @@ struct ArcRootView: View {
             },
             measuredLayout: $friendsLayout,
             coveredBySheet: showAdd,
-            hooks: friendsHooks(feed, requests: requests))
+            hooks: friendsHooks(feed, requests: requests),
+            selected: tab == .friends,
+            risesOnFirstAppear: Self.launchTab != .friends)
     }
 
     private func friendsHooks(_ feed: FriendsFeed, requests: [FriendRequest]) -> FloatingSurfaceHooks {
@@ -1613,7 +1651,7 @@ struct ArcRootView: View {
     }
 
     private func refitFriendsForFirstFrame() {
-        guard tab == .friends, detailFlight == nil else { return }
+        guard tab == .friends, detailFlight == nil, tabCameraTask == nil else { return }
         applyCameraForCurrentTab()
     }
 
