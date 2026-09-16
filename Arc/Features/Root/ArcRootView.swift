@@ -1008,12 +1008,12 @@ struct ArcRootView: View {
                 Tab(ArcTab.passport.title, systemImage: ArcTab.passport.icon, value: TabSelection.tab(.passport)) {
                     tabSurface(.passport) { PassportView { openDetail($0) } }
                 }
-                // iOS 26's separated tab: a round glass bubble beside the bar,
+                // iOS 26's separated tab: a round glass bubble beside the bar (`TabSelection.addRole`),
                 // the native home for a persistent primary action (the
                 // accessory bar above the bar is gone). Its content is never
                 // shown — choosing it opens the Add sheet and leaves the
                 // selection where it was (`tabSelection`).
-                Tab(TabSelection.addTitle, systemImage: TabSelection.addIcon, value: TabSelection.add, role: .search) {
+                Tab(TabSelection.addTitle, systemImage: TabSelection.addIcon, value: TabSelection.add, role: TabSelection.addRole) {
                     EmptyView()
                 }
             }
