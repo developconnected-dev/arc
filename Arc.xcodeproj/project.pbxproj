@@ -143,6 +143,7 @@
 		CE9C606E475E38ECB76064FB /* FriendFlightGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB9E02444B3605EDE0393741 /* FriendFlightGroup.swift */; };
 		CF6320F47EB82BD75EA23A56 /* TravelCompanionsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFCE4AEB3F85D01514383989 /* TravelCompanionsSheet.swift */; };
 		CF9EC77C1A77F199DAD62E77 /* BottomSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85FA6BAFEA7DEBB5CB2DB08F /* BottomSheet.swift */; };
+		D06A6CBC832886F7E2863EDA /* FriendFilterChips.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA868CA289E599CDF4D9865D /* FriendFilterChips.swift */; };
 		D262DB5DCAC33D8852BB44F0 /* ConnectionPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1301041A06C6716593057B /* ConnectionPlanner.swift */; };
 		D26812028267EF8CE41C593F /* ArcWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E939CF90FDCC989380305A0 /* ArcWidgetBundle.swift */; };
 		D9F9CD2DDF8F9F47C6B5DEF1 /* MinuteTimer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20CEE5C663F58D16E8083E28 /* MinuteTimer.swift */; };
@@ -341,6 +342,7 @@
 		CFCE4AEB3F85D01514383989 /* TravelCompanionsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TravelCompanionsSheet.swift; sourceTree = "<group>"; };
 		D055CC753814BAE54C3C7094 /* BackgroundFlightUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundFlightUpdater.swift; sourceTree = "<group>"; };
 		D318093F38973AB568D94123 /* ArcMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcMapView.swift; sourceTree = "<group>"; };
+		DA868CA289E599CDF4D9865D /* FriendFilterChips.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendFilterChips.swift; sourceTree = "<group>"; };
 		DAC56B047A7FA3AF25847CCF /* FlightTrackerRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightTrackerRefreshTests.swift; sourceTree = "<group>"; };
 		DAFCDA1E27F312CF2BBD90DA /* InboundSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboundSelection.swift; sourceTree = "<group>"; };
 		DD91C1A4FD9CF312542C0F91 /* FriendAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendAlerts.swift; sourceTree = "<group>"; };
@@ -431,6 +433,7 @@
 			isa = PBXGroup;
 			children = (
 				079E88135CF68418B0BFA49F /* FlightAudienceSheet.swift */,
+				DA868CA289E599CDF4D9865D /* FriendFilterChips.swift */,
 				AB9E02444B3605EDE0393741 /* FriendFlightGroup.swift */,
 				343257F6CBC830BB8386C5BA /* FriendsView.swift */,
 				858108E79DAC8F038B9E97E4 /* ManageFriendsSheet.swift */,
@@ -957,6 +960,7 @@
 				3CC813E9AE644DAE0747CEF8 /* FloatingSurface.swift in Sources */,
 				3E3DF80CFC36DE1D86451DDC /* FriendAlerts.swift in Sources */,
 				F4EF39911CBB7F824BE309E4 /* FriendAvatar.swift in Sources */,
+				D06A6CBC832886F7E2863EDA /* FriendFilterChips.swift in Sources */,
 				CE9C606E475E38ECB76064FB /* FriendFlightGroup.swift in Sources */,
 				5FA1351EE55E4BE4797E59F1 /* FriendGroups.swift in Sources */,
 				0A1C083CFAAD25DE604695CB /* FriendsStore.swift in Sources */,

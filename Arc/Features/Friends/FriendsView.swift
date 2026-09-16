@@ -363,7 +363,10 @@ struct FriendsListView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        filterRow
+                        FriendFilterChips(filter: $filter, groups: groups,
+                                          friends: store.friends,
+                                          onAdd: { showingAddFriend = true },
+                                          onManage: { showingManage = true })
                         content
                     }
                     .padding(.top, 12).padding(.bottom, 140)
@@ -444,108 +447,6 @@ struct FriendsListView: View {
             }.buttonStyle(.plain)
         }
     }
-
-    // MARK: Filter chips (Add · All · one per friend)
-
-    private var filterRow: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                Button { showingAddFriend = true } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "person.badge.plus").font(.system(size: 13, weight: .bold))
-                        Text("Add Friends").font(.system(size: 14, weight: .semibold))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 13).padding(.vertical, 9)
-                    .background(ArcTheme.action, in: Capsule())
-                }.buttonStyle(.plain)
-
-                if !store.friends.isEmpty {
-                    filterChip("All", filter: .all)
-                    ForEach(groups) { group in groupChip(group) }
-                    ForEach(store.friends) { entry in friendChip(entry) }
-                }
-            }
-            .padding(.horizontal, 20)
-        }
-        .scrollIndicators(.hidden)
-    }
-
-    private func filterChip(_ label: String, filter target: FeedFilter) -> some View {
-        let selected = filter == target
-        return Button {
-            withAnimation(.easeInOut(duration: 0.15)) { filter = target }
-        } label: {
-            Text(label).font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(selected ? Color(.systemBackground) : .primary)
-                .padding(.horizontal, 14).padding(.vertical, 9)
-                .background(selected ? Color.primary : Color(.secondarySystemFill), in: Capsule())
-        }.buttonStyle(.plain)
-    }
-
-    /// A group reads as one chip with a small stack of its members' faces, so
-    /// "Family" is recognisable at a glance next to the individual chips.
-    private func groupChip(_ group: FriendGroup) -> some View {
-        let selected = filter == .group(group.id)
-        let faces = store.friends.filter { group.memberIds.contains($0.id) }.prefix(3)
-        return Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                filter = selected ? .all : .group(group.id)
-            }
-        } label: {
-            HStack(spacing: 6) {
-                HStack(spacing: -8) {
-                    ForEach(Array(faces)) { entry in
-                        FriendAvatar(name: entry.user.display_name, size: 24,
-                                     avatarURL: entry.user.avatar_url)
-                            .overlay(Circle().stroke(selected ? Color.primary : Color(.secondarySystemFill),
-                                                     lineWidth: 1.5))
-                    }
-                }
-                Text(group.name).font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(selected ? Color(.systemBackground) : .primary)
-            }
-            .padding(.leading, faces.isEmpty ? 13 : 5).padding(.trailing, 13).padding(.vertical, 5)
-            .background(selected ? Color.primary : Color(.secondarySystemFill), in: Capsule())
-        }.buttonStyle(.plain)
-    }
-
-    private func friendChip(_ entry: FriendsStore.FriendEntry) -> some View {
-        let selected = filter == .friend(entry.id)
-        return Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                filter = selected ? .all : .friend(entry.id)
-            }
-        } label: {
-            HStack(spacing: 6) {
-                FriendAvatar(name: entry.user.display_name, size: 26, avatarURL: entry.user.avatar_url)
-                Text(entry.user.display_name).font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(selected ? Color(.systemBackground) : .primary)
-            }
-            .padding(.leading, 4).padding(.trailing, 13).padding(.vertical, 4)
-            .background(selected ? Color.primary : Color(.secondarySystemFill), in: Capsule())
-        }.buttonStyle(.plain)
-        // Long-press: how much this friend's flying may interrupt you.
-        // The level is mirrored into view state, same as ManageFriendsSheet:
-        // FriendAlerts stores it in UserDefaults, which SwiftUI cannot
-        // observe — read directly, tapping a level changed the setting but
-        // the tick never moved.
-        .contextMenu {
-            let current = chipLevels[entry.id] ?? FriendAlerts.level(for: entry.id)
-            ForEach(FriendNotificationLevel.allCases) { level in
-                Button {
-                    FriendAlerts.setLevel(level, for: entry.id)
-                    chipLevels[entry.id] = level
-                    Task { await FriendAlerts.process(entries: store.friends) }
-                } label: {
-                    Label(level.title, systemImage: current == level ? "checkmark" : level.icon)
-                }
-            }
-        }
-    }
-
-    /// Alert levels mirrored into observable state — see the contextMenu above.
-    @State private var chipLevels: [String: FriendNotificationLevel] = [:]
 
     // MARK: Feed
 
