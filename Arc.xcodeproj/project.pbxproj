@@ -42,6 +42,7 @@
 		31B370AC6D89A2834BA50EE6 /* InboundSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAFCDA1E27F312CF2BBD90DA /* InboundSelection.swift */; };
 		3B089C68AE1F27975051FC87 /* BookingExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1995CD0E0E8E5789BADDD388 /* BookingExtractor.swift */; };
 		3C9CBF3FB7BC17B415D90698 /* MyFlightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A99FE65B13FFE0D0203987D5 /* MyFlightsView.swift */; };
+		3CC813E9AE644DAE0747CEF8 /* FloatingSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E21AF3079D3B86AEB18F202 /* FloatingSurface.swift */; };
 		3E3DF80CFC36DE1D86451DDC /* FriendAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD91C1A4FD9CF312542C0F91 /* FriendAlerts.swift */; };
 		3ECCF6ABE970433007FAB23D /* TripInvites.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDD5E5B4DD8F4AFBCE5230CD /* TripInvites.swift */; };
 		3F12F7487ED91CC06762237E /* APNsEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1FF0EF36481E90431C9BF5 /* APNsEnvironment.swift */; };
@@ -222,6 +223,7 @@
 		1995CD0E0E8E5789BADDD388 /* BookingExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookingExtractor.swift; sourceTree = "<group>"; };
 		1A223847338A51B850FB3B5A /* AircraftImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AircraftImage.swift; sourceTree = "<group>"; };
 		1BFECC1DABBC5FC07371E956 /* ArcDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcDesign.swift; sourceTree = "<group>"; };
+		1E21AF3079D3B86AEB18F202 /* FloatingSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingSurface.swift; sourceTree = "<group>"; };
 		1E47BF7D61BAF11682C2B4E2 /* FlightAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightAPIClient.swift; sourceTree = "<group>"; };
 		206D298764D047DA3F0C2844 /* FloatingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingPanel.swift; sourceTree = "<group>"; };
 		2091849463E3B42B39109819 /* ArcTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcTheme.swift; sourceTree = "<group>"; };
@@ -567,6 +569,7 @@
 			children = (
 				0A54EAE7163E5314C68F828C /* ArcRootView.swift */,
 				78C36DE016E979779A485A54 /* DemoSeed.swift */,
+				1E21AF3079D3B86AEB18F202 /* FloatingSurface.swift */,
 				E182404AF34722A1371135DF /* MapTopBar.swift */,
 			);
 			path = Root;
@@ -951,6 +954,7 @@
 				E66A60BDC3290A6FBD47C2B4 /* FlightTracker.swift in Sources */,
 				FD25808FFF29607E6A8BCDC0 /* FloatingLayout.swift in Sources */,
 				B5C83A8B690A9B701C802202 /* FloatingPanel.swift in Sources */,
+				3CC813E9AE644DAE0747CEF8 /* FloatingSurface.swift in Sources */,
 				3E3DF80CFC36DE1D86451DDC /* FriendAlerts.swift in Sources */,
 				F4EF39911CBB7F824BE309E4 /* FriendAvatar.swift in Sources */,
 				CE9C606E475E38ECB76064FB /* FriendFlightGroup.swift in Sources */,

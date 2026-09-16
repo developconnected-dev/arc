@@ -1,19 +1,28 @@
 import SwiftUI
 
-/// My Trips' top row on the map, just under the Dynamic Island: the avatar,
-/// a centre pill that says "My Trips" — or, while a detail shows a flight
-/// with a fresh position, its speed and altitude — and share + "...".
+private enum TopBarStyle {
+    /// The capsule's pieces, shared by its layout and the width the pill
+    /// avoids. Outside the view on purpose: a generic type can hold no static
+    /// stored properties at all.
+    static let iconWidth: CGFloat = 42
+    static let capsuleInset: CGFloat = 4
+}
+
+/// A floating surface's top row on the map, just under the Dynamic Island:
+/// the avatar, a centre pill that names the tab — or, while a detail shows a
+/// flight with a fresh position, its speed and altitude — and share + "...".
 /// The pill never touches its neighbours (`TopPillPlacement`).
-struct MapTopBar: View {
+struct MapTopBar<MenuExtras: View>: View {
     let layout: MyTripsLayout
     @Bindable var controller: MapController
+    /// What the pill says when no readout is showing ("My Trips", "Friends").
+    let title: String
     /// The flight a detail is showing, once its glide has landed.
     let liveFlight: Flight?
+    /// Nil is no share button at all (Friends shares nothing).
     let shareFlight: Flight?
-
-    /// The capsule's pieces, shared by its layout and the width the pill avoids.
-    private static let iconWidth: CGFloat = 42
-    private static let capsuleInset: CGFloat = 4
+    /// The tab's own items, above map style and weather in the "..." menu.
+    @ViewBuilder var menuExtras: () -> MenuExtras
 
     @State private var showSettings = false
     @State private var sharing: Flight?
@@ -30,7 +39,7 @@ struct MapTopBar: View {
             }
             // Worked out, not measured: a measured width lags one layout pass behind
             // the share button appearing, and the capsule would jump for a frame.
-            let capsuleWidth: CGFloat = (shareFlight == nil ? 1 : 2) * Self.iconWidth + 2 * Self.capsuleInset
+            let capsuleWidth: CGFloat = (shareFlight == nil ? 1 : 2) * TopBarStyle.iconWidth + 2 * TopBarStyle.capsuleInset
             let leadingEdge = MyTripsLayout.margin + MyTripsLayout.control
             let trailingEdge = layout.size.width - MyTripsLayout.margin - capsuleWidth
 
@@ -78,10 +87,10 @@ struct MapTopBar: View {
             Color.clear
                 .glassEffect(.regular, in: .capsule)
                 .accessibilityElement()
-                .accessibilityLabel(readout ?? "My Trips")
+                .accessibilityLabel(readout ?? title)
                 .accessibilityAddTraits(.isStaticText)
                 .accessibilityIdentifier("map-top-title")
-            Text("My Trips")
+            Text(title)
                 .font(.system(size: 17, weight: .semibold))
                 .pillText()
                 .opacity(shows ? 0 : 1)
@@ -107,6 +116,7 @@ struct MapTopBar: View {
                     .transition(.opacity)
             }
             Menu {
+                menuExtras()
                 Picker("Map style", selection: $controller.style) {
                     Label("Standard", systemImage: "map").tag(MapController.MapStyleKind.standard)
                     Label("Satellite", systemImage: "globe.europe.africa.fill").tag(MapController.MapStyleKind.hybrid)
@@ -130,7 +140,7 @@ struct MapTopBar: View {
             }
             .accessibilityLabel("Map options")
         }
-        .padding(.horizontal, Self.capsuleInset)
+        .padding(.horizontal, TopBarStyle.capsuleInset)
         .glassEffect(.regular.interactive(), in: .capsule)
     }
 
@@ -138,7 +148,7 @@ struct MapTopBar: View {
         Image(systemName: name)
             .font(.system(size: 18, weight: .semibold))
             .foregroundStyle(.primary)
-            .frame(width: Self.iconWidth, height: MyTripsLayout.control)
+            .frame(width: TopBarStyle.iconWidth, height: MyTripsLayout.control)
             .contentShape(Rectangle())
     }
 }

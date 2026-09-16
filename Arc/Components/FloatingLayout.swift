@@ -18,6 +18,10 @@ struct MyTripsLayout: Equatable {
     static let gap: CGFloat = 8
     static let control: CGFloat = 44
     static let panelOpeningFraction: CGFloat = 0.58
+    /// Slack under the cards inside the list's fixed frame, so a glass rim on
+    /// the bottom edge is never clipped: the surface extends the frame by as
+    /// much, and the list pads its content by it (`MyFlightsView.rim`).
+    static let rim: CGFloat = 6
     /// The panel's drag strip as laid out: `BottomSheet`'s 50 pt zone less the
     /// 12 pt the content overlaps, so the detail's menu and X line up as before.
     static let panelStrip: CGFloat = 38

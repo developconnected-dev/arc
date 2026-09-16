@@ -1056,35 +1056,72 @@ struct ArcRootView: View {
 
     /// My Trips: no sheet. The map fills the screen, the trips float over it
     /// as glass cards, and a trip opens in a glass panel the row glides into.
+    /// Everything about that is `FloatingSurface`'s; this is what My Trips
+    /// puts on it.
     private var myTripsSurface: some View {
         // Once per root pass: grouping runs the connection planner.
         let journeyCount = MyFlightsView.journeys(Array(allFlights)).count
-        return GeometryReader { geo in
-            let insets = geo.safeAreaInsets
-            let full = CGSize(width: geo.size.width + insets.leading + insets.trailing,
-                              height: geo.size.height + insets.top + insets.bottom)
-            // Nothing sits between the cards and the tab bar any more, so the
-            // bottom inset IS the bar's reach — no guessing, nothing to learn.
-            let layout = MyTripsLayout(size: full, safeTop: insets.top, tabBarClearance: insets.bottom)
-            myTripsLayers(layout, journeyCount: journeyCount)
-                .frame(width: full.width, height: full.height, alignment: .topLeading)
-                .offset(x: -insets.leading, y: -insets.top)
-                .onChange(of: layout, initial: true) { _, new in tripsLayout = new }
-                .onChange(of: panelHeaderHeight) { _, header in
-                    if let top = panelTop { panelTop = layout.clampPanelTop(top, headerHeight: header) }
+        return FloatingSurface(
+            title: "My Trips",
+            liveFlight: tripsLiveFlight,
+            shareFlight: tripsShareFlight,
+            menuExtras: { EmptyView() },
+            controller: controller,
+            map: mapLayer,
+            folded: tripsFolded,
+            motion: tripsStackMotion,
+            chromeHeight: tripsChromeHeight,
+            contentHeight: tripsContentHeight,
+            stackCount: tripsMode == .invites ? friendsStore.tripInvites.count : journeyCount,
+            foldIdentifier: "trips-fold-toggle",
+            onFold: { folded in setTripsFolded(folded) },
+            content: { layout in tripsList(layout) },
+            // My Trips keeps nothing between its cards and the buttons.
+            extraRowHeight: 0,
+            extraRow: { EmptyView() },
+            bell: tripsBell,
+            showsRecenter: !mapFlights.isEmpty,
+            onRecenter: { applyCameraForCurrentTab() },
+            panelTop: $panelTop,
+            panelHeaderHeight: panelHeaderHeight,
+            onPanelRecenter: { recenterOnDetail() },
+            panel: { tripsPanelContent },
+            transition: tripsTransition,
+            heroOverlay: { top in
+                heroOverlay(glass: true) { size, rowHeight in
+                    Morph.panelTarget(panelTop: top, width: size.width, rowHeight: rowHeight)
                 }
-        }
-        .modifier(MyTripsSurfaceHooks(journeyCount: journeyCount,
-                                      detailID: detailFlight?.id,
-                                      inviteIDs: friendsStore.tripInvites.map(\.id),
-                                      onInvites: { ids in tripInvitesChanged(ids) },
-                                      firstFrameReady: tripsLayout != nil && tripsFoldedHeight > 0,
-                                      onJourneyCount: { count in
-                                          // Only the pill folds, and it is gone with one journey left.
-                                          if count <= 1, !tripsFolded { setTripsFolded(true) }
-                                      },
-                                      onDetailSettled: learnHeaderWithoutGlide,
-                                      onFirstFrame: refitTripsForFirstFrame))
+            },
+            measuredLayout: $tripsLayout,
+            coveredBySheet: showAdd,
+            hooks: tripsHooks(journeyCount: journeyCount))
+    }
+
+    /// The root's share of the glide: one transition, whichever tab it is on.
+    private var tripsTransition: FloatingSurfaceTransition {
+        let onTrips = detailTab == .myFlights && tab == .myFlights
+        return FloatingSurfaceTransition(active: onTrips,
+                                         detailOpen: onTrips && detailFlight != nil,
+                                         phase: transition.phase,
+                                         request: transition.request,
+                                         progress: $heroProgress,
+                                         frames: heroFrames,
+                                         travellingKey: heroTravelling?.key,
+                                         prepare: prepareTransition,
+                                         finish: finishTransition)
+    }
+
+    private func tripsHooks(journeyCount: Int) -> FloatingSurfaceHooks {
+        FloatingSurfaceHooks(itemCount: journeyCount,
+                             onItemCount: { count in
+                                 // Only the pill folds, and it is gone with one journey left.
+                                 if count <= 1, !tripsFolded { setTripsFolded(true) }
+                             },
+                             bellItems: friendsStore.tripInvites.map(\.id),
+                             onBellItems: { ids in tripInvitesChanged(ids) },
+                             detailID: detailFlight?.id,
+                             onDetailSettled: learnHeaderWithoutGlide,
+                             onFirstFrame: refitTripsForFirstFrame)
     }
 
     /// An opening with no glide (Reduce Motion, one detail replacing another)
@@ -1104,40 +1141,6 @@ struct ArcRootView: View {
         applyCameraForCurrentTab()
     }
 
-    @ViewBuilder
-    private func myTripsLayers(_ layout: MyTripsLayout, journeyCount: Int) -> some View {
-        let onTrips = detailTab == .myFlights && tab == .myFlights
-        let listTop = layout.listTop(folded: tripsFolded, foldedHeight: tripsFoldedHeight, contentHeight: tripsContentHeight)
-        ZStack(alignment: .topLeading) {
-            mapLayer
-            tripsList(layout, listTop: listTop, detailOpen: onTrips && detailFlight != nil)
-            // Gone while a detail is settled open: hidden and faded, its
-            // buttons were still VoiceOver stops. Rebuilt as a close begins,
-            // at the list's ~0 presence, so it still fades back in.
-            if !(onTrips && detailFlight != nil && transition.phase == .detail) {
-                tripsPillRow(layout, listTop: listTop, journeyCount: journeyCount,
-                             detailOpen: onTrips && detailFlight != nil)
-            }
-            if onTrips, let flight = detailFlight {
-                tripsPanel(layout, flight: flight)
-            }
-            if onTrips {
-                heroOverlay(glass: true) { size, rowHeight in
-                    Morph.panelTarget(panelTop: panelTop ?? layout.panelOpeningTop(headerHeight: panelHeaderHeight),
-                                      width: size.width, rowHeight: rowHeight)
-                }
-            }
-            MapTopBar(layout: layout, controller: controller,
-                      liveFlight: tripsLiveFlight, shareFlight: tripsShareFlight)
-        }
-        .environment(\.heroFrames, heroFrames)
-        .environment(\.heroTravelling, onTrips ? heroTravelling?.key : nil)
-        .modifier(TripTransitionDriver(request: onTrips ? transition.request : nil,
-                                       progress: $heroProgress,
-                                       prepare: prepareTransition,
-                                       finish: finishTransition))
-    }
-
     /// Nothing in front of the trips: the folded stack may nudge to show it
     /// can be flipped. Folded-ness and the second journey are the stack's own
     /// conditions (`JourneyStack.hintsEnabled`).
@@ -1145,10 +1148,10 @@ struct ArcRootView: View {
         tab == .myFlights && detailFlight == nil && !showAdd && scenePhase == .active
     }
 
-    /// A fixed frame from the unfolded top to the bottom edge, revealed by a
-    /// mask whose top edge is the only thing a fold or a swipe moves: render
-    /// properties, never the scroll view's layout.
-    private func tripsList(_ layout: MyTripsLayout, listTop: CGFloat, detailOpen: Bool) -> some View {
+    /// The cards themselves. The fixed frame, the mask that reveals them and
+    /// the fades are the surface's (`FloatingSurface.list`); the layout is
+    /// here for the room above short content.
+    private func tripsList(_ layout: MyTripsLayout) -> some View {
         MyFlightsView(onSelect: { openDetail($0) },
                       onAdd: { showAdd = true },
                       onImported: { imported in acceptedInvite(imported) },
@@ -1169,107 +1172,23 @@ struct ArcRootView: View {
                       mode: tripsMode,
                       invitePage: $tripsInvitePage,
                       onInviteSettled: { id in inviteReads.markSeen(id) })
-            // The rim's slack below the bottom edge, inside the frame, so the
-            // bottom card's glass is never clipped.
-            .frame(width: layout.size.width, height: layout.listBottom - layout.unfoldedListTop + MyFlightsView.rim, alignment: .top)
-            .modifier(TripsListReveal(motion: tripsStackMotion, visibleHeight: layout.listBottom - listTop,
-                                      foldedHeight: tripsFoldedHeight, room: layout.listBottom - layout.unfoldedListTop))
-            .offset(y: layout.unfoldedListTop)
-            .modifier(SidePresence(side: .list, progress: detailTab == .myFlights && tab == .myFlights ? heroProgress : 0))
-            .modifier(UntilMeasured(measured: tripsStackMotion.settledHeight > 0 && tripsContentHeight > 0))
-            .allowsHitTesting(!detailOpen)
-            // Hides, never un-hides: an explicit `false` out here would
-            // outrank the list's and the stack's own hides.
-            .accessibilityHidden(true, isEnabled: detailOpen)
-            .offset(y: showAdd ? 1500 : 0)
-            .animation(reduceMotion ? nil : .spring(duration: 0.45), value: showAdd)
     }
 
-    private func tripsPillRow(_ layout: MyTripsLayout, listTop: CGFloat, journeyCount: Int, detailOpen: Bool) -> some View {
-        // Unfolded, the toggle is the only way back: it stays even where the
-        // stack it belongs to has a single card (one invite behind the bell).
-        let foldable = !tripsFolded
-            || (tripsMode == .invites ? friendsStore.tripInvites.count > 1 : journeyCount > 1)
-        return HStack {
-            if foldable {
-                Button {
-                    // A turn later, not inside the tap: the button's press
-                    // release animates its label in the tap's own update, so a
-                    // fold started there slid the pill on that animation, over
-                    // the first card and past the stack's edge, even with
-                    // Reduce Motion on. Out of it, the pill rides the fold.
-                    let target = !tripsFolded
-                    DispatchQueue.main.async { setTripsFolded(target) }
-                } label: {
-                    Text(tripsFolded ? "Show More" : "Show Less")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .contentTransition(.interpolate)
-                        .padding(.horizontal, 16)
-                        .frame(height: 36)
-                        .glassEffect(.regular.interactive(), in: .capsule)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("trips-fold-toggle")
-            }
-            Spacer()
-            HStack(spacing: 10) {
-                if !friendsStore.tripInvites.isEmpty { invitesBell }
-                if !mapFlights.isEmpty {
-                    RecenterButton { applyCameraForCurrentTab() }
-                }
-            }
-        }
-        .padding(.horizontal, MyTripsLayout.margin)
-        .frame(width: layout.size.width, height: MyTripsLayout.control)
-        .offset(y: layout.pillRowY(listTop: listTop))
-        .modifier(RidesStackEdge(motion: tripsStackMotion,
-                                 clamp: (tripsFoldedHeight, layout.listBottom - layout.unfoldedListTop)))
-        .modifier(SidePresence(side: .list, progress: detailTab == .myFlights && tab == .myFlights ? heroProgress : 0))
-        .modifier(UntilMeasured(measured: tripsStackMotion.settledHeight > 0 && tripsContentHeight > 0))
-        .allowsHitTesting(!detailOpen)
-        .accessibilityHidden(detailOpen)
-        .offset(y: showAdd ? 1500 : 0)
-        .animation(reduceMotion ? nil : .spring(duration: 0.45), value: showAdd)
-    }
-
-    /// The invites' bell, immediately left of the recenter button and only
-    /// there while an invite is open: it swaps the stack to the invites and
-    /// back. A red dot rides it while any of them hasn't been on screen yet;
-    /// the dot itself is decoration, and the count is in the bell's value so
-    /// VoiceOver says it.
-    private var invitesBell: some View {
+    /// The invites' bell, only there while an invite is open: it swaps the
+    /// stack to the invites and back, and carries the unread dot. The button
+    /// is the surface's; what it means is here.
+    private var tripsBell: FloatingSurfaceBell? {
+        guard !friendsStore.tripInvites.isEmpty else { return nil }
         let showing = tripsMode == .invites
-        let unread = friendsStore.tripInvites.filter { !inviteReads.seen.contains($0.id) }.count
-        return Button {
-            // A turn later, like Show More: the button's press release
-            // animates its label in the tap's own update, and a swap started
-            // inside it would ride that animation instead of the fold's.
-            let target: TripsMode = showing ? .trips : .invites
-            DispatchQueue.main.async { setTripsMode(target) }
-        } label: {
-            Image(systemName: showing ? "xmark" : "bell.fill")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.primary)
-                .frame(width: MyTripsLayout.control, height: MyTripsLayout.control)
-                // An icon button's hit area is the GLYPH's own shape, not the
-                // circle it sits in: without this, taps inside the glass —
-                // between the bell's strokes — did nothing at all.
-                .contentShape(.rect)
-                .glassEffect(.regular.interactive(), in: .circle)
-                .overlay(alignment: .topTrailing) {
-                    if !showing, unread > 0 {
-                        Circle()
-                            .fill(.red)
-                            .frame(width: 8, height: 8)
-                            .accessibilityHidden(true)
-                    }
-                }
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("trips-invites-bell")
-        .accessibilityLabel(showing ? "Back to your trips" : "Trip invitations")
-        .accessibilityValue(!showing && unread > 0 ? "\(unread) unread" : "")
+        return FloatingSurfaceBell(
+            showing: showing,
+            unread: friendsStore.tripInvites.filter { !inviteReads.seen.contains($0.id) }.count,
+            identifier: "trips-invites-bell",
+            label: showing ? "Back to your trips" : "Trip invitations",
+            action: {
+                let target: TripsMode = showing ? .trips : .invites
+                setTripsMode(target)
+            })
     }
 
     /// The bell's swap: the two stacks crossfade in place while the frame's
@@ -1327,12 +1246,12 @@ struct ArcRootView: View {
         }
     }
 
-    private func tripsPanel(_ layout: MyTripsLayout, flight: Flight) -> some View {
-        let own = detailFriend == nil && detailInvite == nil
-        let settled = Binding<CGFloat>(get: { panelTop ?? layout.panelOpeningTop(headerHeight: panelHeaderHeight) },
-                                       set: { panelTop = $0 })
-        return FloatingPanel(layout: layout, headerHeight: panelHeaderHeight, top: settled,
-                             onRecenter: { recenterOnDetail() }) {
+    /// What My Trips puts in the floating panel. The panel itself — its drag,
+    /// its glass, its recenter circle and its placement — is the surface's.
+    @ViewBuilder
+    private var tripsPanelContent: some View {
+        if let flight = detailFlight {
+            let own = detailFriend == nil && detailInvite == nil
             FlightDetailView(flight: flight,
                              isOwnFlight: own,
                              onShowAtGate: own ? { f in showPlaneAtGate(f) } : nil,
@@ -1353,13 +1272,6 @@ struct ArcRootView: View {
                         .accessibilityIdentifier(transition.request == nil ? "trip-detail-ready" : "trip-detail-transition")
                 }
         }
-        .frame(width: layout.size.width, height: layout.panelBottom - layout.panelHighestTop, alignment: .top)
-        .offset(y: layout.panelHighestTop)
-        // A fading panel takes no touches: Terminal map or My plane tapped
-        // just after the X would start a ground view for a closing detail.
-        .allowsHitTesting(transition.phase != .closing)
-        .modifier(PanelPresence(progress: heroProgress))
-        .offset(y: showAdd ? 1500 : 0)
     }
 
     /// Folding and unfolding ride one spring; only the list's mask and the
@@ -1446,70 +1358,3 @@ struct ArcRootView: View {
     /// offer take over the slot meant that whenever something was on the
     /// clipboard there was no way to add a flight at all.
 }
-
-/// The floating My Trips surface's hooks, kept out of the root's builders
-/// (they sit at the type checker's limit). `onFirstFrame` fires once: one
-/// camera move at launch, not one per measurement.
-private struct MyTripsSurfaceHooks: ViewModifier {
-    let journeyCount: Int
-    let detailID: UUID?
-    /// The open invites, for the read store's pruning and the auto-return.
-    let inviteIDs: [String]
-    let onInvites: ([String]) -> Void
-    /// The layout exists and the folded stack has reported its height.
-    let firstFrameReady: Bool
-    let onJourneyCount: (Int) -> Void
-    let onDetailSettled: () async -> Void
-    let onFirstFrame: () -> Void
-
-    @State private var framed = false
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: journeyCount) { _, count in onJourneyCount(count) }
-            .onChange(of: inviteIDs) { _, ids in onInvites(ids) }
-            .task(id: detailID) {
-                guard detailID != nil else { return }
-                await onDetailSettled()
-            }
-            .onChange(of: firstFrameReady, initial: true) { _, ready in
-                guard ready, !framed else { return }
-                framed = true
-                onFirstFrame()
-            }
-    }
-}
-
-/// The list's mask and hit area, opening from the bottom: its top edge sits
-/// at `listTop` plus whatever the stack's live rise adds mid-swipe, with the
-/// rim's slack above and below. Reads `liveRise` here, in a leaf, so a swipe
-/// never re-evaluates the root. The shape keeps the map above pannable and
-/// the tab bar below tappable.
-private struct TripsListReveal: ViewModifier {
-    let motion: JourneyStackMotion
-    /// `listBottom - listTop`, at rest.
-    let visibleHeight: CGFloat
-    /// The folded height at rest, and the most the list can show: the mask
-    /// opens no further than the top row, as the list itself stops there.
-    let foldedHeight: CGFloat
-    let room: CGFloat
-    func body(content: Content) -> some View {
-        let rise = JourneyStackPaging.edgeRise(liveRise: motion.liveRise, restHeight: foldedHeight, room: room)
-        let h = max(0, visibleHeight + rise + 2 * MyFlightsView.rim)
-        content
-            .mask(alignment: .bottom) { Rectangle().frame(height: h) }
-            .contentShape(.interaction, BottomSlice(height: h))
-    }
-}
-
-/// Hidden until the folded stack has reported its height: before that the
-/// pill row sits in the wrong place for a frame. Appears at once, never fades.
-private struct UntilMeasured: ViewModifier {
-    let measured: Bool
-    func body(content: Content) -> some View {
-        content
-            .opacity(measured ? 1 : 0)
-            .animation(nil, value: measured)
-    }
-}
-

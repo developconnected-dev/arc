@@ -96,8 +96,9 @@ struct MyFlightsView: View {
     private static let foldSettle: TimeInterval = 0.6
 
     /// Slack under the cards inside the list's frame, so a glass rim on the
-    /// bottom edge is never clipped. The root extends the frame by as much.
-    static let rim: CGFloat = 6
+    /// bottom edge is never clipped. The surface extends the frame by as much
+    /// — one value, shared with every floating list (`MyTripsLayout.rim`).
+    static let rim: CGFloat = MyTripsLayout.rim
     private static let bottomID = "trips-bottom"
 
     static let topID = "trips-top"
