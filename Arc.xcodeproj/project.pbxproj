@@ -138,6 +138,7 @@
 		C8FFD2D8D6BF9BD7326C11AF /* RotationChainTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38329F5149CBA92432A823C7 /* RotationChainTests.swift */; };
 		C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6203F2E6D1096F29FA5083FC /* ArcApp.swift */; };
 		C95804ADD76EDEB2671A5121 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37EC14EB1C5409FCD9CADB57 /* NotificationService.swift */; };
+		CA5176EDC5F1345607E77159 /* FriendsFloatingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52797B52C0758A076B4FB4CC /* FriendsFloatingTests.swift */; };
 		CAD442F2201C5E0593480795 /* GeoMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CCB5157053AA1F3BD9AF495 /* GeoMath.swift */; };
 		CE59007D65E2B769BDA48E33 /* DetailRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FC1F2E2CBB2CE7FEDCF4D58 /* DetailRows.swift */; };
 		CE8EDCF06AF9286001FAB953 /* airports.json in Resources */ = {isa = PBXBuildFile; fileRef = 3104AD04269DDBC745E354F1 /* airports.json */; };
@@ -266,6 +267,7 @@
 		5071EA7C352056408F298DEA /* LiveActivityClockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityClockTests.swift; sourceTree = "<group>"; };
 		51628B58BB357CCDD1FD5F3A /* SmartETATests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartETATests.swift; sourceTree = "<group>"; };
 		516D231D56AA6F92EB9A324E /* AirportOverlapRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirportOverlapRow.swift; sourceTree = "<group>"; };
+		52797B52C0758A076B4FB4CC /* FriendsFloatingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsFloatingTests.swift; sourceTree = "<group>"; };
 		5399EEF19DFD1D734FB5504C /* WidgetRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetRefresh.swift; sourceTree = "<group>"; };
 		5460A62472771819DEC2B78A /* FriendsFeedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsFeedTests.swift; sourceTree = "<group>"; };
 		56B017439A4B961EDCDB7E05 /* FriendsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsStore.swift; sourceTree = "<group>"; };
@@ -449,6 +451,7 @@
 			isa = PBXGroup;
 			children = (
 				AF727275593DAE9658AC4912 /* FloatingTripsTests.swift */,
+				52797B52C0758A076B4FB4CC /* FriendsFloatingTests.swift */,
 				C433BF55903F358E2E698EA5 /* TripOpeningTests.swift */,
 			);
 			path = ArcUITests;
@@ -1021,6 +1024,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A91DD38C05B6874B3C4B21B6 /* FloatingTripsTests.swift in Sources */,
+				CA5176EDC5F1345607E77159 /* FriendsFloatingTests.swift in Sources */,
 				5AE5E5E643E8FD759F55C6D3 /* TripOpeningTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

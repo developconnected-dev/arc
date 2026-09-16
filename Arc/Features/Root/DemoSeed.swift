@@ -38,6 +38,10 @@ enum DemoSeed {
     /// bring back a request that was just answered.
     @MainActor private static var requestsSeeded = false
     private static let groupedDeparture = Date.now.addingTimeInterval(2 * 3600)
+    /// Fixed per launch, so the demo refresh re-seeds the same flights.
+    private static let demoPastDeparture = Date.now.addingTimeInterval(-26 * 3600)
+    private static let demoSecondDeparture = Date.now.addingTimeInterval(4 * 3600)
+    private static let demoLaunchToken = String(UUID().uuidString.prefix(8))
 
     @MainActor
     static func seedGroupedOwnTripIfRequested(into context: ModelContext) {
@@ -59,21 +63,27 @@ enum DemoSeed {
         let iso = ISO8601DateFormatter()
         let user = ArcSupabase.ArcUser(id: "demo-friend", display_name: "Demo Friend",
             handle: "demo", avatar_url: nil, home_airport: "ZRH", nationality: "CH")
-        let flights = (1...(isGroupedFriendsRequested ? 4 : 2)).compactMap { index -> ArcSupabase.SharedFlight? in
-            let dep = isGroupedFriendsRequested ? groupedDeparture : Date.now.addingTimeInterval(Double(index + 1) * 3600)
+        func shared(_ id: String, owner: String, number: String, departs dep: Date,
+                    status: String = "scheduled") -> ArcSupabase.SharedFlight? {
             let json: [String: Any] = [
-                "id": "demo-feed-\(index)", "user_id": isGroupedFriendsRequested ? "demo-friend-\(index)" : user.id,
-                "flight_number": isGroupedFriendsRequested ? "LX101" : "LX\(100 + index)", "airline": "Swiss",
+                "id": id, "user_id": owner,
+                "flight_number": number, "airline": "Swiss",
                 "departure_iata": "ZRH", "arrival_iata": "VIE",
                 "departure_city": "Zurich", "arrival_city": "Vienna",
                 "departure_lat": 47.458, "departure_lon": 8.555,
                 "arrival_lat": 48.110, "arrival_lon": 16.570,
                 "scheduled_departure": iso.string(from: dep),
                 "scheduled_arrival": iso.string(from: dep.addingTimeInterval(3600)),
-                "status": "scheduled", "delay_minutes": 0, "progress": 0.0
+                "status": status, "delay_minutes": 0, "progress": status == "landed" ? 1.0 : 0.0
             ]
             guard let data = try? JSONSerialization.data(withJSONObject: json) else { return nil }
             return try? JSONDecoder().decode(ArcSupabase.SharedFlight.self, from: data)
+        }
+        let flights = (1...(isGroupedFriendsRequested ? 4 : 2)).compactMap { index -> ArcSupabase.SharedFlight? in
+            let dep = isGroupedFriendsRequested ? groupedDeparture : Date.now.addingTimeInterval(Double(index + 1) * 3600)
+            return shared("demo-feed-\(index)",
+                          owner: isGroupedFriendsRequested ? "demo-friend-\(index)" : user.id,
+                          number: isGroupedFriendsRequested ? "LX101" : "LX\(100 + index)", departs: dep)
         }
         if isGroupedFriendsRequested {
             FriendsStore.shared.friends = flights.enumerated().map { index, flight in
@@ -82,14 +92,28 @@ enum DemoSeed {
                 return .init(friendshipId: person.id, user: person, flights: [flight])
             }
         } else {
-            FriendsStore.shared.friends = [.init(friendshipId: "demo-friendship", user: user, flights: flights)]
+            // The demo friend also landed yesterday (Past Flights has a row),
+            // and a second friend flies later today, so a friend's chip
+            // genuinely narrows the stack.
+            let yesterday = shared("demo-past-1", owner: user.id, number: "LX99",
+                                   departs: demoPastDeparture, status: "landed")
+            let second = ArcSupabase.ArcUser(id: "demo-friend-2", display_name: "Second Friend",
+                handle: "second", avatar_url: nil, home_airport: "ZRH", nationality: "CH")
+            let later = shared("demo-feed-3", owner: second.id, number: "LX103",
+                               departs: demoSecondDeparture)
+            FriendsStore.shared.friends = [
+                .init(friendshipId: "demo-friendship", user: user, flights: flights + [yesterday].compactMap { $0 }),
+                .init(friendshipId: "demo-friendship-2", user: second, flights: [later].compactMap { $0 }),
+            ]
         }
         if isFriendRequestsRequested, !requestsSeeded {
             requestsSeeded = true
             FriendsStore.shared.pending = (1...2).map { index in
                 let person = ArcSupabase.ArcUser(id: "demo-requester-\(index)", display_name: "Requester \(index)",
                     handle: "requester\(index)", avatar_url: nil, home_airport: "ZRH", nationality: "CH")
-                let friendship = ArcSupabase.Friendship(id: "demo-request-\(index)", requester_id: person.id,
+                // New ids every launch: a demo launch's requests arrive
+                // unread, whatever an earlier launch already flipped to.
+                let friendship = ArcSupabase.Friendship(id: "demo-request-\(index)-\(demoLaunchToken)", requester_id: person.id,
                                                         addressee_id: user.id, status: "pending")
                 return (friendship, person)
             }
