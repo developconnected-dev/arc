@@ -1,11 +1,18 @@
 import SwiftUI
 import SwiftData
 
-/// My Trips' cards, floating over the map. Folded: the invites over the
-/// journey stack, one journey at a time. Unfolded: a list of every journey,
-/// invites first, in a fixed frame the root reveals with a mask. A flight
-/// stays here for 30 minutes after landing (arrival gate, belt) before it
-/// lives only in Passport.
+/// Which cards My Trips is showing: the traveller's own journeys, or the
+/// trip invites waiting behind the bell. The same stack pages either
+/// (docs/superpowers/specs/2026-09-15-journey-stack-design.md, addendum).
+enum TripsMode {
+    case trips, invites
+}
+
+/// My Trips' cards, floating over the map. Folded: one journey at a time in
+/// the stack — or, behind the bell, one invite at a time. Unfolded: a list of
+/// every journey (or every invite) in a fixed frame the root reveals with a
+/// mask. A flight stays here for 30 minutes after landing (arrival gate,
+/// belt) before it lives only in Passport.
 struct MyFlightsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -48,6 +55,13 @@ struct MyFlightsView: View {
     /// Nothing is in front of the trips (see `JourneyStack.hintsEnabled`); the
     /// folded stack may nudge when the screen goes quiet.
     var hintsEnabled = false
+    /// Journeys, or the invites behind the bell. The fold is shared: swapping
+    /// while unfolded shows the other list unfolded.
+    var mode: TripsMode = .trips
+    /// The invite the stack is on while it is showing invites.
+    var invitePage: Binding<Int> = .constant(0)
+    /// The invite stack landed on an invite — it has been on screen.
+    var onInviteSettled: (String) -> Void = { _ in }
 
     @State private var friendsStore = FriendsStore.shared
     /// Landed ids `reveal` couldn't place yet — the save that produced them
@@ -57,6 +71,12 @@ struct MyFlightsView: View {
     /// The journey a landed trip belongs to, held until its route has drawn.
     @State private var pendingRevealJourney: UUID?
     @State private var fallbackMotion = JourneyStackMotion()
+    /// The mode whose stack is still dissolving on top of the new one.
+    @State private var swapGhost: TripsMode?
+    @State private var ghostOpacity: Double = 1
+    /// The ghost draws and nothing else: heights, hero frames and the rest
+    /// handlers belong to the stack that has arrived.
+    @State private var ghostMotion = JourneyStackMotion()
     @State private var listGeometry = ListGeometry()
     /// How far below its scrolled place the list starts an unfold, when
     /// the scroll can't put the current card where the stack showed it.
@@ -73,8 +93,6 @@ struct MyFlightsView: View {
     /// bottom edge is never clipped. The root extends the frame by as much.
     static let rim: CGFloat = 6
     private static let bottomID = "trips-bottom"
-    nonisolated private static let contentSpace = "trips-list-content"
-    nonisolated private static let viewportSpace = "trips-list-viewport"
 
     static let topID = "trips-top"
 
@@ -198,34 +216,13 @@ struct MyFlightsView: View {
             VStack(spacing: 0) {
                 VStack(spacing: 10) {
                     chromeItems
-                    if journeys.isEmpty {
-                        emptyButton.padding(.bottom, Self.rim)
-                    } else {
-                        // Each card carries the rim under it, so scrolling a
-                        // card's bottom to the frame's puts the card itself
-                        // where the folded stack shows it.
-                        VStack(spacing: 10 - Self.rim) {
-                            ForEach(Array(journeys.enumerated()), id: \.element.id) { index, journey in
-                                JourneyCard(journey: journey,
-                                            onSelect: { leg in select(leg, journeyAt: index) },
-                                            onDelete: delete)
-                                    .padding(.bottom, Self.rim)
-                                    .id(journey.id)
-                                    .onGeometryChange(for: CGFloat.self) {
-                                        $0.frame(in: .named(Self.contentSpace)).maxY
-                                    } action: { listGeometry.cardBottoms[journey.id] = $0 }
-                                    .onGeometryChange(for: CGFloat.self) {
-                                        $0.frame(in: .named(Self.viewportSpace)).maxY
-                                    } action: { listGeometry.shownBottoms[journey.id] = $0 }
-                            }
-                        }
-                    }
+                    listRows(journeys)
                 }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onContentHeight(max(0, $0 - Self.rim)) }
                 Color.clear.frame(height: 0).id(Self.bottomID)
             }
             .id(Self.topID)
-            .coordinateSpace(.named(Self.contentSpace))
+            .coordinateSpace(.named(ListRow.contentSpace))
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listGeometry.content = $0 }
             .padding(.horizontal, MyTripsLayout.margin)
         }
@@ -233,7 +230,7 @@ struct MyFlightsView: View {
         // a spacer inside the content: the refresh control sits just above
         // the content, so it shows inside the visible slice rather than at
         // the frame's top, masked away.
-        .coordinateSpace(.named(Self.viewportSpace))
+        .coordinateSpace(.named(ListRow.viewportSpace))
         .contentMargins(.top, topSpacer, for: .scrollContent)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listGeometry.viewport = $0 }
         .scrollDisabled(folded)
@@ -252,10 +249,39 @@ struct MyFlightsView: View {
         .environment(\.heroReports, !folded)
     }
 
+    /// The list's cards: every journey, or — behind the bell — every invite.
+    /// Each carries the rim under it, so scrolling a card's bottom to the
+    /// frame's puts the card itself where the folded stack shows it.
+    @ViewBuilder
+    private func listRows(_ journeys: [TripJourney]) -> some View {
+        switch mode {
+        case .trips:
+            if journeys.isEmpty {
+                emptyButton.padding(.bottom, Self.rim)
+            } else {
+                VStack(spacing: 10 - Self.rim) {
+                    ForEach(Array(journeys.enumerated()), id: \.element.id) { index, journey in
+                        JourneyCard(journey: journey,
+                                    onSelect: { leg in select(leg, journeyAt: index) },
+                                    onDelete: delete)
+                            .modifier(ListRow(key: journey.id.uuidString, geometry: listGeometry))
+                    }
+                }
+            }
+        case .invites:
+            VStack(spacing: 10 - Self.rim) {
+                ForEach(friendsStore.tripInvites) { item in
+                    inviteCard(item)
+                        .modifier(ListRow(key: item.id, geometry: listGeometry))
+                }
+            }
+        }
+    }
+
     // MARK: The folded overlay
 
-    /// Invites (they need an answer) over the journey stack, or the empty
-    /// state, sitting on the bottom edge. Shows only while folded.
+    /// The journey stack — or the invite stack the bell swaps in — or the
+    /// empty state, sitting on the bottom edge. Shows only while folded.
     ///
     /// In a ScrollView that never scrolls or clips: a hide on a plain SwiftUI
     /// container here still left its buttons queryable (UI tests found the
@@ -287,34 +313,121 @@ struct MyFlightsView: View {
             if hasChrome {
                 VStack(spacing: 10) { chromeItems }
                     .padding(.bottom, 10)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onChromeHeight($0) }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { publishChromeHeight($0) }
                     // Mid-swipe the stack's top edge moves; what sits on it moves too.
                     .modifier(RidesStackEdge(motion: stackMotion))
             }
-            if journeys.isEmpty {
-                emptyButton
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
-                        if stackMotion.settledHeight != h { stackMotion.settledHeight = h }
-                    }
-            } else {
-                JourneyStack(items: journeys, page: page, motion: stackMotion,
-                             flipRequest: flipRequest, onFlipRequestHandled: onFlipRequestHandled,
-                             onSettled: onStackSettled,
-                             // Unfolded, the overlay is still in the tree, only
-                             // faded out: the list is what the user is reading.
-                             hintsEnabled: hintsEnabled && folded,
-                             label: "Journeys",
-                             value: { journey, index, count in
-                                 "Journey \(index + 1) of \(count), \(Self.route(journey))"
-                             }) { journey in
-                    JourneyCard(journey: journey, onSelect: onSelect, onDelete: delete)
+            // The bell's swap: the stack leaving stays on top and dissolves
+            // over the one arriving, in place, while the frame's height
+            // springs from one card to the other
+            // (`JourneyStackMotion.heightChange`). Nothing of the map is ever
+            // seen between them.
+            ZStack(alignment: .bottom) {
+                stack(mode, journeys: journeys, motion: stackMotion, live: true)
+                if let leaving = swapGhost {
+                    stack(leaving, journeys: journeys, motion: ghostMotion, live: false)
+                        .opacity(ghostOpacity)
+                        // A picture of the card that was there, not a second
+                        // copy of its buttons — and not a second row claiming
+                        // the hero frame a glide would start from.
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                        .environment(\.heroReports, false)
                 }
             }
+            .onChange(of: mode) { old, _ in dissolve(from: old) }
         }
         .padding(.horizontal, MyTripsLayout.margin)
         .padding(.bottom, Self.rim)
         .onChange(of: hasChrome, initial: true) { _, has in
-            if !has { onChromeHeight(0) }
+            if !has { publishChromeHeight(0) }
+        }
+    }
+
+    /// The dissolve is quicker than the height's spring: the cards have
+    /// swapped over by the time the frame finishes settling. Reduce Motion
+    /// keeps it — a crossfade is the one thing it allows.
+    private static let swapFade: Animation = .easeInOut(duration: 0.25)
+
+    /// A transition can't do this: the stack arriving is one pixel tall until
+    /// its card has been measured, so fading the two together showed the map
+    /// through the gap for exactly one frame (caught frame by frame on the
+    /// simulator). The one leaving is held on top instead and dissolved.
+    private func dissolve(from old: TripsMode) {
+        instantly {
+            swapGhost = old
+            ghostOpacity = 1
+        }
+        withAnimation(Self.swapFade, completionCriteria: .logicallyComplete) {
+            ghostOpacity = 0
+        } completion: {
+            swapGhost = nil
+        }
+    }
+
+    @ViewBuilder
+    private func stack(_ mode: TripsMode, journeys: [TripJourney],
+                       motion: JourneyStackMotion, live: Bool) -> some View {
+        switch mode {
+        case .trips: journeysStack(journeys, motion: motion, live: live)
+        case .invites: invitesStack(motion: motion, live: live)
+        }
+    }
+
+    @ViewBuilder
+    private func journeysStack(_ journeys: [TripJourney], motion: JourneyStackMotion, live: Bool) -> some View {
+        if journeys.isEmpty {
+            emptyButton
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
+                    if live, motion.settledHeight != h { motion.settledHeight = h }
+                }
+        } else {
+            JourneyStack(items: journeys, page: page, motion: motion,
+                         flipRequest: live ? flipRequest : nil,
+                         onFlipRequestHandled: live ? onFlipRequestHandled : {},
+                         onSettled: live ? onStackSettled : { _ in },
+                         // Unfolded, the overlay is still in the tree, only
+                         // faded out: the list is what the user is reading.
+                         hintsEnabled: live && hintsEnabled && folded,
+                         label: "Journeys",
+                         value: { journey, index, count in
+                             "Journey \(index + 1) of \(count), \(Self.route(journey))"
+                         }) { journey in
+                JourneyCard(journey: journey, onSelect: onSelect, onDelete: delete)
+            }
+        }
+    }
+
+    /// The same pager, paging the invites: one at a time, flippable, with the
+    /// dots, the heights and the hero frames a journey card gets.
+    private func invitesStack(motion: JourneyStackMotion, live: Bool) -> some View {
+        JourneyStack(items: friendsStore.tripInvites, page: invitePage, motion: motion,
+                     onSettled: live ? onInviteSettled : { _ in },
+                     hintsEnabled: live && hintsEnabled && folded,
+                     label: "Trip invitations",
+                     value: { item, index, count in
+                         "Invitation \(index + 1) of \(count), from \(item.sender.display_name)"
+                     }) { item in
+            inviteCard(item)
+        }
+    }
+
+    private func inviteCard(_ item: FriendsStore.TripInviteItem) -> some View {
+        TripInviteCard(item: item,
+                       onOpen: { onPreview(item, $0) },
+                       onAccept: { accept(item) },
+                       onDecline: { friendsStore.decline(item) },
+                       drawsBackground: false)
+            .heroCopy(key: item.id, side: .list)
+            .glassEffect(ArcTheme.tripGlass, in: .rect(cornerRadius: ArcTheme.cardCorner))
+    }
+
+    /// A height the swap causes springs with it; every other one lands flat.
+    private func publishChromeHeight(_ h: CGFloat) {
+        if let animation = stackMotion.heightChange {
+            withAnimation(animation) { onChromeHeight(h) }
+        } else {
+            onChromeHeight(h)
         }
     }
 
@@ -326,29 +439,26 @@ struct MyFlightsView: View {
             .joined(separator: " to ")
     }
 
-    private var hasChrome: Bool {
-        !friendsStore.tripInvites.isEmpty
+    private var hasChrome: Bool { chromeError != nil }
+
+    /// A failed Accept sets `lastError` and leaves the card: the line belongs
+    /// with the invites it is about, so it is the invite stack's chrome and
+    /// is never seen over the journeys.
+    private var chromeError: String? {
+        guard mode == .invites, !friendsStore.tripInvites.isEmpty else { return nil }
+        return friendsStore.lastError
     }
 
-    /// What sits above the journeys: a failed Accept's error and the invites.
+    /// What sits above the cards. In trips mode: nothing — the invites moved
+    /// behind the bell.
     @ViewBuilder
     private var chromeItems: some View {
-        // A failed Accept sets lastError and leaves the card.
-        if let error = friendsStore.lastError, !friendsStore.tripInvites.isEmpty {
+        if let error = chromeError {
             Text(error)
                 .font(.system(size: 13)).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 14).padding(.vertical, 10)
                 .glassEffect(ArcTheme.tripGlass, in: .rect(cornerRadius: 16))
-        }
-        ForEach(friendsStore.tripInvites) { item in
-            TripInviteCard(item: item,
-                           onOpen: { onPreview(item, $0) },
-                           onAccept: { accept(item) },
-                           onDecline: { friendsStore.decline(item) },
-                           drawsBackground: false)
-                .heroCopy(key: item.id, side: .list)
-                .glassEffect(ArcTheme.tripGlass, in: .rect(cornerRadius: ArcTheme.cardCorner))
         }
     }
 
@@ -359,14 +469,26 @@ struct MyFlightsView: View {
 
     // MARK: Hand-offs
 
+    /// The card the folded stack is showing, whichever kind it is: the key
+    /// its row in the list carries.
+    private func currentKey(_ journeys: [TripJourney]) -> String? {
+        switch mode {
+        case .trips:
+            guard journeys.indices.contains(page.wrappedValue) else { return nil }
+            return journeys[page.wrappedValue].id.uuidString
+        case .invites:
+            let invites = friendsStore.tripInvites
+            guard invites.indices.contains(invitePage.wrappedValue) else { return nil }
+            return invites[invitePage.wrappedValue].id
+        }
+    }
+
     /// Unfolding: scroll the still-hidden list, before the mask moves, so the
-    /// current journey's card sits where the stack shows it. Where the scroll
+    /// current card sits where the stack shows it. Where the scroll
     /// can't reach that far (too little above it, or below it), the list
     /// starts shifted by the rest and rises into place with the fold.
     private func alignListToPage(_ journeys: [TripJourney], proxy: ScrollViewProxy) {
-        let index = page.wrappedValue
-        guard journeys.indices.contains(index) else { return }
-        let id = journeys[index].id
+        guard let id = currentKey(journeys) else { return }
         let g = listGeometry
         guard let measured = g.cardBottoms[id], g.viewport > 0 else {
             instantly { proxy.scrollTo(id, anchor: .bottom); unfoldShift = 0 }
@@ -394,10 +516,9 @@ struct MyFlightsView: View {
     /// where the stack shows it, as the fold closes. Clamped to one
     /// viewport, for a page scrolled far out of view.
     private func foldShift(_ journeys: [TripJourney]) -> CGFloat {
-        let index = page.wrappedValue
         let g = listGeometry
-        guard journeys.indices.contains(index), g.viewport > 0,
-              let bottom = g.shownBottoms[journeys[index].id] else { return 0 }
+        guard let id = currentKey(journeys), g.viewport > 0,
+              let bottom = g.shownBottoms[id] else { return 0 }
         return min(max(g.viewport - bottom, -g.viewport), g.viewport)
     }
 
@@ -439,7 +560,7 @@ struct MyFlightsView: View {
                 if index == 0 {
                     proxy.scrollTo(Self.topID, anchor: .top)
                 } else {
-                    proxy.scrollTo(target, anchor: .top)
+                    proxy.scrollTo(target.uuidString, anchor: .top)
                 }
             }
         }
@@ -512,12 +633,35 @@ struct MyFlightsView: View {
 /// measurement re-evaluates the view.
 @MainActor
 private final class ListGeometry {
-    /// Each journey card's bottom (rim included), in content coordinates.
-    var cardBottoms: [UUID: CGFloat] = [:]
+    /// Each card's bottom (rim included), in content coordinates, by row key
+    /// — a journey's id as a string, or an invite's id.
+    var cardBottoms: [String: CGFloat] = [:]
     /// The same bottoms as the list shows them, scroll included.
-    var shownBottoms: [UUID: CGFloat] = [:]
+    var shownBottoms: [String: CGFloat] = [:]
     var content: CGFloat = 0
     var viewport: CGFloat = 0
+}
+
+/// A row of the unfolded list: the rim under it, its scroll id, and the two
+/// measurements the fold's hand-off needs. One shape for journeys and
+/// invites, so an unfold lines either up with the stack it came from.
+private struct ListRow: ViewModifier {
+    let key: String
+    let geometry: ListGeometry
+    nonisolated static let contentSpace = "trips-list-content"
+    nonisolated static let viewportSpace = "trips-list-viewport"
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.bottom, MyFlightsView.rim)
+            .id(key)
+            .onGeometryChange(for: CGFloat.self) {
+                $0.frame(in: .named(Self.contentSpace)).maxY
+            } action: { geometry.cardBottoms[key] = $0 }
+            .onGeometryChange(for: CGFloat.self) {
+                $0.frame(in: .named(Self.viewportSpace)).maxY
+            } action: { geometry.shownBottoms[key] = $0 }
+    }
 }
 
 /// The list's rise on unfold when its scroll can't hold the current card in

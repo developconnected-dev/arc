@@ -13,8 +13,12 @@ final class JourneyStackMotion {
     /// below). Zero at rest.
     var liveRise: CGFloat = 0
 
-    /// Set by the stack while it is on screen.
+    /// Set by the stack while it is on screen. Two stacks are alive at once
+    /// while the bell's swap crossfades, and the one leaving must not clear
+    /// the handler the one arriving has already set: whoever holds
+    /// `restOwner` speaks for the stack.
     @ObservationIgnored fileprivate var restHandler: (() -> Void)?
+    @ObservationIgnored fileprivate var restOwner: UUID?
 
     /// Brings the stack to rest in this very turn: a settle lands where it
     /// was heading, a held swipe is dropped with nothing committed, a flip
@@ -28,6 +32,23 @@ final class JourneyStackMotion {
     /// No finger on the stack, no settle running, no flip waiting for its
     /// card. Read once, by the map's debounce, never in a body.
     var isAtRest: Bool { restProbe?() ?? true }
+
+    /// The bell's swap is landing: the settled height is about to change
+    /// from one stack's card to the other's, and the mask and the pill row
+    /// must spring to it rather than jump. Time-boxed, because the change
+    /// arrives from a measurement a beat later and nothing else publishes a
+    /// height inside that beat.
+    @ObservationIgnored private var swap: (animation: Animation, until: Date)?
+
+    func beginSwap(_ animation: Animation, window: TimeInterval = 0.5) {
+        swap = (animation, .now + window)
+    }
+
+    /// What a height change should ride right now; nil lands it flat.
+    var heightChange: Animation? {
+        guard let swap, Date.now < swap.until else { return nil }
+        return swap.animation
+    }
 }
 
 /// What sits on the stack's top edge (the invites above it, the Show More
@@ -156,6 +177,10 @@ struct JourneyStack<Item: Identifiable, Card: View>: View {
     /// finger is down; the frame's bright edge belongs to the finger alone.
     @State private var nudgeDots = false
     @State private var idle = IdleWatcher.shared
+    /// This stack's claim on the shared motion: the stack leaving a swap
+    /// disappears after the one arriving has appeared, and must not take the
+    /// new one's handlers down with it.
+    @State private var token = UUID()
 
     private var settling: Bool { settleTarget != nil }
 
@@ -227,14 +252,12 @@ struct JourneyStack<Item: Identifiable, Card: View>: View {
         .onChange(of: items.map(\.id)) { _, _ in
             stateChangedOutside()
             // The handler holds this view's values; keep its items current.
-            motion.restHandler = { comeToRest() }
-            motion.restProbe = { !holding && !settling && flipTarget == nil }
+            claimMotion()
         }
-        .onAppear {
-            motion.restHandler = { comeToRest() }
-            motion.restProbe = { !holding && !settling && flipTarget == nil }
-        }
+        .onAppear { claimMotion() }
         .onDisappear {
+            guard motion.restOwner == token else { return }
+            motion.restOwner = nil
             motion.restHandler = nil
             motion.restProbe = nil
             publishLiveRise(0)
@@ -300,9 +323,24 @@ struct JourneyStack<Item: Identifiable, Card: View>: View {
         }
     }
 
+    /// Speaks for the stack from here on: the swap's outgoing stack, which
+    /// disappears later, will leave these alone.
+    private func claimMotion() {
+        motion.restOwner = token
+        motion.restHandler = { comeToRest() }
+        motion.restProbe = { !holding && !settling && flipTarget == nil }
+    }
+
     private func publishSettledHeight(_ h: CGFloat) {
         if lastSettledHeight != h { lastSettledHeight = h }
-        if motion.settledHeight != h { motion.settledHeight = h }
+        guard motion.settledHeight != h else { return }
+        // A swap's new card is a height the mask and the pill row spring to;
+        // every other change lands flat, as it did.
+        if let animation = motion.heightChange {
+            withAnimation(animation) { motion.settledHeight = h }
+        } else {
+            motion.settledHeight = h
+        }
     }
 
     private func publishLiveRise(_ rise: CGFloat) {

@@ -190,6 +190,10 @@ struct RecenterButton: View {
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.primary)
                 .frame(width: MyTripsLayout.control, height: MyTripsLayout.control)
+                // Without it the button's hit area is the glyph's own shape:
+                // a tap inside the glass circle but off the arrow did nothing
+                // at all (found while wiring the bell beside it).
+                .contentShape(.rect)
                 .glassEffect(.regular.interactive(), in: .circle)
         }
         .buttonStyle(.plain)

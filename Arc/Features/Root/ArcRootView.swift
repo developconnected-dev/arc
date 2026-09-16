@@ -21,6 +21,14 @@ struct ArcRootView: View {
     @State private var tripsFolded = !ProcessInfo.processInfo.arguments.contains("-sheetLarge")
     /// The journey the folded stack is on (docs/superpowers/specs/2026-09-15-journey-stack-design.md).
     @State private var tripsPage = 0
+    /// Journeys, or the invites behind the bell: the stack shows one or the
+    /// other, and the bell swaps them.
+    @State private var tripsMode: TripsMode = .trips
+    /// The invite the stack is on while it is showing invites. Entering
+    /// invites always starts at the first one; the journey page is kept.
+    @State private var tripsInvitePage = 0
+    /// Which invites have been on screen, for the bell's red dot.
+    @State private var inviteReads = InviteReadStore.shared
     /// The root reads its `settledHeight` only; `liveRise` belongs to leaves.
     @State private var tripsStackMotion = JourneyStackMotion()
     @State private var tripsFlipRequest: Int?
@@ -751,19 +759,28 @@ struct ArcRootView: View {
     /// frames outlive the rows: a card folded away still has one, and a glide
     /// from it would start out of nowhere, below the stack.
     ///
-    /// Folded, only the stack's current journey and the invites above it are
-    /// on screen. A list card keeps the frame it last reported while
-    /// unfolded, which can lie inside the folded band: a trip opened from a
-    /// widget, notification or pasted number would glide from a card that
-    /// isn't there.
+    /// Folded, only the stack's current card is on screen — and only one kind
+    /// of card is showing at all: an invite's frame is stale the moment the
+    /// bell swaps back to the journeys, and a journey's while the invites are
+    /// up. A list card also keeps the frame it last reported while unfolded,
+    /// which can lie inside the folded band: a trip opened from a widget,
+    /// notification or pasted number would glide from a card that isn't there.
     private func heroRowOrigin(_ key: String, onTrips: Bool) -> CGRect? {
         guard let rect = heroFrames.rows[key] else { return nil }
         guard onTrips, let layout = tripsLayout else { return rect }
+        let isInvite = friendsStore.tripInvites.contains { $0.id == key }
+        guard isInvite == (tripsMode == .invites) else { return nil }
         if tripsFolded {
-            let journeys = MyFlightsView.journeys(Array(allFlights))
-            let onPage = journeys.indices.contains(tripsPage)
-                && journeys[tripsPage].legs.contains { $0.id.uuidString == key }
-            guard onPage || friendsStore.tripInvites.contains(where: { $0.id == key }) else { return nil }
+            switch tripsMode {
+            case .trips:
+                let journeys = MyFlightsView.journeys(Array(allFlights))
+                guard journeys.indices.contains(tripsPage),
+                      journeys[tripsPage].legs.contains(where: { $0.id.uuidString == key }) else { return nil }
+            case .invites:
+                let invites = friendsStore.tripInvites
+                guard invites.indices.contains(tripsInvitePage),
+                      invites[tripsInvitePage].id == key else { return nil }
+            }
         }
         // The live top: mid-swipe the stack's edge is off its resting place.
         // A tap can't open mid-swipe (taps are off while holding), but a
@@ -891,11 +908,11 @@ struct ArcRootView: View {
     /// enough to defeat the type checker on its own.
     private var tabs: some View {
         TabView(selection: tabSelection) {
+                // No badge for open invites: the bell above the stack carries
+                // them now, with its own unread dot.
                 Tab(ArcTab.myFlights.title, systemImage: ArcTab.myFlights.icon, value: TabSelection.tab(.myFlights)) {
                     myTripsSurface
                 }
-                // Trips friends added for the two of you, waiting on an answer.
-                .badge(friendsStore.tripInvites.count)
                 Tab(ArcTab.friends.title, systemImage: ArcTab.friends.icon, value: TabSelection.tab(.friends)) {
                     tabSurface(.friends) { FriendsScreen(onSelect: { item in openFriendFlight(item) }) }
                 }
@@ -1059,6 +1076,8 @@ struct ArcRootView: View {
         }
         .modifier(MyTripsSurfaceHooks(journeyCount: journeyCount,
                                       detailID: detailFlight?.id,
+                                      inviteIDs: friendsStore.tripInvites.map(\.id),
+                                      onInvites: { ids in tripInvitesChanged(ids) },
                                       firstFrameReady: tripsLayout != nil && tripsFoldedHeight > 0,
                                       onJourneyCount: { count in
                                           // Only the pill folds, and it is gone with one journey left.
@@ -1132,7 +1151,7 @@ struct ArcRootView: View {
     private func tripsList(_ layout: MyTripsLayout, listTop: CGFloat, detailOpen: Bool) -> some View {
         MyFlightsView(onSelect: { openDetail($0) },
                       onAdd: { showAdd = true },
-                      onImported: { imported in revealTrips([imported]) },
+                      onImported: { imported in acceptedInvite(imported) },
                       onPreview: { item, flight in openInvitePreview(item, flight) },
                       landed: landedTrips,
                       folded: tripsFolded,
@@ -1146,7 +1165,10 @@ struct ArcRootView: View {
                       topSpacer: layout.contentTopSpacer(contentHeight: tripsContentHeight),
                       onRevealJourney: { tripsFlipRequest = $0 },
                       onStackSettled: { stackSettled(on: $0) },
-                      hintsEnabled: tripsHintsEnabled)
+                      hintsEnabled: tripsHintsEnabled,
+                      mode: tripsMode,
+                      invitePage: $tripsInvitePage,
+                      onInviteSettled: { id in inviteReads.markSeen(id) })
             // The rim's slack below the bottom edge, inside the frame, so the
             // bottom card's glass is never clipped.
             .frame(width: layout.size.width, height: layout.listBottom - layout.unfoldedListTop + MyFlightsView.rim, alignment: .top)
@@ -1164,8 +1186,12 @@ struct ArcRootView: View {
     }
 
     private func tripsPillRow(_ layout: MyTripsLayout, listTop: CGFloat, journeyCount: Int, detailOpen: Bool) -> some View {
-        HStack {
-            if journeyCount > 1 {
+        // Unfolded, the toggle is the only way back: it stays even where the
+        // stack it belongs to has a single card (one invite behind the bell).
+        let foldable = !tripsFolded
+            || (tripsMode == .invites ? friendsStore.tripInvites.count > 1 : journeyCount > 1)
+        return HStack {
+            if foldable {
                 Button {
                     // A turn later, not inside the tap: the button's press
                     // release animates its label in the tap's own update, so a
@@ -1187,8 +1213,11 @@ struct ArcRootView: View {
                 .accessibilityIdentifier("trips-fold-toggle")
             }
             Spacer()
-            if !mapFlights.isEmpty {
-                RecenterButton { applyCameraForCurrentTab() }
+            HStack(spacing: 10) {
+                if !friendsStore.tripInvites.isEmpty { invitesBell }
+                if !mapFlights.isEmpty {
+                    RecenterButton { applyCameraForCurrentTab() }
+                }
             }
         }
         .padding(.horizontal, MyTripsLayout.margin)
@@ -1202,6 +1231,100 @@ struct ArcRootView: View {
         .accessibilityHidden(detailOpen)
         .offset(y: showAdd ? 1500 : 0)
         .animation(reduceMotion ? nil : .spring(duration: 0.45), value: showAdd)
+    }
+
+    /// The invites' bell, immediately left of the recenter button and only
+    /// there while an invite is open: it swaps the stack to the invites and
+    /// back. A red dot rides it while any of them hasn't been on screen yet;
+    /// the dot itself is decoration, and the count is in the bell's value so
+    /// VoiceOver says it.
+    private var invitesBell: some View {
+        let showing = tripsMode == .invites
+        let unread = friendsStore.tripInvites.filter { !inviteReads.seen.contains($0.id) }.count
+        return Button {
+            // A turn later, like Show More: the button's press release
+            // animates its label in the tap's own update, and a swap started
+            // inside it would ride that animation instead of the fold's.
+            let target: TripsMode = showing ? .trips : .invites
+            DispatchQueue.main.async { setTripsMode(target) }
+        } label: {
+            Image(systemName: showing ? "xmark" : "bell.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: MyTripsLayout.control, height: MyTripsLayout.control)
+                // An icon button's hit area is the GLYPH's own shape, not the
+                // circle it sits in: without this, taps inside the glass —
+                // between the bell's strokes — did nothing at all.
+                .contentShape(.rect)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .overlay(alignment: .topTrailing) {
+                    if !showing, unread > 0 {
+                        Circle()
+                            .fill(.red)
+                            .frame(width: 8, height: 8)
+                            .accessibilityHidden(true)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("trips-invites-bell")
+        .accessibilityLabel(showing ? "Back to your trips" : "Trip invitations")
+        .accessibilityValue(!showing && unread > 0 ? "\(unread) unread" : "")
+    }
+
+    /// The bell's swap: the two stacks crossfade in place while the frame's
+    /// height springs from one card to the other. Nothing else moves — the
+    /// camera stays where it is, as it does through a fold.
+    private func setTripsMode(_ mode: TripsMode, then next: (() -> Void)? = nil) {
+        guard mode != tripsMode else { next?(); return }
+        // Mid-swipe or mid-settle the stack's page and height are still the
+        // old ones: land it first, as Show More does.
+        tripsStackMotion.comeToRest()
+        if mode == .invites {
+            // The invites always open on the first one; the journey the user
+            // was on is kept for the way back.
+            tripsInvitePage = 0
+            markInviteSeen(at: 0)
+        }
+        // The height arrives a beat later, from the incoming card's own
+        // measurement: this is what makes it spring rather than jump.
+        if !reduceMotion { tripsStackMotion.beginSwap(ArcTheme.fold) }
+        withAnimation(reduceMotion ? nil : ArcTheme.fold, completionCriteria: .logicallyComplete) {
+            tripsMode = mode
+        } completion: {
+            next?()
+        }
+    }
+
+    /// The invite showing when the invites open counts as seen too — the
+    /// stack only reports the ones it flips to.
+    private func markInviteSeen(at index: Int) {
+        let invites = friendsStore.tripInvites
+        guard invites.indices.contains(index) else { return }
+        inviteReads.markSeen(invites[index].id)
+    }
+
+    /// An accepted invite is an import: the trip is the user's now, so the
+    /// stack belongs back on the journeys BEFORE the route draws and it flips
+    /// to the new one — one movement at a time, and never a flip behind a
+    /// stack of invites.
+    private func acceptedInvite(_ flight: Flight) {
+        setTripsMode(.trips) { revealTrips([flight]) }
+    }
+
+    /// The open invites changed. Nothing left to answer while they are
+    /// showing means the stack comes back by itself, on the same motion the
+    /// bell uses — and the bell goes with them.
+    private func tripInvitesChanged(_ ids: [String]) {
+        // Only ever pruned against a list that has something in it: a cold
+        // launch starts empty and would otherwise forget every invite the
+        // traveller has already seen.
+        if !ids.isEmpty { inviteReads.prune(keeping: ids) }
+        if ids.isEmpty {
+            if tripsMode == .invites { setTripsMode(.trips) }
+        } else if tripsInvitePage >= ids.count {
+            tripsInvitePage = ids.count - 1
+        }
     }
 
     private func tripsPanel(_ layout: MyTripsLayout, flight: Flight) -> some View {
@@ -1330,6 +1453,9 @@ struct ArcRootView: View {
 private struct MyTripsSurfaceHooks: ViewModifier {
     let journeyCount: Int
     let detailID: UUID?
+    /// The open invites, for the read store's pruning and the auto-return.
+    let inviteIDs: [String]
+    let onInvites: ([String]) -> Void
     /// The layout exists and the folded stack has reported its height.
     let firstFrameReady: Bool
     let onJourneyCount: (Int) -> Void
@@ -1341,6 +1467,7 @@ private struct MyTripsSurfaceHooks: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onChange(of: journeyCount) { _, count in onJourneyCount(count) }
+            .onChange(of: inviteIDs) { _, ids in onInvites(ids) }
             .task(id: detailID) {
                 guard detailID != nil else { return }
                 await onDetailSettled()
