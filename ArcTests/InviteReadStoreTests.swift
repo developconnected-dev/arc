@@ -35,4 +35,20 @@ final class InviteReadStoreTests: XCTestCase {
         XCTAssertEqual(s.seen, ["b"])
         XCTAssertTrue(s.hasUnread(among: ["a"]))
     }
+
+    /// Trip invites and friend requests keep their read state apart: a
+    /// request seen must not quiet an invite's dot, or the other way round.
+    func testStoresWithDifferentKeysDoNotShareState() {
+        let defaults = UserDefaults(suiteName: Self.suite)!
+        defaults.removePersistentDomain(forName: Self.suite)
+        let invites = InviteReadStore(defaults: defaults, key: "invites.seen")
+        let requests = InviteReadStore(defaults: defaults, key: "friendRequests.seen")
+        invites.markSeen("a")
+        requests.markSeen("b")
+        XCTAssertTrue(requests.hasUnread(among: ["a"]))
+        XCTAssertTrue(invites.hasUnread(among: ["b"]))
+        requests.prune(keeping: [])
+        XCTAssertFalse(InviteReadStore(defaults: defaults, key: "invites.seen").hasUnread(among: ["a"]))
+        XCTAssertTrue(InviteReadStore(defaults: defaults, key: "friendRequests.seen").hasUnread(among: ["b"]))
+    }
 }

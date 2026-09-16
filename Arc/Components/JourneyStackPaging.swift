@@ -84,8 +84,9 @@ enum JourneyStackPaging {
         return min(room, restHeight + liveRise) - min(room, restHeight)
     }
 
-    /// The page to show once the journey list changes under the stack.
-    static func page(after old: [UUID], now: [UUID], was page: Int) -> Int {
+    /// The page to show once the list (journeys, friends' flights) changes
+    /// under the stack: the card it was on, wherever that went.
+    static func page<ID: Equatable>(after old: [ID], now: [ID], was page: Int) -> Int {
         guard !now.isEmpty else { return 0 }
         if old.indices.contains(page), let moved = now.firstIndex(of: old[page]) { return moved }
         return min(max(page, 0), now.count - 1)

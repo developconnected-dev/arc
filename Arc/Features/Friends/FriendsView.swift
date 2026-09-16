@@ -2,10 +2,13 @@ import SwiftUI
 import SwiftData
 
 /// The Friends sheet content: intro takeover on first visit, then title +
-/// share/avatar row and either the one-time profile setup or the live
-/// friends list, matching the other tabs' bottom-sheet layout (no standalone
-/// NavigationStack at the top level — that's reserved for the signed-in
-/// content, which presents flight detail sheets).
+/// avatar row and either the one-time profile setup or the live friends
+/// list, matching the other tabs' bottom-sheet layout (no standalone
+/// NavigationStack at the top level).
+///
+/// The feed renders the floating surface's pieces — the chip row and
+/// `FriendsFloatingList`, unfolded — until Friends floats over the globe
+/// itself (docs/superpowers/plans/2026-09-16-friends-floating.md, Task 4).
 struct FriendsScreen: View {
     /// A friend's flight was tapped: the root opens it in the tab sheet,
     /// gliding from the row like one of the user's own.
@@ -13,6 +16,9 @@ struct FriendsScreen: View {
     @ObservedObject private var supabase = ArcSupabase.shared
     @AppStorage("hasSeenFriendsIntro") private var hasSeenIntro = false
     @State private var showSettings = false
+    @State private var store = FriendsStore.shared
+    /// The requests swap in for the flights, as the bell will do over the globe.
+    @State private var mode: FriendsMode = .flights
 
     var body: some View {
         Group {
@@ -20,32 +26,71 @@ struct FriendsScreen: View {
             // signed-in user skips it — `hasSeenIntro` lives in UserDefaults,
             // which a reinstall wipes even though the session (Keychain) survives.
             if DemoSeed.isFriendsRequested {
-                FriendsListView(onSelect: onSelect)
+                FriendsListView(onSelect: onSelect) { feed in sheetFeed(feed) }
             } else if !hasSeenIntro && !supabase.isSignedIn {
                 FriendsIntroView { hasSeenIntro = true }
             } else if !supabase.isSignedIn {
                 VStack(alignment: .leading, spacing: 0) {
-                    header.padding(.horizontal, 20).padding(.top, 4)
+                    header(title: "Friends", feed: nil).padding(.horizontal, 20).padding(.top, 4)
                     ProfileSetupView()
                 }
             } else {
-                // Signed in → the Friends' Flights feed, which owns its own
-                // header (title ⇄ expanding search, add-friends, settings).
-                FriendsListView(onSelect: onSelect)
+                FriendsListView(onSelect: onSelect) { feed in sheetFeed(feed) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .sheet(isPresented: $showSettings) { SettingsView() }
+        // Answering the last request brings the flights back by themselves.
+        .onChange(of: store.requests.isEmpty) { _, empty in
+            if empty { mode = .flights }
+        }
     }
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            Text("Friends").font(ArcTheme.screenTitle)
+    private func sheetFeed(_ feed: FriendsFeed) -> some View {
+        VStack(spacing: 0) {
+            header(title: "Friends' Flights", feed: feed)
+                .padding(.horizontal, 20).padding(.top, 8)
+            FriendFilterChips(filter: feed.filter, groups: feed.groups, friends: feed.friends,
+                              onAdd: feed.onAdd, onManage: feed.onManage)
+                .padding(.top, 12)
+            FriendsFloatingList(feed: feed, onSelect: onSelect, folded: false, mode: mode)
+                .safeAreaPadding(.bottom, 140)
+                .padding(.top, 4)
+        }
+    }
+
+    private func header(title: String, feed: FriendsFeed?) -> some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(ArcTheme.screenTitle)
+                .lineLimit(1).minimumScaleFactor(0.7)
             Spacer()
+            if feed != nil, !store.requests.isEmpty {
+                circleButton(mode == .requests ? "xmark" : "bell.fill",
+                             label: mode == .requests ? "Back to friends' flights" : "Friend requests") {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        mode = mode == .requests ? .flights : .requests
+                    }
+                }
+            }
+            if let feed, !feed.friends.isEmpty {
+                circleButton("person.2.fill", label: "Manage friends and groups", action: feed.onManage)
+            }
             Button { showSettings = true } label: {
                 ProfileButtonIcon(size: 34)
             }.buttonStyle(.plain)
         }
+    }
+
+    private func circleButton(_ icon: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.primary).frame(width: 36, height: 36)
+                .background(Color(.secondarySystemFill), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 }
 
@@ -321,10 +366,6 @@ struct NationalityPicker: View {
 
 // MARK: - Friends' Flights feed
 
-/// Flighty's Friends' Flights page: one flight-centric feed across all
-/// friends. Header swaps between the title and an expanding search field;
-/// the always-visible Add chip and the avatar filter row sit above the
-/// feed. Owns its own NavigationStack for the toolbar and sheets.
 /// What the feed (and the globe) is narrowed to. One value rather than two
 /// optionals so "a friend" and "a group" can't both be selected at once.
 enum FeedFilter: Equatable {
@@ -333,17 +374,34 @@ enum FeedFilter: Equatable {
     case group(String)
 }
 
-struct FriendsListView: View {
+/// Friends' flights as the surface shows them: the filter and what it can be
+/// set to, the flights it admits in the stack's order (in the air first,
+/// then the next to leave; a flight several friends share is one entry), the
+/// past ones, and the two sheets the chips and the menu open.
+struct FriendsFeed {
+    let filter: Binding<FeedFilter>
+    let groups: [FriendGroup]
+    let friends: [FriendsStore.FriendEntry]
+    let flights: [FriendFlightGroup]
+    let past: [FriendFlightGroup]
+    let onAdd: () -> Void
+    let onManage: () -> Void
+}
+
+/// Friends' Flights, minus everything the floating surface draws: the
+/// store, the filter and the groups it can pick, the grouped feed, the
+/// flight a notification tap parked, the Add Friend and Manage sheets and
+/// the "You're connected" alert. The cards, the chips and the chrome are
+/// built by `content` from the `FriendsFeed` this hands it.
+struct FriendsListView<Content: View>: View {
     @Query private var myFlights: [Flight]
     var onSelect: (FriendFlightGroup) -> Void = { _ in }
-    @ObservedObject private var supabase = ArcSupabase.shared
+    @ViewBuilder var content: (FriendsFeed) -> Content
     @State private var store = FriendsStore.shared
     @State private var showingAddFriend = false
     @State private var showingManage = false
-    @State private var showSettings = false
     @State private var filter: FeedFilter = .all
     @State private var groups: [FriendGroup] = []
-    @State private var showPastFlights = false
 
     /// The people the current filter admits — nil means everyone.
     private var filterIds: Set<String>? {
@@ -354,36 +412,24 @@ struct FriendsListView: View {
         }
     }
 
-    var body: some View {
-        // No NavigationStack here: it paints an opaque system background
-        // over the bottom-sheet material. Friend detail presents as a sheet.
-        VStack(spacing: 0) {
-                headerRow
-                    .padding(.horizontal, 20).padding(.top, 8)
+    private var feed: FriendsFeed {
+        FriendsFeed(filter: $filter,
+                    groups: groups,
+                    friends: store.friends,
+                    flights: journeyGroups(past: false),
+                    past: journeyGroups(past: true),
+                    onAdd: { showingAddFriend = true },
+                    onManage: { showingManage = true })
+    }
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        FriendFilterChips(filter: $filter, groups: groups,
-                                          friends: store.friends,
-                                          onAdd: { showingAddFriend = true },
-                                          onManage: { showingManage = true })
-                        content
-                    }
-                    .padding(.top, 12).padding(.bottom, 140)
-                }
-                .scrollIndicators(.hidden)
-                // A deliberate pull means "tell me what is true NOW". Re-read
-                // the rows, and have the server re-check the legs close enough
-                // for the answer to have moved — bounded, because a pull with
-                // twenty friends in the feed must not become twenty calls.
-                .refreshable { await store.refreshLiveVisible() }
-                // A notification tap parks the flight it named; open it once
-                // the feed carries it. Runs on appear as well as on change,
-                // because a cold launch routes BEFORE this view exists — and
-                // keyed on whether the feed HAS it, because on a cold launch
-                // the feed has not loaded yet when this view first appears.
-                .task(id: pendingOpenKey) { openPendingFlightIfPossible() }
-            }
+    var body: some View {
+        content(feed)
+            // A notification tap parks the flight it named; open it once
+            // the feed carries it. Runs on appear as well as on change,
+            // because a cold launch routes BEFORE this view exists — and
+            // keyed on whether the feed HAS it, because on a cold launch
+            // the feed has not loaded yet when this view first appears.
+            .task(id: pendingOpenKey) { openPendingFlightIfPossible() }
             .toolbarVisibility(.hidden, for: .navigationBar)
             .sheet(isPresented: $showingAddFriend) {
                 AddFriendSheet().presentationDetents([.medium, .large])
@@ -401,7 +447,6 @@ struct FriendsListView: View {
             }) {
                 ManageFriendsSheet()
             }
-            .sheet(isPresented: $showSettings) { SettingsView() }
             // The globe mirrors the list's filter, friend or group.
             .onChange(of: filter) { _, _ in store.mapFilterIds = filterIds }
             .onDisappear { store.mapFilterIds = nil }
@@ -414,44 +459,12 @@ struct FriendsListView: View {
                                         set: { if !$0 { store.justRedeemedFriend = nil } }),
                    presenting: store.justRedeemedFriend) { _ in
                 Button("Nice") { store.justRedeemedFriend = nil }
-        } message: { friend in
-            Text("You and \(friend.display_name) now share flights automatically.")
-        }
-    }
-
-    // MARK: Header
-    //
-    // Search used to live here and has been dropped: with a family-sized
-    // friends list the feed is short and the chips below already narrow it,
-    // so a search field was a second way to do the same thing. Manage takes
-    // the slot — it's the action you actually reach for.
-
-    private var headerRow: some View {
-        HStack(spacing: 10) {
-            Text("Friends' Flights")
-                .font(ArcTheme.screenTitle)
-                .lineLimit(1).minimumScaleFactor(0.7)
-            Spacer()
-            if !store.friends.isEmpty {
-                Button { showingManage = true } label: {
-                    Image(systemName: "person.2.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.primary).frame(width: 36, height: 36)
-                        .background(Color(.secondarySystemFill), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Manage friends and groups")
+            } message: { friend in
+                Text("You and \(friend.display_name) now share flights automatically.")
             }
-            Button { showSettings = true } label: {
-                ProfileButtonIcon(size: 34)
-            }.buttonStyle(.plain)
-        }
     }
 
     // MARK: Feed
-
-    private var filteredFeed: [FriendFlightGroup] { journeyGroups(past: false) }
-    private var filteredPast: [FriendFlightGroup] { journeyGroups(past: true) }
 
     private func journeyGroups(past: Bool) -> [FriendFlightGroup] {
         let current = store.feed
@@ -463,87 +476,10 @@ struct FriendsListView: View {
         }
     }
 
-    @ViewBuilder private var content: some View {
-        if let error = store.lastError {
-            Text(error).font(.system(size: 13)).foregroundStyle(.secondary)
-                .padding(.horizontal, 20)
-        }
-
-        if !store.pending.isEmpty {
-            VStack(spacing: 10) {
-                ForEach(store.pending, id: \.friendship.id) { item in
-                    requestCard(friendship: item.friendship, user: item.user)
-                }
-            }
-            .padding(.horizontal, 20)
-        }
-
-        let items = filteredFeed
-        if !items.isEmpty {
-            LazyVStack(spacing: 0) {
-                ForEach(items) { item in
-                    feedRow(item)
-                        .transition(.opacity.combined(with: .move(edge: .leading)))
-                    Divider().padding(.leading, 84)
-                }
-            }
-            // Filter changes slide/fade the rows instead of snapping.
-            .animation(.easeInOut(duration: 0.25), value: items.map(\.id))
-        } else if store.friends.isEmpty && store.pending.isEmpty && !store.isLoading && store.hasLoadedOnce {
-            Button { showingAddFriend = true } label: {
-                VStack(spacing: 12) {
-                    Spacer().frame(height: 30)
-                    Image(systemName: "person.2.wave.2").font(.system(size: 44)).foregroundStyle(.tertiary)
-                    Text("No friends yet").font(.system(size: 16, weight: .semibold)).foregroundStyle(.secondary)
-                    Text("Share an invite link — connecting takes one tap.")
-                        .font(.system(size: 13)).foregroundStyle(.tertiary)
-                    Text("Tap to invite")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(ArcTheme.action)
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-        } else if !store.isLoading && store.hasLoadedOnce {
-            VStack(spacing: 10) {
-                Spacer().frame(height: 30)
-                Image(systemName: "airplane.circle").font(.system(size: 40)).foregroundStyle(.tertiary)
-                Text(filter == .all ? "No flights right now" : "No flights in this filter")
-                    .font(.system(size: 15, weight: .semibold)).foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity)
-        } else if store.friends.isEmpty {
-            // Still loading the first pass — say nothing false meanwhile.
-            ProgressView().padding(.top, 40).frame(maxWidth: .infinity)
-        }
-
-        if !filteredPast.isEmpty {
-            pastSection
-        }
-    }
-
-    /// The two halves of "can the parked flight be opened yet": WHICH flight a
-    /// tap asked for, and WHETHER the feed carries it.
-    ///
-    /// Keyed on the parked id alone, a cold launch got exactly one attempt.
-    /// The tap routes before this view exists, so `.task` fired the instant it
-    /// appeared — against a feed that had not been read yet — found nothing,
-    /// and never looked again: the app opened on the Friends tab and stopped
-    /// there. Warm, the feed was already loaded, which is why it worked every
-    /// time it was tried with the app running.
-    ///
-    /// Presence rather than contents, so that an ordinary feed refresh — which
-    /// happens on every visit to this tab — is not mistaken for a new tap.
-    static func pendingOpenKey(wanted: String?, feedIds: [String], pastIds: [String]) -> String {
-        guard let wanted, !wanted.isEmpty else { return "" }
-        let present = feedIds.contains(wanted) || pastIds.contains(wanted)
-        return "\(wanted)|\(present)"
-    }
-
     private var pendingOpenKey: String {
-        Self.pendingOpenKey(wanted: store.pendingFlightId,
-                            feedIds: store.feed.map(\.flight.id),
-                            pastIds: store.pastFeed.map(\.flight.id))
+        FriendsListView<EmptyView>.pendingOpenKey(wanted: store.pendingFlightId,
+                                                  feedIds: store.feed.map(\.flight.id),
+                                                  pastIds: store.pastFeed.map(\.flight.id))
     }
 
     /// Drain `pendingFlightId` — the friend flight a tapped alert asked for.
@@ -564,101 +500,27 @@ struct FriendsListView: View {
         store.pendingFlightId = nil
         if let group = FriendFlightGroup.group(everything, myFlights: myFlights).first(where: { $0.items.contains { $0.id == item.id } }) { onSelect(group) }
     }
+}
 
-    private func feedRow(_ item: FriendFlightGroup) -> some View {
-        // The root opens it in the tab sheet, gliding from this row, and
-        // refreshes it live once open (see `ArcRootView.openFriendFlight`).
-        Button { onSelect(item) } label: {
-            FriendFlightRow(group: item)
-                // The card the detail opens from and closes back into.
-                .heroCopy(key: item.id, side: .list)
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("friend-trip-\(item.representative.id)")
-    }
-
-    private var pastSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.25)) { showPastFlights.toggle() }
-            } label: {
-                HStack(spacing: 8) {
-                    Text("Past Flights")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.secondary)
-                    Text("\(filteredPast.count)")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 7).padding(.vertical, 2)
-                        .background(Color(.secondarySystemFill), in: Capsule())
-                    Spacer()
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(showPastFlights ? 180 : 0))
-                }
-                .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 10)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if showPastFlights {
-                LazyVStack(spacing: 0) {
-                    ForEach(filteredPast) { item in
-                        feedRow(item)
-                            .opacity(0.7)
-                        Divider().padding(.leading, 84)
-                    }
-                }
-                .transition(.opacity)
-            }
-        }
-    }
-
-    private func requestCard(friendship: ArcSupabase.Friendship, user: ArcSupabase.ArcUser) -> some View {
-        HStack(spacing: 14) {
-            FriendAvatar(name: user.display_name, size: 32, avatarURL: user.avatar_url)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(user.display_name).font(.system(size: 15, weight: .semibold))
-                Text("Wants to be friends").font(.system(size: 13)).foregroundStyle(.secondary)
-            }
-            Spacer()
-            // A request card with only Accept was a card that could never
-            // leave: an unwanted request sat pinned above the feed for ever.
-            Button {
-                Task {
-                    do {
-                        try await supabase.removeFriendship(with: user.id)
-                        await store.refresh(force: true)
-                    } catch {
-                        store.lastError = "Couldn't decline the request — check your connection and try again."
-                    }
-                }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-                    .padding(8)
-                    .background(Color(.secondarySystemFill), in: Circle())
-            }
-            .buttonStyle(.plain)
-            Button("Accept") {
-                Task {
-                    // On success the refresh clears the card; on failure the
-                    // card stays AND the error line says why — a swallowed
-                    // throw here left a tap indistinguishable from no tap.
-                    do {
-                        try await supabase.acceptFriendRequest(friendshipId: friendship.id)
-                        await store.refresh(force: true)
-                    } catch {
-                        store.lastError = "Couldn't accept the request — check your connection and try again."
-                    }
-                }
-            }
-            .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .background(ArcTheme.action, in: Capsule())
-        }
-        .padding(14).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+/// Non-generic, so the key can be named without a content type
+/// (`FriendsListView.pendingOpenKey`).
+extension FriendsListView where Content == EmptyView {
+    /// The two halves of "can the parked flight be opened yet": WHICH flight a
+    /// tap asked for, and WHETHER the feed carries it.
+    ///
+    /// Keyed on the parked id alone, a cold launch got exactly one attempt.
+    /// The tap routes before this view exists, so `.task` fired the instant it
+    /// appeared — against a feed that had not been read yet — found nothing,
+    /// and never looked again: the app opened on the Friends tab and stopped
+    /// there. Warm, the feed was already loaded, which is why it worked every
+    /// time it was tried with the app running.
+    ///
+    /// Presence rather than contents, so that an ordinary feed refresh — which
+    /// happens on every visit to this tab — is not mistaken for a new tap.
+    static func pendingOpenKey(wanted: String?, feedIds: [String], pastIds: [String]) -> String {
+        guard let wanted, !wanted.isEmpty else { return "" }
+        let present = feedIds.contains(wanted) || pastIds.contains(wanted)
+        return "\(wanted)|\(present)"
     }
 }
 

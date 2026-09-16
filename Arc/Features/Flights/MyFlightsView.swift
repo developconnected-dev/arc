@@ -83,7 +83,7 @@ struct MyFlightsView: View {
     /// would cut in. It fades this instead.
     @State private var heldInvites: [FriendsStore.TripInviteItem] = []
     @State private var heldInvitePage = 0
-    @State private var listGeometry = ListGeometry()
+    @State private var listGeometry = FloatingListGeometry()
     /// How far below its scrolled place the list starts an unfold, when
     /// the scroll can't put the current card where the stack showed it.
     @State private var unfoldShift: CGFloat = 0
@@ -234,7 +234,7 @@ struct MyFlightsView: View {
                 Color.clear.frame(height: 0).id(Self.bottomID)
             }
             .id(Self.topID)
-            .coordinateSpace(.named(ListRow.contentSpace))
+            .coordinateSpace(.named(FloatingListRow.contentSpace))
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listGeometry.content = $0 }
             .padding(.horizontal, MyTripsLayout.margin)
         }
@@ -242,7 +242,7 @@ struct MyFlightsView: View {
         // a spacer inside the content: the refresh control sits just above
         // the content, so it shows inside the visible slice rather than at
         // the frame's top, masked away.
-        .coordinateSpace(.named(ListRow.viewportSpace))
+        .coordinateSpace(.named(FloatingListRow.viewportSpace))
         .contentMargins(.top, topSpacer, for: .scrollContent)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listGeometry.viewport = $0 }
         .scrollDisabled(folded)
@@ -276,7 +276,7 @@ struct MyFlightsView: View {
                         JourneyCard(journey: journey,
                                     onSelect: { leg in select(leg, journeyAt: index) },
                                     onDelete: delete)
-                            .modifier(ListRow(key: journey.id.uuidString, geometry: listGeometry))
+                            .modifier(FloatingListRow(key: journey.id.uuidString, geometry: listGeometry))
                     }
                 }
             }
@@ -284,7 +284,7 @@ struct MyFlightsView: View {
             VStack(spacing: 10 - Self.rim) {
                 ForEach(friendsStore.tripInvites) { item in
                     inviteCard(item)
-                        .modifier(ListRow(key: item.id, geometry: listGeometry))
+                        .modifier(FloatingListRow(key: item.id, geometry: listGeometry))
                 }
             }
         }
@@ -507,37 +507,26 @@ struct MyFlightsView: View {
     /// starts shifted by the rest and rises into place with the fold.
     private func alignListToPage(_ journeys: [TripJourney], proxy: ScrollViewProxy) {
         guard let id = currentKey(journeys) else { return }
-        let g = listGeometry
-        guard let measured = g.cardBottoms[id], g.viewport > 0 else {
+        guard let placement = listGeometry.unfoldPlacement(for: id, topSpacer: topSpacer) else {
             instantly { proxy.scrollTo(id, anchor: .bottom); unfoldShift = 0 }
             return
         }
-        // Content coordinates start below the top margin.
-        let bottom = measured + topSpacer
-        let desired = bottom - g.viewport
-        let reach = max(0, g.content + topSpacer - g.viewport)
-        let actual = min(max(desired, 0), reach)
         unfoldStartedAt = .now
         instantly {
-            if desired <= 0 {
-                proxy.scrollTo(Self.topID, anchor: .top)
-            } else if desired >= reach {
-                proxy.scrollTo(Self.bottomID, anchor: .bottom)
-            } else {
-                proxy.scrollTo(id, anchor: .bottom)
+            switch placement.scroll {
+            case .top: proxy.scrollTo(Self.topID, anchor: .top)
+            case .bottom: proxy.scrollTo(Self.bottomID, anchor: .bottom)
+            case .card: proxy.scrollTo(id, anchor: .bottom)
             }
-            unfoldShift = reduceMotion ? 0 : actual - desired
+            unfoldShift = reduceMotion ? 0 : placement.shift
         }
     }
 
     /// How far the list must move for its card of the current page to land
-    /// where the stack shows it, as the fold closes. Clamped to one
-    /// viewport, for a page scrolled far out of view.
+    /// where the stack shows it, as the fold closes.
     private func foldShift(_ journeys: [TripJourney]) -> CGFloat {
-        let g = listGeometry
-        guard let id = currentKey(journeys), g.viewport > 0,
-              let bottom = g.shownBottoms[id] else { return 0 }
-        return min(max(g.viewport - bottom, -g.viewport), g.viewport)
+        guard let id = currentKey(journeys) else { return 0 }
+        return listGeometry.foldShift(for: id)
     }
 
     /// A card opened from the unfolded list becomes the stack's page, so
@@ -643,60 +632,5 @@ struct MyFlightsView: View {
         .glassEffect(ArcTheme.tripGlass, in: .rect(cornerRadius: ArcTheme.cardCorner))
         .accessibilityElement(children: .combine)
         .accessibilityHint("Opens trip search, booking import and boarding pass scanning")
-    }
-}
-
-/// Where the unfolded list's cards sit in its content, for the unfold's
-/// scroll. Written by layout, read by one action: not observed, so no
-/// measurement re-evaluates the view.
-@MainActor
-private final class ListGeometry {
-    /// Each card's bottom (rim included), in content coordinates, by row key
-    /// — a journey's id as a string, or an invite's id.
-    var cardBottoms: [String: CGFloat] = [:]
-    /// The same bottoms as the list shows them, scroll included.
-    var shownBottoms: [String: CGFloat] = [:]
-    var content: CGFloat = 0
-    var viewport: CGFloat = 0
-}
-
-/// A row of the unfolded list: the rim under it, its scroll id, and the two
-/// measurements the fold's hand-off needs. One shape for journeys and
-/// invites, so an unfold lines either up with the stack it came from.
-private struct ListRow: ViewModifier {
-    let key: String
-    let geometry: ListGeometry
-    nonisolated static let contentSpace = "trips-list-content"
-    nonisolated static let viewportSpace = "trips-list-viewport"
-
-    func body(content: Content) -> some View {
-        content
-            .padding(.bottom, MyFlightsView.rim)
-            .id(key)
-            .onGeometryChange(for: CGFloat.self) {
-                $0.frame(in: .named(Self.contentSpace)).maxY
-            } action: { geometry.cardBottoms[key] = $0 }
-            .onGeometryChange(for: CGFloat.self) {
-                $0.frame(in: .named(Self.viewportSpace)).maxY
-            } action: { geometry.shownBottoms[key] = $0 }
-    }
-}
-
-/// The list's rise on unfold when its scroll can't hold the current card in
-/// place: `shift` below at the fold's start, home when it ends, on the same
-/// spring as the mask. Folding runs it backwards, the list sinking by the
-/// shift that lands its card on the stack. The folded overlay (`overlay`)
-/// rides the same travel from the other end: home while folded.
-private struct UnfoldRise: ViewModifier, Animatable {
-    var progress: CGFloat
-    let shift: CGFloat
-    var overlay = false
-    nonisolated var animatableData: CGFloat {
-        get { progress }
-        set { progress = newValue }
-    }
-    func body(content: Content) -> some View {
-        let p = min(max(progress, 0), 1)
-        content.offset(y: overlay ? -shift * p : shift * (1 - p))
     }
 }

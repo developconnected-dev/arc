@@ -6,18 +6,23 @@ import SwiftUI
 /// screen, in front of them — and that outlives the launch it happened in, so
 /// the bell's red dot means "something new", not "you still have invites".
 /// Ids of invites that are gone are pruned, so the set can't grow forever.
+///
+/// Friends' bell keeps the same state for friend requests, under its own key.
 @MainActor @Observable
 final class InviteReadStore {
     static let shared = InviteReadStore()
+    /// The friend requests behind Friends' bell.
+    static let friendRequests = InviteReadStore(key: "friendRequests.seen")
 
-    private static let key = "invites.seen"
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let key: String
 
     private(set) var seen: Set<String>
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, key: String = "invites.seen") {
         self.defaults = defaults
-        seen = Set(defaults.stringArray(forKey: Self.key) ?? [])
+        self.key = key
+        seen = Set(defaults.stringArray(forKey: key) ?? [])
     }
 
     /// Any of these invites still unseen: what the red dot rides on.
@@ -40,6 +45,6 @@ final class InviteReadStore {
     }
 
     private func persist() {
-        defaults.set(Array(seen), forKey: Self.key)
+        defaults.set(Array(seen), forKey: key)
     }
 }

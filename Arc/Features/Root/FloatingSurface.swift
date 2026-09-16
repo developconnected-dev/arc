@@ -396,3 +396,91 @@ private struct UntilMeasured: ViewModifier {
             .animation(nil, value: measured)
     }
 }
+
+// MARK: - The tab's list
+
+/// Where a floating list's cards sit in its content, for the unfold's scroll.
+/// Written by layout, read by one action: not observed, so no measurement
+/// re-evaluates the view. Each tab's list keeps one (`MyFlightsView`,
+/// `FriendsFloatingList`).
+@MainActor
+final class FloatingListGeometry {
+    /// Each card's bottom (rim included), in content coordinates, by row key
+    /// — a journey's id as a string, an invite's id, a friend's flight's.
+    var cardBottoms: [String: CGFloat] = [:]
+    /// The same bottoms as the list shows them, scroll included.
+    var shownBottoms: [String: CGFloat] = [:]
+    var content: CGFloat = 0
+    var viewport: CGFloat = 0
+
+    /// What the unfold scrolls to before the mask moves: the list's top, its
+    /// bottom, or the card itself on the frame's bottom edge.
+    enum UnfoldScroll {
+        case top, bottom, card
+    }
+
+    /// Unfolding: where to scroll the still-hidden list so the card `key`
+    /// sits where the stack shows it, and how far below that the list starts
+    /// where the scroll can't reach (too little above it, or below it) — it
+    /// rises into place with the fold. Nil until the card and the frame have
+    /// been measured.
+    func unfoldPlacement(for key: String, topSpacer: CGFloat) -> (scroll: UnfoldScroll, shift: CGFloat)? {
+        guard let measured = cardBottoms[key], viewport > 0 else { return nil }
+        // Content coordinates start below the top margin.
+        let bottom = measured + topSpacer
+        let desired = bottom - viewport
+        let reach = max(0, content + topSpacer - viewport)
+        let actual = min(max(desired, 0), reach)
+        let scroll: UnfoldScroll = desired <= 0 ? .top : desired >= reach ? .bottom : .card
+        return (scroll, actual - desired)
+    }
+
+    /// How far the list must move for the card `key` to land where the stack
+    /// shows it, as the fold closes. Clamped to one viewport, for a card
+    /// scrolled far out of view.
+    func foldShift(for key: String) -> CGFloat {
+        guard viewport > 0, let bottom = shownBottoms[key] else { return 0 }
+        return min(max(viewport - bottom, -viewport), viewport)
+    }
+}
+
+/// A row of an unfolded list: the rim under it, its scroll id, and the two
+/// measurements the fold's hand-off needs. One shape for every kind of card,
+/// so an unfold lines any of them up with the stack it came from.
+struct FloatingListRow: ViewModifier {
+    let key: String
+    let geometry: FloatingListGeometry
+    nonisolated static let contentSpace = "trips-list-content"
+    nonisolated static let viewportSpace = "trips-list-viewport"
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.bottom, MyTripsLayout.rim)
+            .id(key)
+            .onGeometryChange(for: CGFloat.self) {
+                $0.frame(in: .named(Self.contentSpace)).maxY
+            } action: { geometry.cardBottoms[key] = $0 }
+            .onGeometryChange(for: CGFloat.self) {
+                $0.frame(in: .named(Self.viewportSpace)).maxY
+            } action: { geometry.shownBottoms[key] = $0 }
+    }
+}
+
+/// The list's rise on unfold when its scroll can't hold the current card in
+/// place: `shift` below at the fold's start, home when it ends, on the same
+/// spring as the mask. Folding runs it backwards, the list sinking by the
+/// shift that lands its card on the stack. The folded overlay (`overlay`)
+/// rides the same travel from the other end: home while folded.
+struct UnfoldRise: ViewModifier, Animatable {
+    var progress: CGFloat
+    let shift: CGFloat
+    var overlay = false
+    nonisolated var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+    func body(content: Content) -> some View {
+        let p = min(max(progress, 0), 1)
+        content.offset(y: overlay ? -shift * p : shift * (1 - p))
+    }
+}

@@ -47,6 +47,7 @@
 		3ECCF6ABE970433007FAB23D /* TripInvites.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDD5E5B4DD8F4AFBCE5230CD /* TripInvites.swift */; };
 		3F12F7487ED91CC06762237E /* APNsEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1FF0EF36481E90431C9BF5 /* APNsEnvironment.swift */; };
 		45B0F3CA74F6ED6B7180B0E9 /* FlightAudienceSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 079E88135CF68418B0BFA49F /* FlightAudienceSheet.swift */; };
+		464703D8C8E16A16E1185BCF /* FriendsFloatingList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A9CF1FCA73A95FAE5F7A7F7 /* FriendsFloatingList.swift */; };
 		47733FC27C873C75889EB557 /* InboundMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3BA60104125C5743ECF86F8 /* InboundMonitor.swift */; };
 		4867449BF8D2AB43BBD4A600 /* SmartETATests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51628B58BB357CCDD1FD5F3A /* SmartETATests.swift */; };
 		4BE4CB84B06880211275E457 /* FlightLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB40E7D146DE8662884B50D /* FlightLiveActivity.swift */; };
@@ -233,6 +234,7 @@
 		234B3612AF40D9B0CBA15CBE /* FlightTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightTracker.swift; sourceTree = "<group>"; };
 		265784352B3CDD1B671088AA /* RotationChain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RotationChain.swift; sourceTree = "<group>"; };
 		283EE3258EC82F97B3FD8892 /* ScheduleBackfillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleBackfillTests.swift; sourceTree = "<group>"; };
+		2A9CF1FCA73A95FAE5F7A7F7 /* FriendsFloatingList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsFloatingList.swift; sourceTree = "<group>"; };
 		2AAA85683251E0048E5FBC31 /* TripInviteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripInviteTests.swift; sourceTree = "<group>"; };
 		2AD3936B9A068A6D1B734331 /* SupabaseErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupabaseErrorTests.swift; sourceTree = "<group>"; };
 		2CA687861016F9A5A2E8044A /* DeadReckoning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeadReckoning.swift; sourceTree = "<group>"; };
@@ -435,6 +437,7 @@
 				079E88135CF68418B0BFA49F /* FlightAudienceSheet.swift */,
 				DA868CA289E599CDF4D9865D /* FriendFilterChips.swift */,
 				AB9E02444B3605EDE0393741 /* FriendFlightGroup.swift */,
+				2A9CF1FCA73A95FAE5F7A7F7 /* FriendsFloatingList.swift */,
 				343257F6CBC830BB8386C5BA /* FriendsView.swift */,
 				858108E79DAC8F038B9E97E4 /* ManageFriendsSheet.swift */,
 				CFCE4AEB3F85D01514383989 /* TravelCompanionsSheet.swift */,
@@ -963,6 +966,7 @@
 				D06A6CBC832886F7E2863EDA /* FriendFilterChips.swift in Sources */,
 				CE9C606E475E38ECB76064FB /* FriendFlightGroup.swift in Sources */,
 				5FA1351EE55E4BE4797E59F1 /* FriendGroups.swift in Sources */,
+				464703D8C8E16A16E1185BCF /* FriendsFloatingList.swift in Sources */,
 				0A1C083CFAAD25DE604695CB /* FriendsStore.swift in Sources */,
 				95E9EB1D6085989A0AA988BF /* FriendsView.swift in Sources */,
 				CAD442F2201C5E0593480795 /* GeoMath.swift in Sources */,

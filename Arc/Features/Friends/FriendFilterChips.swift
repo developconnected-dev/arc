@@ -36,7 +36,6 @@ struct FriendFilterChips: View {
         }
         .scrollIndicators(.hidden)
         .contentMargins(.horizontal, MyTripsLayout.margin, for: .scrollContent)
-        .scrollClipDisabled()
         .frame(height: Self.height)
     }
 

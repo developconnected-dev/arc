@@ -121,6 +121,8 @@ struct JourneyStack<Item: Identifiable, Card: View>: View {
     var hintsEnabled = false
     /// What VoiceOver calls the pager itself.
     var label = "Journeys"
+    /// The pager's accessibility identifier: My Trips' stack, or Friends'.
+    var identifier = "trips-stack"
     /// The pager's VoiceOver value: the item, its index and how many there
     /// are ("Journey 2 of 4, Zurich to Rome", "Invitation 1 of 2, from Vicky").
     var value: (Item, Int, Int) -> String
@@ -715,7 +717,7 @@ struct JourneyStack<Item: Identifiable, Card: View>: View {
         if items.count > 1, items.indices.contains(page) {
             Color.clear
                 .accessibilityElement()
-                .accessibilityIdentifier("trips-stack")
+                .accessibilityIdentifier(identifier)
                 .accessibilityLabel(label)
                 .accessibilityValue(value(items[page], page, items.count))
                 .accessibilityAdjustableAction { direction in
