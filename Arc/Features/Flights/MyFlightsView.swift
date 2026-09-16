@@ -302,6 +302,14 @@ struct MyFlightsView: View {
     private func foldedOverlay(_ journeys: [TripJourney]) -> some View {
         ScrollView {
             overlayContent(journeys)
+                // Exactly the viewport's height, the cards on its bottom
+                // edge: nothing for the scroll view to re-anchor. Left to
+                // `defaultScrollAnchor` alone, the bell's swap (a height
+                // change inside an animated update) threw the content to the
+                // viewport's top, under the mask, for a few frames and slid
+                // it back down (caught frame by frame). Taller content still
+                // overflows upward, under the mask.
+                .containerRelativeFrame(.vertical, alignment: .bottom)
         }
         .scrollDisabled(true)
         .scrollClipDisabled()
