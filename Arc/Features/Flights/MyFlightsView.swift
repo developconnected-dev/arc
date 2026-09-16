@@ -478,7 +478,9 @@ struct MyFlightsView: View {
     }
 
     private var emptyButton: some View {
-        Button(action: onAdd) { emptyState }
+        // The whole card takes the tap, not only the text and the blue block
+        // inside it: glass is not a hit area of its own.
+        Button(action: onAdd) { emptyState.contentShape(.rect) }
             .buttonStyle(.plain)
     }
 

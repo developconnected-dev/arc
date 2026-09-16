@@ -58,6 +58,10 @@ struct MapTopBar: View {
         Button { showSettings = true } label: {
             ProfileButtonIcon(size: 34)
                 .frame(width: MyTripsLayout.control, height: MyTripsLayout.control)
+                // The whole 44 pt circle, not just the 34 pt icon inside it:
+                // an icon button's hit area is its label's own shape, and the
+                // glass around it takes nothing (see `RecenterButton`).
+                .contentShape(.rect)
                 .glassEffect(.regular.interactive(), in: .circle)
         }
         .buttonStyle(.plain)
