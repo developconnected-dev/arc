@@ -77,6 +77,12 @@ struct MyFlightsView: View {
     /// The ghost draws and nothing else: heights, hero frames and the rest
     /// handlers belong to the stack that has arrived.
     @State private var ghostMotion = JourneyStackMotion()
+    /// The invites as they were a moment ago, and the one that was showing:
+    /// answering the LAST invite empties the list in the very turn the mode
+    /// swaps back, so the ghost would have nothing to fade and the trips
+    /// would cut in. It fades this instead.
+    @State private var heldInvites: [FriendsStore.TripInviteItem] = []
+    @State private var heldInvitePage = 0
     @State private var listGeometry = ListGeometry()
     /// How far below its scrolled place the list starts an unfold, when
     /// the scroll can't put the current card where the stack showed it.
@@ -198,8 +204,13 @@ struct MyFlightsView: View {
             friendsStore.reconcileTripInvites(with: Array(allFlights))
         }
         // Invites for a journey the user already has answer themselves.
-        .onChange(of: friendsStore.tripInvites.map(\.id)) { _, _ in
+        .onChange(of: friendsStore.tripInvites.map(\.id), initial: true) { _, _ in
             friendsStore.reconcileTripInvites(with: Array(allFlights))
+            // The last list that still had a card in it, for the ghost.
+            if !friendsStore.tripInvites.isEmpty { heldInvites = friendsStore.tripInvites }
+        }
+        .onChange(of: invitePage.wrappedValue, initial: true) { _, page in
+            heldInvitePage = page
         }
     }
 
@@ -399,9 +410,13 @@ struct MyFlightsView: View {
     }
 
     /// The same pager, paging the invites: one at a time, flippable, with the
-    /// dots, the heights and the hero frames a journey card gets.
+    /// dots, the heights and the hero frames a journey card gets. The ghost
+    /// pages the invites as they were, so the one just answered fades out.
     private func invitesStack(motion: JourneyStackMotion, live: Bool) -> some View {
-        JourneyStack(items: friendsStore.tripInvites, page: invitePage, motion: motion,
+        let items = live ? friendsStore.tripInvites : heldInvites
+        let page = live ? invitePage
+            : .constant(min(max(heldInvitePage, 0), max(items.count - 1, 0)))
+        return JourneyStack(items: items, page: page, motion: motion,
                      onSettled: live ? onInviteSettled : { _ in },
                      hintsEnabled: live && hintsEnabled && folded,
                      label: "Trip invitations",
