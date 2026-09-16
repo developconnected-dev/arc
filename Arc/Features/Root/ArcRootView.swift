@@ -1119,6 +1119,13 @@ struct ArcRootView: View {
                                        finish: finishTransition))
     }
 
+    /// Nothing in front of the trips: the folded stack may nudge to show it
+    /// can be flipped. Folded-ness and the second journey are the stack's own
+    /// conditions (`JourneyStack.hintsEnabled`).
+    private var tripsHintsEnabled: Bool {
+        tab == .myFlights && detailFlight == nil && !showAdd && scenePhase == .active
+    }
+
     /// A fixed frame from the unfolded top to the bottom edge, revealed by a
     /// mask whose top edge is the only thing a fold or a swipe moves: render
     /// properties, never the scroll view's layout.
@@ -1138,7 +1145,8 @@ struct ArcRootView: View {
                       onChromeHeight: { tripsChromeHeight = $0 },
                       topSpacer: layout.contentTopSpacer(contentHeight: tripsContentHeight),
                       onRevealJourney: { tripsFlipRequest = $0 },
-                      onStackSettled: { stackSettled(on: $0) })
+                      onStackSettled: { stackSettled(on: $0) },
+                      hintsEnabled: tripsHintsEnabled)
             // The rim's slack below the bottom edge, inside the frame, so the
             // bottom card's glass is never clipped.
             .frame(width: layout.size.width, height: layout.listBottom - layout.unfoldedListTop + MyFlightsView.rim, alignment: .top)

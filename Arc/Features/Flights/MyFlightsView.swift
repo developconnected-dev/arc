@@ -45,6 +45,9 @@ struct MyFlightsView: View {
     var onRevealJourney: (Int) -> Void = { _ in }
     /// The stack settled on another journey by its own motion; the map follows.
     var onStackSettled: (UUID) -> Void = { _ in }
+    /// Nothing is in front of the trips (see `JourneyStack.hintsEnabled`); the
+    /// folded stack may nudge when the screen goes quiet.
+    var hintsEnabled = false
 
     @State private var friendsStore = FriendsStore.shared
     /// Landed ids `reveal` couldn't place yet — the save that produced them
@@ -297,6 +300,9 @@ struct MyFlightsView: View {
                 JourneyStack(journeys: journeys, page: page, motion: stackMotion,
                              flipRequest: flipRequest, onFlipRequestHandled: onFlipRequestHandled,
                              onSettled: onStackSettled,
+                             // Unfolded, the overlay is still in the tree, only
+                             // faded out: the list is what the user is reading.
+                             hintsEnabled: hintsEnabled && folded,
                              onSelect: onSelect, onDelete: delete)
             }
         }

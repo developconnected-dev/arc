@@ -68,6 +68,11 @@ struct JourneyStack: View {
     /// The stack itself landed on another journey (a swipe, a flip the app
     /// asked for, VoiceOver's adjust) — not a clamp after the list changed.
     var onSettled: (UUID) -> Void = { _ in }
+    /// The stack is allowed to hint that it can be flipped: the My Trips tab,
+    /// folded, no detail, no Add sheet, the app in the foreground. Whether
+    /// anything is moving, and whether there is a second journey to show, is
+    /// the stack's own business.
+    var hintsEnabled = false
     var onSelect: (Flight) -> Void
     var onDelete: (Flight) -> Void
 
@@ -114,9 +119,26 @@ struct JourneyStack: View {
     /// True for the gesture's lifetime, including a system cancellation that
     /// skips `onEnded`.
     @GestureState private var touching = false
+    /// 0…1: how far into its lift the nudge is. Only the current card and the
+    /// neighbour below it move by it — the frame keeps its height, so the
+    /// stack's bottom edge, the mask and the Show More row stay put.
+    @State private var nudge: CGFloat = 0
+    /// The dots are bright because a nudge is playing rather than because a
+    /// finger is down; the frame's bright edge belongs to the finger alone.
+    @State private var nudgeDots = false
+    @State private var idle = IdleWatcher.shared
 
     private static let snap: Animation = .spring(response: 0.34, dampingFraction: 1)
     private static let crossfade: Animation = .easeInOut(duration: 0.15)
+    /// How far the current card lifts during a nudge.
+    private static let nudgeLift: CGFloat = 12
+    /// How quiet the screen has to be before the stack nudges again.
+    private static let nudgeWait: Duration = .seconds(20)
+    /// The first nudge, shortly after the stack appears.
+    private static let firstNudgeWait: Duration = .milliseconds(1200)
+    /// The dots when the stack is at rest with more than one journey: there,
+    /// but quiet.
+    private static let restingDots: Double = 0.35
 
     private var settling: Bool { settleTarget != nil }
 
@@ -124,6 +146,9 @@ struct JourneyStack: View {
         let h0 = height(page, fallback: lastSettledHeight)
         let n = neighbours
         let o = offsets(drag: drag)
+        // The nudge is a swipe of 12 pt that never commits: the card and the
+        // one waiting below it rise together, as a finger would carry them.
+        let lift = nudge * Self.nudgeLift
         ZStack(alignment: .top) {
             ForEach(slots(n)) { slot in
                 JourneyCard(journey: slot.journey, onSelect: onSelect, onDelete: onDelete)
@@ -136,7 +161,7 @@ struct JourneyStack: View {
                     // the one leaving fades out where it was while the new
                     // one fades in. Parked off-frame, it vanished at once and
                     // the empty frame blinked before the new card.
-                    .offset(y: reduceMotion ? 0 : slot.index == page ? o.current : slot.index == n.next ? o.next : o.previous)
+                    .offset(y: reduceMotion ? 0 : slot.index == page ? o.current - lift : slot.index == n.next ? o.next - lift : o.previous)
                     .allowsHitTesting(slot.index == page && !holding && !settling)
                     .accessibilityHidden(true, isEnabled: slot.index != page)
                     // Neighbours parked off-frame neither report hero frames
@@ -205,6 +230,9 @@ struct JourneyStack: View {
             onFlipRequestHandled()
             flip(to: request)
         }
+        // Restarted by every touch anywhere (`idle.lastTouch`), so the wait
+        // always measures from the last one and a nudge under way is dropped.
+        .task(id: hintTick) { await runHints() }
     }
 
     // MARK: Geometry
@@ -310,6 +338,7 @@ struct JourneyStack: View {
         }
         dragOrigin = translation
         bumpedThisDrag = false
+        cancelNudge()
         withAnimation(reduceMotion ? nil : .smooth(duration: 0.18)) { holding = true }
         showChrome()
     }
@@ -527,10 +556,76 @@ struct JourneyStack: View {
                 }
             }
             .padding(.trailing, 5)
-            .opacity(chromeShown ? 1 : 0)
+            // Never fully away: at rest they are the only sign that there is
+            // more than one journey to flip through. Full brightness belongs
+            // to a finger on the stack and to a nudge.
+            .opacity(chromeShown || nudgeDots ? 1 : Self.restingDots)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
         }
+    }
+
+    // MARK: The nudge
+
+    /// Everything that restarts the quiet stretch: a touch anywhere, the
+    /// stack becoming (or ceasing to be) allowed to hint, a change in how
+    /// many journeys there are.
+    private struct HintTick: Equatable {
+        var enabled: Bool
+        var touched: Date
+        var count: Int
+    }
+
+    private var hintTick: HintTick {
+        HintTick(enabled: hintsEnabled, touched: idle.lastTouch, count: journeys.count)
+    }
+
+    /// Once per launch, not per page change or per return to the tab.
+    @MainActor private static var firstNudgePlayed = false
+
+    /// The first nudge shortly after the stack appears, then one after every
+    /// quiet stretch, for as long as the screen stays quiet.
+    @MainActor
+    private func runHints() async {
+        guard hintsEnabled, journeys.count > 1 else { return }
+        if !Self.firstNudgePlayed {
+            Self.firstNudgePlayed = true
+            try? await Task.sleep(for: Self.firstNudgeWait)
+            await playNudge()
+        }
+        while !Task.isCancelled {
+            try? await Task.sleep(for: Self.nudgeWait)
+            await playNudge()
+        }
+    }
+
+    /// The card lifts and settles back, uncovering the top edge of the card
+    /// behind it, while the dots brighten. No haptic: it shows the gesture
+    /// rather than announcing itself. A touch cancels the task, and every
+    /// sleep below returns at once, so the card springs back where it is.
+    @MainActor
+    private func playNudge() async {
+        guard !Task.isCancelled, hintsEnabled, journeys.count > 1,
+              !holding, !settling, flipTarget == nil, drag == 0 else { return }
+        withAnimation(.easeOut(duration: 0.2)) { nudgeDots = true }
+        if reduceMotion {
+            // No lift: the dots alone say it.
+            try? await Task.sleep(for: .milliseconds(600))
+        } else {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) { nudge = 1 }
+            try? await Task.sleep(for: .milliseconds(300))
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) { nudge = 0 }
+            try? await Task.sleep(for: .milliseconds(340))
+        }
+        withAnimation(.easeOut(duration: 0.3)) { nudgeDots = false }
+    }
+
+    /// A finger on the stack itself ends a nudge in the same turn, whatever
+    /// the watcher makes of the touch.
+    private func cancelNudge() {
+        guard nudge != 0 || nudgeDots else { return }
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.9)) { nudge = 0 }
+        withAnimation(.easeOut(duration: 0.2)) { nudgeDots = false }
     }
 
     /// VoiceOver: one adjustable element; the current card's rows stay
