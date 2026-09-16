@@ -249,6 +249,15 @@ struct JourneyStack<Item: Identifiable, Card: View>: View {
             // The handler holds this view's values; keep its items current.
             claimMotion()
         }
+        // A list that changes under the stack is not a movement: the card at
+        // this page is simply another one now. The caller may be animating
+        // when it changes — answering an invite removes it inside a
+        // `withAnimation` — and that ambient animation would slide the new
+        // card up from where its neighbour was parked, below the frame,
+        // uncovering a band of map for half a second (caught frame by frame
+        // on the simulator). Only the update that changes the items is
+        // flattened; a settle, a flip and the nudge still ride their springs.
+        .transaction(value: items.map(\.id)) { $0.animation = nil }
         .onAppear { claimMotion() }
         .onDisappear {
             guard motion.restOwner == token else { return }
