@@ -163,8 +163,10 @@ struct JourneyStack<Item: Identifiable, Card: View>: View {
         let h0 = height(page, fallback: lastSettledHeight)
         let n = neighbours
         let o = offsets(drag: drag)
-        // The nudge is a swipe of 12 pt that never commits: the card and the
-        // one waiting below it rise together, as a finger would carry them.
+        // The nudge lifts the current card alone, off the stack: the card
+        // waiting below stays parked, so the full 12 pt is uncovered rather
+        // than the neighbour riding up behind it. A real swipe still carries
+        // both (`o.next` follows the drag).
         let lift = nudge * StackStyle.nudgeLift
         ZStack(alignment: .top) {
             ForEach(slots(n)) { slot in
@@ -178,7 +180,7 @@ struct JourneyStack<Item: Identifiable, Card: View>: View {
                     // the one leaving fades out where it was while the new
                     // one fades in. Parked off-frame, it vanished at once and
                     // the empty frame blinked before the new card.
-                    .offset(y: reduceMotion ? 0 : slot.index == page ? o.current - lift : slot.index == n.next ? o.next - lift : o.previous)
+                    .offset(y: reduceMotion ? 0 : slot.index == page ? o.current - lift : slot.index == n.next ? o.next : o.previous)
                     .allowsHitTesting(slot.index == page && !holding && !settling)
                     .accessibilityHidden(true, isEnabled: slot.index != page)
                     // Neighbours parked off-frame neither report hero frames
