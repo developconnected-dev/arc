@@ -327,8 +327,8 @@ struct ArcRootView: View {
         tabCameraTask = Task { @MainActor in
             // One movement at a time: the incoming cards rise first
             // (`TabArrival`), then the one shared map moves from wherever it
-            // already is.
-            if !reduceMotion { try? await Task.sleep(for: .milliseconds(450)) }
+            // already is. Reduce Motion's fade takes as long to land.
+            try? await Task.sleep(for: .milliseconds(450))
             guard !Task.isCancelled else { return }
             tabCameraTask = nil
             guard tab == t, !controller.isRevealingRoutes else { return }
