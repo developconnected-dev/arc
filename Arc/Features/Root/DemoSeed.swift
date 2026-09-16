@@ -64,14 +64,16 @@ enum DemoSeed {
         let user = ArcSupabase.ArcUser(id: "demo-friend", display_name: "Demo Friend",
             handle: "demo", avatar_url: nil, home_airport: "ZRH", nationality: "CH")
         func shared(_ id: String, owner: String, number: String, departs dep: Date,
-                    status: String = "scheduled") -> ArcSupabase.SharedFlight? {
+                    status: String = "scheduled",
+                    to arrival: (iata: String, city: String, lat: Double, lon: Double) = ("VIE", "Vienna", 48.110, 16.570))
+            -> ArcSupabase.SharedFlight? {
             let json: [String: Any] = [
                 "id": id, "user_id": owner,
                 "flight_number": number, "airline": "Swiss",
-                "departure_iata": "ZRH", "arrival_iata": "VIE",
-                "departure_city": "Zurich", "arrival_city": "Vienna",
+                "departure_iata": "ZRH", "arrival_iata": arrival.iata,
+                "departure_city": "Zurich", "arrival_city": arrival.city,
                 "departure_lat": 47.458, "departure_lon": 8.555,
-                "arrival_lat": 48.110, "arrival_lon": 16.570,
+                "arrival_lat": arrival.lat, "arrival_lon": arrival.lon,
                 "scheduled_departure": iso.string(from: dep),
                 "scheduled_arrival": iso.string(from: dep.addingTimeInterval(3600)),
                 "status": status, "delay_minutes": 0, "progress": status == "landed" ? 1.0 : 0.0
@@ -102,11 +104,19 @@ enum DemoSeed {
             let later = shared("demo-feed-3", owner: second.id, number: "LX103",
                                departs: demoSecondDeparture)
             // `-seedManyFriendFlights`: a list taller than the screen, for
-            // checking what a fully unfolded Friends list leaves clear.
+            // checking what a fully unfolded Friends list leaves clear — to
+            // places far apart, so a flip visibly moves the camera.
+            let destinations: [(iata: String, city: String, lat: Double, lon: Double)] = [
+                ("LHR", "London", 51.470, -0.454), ("ATH", "Athens", 37.936, 23.947),
+                ("OSL", "Oslo", 60.194, 11.100), ("LIS", "Lisbon", 38.774, -9.134),
+                ("BCN", "Barcelona", 41.297, 2.078), ("CPH", "Copenhagen", 55.618, 12.656),
+                ("FCO", "Rome", 41.800, 12.238), ("AMS", "Amsterdam", 52.310, 4.768),
+            ]
             let many = ProcessInfo.processInfo.arguments.contains("-seedManyFriendFlights")
-                ? (1...8).compactMap { index in
-                    shared("demo-many-\(index)", owner: second.id, number: "LX\(200 + index)",
-                           departs: demoSecondDeparture.addingTimeInterval(Double(index) * 3600))
+                ? destinations.enumerated().compactMap { index, destination in
+                    shared("demo-many-\(index + 1)", owner: second.id, number: "LX\(201 + index)",
+                           departs: demoSecondDeparture.addingTimeInterval(Double(index + 1) * 3600),
+                           to: destination)
                 }
                 : []
             FriendsStore.shared.friends = [
