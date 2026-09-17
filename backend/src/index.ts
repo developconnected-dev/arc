@@ -3198,7 +3198,7 @@ async function announceFriendFlights(env: Env): Promise<void> {
   const from = new Date(now - 24 * 3600_000).toISOString();
   const to = new Date(now + 30 * 3600_000).toISOString();
   const rows = await sbSelect(env,
-    "/shared_flights?select=id,user_id,flight_number,departure_iata,arrival_iata,arrival_city," +
+    "/shared_flights?select=id,user_id,flight_number,mode,departure_iata,arrival_iata,arrival_city," +
     "scheduled_departure,status,delay_minutes,actual_departure,ground_state,ground_observed_at," +
     "audience,alert_state" +
     `&scheduled_departure=gte.${from}&scheduled_departure=lte.${to}`
@@ -3211,6 +3211,7 @@ async function announceFriendFlights(env: Env): Promise<void> {
       flightId: String(row.id),
       travellerName: "",   // filled in below, only when there is news
       flightNumber: String(row.flight_number ?? ""),
+      mode: (row.mode as string | null) ?? null,
       departureIata: String(row.departure_iata ?? ""),
       arrivalIata: String(row.arrival_iata ?? ""),
       arrivalCity: String(row.arrival_city || row.arrival_iata || ""),
@@ -3274,7 +3275,7 @@ async function pushFriendNews(env: Env, row: Record<string, any>, kind: string, 
   const name = String(travellers[0]?.display_name || "A friend");
   const { news } = friendFlightNews({
     flightId: String(row.id), travellerName: name,
-    flightNumber: String(row.flight_number ?? ""),
+    flightNumber: String(row.flight_number ?? ""), mode: (row.mode as string | null) ?? null,
     departureIata: String(row.departure_iata ?? ""), arrivalIata: String(row.arrival_iata ?? ""),
     arrivalCity: String(row.arrival_city || row.arrival_iata || ""),
     status: String(row.status ?? "scheduled"), delayMinutes: Number(row.delay_minutes ?? 0),

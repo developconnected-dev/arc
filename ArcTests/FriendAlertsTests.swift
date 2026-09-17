@@ -148,6 +148,49 @@ final class FriendAlertsTests: XCTestCase {
         XCTAssertNil(ArcDeepLink.destination(fromNotificationUserInfo: [ArcOpenFlightInfo.friendId: ""]))
     }
 
+    // MARK: A ferry is not in the air
+    //
+    // The push that prompted these: "Victoria is in the air ✈️ — BLUE STAR
+    // MYCONOS JSY → JMK". Same words as `friendFlightNews` in social.ts.
+
+    private func event(_ kind: FriendAlerts.Event.Kind, _ mode: TripMode) -> FriendAlerts.Event {
+        .init(friendName: "Anna", flightId: "f1", flightNumber: "BLUE STAR MYCONOS",
+              route: "JSY → JMK", arrivalCity: "Mykonos", kind: kind, mode: mode)
+    }
+
+    func testAFerryLeavingIsAtSeaNeverInTheAir() {
+        let w = FriendAlerts.wording(event(.tookOff, .sea))
+        XCTAssertEqual(w.title, "Anna is at sea ⛴️")
+        XCTAssertEqual(w.body, "BLUE STAR MYCONOS JSY → JMK")
+    }
+
+    func testAFerryAndATrainArriveTheyDoNotLand() {
+        XCTAssertEqual(FriendAlerts.wording(event(.landed, .sea)).title, "Anna arrived in Mykonos ⛴️")
+        XCTAssertEqual(FriendAlerts.wording(event(.landed, .rail)).title, "Anna arrived in Mykonos 🚆")
+        XCTAssertEqual(FriendAlerts.wording(event(.landed, .air)).title, "Anna landed in Mykonos 🛬")
+    }
+
+    func testTheLateThingIsNamedForWhatItIs() {
+        XCTAssertEqual(FriendAlerts.wording(event(.delayed(20), .sea)).title, "Anna's ferry is 20m late")
+        XCTAssertEqual(FriendAlerts.wording(event(.delayed(20), .rail)).title, "Anna's train is 20m late")
+        XCTAssertEqual(FriendAlerts.wording(event(.delayed(20), .air)).title, "Anna's flight is 20m late")
+    }
+
+    func testATrainLeavingIsEnRouteAndAFlightStillInTheAir() {
+        XCTAssertEqual(FriendAlerts.wording(event(.tookOff, .rail)).title, "Anna is en route 🚆")
+        XCTAssertEqual(FriendAlerts.wording(event(.tookOff, .air)).title, "Anna is in the air ✈️")
+    }
+
+    /// The event must carry the row's mode, or the wording has nothing to go on.
+    func testTheEventCarriesTheSharedRowsMode() {
+        var f = flight("f1", "BLUE STAR MYCONOS", dep: "2026-07-24T11:30:00.000Z",
+                       arr: "2026-07-24T14:00:00.000Z", status: "active")
+        f.mode = "sea"
+        let events = FriendAlerts.events(baseline: ["f1": "upcoming|0"],
+                                         flights: [(anna, f)], levels: [:], at: now)
+        XCTAssertEqual(events.first?.mode, .sea)
+    }
+
     /// What `FriendAlerts` actually attaches — the seam the bug lived in.
     func testPostedFriendAlertsCarryTheirFlight() {
         let info = FriendAlerts.userInfo(forFlightId: "3f2b1c00-0000-4000-8000-000000000001")

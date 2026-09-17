@@ -43,6 +43,18 @@ export interface FriendNews {
   body: string;
 }
 
+/// A ferry is not in the air and a train does not land. The words per mode,
+/// mirroring TripMode's verbs and FriendAlerts.wording on the device. A row
+/// with no mode, or one this build doesn't know, is a flight — what every row
+/// was before migration 012.
+function friendWords(mode: string | null | undefined): {
+  underway: string; arrived: (city: string) => string; noun: string;
+} {
+  if (mode === "sea") return { underway: "is at sea ⛴️", arrived: (city) => `arrived in ${city} ⛴️`, noun: "ferry" };
+  if (mode === "rail") return { underway: "is en route 🚆", arrived: (city) => `arrived in ${city} 🚆`, noun: "train" };
+  return { underway: "is in the air ✈️", arrived: (city) => `landed in ${city} 🛬`, noun: "flight" };
+}
+
 /// Same floor as the device: a friend's delay is worth a buzz at fifteen
 /// minutes more than last said, not at every minute of drift.
 const FRIEND_DELAY_STEP = 15;
@@ -51,6 +63,8 @@ export function friendFlightNews(args: {
   flightId: string;
   travellerName: string;
   flightNumber: string;
+  /// 'air' | 'rail' | 'sea' — shared_flights.mode.
+  mode?: string | null;
   departureIata: string;
   arrivalIata: string;
   arrivalCity: string;
@@ -77,18 +91,19 @@ export function friendFlightNews(args: {
   const priorPhase = args.prior.phase;
   const priorDelay = args.prior.delay ?? 0;
   const id = (kind: string) => `friend-${args.flightId}-${kind}`;
+  const words = friendWords(args.mode);
 
   if (priorPhase !== "airborne" && phase === "airborne") {
     return { state, news: { kind: "tookOff", collapseId: id("tookoff"),
-      title: `${args.travellerName} is in the air ✈️`, body: route } };
+      title: `${args.travellerName} ${words.underway}`, body: route } };
   }
   if (priorPhase !== "landed" && phase === "landed") {
     return { state, news: { kind: "landed", collapseId: id("landed"),
-      title: `${args.travellerName} landed in ${args.arrivalCity} 🛬`, body: route } };
+      title: `${args.travellerName} ${words.arrived(args.arrivalCity)}`, body: route } };
   }
   if (phase === "upcoming" && args.delayMinutes >= priorDelay + FRIEND_DELAY_STEP) {
     return { state, news: { kind: "delayed", collapseId: id("delayed"),
-      title: `${args.travellerName}'s flight is ${args.delayMinutes}m late`, body: route } };
+      title: `${args.travellerName}'s ${words.noun} is ${args.delayMinutes}m late`, body: route } };
   }
   return { news: null, state };
 }

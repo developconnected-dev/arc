@@ -92,6 +92,45 @@ test("a delay growing by fifteen minutes before departure is news", () => {
   assert.equal(r.state.delay, 20);
 });
 
+// A ferry is not in the air and a train does not land. The push that prompted
+// this: "Victoria is in the air ✈️ — BLUE STAR MYCONOS JSY → JMK".
+const ferry = { ...row, flightNumber: "BLUE STAR MYCONOS", departureIata: "JSY",
+  arrivalIata: "JMK", arrivalCity: "Mykonos", mode: "sea" };
+
+test("a ferry leaving is at sea, never in the air", () => {
+  const r = friendFlightNews({ ...ferry, status: "active", prior: { phase: "upcoming", delay: 0 } });
+  assert.equal(r.news!.kind, "tookOff");
+  assert.equal(r.news!.title, "Anna is at sea ⛴️");
+  assert.doesNotMatch(r.news!.title, /air|✈️/);
+  assert.equal(r.news!.body, "BLUE STAR MYCONOS JSY → JMK");
+});
+
+test("a ferry arrives; it does not land", () => {
+  const r = friendFlightNews({ ...ferry, status: "landed", prior: { phase: "airborne", delay: 0 } });
+  assert.equal(r.news!.title, "Anna arrived in Mykonos ⛴️");
+});
+
+test("a late ferry is a ferry, a late train a train", () => {
+  const sea = friendFlightNews({ ...ferry, delayMinutes: 20, prior: { phase: "upcoming", delay: 0 } });
+  assert.equal(sea.news!.title, "Anna's ferry is 20m late");
+  const rail = friendFlightNews({ ...row, mode: "rail", delayMinutes: 20, prior: { phase: "upcoming", delay: 0 } });
+  assert.equal(rail.news!.title, "Anna's train is 20m late");
+});
+
+test("a train leaving is en route and arrives", () => {
+  const off = friendFlightNews({ ...row, mode: "rail", status: "active", prior: { phase: "upcoming", delay: 0 } });
+  assert.equal(off.news!.title, "Anna is en route 🚆");
+  const in_ = friendFlightNews({ ...row, mode: "rail", status: "landed", prior: { phase: "airborne", delay: 0 } });
+  assert.equal(in_.news!.title, "Anna arrived in Lisbon 🚆");
+});
+
+test("a row with no mode, or one this build doesn't know, reads as a flight", () => {
+  for (const mode of [undefined, null, "hovercraft"]) {
+    const r = friendFlightNews({ ...row, mode, status: "active", prior: { phase: "upcoming", delay: 0 } });
+    assert.equal(r.news!.title, "Anna is in the air ✈️");
+  }
+});
+
 test("a delay creeping by less than fifteen minutes is not", () => {
   const r = friendFlightNews({ ...row, delayMinutes: 14, prior: { phase: "upcoming", delay: 0 } });
   assert.equal(r.news, null);

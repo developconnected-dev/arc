@@ -79,6 +79,7 @@ enum FriendAlerts {
         let route: String
         let arrivalCity: String
         let kind: Kind
+        var mode: TripMode = .air
     }
 
     /// Baseline value format: "<phase>|<delayMinutes>".
@@ -121,7 +122,8 @@ enum FriendAlerts {
                     flightNumber: f.flight_number,
                     route: "\(f.departure_iata) → \(f.arrival_iata)",
                     arrivalCity: f.arrival_city,
-                    kind: event))
+                    kind: event,
+                    mode: f.tripMode))
             }
         }
         return out
@@ -167,19 +169,30 @@ enum FriendAlerts {
         [ArcOpenFlightInfo.friendId: id]
     }
 
+    /// A ferry is not in the air and a train does not land. Word for word
+    /// what `friendFlightNews` in the Worker's social.ts says, so a friend
+    /// hears the same thing whichever of the two said it.
+    nonisolated static func wording(_ event: Event) -> (title: String, body: String) {
+        let title: String
+        switch (event.kind, event.mode) {
+        case (.tookOff, .air): title = "\(event.friendName) is in the air ✈️"
+        case (.tookOff, .rail): title = "\(event.friendName) is en route 🚆"
+        case (.tookOff, .sea): title = "\(event.friendName) is at sea ⛴️"
+        case (.landed, .air): title = "\(event.friendName) landed in \(event.arrivalCity) 🛬"
+        case (.landed, .rail): title = "\(event.friendName) arrived in \(event.arrivalCity) 🚆"
+        case (.landed, .sea): title = "\(event.friendName) arrived in \(event.arrivalCity) ⛴️"
+        case (.delayed(let minutes), let mode):
+            let noun = switch mode { case .air: "flight"; case .rail: "train"; case .sea: "ferry" }
+            title = "\(event.friendName)'s \(noun) is \(minutes)m late"
+        }
+        return (title, "\(event.flightNumber) \(event.route)")
+    }
+
     private static func post(_ event: Event) {
         let content = UNMutableNotificationContent()
-        switch event.kind {
-        case .tookOff:
-            content.title = "\(event.friendName) is in the air ✈️"
-            content.body = "\(event.flightNumber) \(event.route)"
-        case .landed:
-            content.title = "\(event.friendName) landed in \(event.arrivalCity) 🛬"
-            content.body = "\(event.flightNumber) \(event.route)"
-        case .delayed(let minutes):
-            content.title = "\(event.friendName)'s flight is \(minutes)m late"
-            content.body = "\(event.flightNumber) \(event.route)"
-        }
+        let words = wording(event)
+        content.title = words.title
+        content.body = words.body
         content.sound = .default
         // Without this the tap had nothing to act on: the handler's
         // `guard let destination` bailed and the notification opened whatever
