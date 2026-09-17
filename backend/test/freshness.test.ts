@@ -254,3 +254,86 @@ test("the ADS-B look spends only inside the takeoff window", () => {
   assert.equal(takeoffWatchDue(DEP, DEP - 10 * 60_000, false, null), true);
   assert.equal(takeoffWatchDue(DEP, DEP + 25 * 60_000, false, "taxiing"), true);
 });
+
+// ── Which meter ran out ──
+//
+// 2026-09-18: AeroDataBox answered 429 "You have exceeded the MONTHLY quota
+// for API Units" while /health said 21,020 remaining and not throttled. The
+// Worker read x-ratelimit-requests-remaining; the plan has a second meter,
+// API units, and that was the one at zero.
+
+import { adbQuotaFromResponse, adbWindowRolled } from "../src/freshness.ts";
+
+const H = (o: Record<string, string>) => Object.entries(o);
+
+test("the meter closest to empty is the one recorded, whatever it is called", () => {
+  const q = adbQuotaFromResponse(200, H({
+    "x-ratelimit-requests-limit": "30000", "x-ratelimit-requests-remaining": "21020",
+    "x-ratelimit-requests-reset": "1000000",
+    "x-ratelimit-api-units-limit": "36000", "x-ratelimit-api-units-remaining": "180",
+    "x-ratelimit-api-units-reset": "999000",
+  }), "");
+  assert.equal(q.remaining, "180");
+  assert.equal(q.reset, "999000");
+  assert.equal(q.meter, "api-units");
+});
+
+test("header case does not matter, and a lone requests meter still works", () => {
+  const q = adbQuotaFromResponse(200, H({
+    "X-RateLimit-Requests-Limit": "6000", "X-RateLimit-Requests-Remaining": "4000",
+    "X-RateLimit-Requests-Reset": "5000",
+  }), "");
+  assert.equal(q.remaining, "4000");
+  assert.equal(q.reset, "5000");
+});
+
+test("a meter without a limit header binds only when it is at zero", () => {
+  const some = adbQuotaFromResponse(200, H({
+    "x-ratelimit-requests-limit": "100", "x-ratelimit-requests-remaining": "50",
+    "x-ratelimit-mystery-remaining": "3",
+  }), "");
+  assert.equal(some.meter, "requests");
+  const none = adbQuotaFromResponse(200, H({
+    "x-ratelimit-requests-limit": "100", "x-ratelimit-requests-remaining": "50",
+    "x-ratelimit-mystery-remaining": "0",
+  }), "");
+  assert.equal(none.remaining, "0");
+});
+
+test("a 429 that says the quota is exceeded records zero, headers or not", () => {
+  const body = '{"message":"You have exceeded the MONTHLY quota for API Units on your current plan, PRO."}';
+  const bare = adbQuotaFromResponse(429, H({}), body);
+  assert.equal(bare.remaining, "0");
+  // The misleading healthy meter must not win over what the provider said.
+  const misleading = adbQuotaFromResponse(429, H({
+    "x-ratelimit-requests-limit": "30000", "x-ratelimit-requests-remaining": "21020",
+    "x-ratelimit-requests-reset": "1000000",
+  }), body);
+  assert.equal(misleading.remaining, "0");
+  assert.equal(misleading.reset, "1000000");
+});
+
+test("a per-second 429 is not an empty plan", () => {
+  const q = adbQuotaFromResponse(429, H({
+    "x-ratelimit-requests-limit": "30000", "x-ratelimit-requests-remaining": "21020",
+  }), '{"message":"Too many requests"}');
+  assert.equal(q.remaining, "21020");
+});
+
+test("no rate-limit headers at all says nothing", () => {
+  const q = adbQuotaFromResponse(200, H({ "content-type": "application/json" }), "");
+  assert.equal(q.remaining, null);
+  assert.equal(q.reset, null);
+});
+
+test("a recorded zero stops blocking once its window has rolled over", () => {
+  const now = Date.parse("2026-09-29T14:00:00Z");
+  assert.equal(adbGate("interactive", 500, 7000, 0).blocked, true);
+  assert.equal(adbGate("interactive", 500, 7000, 0, "2026-09-29T13:27:34Z", now).blocked, false);
+  assert.equal(adbGate("cron", 500, 7000, 0, "2026-09-29T13:27:34Z", now).blocked, false);
+  // Still inside the window: still blocked.
+  assert.equal(adbGate("interactive", 500, 7000, 0, "2026-09-29T13:27:34Z", now - 3600_000).blocked, true);
+  assert.equal(adbWindowRolled("2026-09-29T13:27:34Z", now), true);
+  assert.equal(adbWindowRolled(null, now), false);
+  assert.equal(adbWindowRolled("garbage", now), false);
+});

@@ -7,7 +7,7 @@ import { flightNews, laAlert, applyPrefs, type WatchState, type NotifyPrefs } fr
 import { friendFlightNews, tripInviteNews, recipientsFor, airportOverlaps, overlapNews, type FriendAlertState, type OverlapFlight } from "./social";
 import { staleTokenQueries } from "./tokens";
 import { ProviderBackoff } from "./backoff";
-import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS, adbGate, resetAtFromHeader, ADB_MONTHLY_UNITS, ADB_UNITS_PER_CALL, cronRefreshIntervalMs, takeoffWatchDue } from "./freshness";
+import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS, adbGate, adbQuotaFromResponse, adbWindowRolled, resetAtFromHeader, ADB_MONTHLY_UNITS, ADB_UNITS_PER_CALL, cronRefreshIntervalMs, takeoffWatchDue } from "./freshness";
 import { pickLeg, plausibleActualDeparture, plausibleEstimatedArrival, effectiveDelayMinutes } from "./legmatch";
 import { verifiedRoute } from "./place";
 import { predictionConfirmed, summarise, type PredictionRow } from "./prediction";
@@ -137,6 +137,22 @@ async function adbFetch(path: string, env: Env): Promise<Response> {
   return fetch(`https://${ADB_HOST}${path}`, {
     headers: { "X-RapidAPI-Key": env.RAPIDAPI_KEY, "X-RapidAPI-Host": ADB_HOST },
   });
+}
+
+/// What this response says about the plan, as budgetBump's two arguments.
+/// The body is read from a clone, and only on a 429 — that is the one place
+/// the provider says in words which limit was hit.
+async function adbQuota(res: Response): Promise<[string | null, string | null]> {
+  const body = res.status === 429 ? await res.clone().text().catch(() => "") : "";
+  const q = adbQuotaFromResponse(res.status, [...res.headers], body);
+  return [q.remaining, q.reset];
+}
+
+/// The plan is spent, and the window it was spent in is still running.
+function adbExhausted(budget: Record<string, unknown>): boolean {
+  const remaining = budget["adb_remaining"];
+  return typeof remaining === "number" && remaining <= 0
+    && !adbWindowRolled(budget["adb_reset_at"] as string | null | undefined);
 }
 
 // ── AirLabs fallback ──
@@ -497,8 +513,8 @@ export default {
           const cronCalls = (budget.adb_cron ?? 0) as number;
           const calls = cronCalls + ((budget.adb_interactive ?? 0) as number);
           const remaining = budget.adb_remaining as number | null | undefined;
-          const gate = adbGate("cron", cronCalls, calls, remaining);
           const resetAt = (budget.adb_reset_at as string | null | undefined) ?? null;
+          const gate = adbGate("cron", cronCalls, calls, remaining, resetAt);
           const resetMs = resetAt ? Date.parse(resetAt) - Date.now() : NaN;
           return {
             month: budget.month,
@@ -517,6 +533,8 @@ export default {
             adb_plan_known: typeof remaining === "number",
             adb_cron_stops_below: typeof remaining === "number" ? gate.cronReserveUnits : null,
             adb_throttled: gate.blocked,
+            // Searches stop too — the state that was invisible on 2026-09-18.
+            adb_exhausted: adbExhausted(budget),
             airlabs: `${budget.airlabs_calls}/${AIRLABS_BUDGET}`,
           };
         })() : null,
@@ -1315,10 +1333,9 @@ export default {
       if (!board) {
         if (!env.RAPIDAPI_KEY) return Response.json(null, { status: 404, headers: cors });
         const budget = await budgetRow(env);
-        const remaining = budget["adb_remaining"] as number | null | undefined;
         // Same guard as every other provider call — a gate is a nicety, and
         // must never be the thing that exhausts the plan.
-        if (typeof remaining === "number" && remaining <= 0) {
+        if (adbExhausted(budget)) {
           return Response.json(null, { status: 404, headers: cors });
         }
         const path = `/flights/airports/icao/${icao}/${encodeURIComponent(from)}/${encodeURIComponent(to)}`
@@ -1326,8 +1343,7 @@ export default {
           + `&withCargo=false&withPrivate=false&withLocation=false`;
         const res = await adbFetch(path, env);
         await budgetBump(env, "adb_interactive", (budget["adb_interactive"] as number) ?? 0,
-                         res.headers.get("x-ratelimit-requests-remaining"),
-                     res.headers.get("x-ratelimit-requests-reset"));
+                         ...(await adbQuota(res)));
         if (!res.ok) {
           return Response.json({ error: "fids", status: res.status,
                                  detail: (await res.text()).slice(0, 200) },
@@ -1964,8 +1980,7 @@ async function adbRouteDiscovery(
       : null;
     if (!departures) {
       budget ??= await budgetRow(env);
-      const remaining = budget["adb_remaining"] as number | null | undefined;
-      if (typeof remaining === "number" && remaining <= 0) continue;
+      if (adbExhausted(budget)) continue;
       // Same per-second provider limit as verification: don't fire the
       // second window on the heels of the first.
       if (paceNeeded) await new Promise((r) => setTimeout(r, 650));
@@ -1982,8 +1997,7 @@ async function adbRouteDiscovery(
         res = await adbFetch(path, env);
       }
       await budgetBump(env, "adb_interactive", (budget["adb_interactive"] as number) ?? 0,
-                       res.headers.get("x-ratelimit-requests-remaining"),
-                     res.headers.get("x-ratelimit-requests-reset"));
+                       ...(await adbQuota(res)));
       if (!res.ok) continue;
       const rows = await fidsRows(res, "departures");
       if (rows === null) continue;
@@ -2046,8 +2060,7 @@ async function arrivalBoardNumbers(
       : null;
     if (!arrivals) {
       budget ??= await budgetRow(env);
-      const remaining = budget["adb_remaining"] as number | null | undefined;
-      if (typeof remaining === "number" && remaining <= 0) continue;
+      if (adbExhausted(budget)) continue;
       if (paceNeeded) await new Promise((r) => setTimeout(r, 650));
       paceNeeded = true;
       const path = `/flights/airports/iata/${arrIATA}/${encodeURIComponent(from)}/${encodeURIComponent(to)}`
@@ -2059,8 +2072,7 @@ async function arrivalBoardNumbers(
         res = await adbFetch(path, env);
       }
       await budgetBump(env, "adb_interactive", (budget["adb_interactive"] as number) ?? 0,
-                       res.headers.get("x-ratelimit-requests-remaining"),
-                     res.headers.get("x-ratelimit-requests-reset"));
+                       ...(await adbQuota(res)));
       if (!res.ok) continue;
       const rows = await fidsRows(res, "arrivals");
       if (rows === null) continue;
@@ -2355,7 +2367,8 @@ async function fetchLegsCached(
   // and the whole comparison runs in UNITS (see adbGate), because adding our
   // call counters to the provider's unit counter is how last month blew
   // through the plan while this gate believed it was pacing it.
-  if (adbGate(source, cronUsed, totalUsed, remaining).blocked) {
+  if (adbGate(source, cronUsed, totalUsed, remaining,
+              budget["adb_reset_at"] as string | null | undefined).blocked) {
     return { legs: cachedLegs, cache: cachedLegs ? "stale" : "none" };
   }
 
@@ -2370,8 +2383,7 @@ async function fetchLegsCached(
     if (!res) return { legs: cachedLegs, cache: cachedLegs ? "stale" : "none" };
     // Count attempts, not just successes — a 429 burns real quota state.
     await budgetBump(env, field, (budget[field] as number) ?? 0,
-                     res.headers.get("x-ratelimit-requests-remaining"),
-                     res.headers.get("x-ratelimit-requests-reset"));
+                     ...(await adbQuota(res)));
     if (res.ok || res.status === 404) {
       // "No such flight that day" comes back as a 2xx with an EMPTY BODY, not
       // a 404. res.json() throws on that, and the throw used to escape to the
@@ -2425,6 +2437,8 @@ async function fetchLegsCached(
     // exhausted plan alike, and only the body and Retry-After tell them apart.
     console.error("adb fetch failed:", res.status, key,
                   "retry-after:", res.headers.get("retry-after") ?? "-",
+                  [...res.headers].filter(([k]) => k.toLowerCase().startsWith("x-ratelimit-"))
+                    .map(([k, v]) => `${k.slice(12)}=${v}`).join(" ") || "no-ratelimit-headers",
                   (await res.text().catch(() => "")).slice(0, 160));
   } catch (e) { console.error("adb fetch threw:", key, String(e)); }
   return { legs: cachedLegs, cache: cachedLegs ? "stale" : "none" };

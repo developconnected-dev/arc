@@ -157,8 +157,17 @@ export function adbGate(
   cronCalls: number,
   totalCalls: number,
   remainingUnits: number | null | undefined,
+  resetAt?: string | null,
+  now: number = Date.now(),
 ): { blocked: boolean; estUnitsUsed: number; planUnits: number; cronReserveUnits: number } {
+  // A number recorded in a window that has since rolled over describes last
+  // month. It must not block: a blocked gate makes no call, and only a call
+  // can bring back the new number — a recorded zero would hold for ever.
   const estUnitsUsed = totalCalls * ADB_UNITS_PER_CALL;
+  if (typeof remainingUnits === "number" && adbWindowRolled(resetAt, now)) {
+    return { blocked: false, estUnitsUsed, planUnits: ADB_MONTHLY_UNITS,
+             cronReserveUnits: Math.max(100, Math.floor(ADB_MONTHLY_UNITS * ADB_CRON_RESERVE_SHARE)) };
+  }
   const planUnits = typeof remainingUnits === "number"
     ? estUnitsUsed + remainingUnits
     : ADB_MONTHLY_UNITS;
@@ -169,6 +178,53 @@ export function adbGate(
       ? cronCalls * ADB_UNITS_PER_CALL >= ADB_MONTHLY_UNITS * ADB_CRON_SHARE
       : estUnitsUsed >= ADB_MONTHLY_UNITS;
   return { blocked, estUnitsUsed, planUnits, cronReserveUnits };
+}
+
+/// Whether the quota window a stored `adb_remaining` was read in has ended.
+export function adbWindowRolled(resetAt: string | null | undefined, now: number = Date.now()): boolean {
+  const t = resetAt ? Date.parse(resetAt) : NaN;
+  return Number.isFinite(t) && t <= now;
+}
+
+/// What one provider response says about the plan: the meter closest to
+/// empty, and when it refills.
+///
+/// RapidAPI sends an `x-ratelimit-<meter>-limit/-remaining/-reset` triple per
+/// quota object, and AeroDataBox has two: requests, and API units. The Worker
+/// read only `requests` — so on 2026-09-18 /health showed 21,020 left and
+/// "not throttled" while every call came back 429 "You have exceeded the
+/// MONTHLY quota for API Units". Nothing here names a meter: whichever has
+/// the smallest share left is the one that will stop the app, and that is
+/// the number worth recording.
+///
+/// And when the provider says in words that the quota is gone, that is
+/// believed over any header — zero, until the reset.
+export function adbQuotaFromResponse(
+  status: number, headers: Iterable<[string, string]>, body: string,
+): { remaining: string | null; reset: string | null; meter: string | null } {
+  const h = new Map<string, string>();
+  for (const [k, v] of headers) h.set(k.toLowerCase(), v);
+
+  let best: { meter: string; remaining: number; share: number; reset: string | null } | null = null;
+  let anyReset: string | null = null;
+  for (const [k, v] of h) {
+    const m = /^x-ratelimit-(.+)-remaining$/.exec(k);
+    if (!m) continue;
+    const remaining = Number(v);
+    if (v.trim() === "" || !Number.isFinite(remaining)) continue;
+    const limit = Number(h.get(`x-ratelimit-${m[1]}-limit`));
+    const reset = h.get(`x-ratelimit-${m[1]}-reset`) ?? null;
+    anyReset ??= reset;
+    // No limit to measure against: such a meter says something only at zero.
+    const share = Number.isFinite(limit) && limit > 0 ? remaining / limit : remaining > 0 ? 1 : 0;
+    if (!best || share < best.share) best = { meter: m[1], remaining, share, reset };
+  }
+
+  if (status === 429 && /quota/i.test(body)) {
+    return { remaining: "0", reset: best?.reset ?? anyReset, meter: best?.meter ?? null };
+  }
+  if (!best) return { remaining: null, reset: null, meter: null };
+  return { remaining: String(best.remaining), reset: best.reset, meter: best.meter };
 }
 
 /// When the provider's quota window rolls over, from the
