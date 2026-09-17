@@ -47,8 +47,21 @@ const DELAY_STEP = 10;
 /// so hourly would train the user to ignore Arc.
 const GATE_HORIZON_MS = 6 * 3600_000;
 
+/// The leg's own words — LocalAlertNews.vehicle and TripMode's
+/// boardingPointLabel/operatorNoun on the device. No mode, or one this
+/// build doesn't know, is a flight.
+function legWords(mode: string | null | undefined): {
+  noun: string; plural: string; place: string; point: string; operator: string;
+} {
+  if (mode === "sea") return { noun: "ferry", plural: "ferries", place: "port", point: "berth", operator: "ferry operator" };
+  if (mode === "rail") return { noun: "train", plural: "trains", place: "station", point: "platform", operator: "operator" };
+  return { noun: "flight", plural: "flights", place: "airport", point: "gate", operator: "airline" };
+}
+
 export function flightNews(args: {
   flightNumber: string;
+  /// 'air' | 'rail' | 'sea' — user_flights.mode.
+  mode?: string | null;
   arrivalCity: string;
   status: string;
   delayMinutes: number;
@@ -63,6 +76,8 @@ export function flightNews(args: {
 }): AlertNews | null {
   const { flightNumber, arrivalCity, status, delayMinutes, departureGate, prior } = args;
   const state: WatchState = { ...prior };
+  const w = legWords(args.mode);
+  const Point = w.point[0].toUpperCase() + w.point.slice(1);
 
   // A cancellation outranks everything else and is said exactly once.
   if (status === "cancelled") {
@@ -72,7 +87,7 @@ export function flightNews(args: {
       kind: "cancelled",
       collapseId: `${flightNumber}-cancelled`,
       title: `${flightNumber} is cancelled`,
-      body: `Your flight to ${arrivalCity} won't operate. Rebooking now beats rebooking at the airport.`,
+      body: `Your ${w.noun} to ${arrivalCity} won't operate. Rebooking now beats rebooking at the ${w.place}.`,
       state,
     };
   }
@@ -90,8 +105,8 @@ export function flightNews(args: {
       kind: "uncertain",
       collapseId: `${flightNumber}-cancelled`,
       title: `${flightNumber} may be cancelled`,
-      body: `The data feed flags your flight to ${arrivalCity} as possibly cancelled — `
-        + `rescheduled flights sometimes carry this mark. Worth checking with the airline.`,
+      body: `The data feed flags your ${w.noun} to ${arrivalCity} as possibly cancelled — `
+        + `rescheduled ${w.plural} sometimes carry this mark. Worth checking with the ${w.operator}.`,
       state,
     };
   }
@@ -103,7 +118,7 @@ export function flightNews(args: {
       kind: "uncertain",
       collapseId: `${flightNumber}-cancelled`,
       title: `${flightNumber} looks like it's operating`,
-      body: `The possibly-cancelled flag on your flight to ${arrivalCity} has cleared.`,
+      body: `The possibly-cancelled flag on your ${w.noun} to ${arrivalCity} has cleared.`,
       state,
     };
   }
@@ -141,9 +156,9 @@ export function flightNews(args: {
     return {
       kind: "gate",
       collapseId: `${flightNumber}-gate`,
-      title: moved ? `${flightNumber} moved to gate ${departureGate}`
-                   : `${flightNumber} departs from gate ${departureGate}`,
-      body: moved ? `Changed from gate ${prior.gate}.` : `Gate is now published.`,
+      title: moved ? `${flightNumber} moved to ${w.point} ${departureGate}`
+                   : `${flightNumber} departs from ${w.point} ${departureGate}`,
+      body: moved ? `Changed from ${w.point} ${prior.gate}.` : `${Point} is now published.`,
       state,
     };
   }

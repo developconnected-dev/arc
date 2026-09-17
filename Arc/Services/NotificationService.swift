@@ -61,10 +61,12 @@ enum LocalAlertNews {
                     body: "Your \(v.noun) to \(arrivalCity) won't operate. Rebooking now beats rebooking at the \(v.place).")
     }
 
-    static func possiblyCancelled(flightNumber: String, arrivalCity: String) -> News {
-        News(title: "\(flightNumber) may be cancelled",
-             body: "The data feed flags your flight to \(arrivalCity) as possibly cancelled — "
-                 + "rescheduled flights sometimes carry this mark. Worth checking with the airline.")
+    static func possiblyCancelled(flightNumber: String, mode: TripMode = .air, arrivalCity: String) -> News {
+        let v = vehicle(mode)
+        return News(title: "\(flightNumber) may be cancelled",
+             body: "The data feed flags your \(v.noun) to \(arrivalCity) as possibly cancelled — "
+                 + "rescheduled \(mode == .sea ? "ferries" : v.noun + "s") sometimes carry this mark. "
+                 + "Worth checking with the \(mode.operatorNoun.lowercased()).")
     }
 }
 
@@ -254,7 +256,7 @@ enum ArcNotifications {
         guard !serverWillSayIt(flight) else { return }
         guard flight.scheduledDeparture.timeIntervalSince(.now) > -24 * 3600 else { return }
         let news = LocalAlertNews.possiblyCancelled(
-            flightNumber: flight.flightNumber, arrivalCity: flight.arrivalCity.isEmpty ? flight.arrivalIATA : flight.arrivalCity)
+            flightNumber: flight.flightNumber, mode: flight.mode, arrivalCity: flight.arrivalCity.isEmpty ? flight.arrivalIATA : flight.arrivalCity)
         send(title: news.title, body: news.body,
              id: "cancelled-\(flight.flightNumber)-\(Int(flight.scheduledDeparture.timeIntervalSince1970))",
              flight: flight)

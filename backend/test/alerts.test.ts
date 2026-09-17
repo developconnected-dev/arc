@@ -194,3 +194,47 @@ test("a Live Activity banner drops the parts the user switched off", () => {
   assert.equal(laAlert({ flightNumber: "LX318", priorGate: null, gate: "B12", priorDelay: 0, delay: 40,
                          prefs: { gates: false, delays: false } }), null);
 });
+
+// ── The words follow the leg's mode, as LocalAlertNews does on the device ──
+//
+// The watcher only asks the airline feed about air legs today, so none of
+// this reaches a ferry yet — but the two sides are one contract, and the
+// device already says "ferry", "port" and "berth".
+
+test("a cancelled ferry is a ferry, rebooked before the port", () => {
+  const n = flightNews({ ...base, mode: "sea", status: "cancelled" })!;
+  assert.match(n.body, /^Your ferry to /);
+  assert.match(n.body, /at the port\.$/);
+  assert.doesNotMatch(n.body, /flight|airport/);
+});
+
+test("a cancelled train is a train, rebooked before the station", () => {
+  const n = flightNews({ ...base, mode: "rail", status: "cancelled" })!;
+  assert.match(n.body, /^Your train to /);
+  assert.match(n.body, /at the station\.$/);
+});
+
+test("a train's gate is a platform and a ferry's a berth", () => {
+  const soon = { ...base, scheduledDeparture: base.now + 3600_000 };
+  const rail = flightNews({ ...soon, mode: "rail", departureGate: "7" })!;
+  assert.match(rail.title, /departs from platform 7$/);
+  assert.equal(rail.body, "Platform is now published.");
+  const sea = flightNews({ ...soon, mode: "sea", departureGate: "E2", prior: { gate: "E1" } })!;
+  assert.match(sea.title, /moved to berth E2$/);
+  assert.equal(sea.body, "Changed from berth E1.");
+});
+
+test("with no mode, or an unknown one, every word is the flight's", () => {
+  for (const mode of [undefined, null, "hovercraft"]) {
+    const n = flightNews({ ...base, mode, status: "cancelled" })!;
+    assert.match(n.body, /^Your flight to .* at the airport\.$/);
+  }
+});
+
+test("a possibly-cancelled ferry: ferries, and the ferry operator", () => {
+  const n = flightNews({ ...base, mode: "sea", cancelUncertain: true })!;
+  assert.equal(n.body, "The data feed flags your ferry to Zurich as possibly cancelled — "
+    + "rescheduled ferries sometimes carry this mark. Worth checking with the ferry operator.");
+  const air = flightNews({ ...base, cancelUncertain: true })!;
+  assert.match(air.body, /rescheduled flights sometimes carry this mark\. Worth checking with the airline\.$/);
+});

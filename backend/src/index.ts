@@ -3158,6 +3158,7 @@ async function watchUpcoming(env: Env): Promise<void> {
 
       const news = flightNews({
         flightNumber: String(row.flight_number),
+        mode: (row.mode as string | null) ?? null,
         arrivalCity: String(row.arrival_city || row.arrival_iata || "your destination"),
         status: String(leg["status"] ?? row.status ?? "scheduled"),
         cancelUncertain: leg["cancel_uncertain"] === true,

@@ -1011,4 +1011,11 @@ final class LocalAlertWordingTests: XCTestCase {
         XCTAssertEqual(maybe.title, "LX17 may be cancelled")
         XCTAssertEqual(maybe.body, "The data feed flags your flight to Zurich as possibly cancelled — rescheduled flights sometimes carry this mark. Worth checking with the airline.")
     }
+
+    /// Word for word what alerts.ts says for the same mode.
+    func testAPossiblyCancelledFerryIsNotAFlight() {
+        let sea = LocalAlertNews.possiblyCancelled(flightNumber: "BLUE STAR MYCONOS", mode: .sea, arrivalCity: "Mykonos")
+        XCTAssertEqual(sea.body, "The data feed flags your ferry to Mykonos as possibly cancelled — "
+            + "rescheduled ferries sometimes carry this mark. Worth checking with the ferry operator.")
+    }
 }
