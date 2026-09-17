@@ -6,6 +6,7 @@ import { contentState, liveActivityClock, sanitizeLiveActivityLocal } from "./ac
 import { flightNews, laAlert, applyPrefs, type WatchState, type NotifyPrefs } from "./alerts";
 import { friendFlightNews, tripInviteNews, recipientsFor, airportOverlaps, overlapNews, type FriendAlertState, type OverlapFlight } from "./social";
 import { staleTokenQueries } from "./tokens";
+import { ProviderBackoff } from "./backoff";
 import { shouldWriteSharedRow, laterISO, sharedRowIsDue, sharedRowCheckInterval, providerAnswered, watchIntervalMs, WATCH_MIN_INTERVAL_MS, adbGate, resetAtFromHeader, ADB_MONTHLY_UNITS, ADB_UNITS_PER_CALL, cronRefreshIntervalMs, takeoffWatchDue } from "./freshness";
 import { pickLeg, plausibleActualDeparture, plausibleEstimatedArrival, effectiveDelayMinutes } from "./legmatch";
 import { verifiedRoute } from "./place";
@@ -2312,6 +2313,9 @@ async function budgetBump(env: Env, field: string, current: number,
   }
 }
 
+/// Keys the provider would not answer about just now — see backoff.ts.
+const adbBackoff = new ProviderBackoff();
+
 /// Phase-aware freshness: how long a cached answer stays good, judged from
 /// the flight's own times. Tight only in the windows where data actually
 interface CachedFetch {
@@ -2359,7 +2363,11 @@ async function fetchLegsCached(
     const path = kind === "flight"
       ? `/flights/number/${encodeURIComponent(ident)}/${date}?withAircraftImage=false&withLocation=true`
       : `/flights/reg/${encodeURIComponent(ident)}/${date}?withLocation=true`;
-    const res = await adbFetch(path, env);
+    const res = await adbBackoff.ask(key, source, Date.now(), () => adbFetch(path, env));
+    // Held: the provider refused this very key moments ago (see backoff.ts).
+    // No request was made, so there is nothing to count — the caller gets the
+    // stale legs it would have got from a sixth 429 anyway.
+    if (!res) return { legs: cachedLegs, cache: cachedLegs ? "stale" : "none" };
     // Count attempts, not just successes — a 429 burns real quota state.
     await budgetBump(env, field, (budget[field] as number) ?? 0,
                      res.headers.get("x-ratelimit-requests-remaining"),
@@ -2381,6 +2389,7 @@ async function fetchLegsCached(
           raw = JSON.parse(body);
         } catch {
           console.error("adb bad json:", key, body.slice(0, 200));
+          adbBackoff.hold(key, Date.now());
           return { legs: cachedLegs, cache: cachedLegs ? "stale" : "none" };
         }
       }
@@ -2397,6 +2406,9 @@ async function fetchLegsCached(
       const heldFor = Date.now() - Date.parse(String(cached?.fetched_at ?? ""));
       if (legs.length === 0 && cachedLegs && cachedLegs.length > 0
           && isFinite(heldFor) && heldFor < 24 * 3600_000) {
+        // Nothing is cached for this, so without a hold every cron caller
+        // behind this one would draw the same empty answer again this tick.
+        adbBackoff.hold(key, Date.now());
         return { legs: cachedLegs, cache: "stale" };
       }
       // Cache empty answers too: "doesn't fly that date" is a definitive
@@ -2409,7 +2421,11 @@ async function fetchLegsCached(
       await sbService(env, "POST", "/flight_cache?on_conflict=key", fresh);
       return { legs, cache: "miss" };
     }
-    console.error("adb fetch failed:", res.status, key);
+    // WHICH limit: RapidAPI answers 429 for the per-second limiter and for an
+    // exhausted plan alike, and only the body and Retry-After tell them apart.
+    console.error("adb fetch failed:", res.status, key,
+                  "retry-after:", res.headers.get("retry-after") ?? "-",
+                  (await res.text().catch(() => "")).slice(0, 160));
   } catch (e) { console.error("adb fetch threw:", key, String(e)); }
   return { legs: cachedLegs, cache: cachedLegs ? "stale" : "none" };
 }
