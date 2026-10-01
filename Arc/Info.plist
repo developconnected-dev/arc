@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>ArcAPIHost</key>
+	<string>$(ARC_API_HOST)</string>
+	<key>ArcSupabaseAnonKey</key>
+	<string>$(ARC_SUPABASE_ANON_KEY)</string>
+	<key>ArcSupabaseHost</key>
+	<string>$(ARC_SUPABASE_HOST)</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.arc.flighttracker.refresh</string>

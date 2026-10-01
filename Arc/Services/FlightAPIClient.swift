@@ -5,8 +5,8 @@ actor FlightAPIClient {
     static let shared = FlightAPIClient()
 
     private var baseURL: URL {
-        let endpoint = UserDefaults.standard.string(forKey: "apiEndpoint") ?? "https://your-worker.workers.dev"
-        return URL(string: endpoint) ?? URL(string: "https://your-worker.workers.dev")!
+        let endpoint = UserDefaults.standard.string(forKey: "apiEndpoint") ?? ArcConfig.defaultAPIEndpoint
+        return URL(string: endpoint) ?? ArcConfig.defaultAPIURL
     }
     private let session: URLSession = {
         let cfg = URLSessionConfiguration.default

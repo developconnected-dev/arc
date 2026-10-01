@@ -42,7 +42,7 @@ struct SettingsView: View {
 
     /// Kept identical to FlightAPIClient's fallback, so "reset" really restores
     /// the shipping backend rather than a second, drifting copy of the URL.
-    static let defaultEndpoint = "https://your-worker.workers.dev"
+    static let defaultEndpoint = ArcConfig.defaultAPIEndpoint
     @AppStorage("apiEndpoint") private var apiEndpoint = SettingsView.defaultEndpoint
 
     var body: some View {

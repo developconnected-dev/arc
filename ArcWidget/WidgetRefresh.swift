@@ -24,7 +24,7 @@ enum WidgetRefresh {
 
     private static var baseURL: URL {
         let stored = WidgetData.sharedDefaults?.string(forKey: "apiEndpoint")
-        return URL(string: stored ?? "") ?? URL(string: "https://your-worker.workers.dev")!
+        return URL(string: stored ?? "") ?? ArcConfig.defaultAPIURL
     }
 
     /// The leg the widget will lead with, refreshed against the Worker when it

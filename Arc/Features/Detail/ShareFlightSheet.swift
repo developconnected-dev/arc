@@ -21,7 +21,7 @@ struct ShareFlightSheet: View {
     /// followed — with no way to retry short of reopening the sheet.
     enum LinkState { case working, ready, unavailable, failed }
 
-    private static let shareBase = "https://your-worker.workers.dev/s/"
+    private static let shareBase = ArcConfig.defaultAPIEndpoint + "/s/"
 
     var body: some View {
         ScrollView {

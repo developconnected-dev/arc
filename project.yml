@@ -17,6 +17,11 @@ settings:
     # a given MARKETING_VERSION: this must go UP for every upload.
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: 40
+# Shared build settings; deployment values come from the gitignored
+# Config/Secrets.xcconfig it includes (see Secrets.example.xcconfig).
+configFiles:
+  Debug: Config/Arc.xcconfig
+  Release: Config/Arc.xcconfig
 options:
   bundleIdPrefix: com.arc
   deploymentTarget:
@@ -49,6 +54,9 @@ targets:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         NSSupportsLiveActivities: true
+        ArcAPIHost: "$(ARC_API_HOST)"
+        ArcSupabaseHost: "$(ARC_SUPABASE_HOST)"
+        ArcSupabaseAnonKey: "$(ARC_SUPABASE_ANON_KEY)"
         # Lets the app talk to a `wrangler dev` worker on http://localhost while
         # testing. Scoped to local networking only — arbitrary cleartext loads
         # to the internet stay blocked.

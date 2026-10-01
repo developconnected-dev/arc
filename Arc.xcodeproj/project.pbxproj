@@ -129,12 +129,14 @@
 		B5C83A8B690A9B701C802202 /* FloatingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 206D298764D047DA3F0C2844 /* FloatingPanel.swift */; };
 		B646A862A5FB908BF520D1E8 /* MapController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD77AF2CE7584E492AA0A637 /* MapController.swift */; };
 		B898832B7AC151BC27E0C6FD /* TripMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DDFB16C2832C0B19003EA0D /* TripMode.swift */; };
+		BD4575B94CD8B8E2784F4FE1 /* ArcConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 206334C79D9DF203303CE12F /* ArcConfig.swift */; };
 		BDA9D40E00E8F38131B3C8FD /* AirportStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9371C57F0DE1D1A4B88E3 /* AirportStatusView.swift */; };
 		BEE4C5661C61DDB3D277469B /* LiveActivityPushSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30B1695E898672BA030B089 /* LiveActivityPushSyncTests.swift */; };
 		C0DE555A6BBA8CA7E40648A8 /* TripLogoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81A83E908E4D238FB3AB6A45 /* TripLogoView.swift */; };
 		C1A749BDDC82ED06F27F8715 /* DelayRiskTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F70B4249290027FDAFA9D021 /* DelayRiskTests.swift */; };
 		C3B05E522F64F7A73BDB3F5F /* ScheduleBackfill.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB709548B711E7098E93A102 /* ScheduleBackfill.swift */; };
 		C5C4308822655A3479EDCE04 /* RouteReveal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A3B7B8C200CF31995916A79 /* RouteReveal.swift */; };
+		C6BB56298572BA21829408B3 /* ArcConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 206334C79D9DF203303CE12F /* ArcConfig.swift */; };
 		C870B531E4885665A67DA68F /* PlanePositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B48F84455243D0E4149FB369 /* PlanePositionTests.swift */; };
 		C8FFD2D8D6BF9BD7326C11AF /* RotationChainTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38329F5149CBA92432A823C7 /* RotationChainTests.swift */; };
 		C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6203F2E6D1096F29FA5083FC /* ArcApp.swift */; };
@@ -230,6 +232,7 @@
 		1BFECC1DABBC5FC07371E956 /* ArcDesign.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcDesign.swift; sourceTree = "<group>"; };
 		1E21AF3079D3B86AEB18F202 /* FloatingSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingSurface.swift; sourceTree = "<group>"; };
 		1E47BF7D61BAF11682C2B4E2 /* FlightAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightAPIClient.swift; sourceTree = "<group>"; };
+		206334C79D9DF203303CE12F /* ArcConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcConfig.swift; sourceTree = "<group>"; };
 		206D298764D047DA3F0C2844 /* FloatingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingPanel.swift; sourceTree = "<group>"; };
 		2091849463E3B42B39109819 /* ArcTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArcTheme.swift; sourceTree = "<group>"; };
 		20CEE5C663F58D16E8083E28 /* MinuteTimer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinuteTimer.swift; sourceTree = "<group>"; };
@@ -267,6 +270,7 @@
 		4FB40E7D146DE8662884B50D /* FlightLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlightLiveActivity.swift; sourceTree = "<group>"; };
 		4FC1F2E2CBB2CE7FEDCF4D58 /* DetailRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailRows.swift; sourceTree = "<group>"; };
 		5071EA7C352056408F298DEA /* LiveActivityClockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityClockTests.swift; sourceTree = "<group>"; };
+		5096BC01802381145274511D /* Arc.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Arc.xcconfig; sourceTree = "<group>"; };
 		51628B58BB357CCDD1FD5F3A /* SmartETATests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartETATests.swift; sourceTree = "<group>"; };
 		516D231D56AA6F92EB9A324E /* AirportOverlapRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirportOverlapRow.swift; sourceTree = "<group>"; };
 		52797B52C0758A076B4FB4CC /* FriendsFloatingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsFloatingTests.swift; sourceTree = "<group>"; };
@@ -567,6 +571,7 @@
 		A2CA152829D97FB89330C0BC /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				206334C79D9DF203303CE12F /* ArcConfig.swift */,
 				FA61B45722DDEC3425D45B09 /* DepartureEvidence.swift */,
 				4B59DFF600FEDEB5C44BEED7 /* FlightActivityAttributes.swift */,
 				E541D2FFAAC64594CCFDC7CE /* FlightClock.swift */,
@@ -594,6 +599,7 @@
 				F217BA22EB7CDEAB4A10C314 /* ArcTests */,
 				47D3A4121C2C677CCBE62AF0 /* ArcUITests */,
 				4F2534B1CB451EE570B34F3F /* ArcWidget */,
+				EFA9F2635DBDA3E45958702B /* Config */,
 				A2CA152829D97FB89330C0BC /* Shared */,
 				56BD32AAEBF832991570B246 /* Products */,
 			);
@@ -641,6 +647,14 @@
 				43ABFA4A044A3FC50C162D4A /* Settings */,
 			);
 			path = Features;
+			sourceTree = "<group>";
+		};
+		EFA9F2635DBDA3E45958702B /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				5096BC01802381145274511D /* Arc.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 		F14CA8B67EED69A8D8D012C6 /* Flights */ = {
@@ -851,6 +865,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C6BB56298572BA21829408B3 /* ArcConfig.swift in Sources */,
 				D26812028267EF8CE41C593F /* ArcWidgetBundle.swift in Sources */,
 				83DB6FA51D0DC4D1B14F002D /* DepartureEvidence.swift in Sources */,
 				9C894C7AEAE72DD9CBA288F8 /* FlightActivityAttributes.swift in Sources */,
@@ -931,6 +946,7 @@
 				2AEA6A4A50AA735658212B7D /* AirportOverlapRow.swift in Sources */,
 				BDA9D40E00E8F38131B3C8FD /* AirportStatusView.swift in Sources */,
 				C90A55C4564B261C22B0B790 /* ArcApp.swift in Sources */,
+				BD4575B94CD8B8E2784F4FE1 /* ArcConfig.swift in Sources */,
 				4DC5DD74216D89BCF661E139 /* ArcDesign.swift in Sources */,
 				066B813B251042A5C7326EA9 /* ArcMapView.swift in Sources */,
 				05ED885E317014CE129D89E7 /* ArcRootView.swift in Sources */,
@@ -1075,6 +1091,7 @@
 		};
 		881A7A84659DE933D2A9C1CB /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5096BC01802381145274511D /* Arc.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -1225,6 +1242,7 @@
 		};
 		D4129F2D6EB9463B0256E23E /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 5096BC01802381145274511D /* Arc.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;

@@ -606,7 +606,7 @@ struct AddFriendSheet: View {
     @State private var redeeming = false
     @State private var redeemError: String?
 
-    private static let inviteBase = "https://your-worker.workers.dev/f/"
+    private static let inviteBase = ArcConfig.defaultAPIEndpoint + "/f/"
 
     var body: some View {
         NavigationStack {

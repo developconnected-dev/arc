@@ -45,9 +45,9 @@ final class ArcSupabase: ObservableObject {
         // Supabase actually configured out of the box, not just "shown as configured
         // if you happen to open Settings first."
         self.baseURL = UserDefaults.standard.string(forKey: "supabase_url")
-            ?? "https://your-project-ref.supabase.co"
+            ?? ArcConfig.supabaseURL ?? ""
         self.anonKey = UserDefaults.standard.string(forKey: "supabase_anon_key")
-            ?? "REDACTED_SUPABASE_ANON_KEY"
+            ?? ArcConfig.supabaseAnonKey ?? ""
         self.accessToken = TokenStore.read(forKey: "arc_access_token")
         self.refreshToken = TokenStore.read(forKey: "arc_refresh_token")
         self.isSignedIn = accessToken != nil

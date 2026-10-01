@@ -26,3 +26,7 @@ build_device/
 docs/superpowers/
 supabase/.temp/
 .arc-db-snapshot-*.json
+RELEASE_CHECKLIST.md
+docs/api-keys-setup.md
+backend/wrangler.toml
+Config/Secrets.xcconfig

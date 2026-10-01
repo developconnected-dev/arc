@@ -2764,9 +2764,9 @@ const ADSB_HOSTS = [
 /// info." Cloudflare sends no UA of its own, which is why live position
 /// silently returned null in production. Identify the project and where to
 /// reach it; no personal data belongs in an outbound header.
-const ADSB_UA_BASE = "ArcFlightTracker/1.0 (+https://your-worker.workers.dev";
+const ADSB_UA_BASE = "ArcFlightTracker/1.0";
 function adsbUA(env: Env): string {
-  return env.ADSB_CONTACT ? `${ADSB_UA_BASE}; ${env.ADSB_CONTACT})` : `${ADSB_UA_BASE})`;
+  return env.ADSB_CONTACT ? `${ADSB_UA_BASE} (+${env.ADSB_CONTACT})` : ADSB_UA_BASE;
 }
 async function fetchADSB(env: Env, kind: string, value: string): Promise<ADSBPosition | null> {
   const key = value.trim().replace(/\s+/g, "").toLowerCase();

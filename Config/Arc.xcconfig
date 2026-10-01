@@ -1,0 +1,10 @@
+// Build settings shared by every target. Deployment-specific values (the
+// backend and Supabase hosts, the Supabase anon key) live in
+// Secrets.xcconfig, which is gitignored — copy Secrets.example.xcconfig to
+// create it. Without it the app builds with these empty values and talks to
+// a local `wrangler dev` Worker instead.
+ARC_API_HOST =
+ARC_SUPABASE_HOST =
+ARC_SUPABASE_ANON_KEY =
+
+#include? "Secrets.xcconfig"

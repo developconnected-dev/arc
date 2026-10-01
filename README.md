@@ -214,52 +214,5 @@ flowchart LR
 | `backend/` | Cloudflare Worker: every provider call, the cron, push, AI calls |
 | `supabase/migrations/` | Database schema, in order |
 | `scripts/` | Builds the bundled offline airport/airline tables (~7,900 airports, ~990 airlines) |
-| `docs/` | Setup guides and the screenshots above |
+| `docs/` | The screenshots above |
 
----
-
-## Running it
-
-Requires **Xcode 26** (iOS 26 deployment target).
-
-```bash
-open Arc.xcodeproj        # run the "Arc" scheme
-```
-
-Nothing needs configuring to try it. The UI, offline airport/airline search,
-manual trip entry, Passport, widgets and Live Activities all work with no
-backend and no account. To see the app filled with sample trips, as in the
-screenshots, add the launch argument `-seedDemo` to the scheme.
-
-`project.yml` is the source of truth for the Xcode project. Run `xcodegen`
-after adding or moving files.
-
-**Tests**
-
-```bash
-xcodebuild test -scheme Arc -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
-cd backend && npm install && npm test
-```
-
-**Backend** (needed only for live search and tracking)
-
-```bash
-cd backend
-npm run dev       # wrangler dev on http://localhost:8787
-npm run deploy
-```
-
-`backend/wrangler.toml` documents every secret and what it unlocks. Only an
-AeroDataBox key is needed for flight tracking; rail and ferry data need no
-key. See [`docs/api-keys-setup.md`](docs/api-keys-setup.md) for a walkthrough.
-Point the app at your Worker under Passport → avatar → Settings → Backend URL.
-
-### Data sources
-
-| Mode | Provider | What Arc can honestly claim |
-| --- | --- | --- |
-| Air | AeroDataBox, AirLabs fallback | Status, revised times, gates, belt, aircraft: **live** |
-| Air position | airplanes.live (ADS-B) | Real position while airborne |
-| Rail | Transitous / MOTIS | Live where the operator publishes realtime, otherwise **scheduled** |
-| Sea | Ferryhopper | Timetable plus disruption notices: always **scheduled** |
-| Weather | aviationweather.gov | METAR observations and TAF forecasts |
