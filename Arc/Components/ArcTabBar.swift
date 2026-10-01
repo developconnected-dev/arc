@@ -15,7 +15,7 @@ enum ArcTab: CaseIterable {
 /// What the native `TabView` selects between: the three tabs, plus the round
 /// **+** bubble iOS draws beside the bar for it (`addRole`). `add` is never
 /// held as the selection — picking it opens the Add sheet and leaves the user
-/// on the tab they were on (docs/superpowers/specs/2026-09-15-floating-trips-design.md).
+/// on the tab they were on.
 enum TabSelection: Hashable {
     case tab(ArcTab)
     case add
@@ -25,8 +25,13 @@ enum TabSelection: Hashable {
 
     /// The role that sets the + apart as its own bubble. iOS 26 does that for
     /// a search tab; iOS 27 folds a search tab into the bar ("Add a trip" as a
-    /// fourth item) and separates a prominent one instead.
+    /// fourth item) and separates a prominent one instead. `.prominent` only
+    /// exists in the iOS 27 SDK (Swift 6.4), so an Xcode 26 build — CI's —
+    /// compiles the iOS 26 behaviour alone.
     static var addRole: TabRole {
-        if #available(iOS 27.0, *) { .prominent } else { .search }
+        #if compiler(>=6.4)
+        if #available(iOS 27.0, *) { return .prominent }
+        #endif
+        return .search
     }
 }

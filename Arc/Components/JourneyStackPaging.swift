@@ -2,8 +2,7 @@ import CoreGraphics
 import Foundation
 
 /// The Smart-Stack rules for My Trips' folded journeys, pure so the geometry
-/// that must land pixel-identically is tested, not eyeballed
-/// (docs/superpowers/specs/2026-09-15-journey-stack-design.md).
+/// that must land pixel-identically is tested, not eyeballed.
 ///
 /// The stack's bottom edge is fixed. Swiping up, the next card rises from
 /// just below it until its bottom reaches the edge; swiping down, the

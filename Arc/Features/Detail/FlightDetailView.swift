@@ -4,8 +4,7 @@ import SwiftData
 /// A flight's detail, hosted inside the existing tab sheet.
 /// Beneath the header, sections use the shared components
 /// `DetailRow` / `DetailGroup`: what needs attention, what the traveller
-/// wrote down, and the aircraft. See docs/superpowers/specs/
-/// 2026-09-12-detail-redesign-design.md.
+/// wrote down, and the aircraft.
 struct FlightDetailView: View {
     @Bindable var flight: Flight
     var isOwnFlight: Bool = true

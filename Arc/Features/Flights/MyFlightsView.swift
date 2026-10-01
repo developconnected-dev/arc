@@ -2,8 +2,7 @@ import SwiftUI
 import SwiftData
 
 /// Which cards My Trips is showing: the traveller's own journeys, or the
-/// trip invites waiting behind the bell. The same stack pages either
-/// (docs/superpowers/specs/2026-09-15-journey-stack-design.md, addendum).
+/// trip invites waiting behind the bell. The same stack pages either.
 enum TripsMode {
     case trips, invites
 }
@@ -29,7 +28,7 @@ struct MyFlightsView: View {
     /// the stack flips to the journey holding the topmost one.
     var landed: [UUID] = []
     /// Folded, the journey stack shows over the hidden list; unfolded, the
-    /// list shows and scrolls (docs/superpowers/specs/2026-09-15-journey-stack-design.md).
+    /// list shows and scrolls.
     var folded = true
     /// The add moment is drawing a route. A trip that landed on another
     /// journey waits for the line to finish before the stack flips to it.

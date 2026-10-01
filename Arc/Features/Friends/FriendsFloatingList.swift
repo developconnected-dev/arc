@@ -1,8 +1,7 @@
 import SwiftUI
 
 /// Which cards Friends is showing: friends' flights, or the friend requests
-/// waiting behind the bell. The same stack pages either
-/// (docs/superpowers/specs/2026-09-16-friends-floating-design.md).
+/// waiting behind the bell. The same stack pages either.
 enum FriendsMode {
     case flights, requests
 }

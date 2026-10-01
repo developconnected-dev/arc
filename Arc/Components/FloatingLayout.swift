@@ -11,7 +11,7 @@ struct MapBand: Equatable {
 
 /// Where everything on the floating My Trips surface sits, from the screen
 /// and its insets alone. Pure, so the no-overlap rules are tested rather than
-/// eyeballed (docs/superpowers/specs/2026-09-15-floating-trips-design.md).
+/// eyeballed.
 struct MyTripsLayout: Equatable {
     static let margin: CGFloat = 16
     static let panelMargin: CGFloat = 12

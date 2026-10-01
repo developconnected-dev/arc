@@ -2,8 +2,8 @@ import SwiftUI
 
 /// A tab that floats over the globe.
 ///
-/// My Trips was built this way first (docs/superpowers/specs/2026-09-15-floating-trips-design.md)
-/// and Friends joins it (docs/superpowers/specs/2026-09-16-friends-floating-design.md),
+/// My Trips was built this way first
+/// and Friends joins it,
 /// so the geometry and the motion live here once: the map behind everything,
 /// the cards in a fixed-frame list revealed by a bottom-anchored mask, the
 /// row of round glass buttons that rides the stack's edge, the draggable

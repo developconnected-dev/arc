@@ -20,13 +20,9 @@ build_output.txt
 # Device build output
 build_device/
 
-# Local tooling and private data — never published
+# Local tooling
 .claude/
-.superpowers/
-docs/superpowers/
 supabase/.temp/
-.arc-db-snapshot-*.json
-RELEASE_CHECKLIST.md
-docs/api-keys-setup.md
-backend/wrangler.toml
+
+# Deployment values (see Config/Secrets.example.xcconfig)
 Config/Secrets.xcconfig

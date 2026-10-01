@@ -3,8 +3,7 @@ import SwiftData
 
 /// Friends before signing in: the first-visit intro, then the one-time
 /// profile setup, in the floating surface's standing panel — tall glass,
-/// draggable, each scrolling on its own
-/// (docs/superpowers/specs/2026-09-16-friends-floating-design.md).
+/// draggable, each scrolling on its own.
 struct FriendsSignInPanel: View {
     @AppStorage("hasSeenFriendsIntro") private var hasSeenIntro = false
     /// The name field took the keyboard: the panel opens all the way, so

@@ -92,8 +92,7 @@ private enum StackStyle {
 
 /// My Trips' folded cards as a Smart Stack: one at a time, swipe up for the
 /// next and down for the previous, the frame's height following the cards, a
-/// light tick when a new one settles
-/// (docs/superpowers/specs/2026-09-15-journey-stack-design.md).
+/// light tick when a new one settles.
 ///
 /// Generic over what it pages: the user's own journeys, or the trip invites
 /// waiting behind the bell. The stack owns the motion; the caller owns what a

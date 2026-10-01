@@ -21,10 +21,10 @@ struct ArcRootView: View {
     }
     @State private var detent: SheetDetent = ProcessInfo.processInfo.arguments.contains("-sheetLarge") ? .large : .medium
     @State private var showAdd = false
-    /// My Trips floats over the map (docs/superpowers/specs/2026-09-15-floating-trips-design.md).
+    /// My Trips floats over the map.
     /// `-sheetLarge` still means "show everything": UI tests start unfolded.
     @State private var tripsFolded = !ProcessInfo.processInfo.arguments.contains("-sheetLarge")
-    /// The journey the folded stack is on (docs/superpowers/specs/2026-09-15-journey-stack-design.md).
+    /// The journey the folded stack is on.
     @State private var tripsPage = 0
     /// Journeys, or the invites behind the bell: the stack shows one or the
     /// other, and the bell swaps them.
@@ -45,7 +45,7 @@ struct ArcRootView: View {
     /// grows up from the bottom only this far.
     @State private var tripsContentHeight: CGFloat = 0
     @State private var tripsLayout: MyTripsLayout?
-    /// Friends floats the same way (docs/superpowers/specs/2026-09-16-friends-floating-design.md),
+    /// Friends floats the same way,
     /// with the same state for its own stack: flights, or the friend
     /// requests behind its bell.
     @State private var friendsFolded = !ProcessInfo.processInfo.arguments.contains("-sheetLarge")
@@ -1468,7 +1468,7 @@ struct ArcRootView: View {
 
     /// Friends: no sheet. Friends' flights float over the globe in the same
     /// grammar as My Trips — one card at a time, the chips directly above,
-    /// requests behind the bell (docs/superpowers/specs/2026-09-16-friends-floating-design.md).
+    /// requests behind the bell.
     /// `FriendsListView` keeps the feed, the filter and the sheets; the
     /// surface is `FloatingSurface`'s.
     private var friendsSurface: some View {

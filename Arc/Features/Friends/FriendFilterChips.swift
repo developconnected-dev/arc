@@ -3,8 +3,7 @@ import SwiftUI
 /// Friends' filters, always directly above the cards: Add Friends, All, one
 /// chip per group (with its members' faces) and one per friend (with theirs).
 /// A chip narrows the stack, the list and the globe; long-pressing a friend's
-/// chip sets how loudly their flights may notify you
-/// (docs/superpowers/specs/2026-09-16-friends-floating-design.md).
+/// chip sets how loudly their flights may notify you.
 ///
 /// Glass over the map, like the cards under it. The selected chip keeps its
 /// inverted fill, so the one filter in force reads at a glance.

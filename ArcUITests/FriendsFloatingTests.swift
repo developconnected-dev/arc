@@ -1,7 +1,6 @@
 import XCTest
 
-/// Friends floats over the globe like My Trips
-/// (docs/superpowers/specs/2026-09-16-friends-floating-design.md).
+/// Friends floats over the globe like My Trips.
 ///
 /// The demo feed (`-seedFriendsDemo`): Demo Friend flies demo-feed-1 and
 /// demo-feed-2 and landed demo-past-1 yesterday; Second Friend flies
