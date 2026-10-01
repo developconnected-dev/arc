@@ -19,3 +19,10 @@ build_output.txt
 
 # Device build output
 build_device/
+
+# Local tooling and private data — never published
+.claude/
+.superpowers/
+docs/superpowers/
+supabase/.temp/
+.arc-db-snapshot-*.json
